@@ -153,15 +153,16 @@ index with `DROP INDEX CONCURRENTLY`, and rerun the migration.
 Deploy the application after the additive migrations finish. New publications
 will write coherent format-v2 statistics. Existing revisions with NULL channel
 statistics remain on the full scope-first map-unit reader until maintenance
-completes; missing, legacy, or unusable indexes remain on the legacy reader.
+completes; missing, legacy, or unusable indexes raise.
 
 Immediately verify:
 
 - API health checks pass;
 - no migration or model-loading error appears in API logs;
-- classic and map-nav requests still complete;
+- classic and agent_explore requests still complete;
 - incomplete-index warnings distinguish statistics-incomplete map-unit serving
-  from `fallback=legacy_fts`; neither case may return partial or empty results;
+  from an unusable index, which must raise; statistics-incomplete serving
+  must not return partial or empty results;
 - no increase appears in retrieval errors or timeouts.
 
 ## Phase 4: Backfill existing format-v2 indexes
@@ -317,12 +318,12 @@ Exercise at least:
 
 1. v1 `use_agentic=false`;
 2. v2 `use_agentic=false` with equivalent retrieval fields;
-3. one `use_agentic=true` map-nav smoke;
-4. one request with `use_agentic` omitted, confirming it routes to map-nav;
+3. one `use_agentic=true` agent_explore smoke;
+4. one request with `use_agentic` omitted, confirming it routes to agent_explore;
 5. one filtered request, confirming filtered-scope semantics and the safe
    fallback where required.
 
-Map-nav LLM output is nondeterministic. For production smoke, require successful
+Agent-explore LLM output is nondeterministic. For production smoke, require successful
 completion, valid citations, expected namespace isolation, and relevant
 evidence. Do not require byte-identical ordering between independent Planner
 runs. Deterministic map-score parity remains covered by the contract suite.
@@ -339,13 +340,13 @@ recorded baseline, and retrieval error/timeout rates must not regress.
 - retrieval request p50/p95 and maximum latency, separated by `router_used`;
 - classic `search.map_unit_discovery` stages: units, frequencies, indexes,
   statistics, scoring, and hydration;
-- map-nav snapshot, episode, and hydration stages;
+- agent_explore episode, tool, and hydration stages;
 - PostgreSQL statement timeouts, lock waits, CPU, I/O, and connection usage;
 - Redis errors and namespace snapshot cache misses;
-- retrieval errors, incomplete-index fallbacks, and response timeouts;
-- process CPU and maximum RSS from the corrected map-nav resource log.
+- retrieval errors, unusable-index failures, and response timeouts;
+- process CPU and maximum RSS from agent_explore resource logs.
 
-Do not mix classic and map-nav latency distributions. Do not treat Redis-warm
+Do not mix classic and agent_explore latency distributions. Do not treat Redis-warm
 snapshot measurements as cold-request performance.
 
 ## Pause and resume
@@ -365,7 +366,7 @@ If application errors, timeouts, or quality regressions occur:
 
 1. stop the backfill process;
 2. redeploy the previous application version;
-3. verify classic and map-nav requests using the frozen quality set;
+3. verify classic and agent_explore requests using the frozen quality set;
 4. retain the additive columns, index, and already-computed statistics unless
    database health specifically requires their removal.
 
@@ -387,7 +388,7 @@ Attach the following to the deployment ticket:
 - final `--check` output;
 - ready/current revision counts;
 - frozen-query parity results;
-- classic and map-nav latency summaries;
+- classic and agent_explore latency summaries;
 - observed fallback, error, and timeout counts;
 - rollback decision or explicit confirmation that rollback was not required.
 

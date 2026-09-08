@@ -75,7 +75,8 @@
         {"name": "LOGFIRE_TOKEN", "valueFrom": "${SECRETS_ARN}:LOGFIRE_TOKEN::"},
         {"name": "QSTASH_TOKEN", "valueFrom": "${SECRETS_ARN}:QSTASH_TOKEN::"},
         {"name": "QSTASH_CURRENT_SIGNING_KEY", "valueFrom": "${SECRETS_ARN}:QSTASH_CURRENT_SIGNING_KEY::"},
-        {"name": "QSTASH_NEXT_SIGNING_KEY", "valueFrom": "${SECRETS_ARN}:QSTASH_NEXT_SIGNING_KEY::"}
+        {"name": "QSTASH_NEXT_SIGNING_KEY", "valueFrom": "${SECRETS_ARN}:QSTASH_NEXT_SIGNING_KEY::"},
+        {"name": "CURSOR_API_KEY", "valueFrom": "${SECRETS_ARN}:CURSOR_API_KEY::"}
       ],
       "healthCheck": {
         "command": ["CMD-SHELL", "curl -f http://localhost:5005/health || exit 1"],

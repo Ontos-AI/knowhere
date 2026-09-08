@@ -16,7 +16,7 @@ from shared.services.retrieval.execution.reference_resolver import (
 )
 from shared.services.retrieval.execution.route_types import RetrievalRouteContext
 from shared.services.retrieval.nav._compat import AgentStep, Chunk, EpisodeResult
-from shared.services.retrieval.nav.nav_knowhere import SectionRow, UnitRow
+from shared.services.retrieval.scoring.knowhere_provider import SectionRow, UnitRow
 from shared.services.retrieval.nav_snapshot import build_nav_snapshot
 
 RouteRow = dict[str, object]

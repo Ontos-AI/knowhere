@@ -39,7 +39,7 @@ class ToolBudget:
     context. Applied in ``agent_explore.shared.tool_message_content`` (not
     inside individual tools) so ``read`` can return full body text from the
     tool while the harness still bounds what the model sees per turn. Aligned
-    with map-nav final evidence packing via ``EVIDENCE_TEXT_CHAR_BUDGET``
+    with final evidence packing via ``EVIDENCE_TEXT_CHAR_BUDGET``
     (12_000).
     """
 

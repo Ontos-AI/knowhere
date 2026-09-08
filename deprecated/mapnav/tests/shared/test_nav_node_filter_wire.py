@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
-from shared.services.retrieval.nav.nav_knowhere import (
+from shared.services.retrieval.nav.nav_knowhere import NamespaceKnowhereProvider
+from shared.services.retrieval.scoring.hierarchy import ProviderToolSpace
+from shared.services.retrieval.scoring.knowhere_provider import (
     KnowhereProvider,
-    NamespaceKnowhereProvider,
     SectionRow,
 )
 from shared.services.retrieval.nav.nav_orchestrate import _execute_subgoal_harvest_once

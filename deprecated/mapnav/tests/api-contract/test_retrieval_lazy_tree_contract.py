@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from shared.services.retrieval.nav.nav_hierarchy import NodeMeta, ProviderToolSpace
-from shared.services.retrieval.nav.nav_knowhere import KnowhereProvider, SectionRow
-from shared.services.retrieval.nav.nav_map_scores import _walk_tree
+from shared.services.retrieval.scoring.hierarchy import NodeMeta, ProviderToolSpace
+from shared.services.retrieval.scoring.knowhere_provider import KnowhereProvider, SectionRow
+from shared.services.retrieval.scoring.score_units import _walk_tree
 from shared.services.retrieval.nav._compat import Chunk
 from shared.services.retrieval.nav.nav_compose import pack_nav_evidence
 from shared.services.retrieval.nav.nav_types import NavConfig, NavState

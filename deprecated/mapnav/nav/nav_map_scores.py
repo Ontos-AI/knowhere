@@ -4,18 +4,8 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from .knowhere_hybrid import (
-    build_content_search_text,
-    build_path_search_text,
-    build_term_search_text,
-    PersistedScoreCorpus,
-    PersistedScoreUnit,
-    score_persisted_corpus_many,
-)
-from .persisted_score_load import (
-    average_idf_from_unit_dfs,
-    build_channel_bm25_stats,
-)
+from shared.services.retrieval.scoring.knowhere_hybrid import score_persisted_corpus_many
+from shared.services.retrieval.scoring.score_units import _walk_tree
 
 _logger = logging.getLogger(__name__)
 
@@ -34,188 +24,6 @@ def _count_tree_shape(
     )
     leaf_sections: int = sum(len(value[1]) for value in tree_by_doc.values())
     return section_nodes, section_edges, leaf_sections
-
-
-def _build_legacy_score_corpus(ts: Any, doc_ids: Sequence[str]) -> PersistedScoreCorpus:
-    """Build the retired in-memory scorer input when persisted indexes are absent."""
-    raw_units: List[dict] = []
-    for doc_id in doc_ids:
-        raw_units.extend(build_score_units(ts, doc_id))
-    frequencies: Dict[Tuple[str, str], Dict[str, int]] = {}
-    unit_rows: List[dict] = []
-    path_dfs: Dict[str, int] = {}
-    content_dfs: Dict[str, int] = {}
-    for unit in raw_units:
-        unit_id = str(unit.get("chunk_id") or "").strip()
-        if not unit_id:
-            continue
-        path_tokens = str(unit.get("path_search_text") or "").split()
-        content_tokens = str(unit.get("content_search_text") or "").split()
-        path_freq: Dict[str, int] = {}
-        content_freq: Dict[str, int] = {}
-        for token in path_tokens:
-            path_freq[token] = path_freq.get(token, 0) + 1
-        for token in content_tokens:
-            content_freq[token] = content_freq.get(token, 0) + 1
-        frequencies[(unit_id, "path")] = path_freq
-        frequencies[(unit_id, "content")] = content_freq
-        for token in path_freq:
-            path_dfs[token] = path_dfs.get(token, 0) + 1
-        for token in content_freq:
-            content_dfs[token] = content_dfs.get(token, 0) + 1
-        unit_rows.append(
-            {
-                "unit_id": unit_id,
-                "path_length": len(path_tokens),
-                "content_length": len(content_tokens),
-            }
-        )
-    unit_count = len(unit_rows)
-    return PersistedScoreCorpus(
-        units=[
-            PersistedScoreUnit(
-                unit_id=str(row["unit_id"]),
-                path_length=int(row["path_length"]),
-                content_length=int(row["content_length"]),
-                path_frequencies=frequencies[(str(row["unit_id"]), "path")],
-                content_frequencies=frequencies[(str(row["unit_id"]), "content")],
-            )
-            for row in unit_rows
-        ],
-        path_stats=build_channel_bm25_stats(
-            unit_rows=unit_rows,
-            map_unit_id_field="unit_id",
-            length_field="path_length",
-            channel="path",
-            query_tokens=list(path_dfs),
-            frequencies=frequencies,
-            average_idf=average_idf_from_unit_dfs(
-                unit_count=unit_count, token_document_frequency=path_dfs
-            ),
-        ),
-        content_stats=build_channel_bm25_stats(
-            unit_rows=unit_rows,
-            map_unit_id_field="unit_id",
-            length_field="content_length",
-            channel="content",
-            query_tokens=list(content_dfs),
-            frequencies=frequencies,
-            average_idf=average_idf_from_unit_dfs(
-                unit_count=unit_count, token_document_frequency=content_dfs
-            ),
-        ),
-    )
-
-
-def _children_ids(ts: Any, section_id: str, doc_id: str) -> List[str]:
-    children_fn = getattr(ts, "_children_for_section_path", None)
-    if not callable(children_fn):
-        st = ts.get_structure(section_id)
-        rows = st.get("children") or []
-        return [
-            str(r.get("section_id") or "").strip() for r in rows if r.get("section_id")
-        ]
-    rows = children_fn(section_id, doc_id)
-    return [str(r.get("section_id") or "").strip() for r in rows if r.get("section_id")]
-
-
-def _line_content(ts: Any, section_id: str, doc_id: str) -> str:
-    """Raw line text for a section node (no truncation)."""
-    idx = getattr(ts, "_idx", None)
-    b = getattr(idx, "_bundles", {}).get(doc_id) if idx is not None else None
-    if b is None:
-        path_fn = getattr(ts, "path_titles", None)
-        if callable(path_fn):
-            path = str(path_fn(section_id, doc_id) or "").strip()
-            return path.rsplit(" / ", 1)[-1] if path else ""
-        st = ts.get_structure(section_id)
-        return str(st.get("preview") or "").strip()
-    loc = getattr(idx, "_node_to_doc_line", {}).get(section_id)
-    if not loc:
-        return ""
-    _doc, line_idx = loc
-    if line_idx < 0 or line_idx >= len(b.lines):
-        return ""
-    return str(b.lines[line_idx].content or "").strip()
-
-
-def _ancestor_path_titles(ts: Any, section_id: str, doc_id: str) -> str:
-    idx = getattr(ts, "_idx", None)
-    if idx is None:
-        # Provider-backed spaces expose the title chain directly; without this
-        # the path channel would score every unit as empty.
-        path_fn = getattr(ts, "path_titles", None)
-        return str(path_fn(section_id, doc_id) or "") if callable(path_fn) else ""
-    try:
-        ancestors = list(idx.ancestor_line_node_ids(section_id))
-    except Exception:
-        ancestors = []
-    titles: List[str] = []
-    for aid in reversed(ancestors):
-        if not str(aid).startswith(f"{doc_id}:"):
-            continue
-        titles.append(_line_content(ts, aid, doc_id))
-    titles.append(_line_content(ts, section_id, doc_id))
-    return " / ".join(t for t in titles if t)
-
-
-def _self_only_text(ts: Any, section_id: str, doc_id: str) -> Tuple[str, bool]:
-    """Return (self_text, has_interstitial_body).
-
-    Interstitial means self_only span contains content beyond the heading line
-    itself (structural: more than one line/chunk in the self span).
-    """
-    self_fn = getattr(ts, "materialize_self_only_chunks", None)
-    if not callable(self_fn):
-        return "", False
-    chunks = list(self_fn(section_id, doc_id) or [])
-    if not chunks:
-        return "", False
-    texts = [str(getattr(c, "text", "") or "").strip() for c in chunks]
-    texts = [t for t in texts if t]
-    if not texts:
-        return "", False
-    # Structural interstitial: self span covers more than the node heading line.
-    has_interstitial = len(chunks) > 1
-    return "\n".join(texts), has_interstitial
-
-
-def _section_body_text(ts: Any, section_id: str, doc_id: str) -> str:
-    """Heading + lines until first structural child (leaf body / parent self span)."""
-    text, _ = _self_only_text(ts, section_id, doc_id)
-    if text:
-        return text
-    return _line_content(ts, section_id, doc_id)
-
-
-def _walk_tree(
-    ts: Any,
-    doc_id: str,
-    root_ids: Sequence[str],
-) -> Tuple[Dict[str, List[str]], Set[str], Dict[str, str]]:
-    """Return children map, leaf ids, and title map for reachable nodes."""
-    children_map: Dict[str, List[str]] = {}
-    titles: Dict[str, str] = {}
-    leaves: Set[str] = set()
-    seen: Set[str] = set()
-
-    def walk(sid: str) -> None:
-        if not sid or sid in seen:
-            return
-        seen.add(sid)
-        titles[sid] = _line_content(ts, sid, doc_id)
-        kids = [c for c in _children_ids(ts, sid, doc_id) if c]
-        children_map[sid] = kids
-        if not kids:
-            leaves.add(sid)
-            return
-        for kid in kids:
-            walk(kid)
-
-    for rid in root_ids:
-        walk(rid)
-    return children_map, leaves, titles
-
 
 def _collect_descendant_leaves(
     section_id: str,
@@ -269,74 +77,6 @@ def _pool_unit_scores_to_tree(
     for leaf_id in leaves:
         map_scores.setdefault(leaf_id, float(unit_scores.get(leaf_id, 0.0) or 0.0))
     return map_scores
-
-
-def build_score_units(
-    ts: Any, doc_id: str, root_ids: Optional[Sequence[str]] = None
-) -> List[dict]:
-    """Build leaf (+ interstitial self_only) units for hybrid scoring."""
-    if root_ids is None:
-        root_ids = list(ts.sections_for_doc(doc_id))
-    children_map, leaves, titles = _walk_tree(ts, doc_id, root_ids)
-    units: List[dict] = []
-    seen_unit_ids: Set[str] = set()
-
-    for leaf_id in sorted(leaves):
-        content = _section_body_text(ts, leaf_id, doc_id) or (
-            titles.get(leaf_id) or _line_content(ts, leaf_id, doc_id)
-        )
-        path_text = _ancestor_path_titles(ts, leaf_id, doc_id)
-        unit_id = leaf_id
-        if unit_id in seen_unit_ids:
-            continue
-        seen_unit_ids.add(unit_id)
-        title = titles.get(leaf_id) or _line_content(ts, leaf_id, doc_id)
-        units.append(
-            {
-                "chunk_id": unit_id,
-                "section_id": leaf_id,
-                "kind": "leaf",
-                "content": content,
-                "path_text": path_text,
-                "path_search_text": build_path_search_text(
-                    section_path=path_text, section_title=title or content
-                ),
-                "content_search_text": build_content_search_text(content),
-                "term_search_text": build_term_search_text(
-                    content, path_text=path_text
-                ),
-            }
-        )
-
-    # Parents with interstitial self body.
-    for sid, kids in children_map.items():
-        if not kids:
-            continue
-        self_text, has_interstitial = _self_only_text(ts, sid, doc_id)
-        if not has_interstitial or not self_text:
-            continue
-        unit_id = f"{sid}__self"
-        if unit_id in seen_unit_ids:
-            continue
-        seen_unit_ids.add(unit_id)
-        path_text = _ancestor_path_titles(ts, sid, doc_id)
-        units.append(
-            {
-                "chunk_id": unit_id,
-                "section_id": sid,
-                "kind": "self_only",
-                "content": self_text,
-                "path_text": path_text,
-                "path_search_text": build_path_search_text(
-                    section_path=path_text, section_title=titles.get(sid) or ""
-                ),
-                "content_search_text": build_content_search_text(self_text),
-                "term_search_text": build_term_search_text(
-                    self_text, path_text=path_text
-                ),
-            }
-        )
-    return units
 
 
 def compute_map_scores(
@@ -453,13 +193,6 @@ def compute_corpus_map_and_unit_scores_many(
         time.perf_counter() - loader_started,
         persisted_corpus is not None,
     )
-    if persisted_corpus is None:
-        _logger.warning(
-            "retrieval map index unavailable; using bounded legacy in-memory scorer "
-            "documents=%d",
-            len(valid_doc_ids),
-        )
-        persisted_corpus = _build_legacy_score_corpus(ts, valid_doc_ids)
     score_started = time.perf_counter()
     unit_scores_by_query = (
         score_persisted_corpus_many(persisted_corpus, unique_queries)

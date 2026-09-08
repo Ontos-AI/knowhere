@@ -247,7 +247,7 @@ class _StreamingBm25Stats:
     def score(
         self,
         document_length: int,
-        frequencies: Dict[str, int],
+        frequencies: Mapping[str, int],
         query_tokens: List[str],
     ) -> float:
         if (

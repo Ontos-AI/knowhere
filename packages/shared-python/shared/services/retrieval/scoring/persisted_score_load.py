@@ -6,7 +6,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from shared.services.retrieval.nav.knowhere_hybrid import PersistedBm25Stats
+from shared.services.retrieval.scoring.knowhere_hybrid import PersistedBm25Stats
 
 
 def average_idf_from_unit_dfs(

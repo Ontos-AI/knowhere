@@ -1,7 +1,7 @@
 """``corpus.node_filter`` — deterministic FOR-ALL/EXISTS/ANY/NOT predicate over sections.
 
 Reuses the exact predicate compile/match semantics from
-``nav.nav_node_filter`` (path/summary substring|regex, fields AND together,
+``scoring.node_filter_predicates`` (path/summary substring|regex, fields AND together,
 terms OR together) — see that module's docstring — but walks
 ``document_sections`` rows for the requested documents' current revision
 instead of the in-memory map-nav tree. No top-K: returns the full matched set
@@ -20,7 +20,7 @@ from shared.services.retrieval.agent_tools.registry import (
     ToolResult,
     register_tool,
 )
-from shared.services.retrieval.nav.nav_node_filter import (
+from shared.services.retrieval.scoring.node_filter_predicates import (
     FieldPredicate,
     _compile_predicates,
     _node_matches,

@@ -41,12 +41,14 @@ from shared.models.database.document import (
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.nav.nav_knowhere import (
     LazyKnowhereProvider,
-    KnowhereProvider,
     NamespaceKnowhereProvider,
     ReadOnlyChunkStore,
+    knowhere_database_url,
+)
+from shared.services.retrieval.scoring.knowhere_provider import (
+    KnowhereProvider,
     SectionRow,
     UnitRow,
-    knowhere_database_url,
 )
 from shared.services.retrieval.search.section_filters import is_excluded_section
 from shared.services.retrieval.serving_manifest import (

@@ -7,21 +7,14 @@ one field OR together. No top-K and no result truncation.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Literal, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
-MatchKind = Literal["substring", "regex"]
-FilterField = Literal["path", "summary"]
-
-_MAX_REGEX_PATTERN_LEN = 256
-
-
-@dataclass(frozen=True)
-class FieldPredicate:
-    field: FilterField
-    terms: Tuple[str, ...]
-    match: MatchKind = "substring"
+from shared.services.retrieval.scoring.node_filter_predicates import (
+    FieldPredicate,
+    _compile_predicates,
+    _node_matches,
+)
 
 
 @dataclass(frozen=True)
@@ -36,25 +29,8 @@ class FilterResult:
     cardinality: int
     failed_predicates: List[str] = field(default_factory=list)
 
-
-def field_predicate(
-    field: str,
-    terms: Sequence[str],
-    match: str = "substring",
-) -> FieldPredicate:
-    key = str(field or "").strip().lower()
-    if key not in {"path", "summary"}:
-        raise ValueError(f"unsupported filter field: {field!r}")
-    kind = str(match or "substring").strip().lower()
-    if kind not in {"substring", "regex"}:
-        raise ValueError(f"unsupported filter match: {match!r}")
-    cleaned = tuple(str(term) for term in terms if str(term))
-    return FieldPredicate(field=key, terms=cleaned, match=kind)  # type: ignore[arg-type]
-
-
 def node_filter(predicates: Sequence[FieldPredicate]) -> NodeFilter:
     return NodeFilter(predicates=tuple(predicates))
-
 
 def apply_node_filter(
     ts: Any,
@@ -132,52 +108,6 @@ def render_submap_observation(
             block.append(f"    summary: {summary}")
         lines.append("\n".join(block))
     return "\n".join(lines)
-
-
-def _compile_predicates(
-    predicates: Sequence[FieldPredicate],
-) -> Tuple[List[Tuple[FieldPredicate, List[Any]]], List[str]]:
-    compiled: List[Tuple[FieldPredicate, List[Any]]] = []
-    failed: List[str] = []
-    for pred in predicates:
-        if pred.match != "regex":
-            compiled.append((pred, []))
-            continue
-        patterns: List[Any] = []
-        ok = True
-        for term in pred.terms:
-            if len(term) > _MAX_REGEX_PATTERN_LEN:
-                failed.append(f"{pred.field}:regex:too_long")
-                ok = False
-                break
-            try:
-                patterns.append(re.compile(term, flags=re.IGNORECASE))
-            except re.error:
-                failed.append(f"{pred.field}:regex:invalid")
-                ok = False
-                break
-        if ok:
-            compiled.append((pred, patterns))
-    return compiled, failed
-
-
-def _node_matches(
-    values: Dict[str, str],
-    compiled: Sequence[Tuple[FieldPredicate, List[Any]]],
-) -> bool:
-    if not compiled:
-        return True
-    for pred, patterns in compiled:
-        text = values.get(pred.field, "")
-        if pred.match == "regex":
-            if not patterns or not any(p.search(text or "") for p in patterns):
-                return False
-            continue
-        haystack = (text or "").lower()
-        if not pred.terms or not any(term.lower() in haystack for term in pred.terms):
-            return False
-    return True
-
 
 def _iter_doc_nodes(ts: Any, doc_id: str) -> Iterable[Tuple[str, str, bool]]:
     yield doc_id, doc_id, True

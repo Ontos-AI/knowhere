@@ -47,7 +47,7 @@ exclude = [
     "packages/shared-python/build",
     "packages/shared-python/dist",
     "packages/shared-python/shared/tests",
-    "packages/shared-python/shared/services/retrieval/nav",
+    "deprecated",
 ]
 executionEnvironments = [
     { root = "apps/api", extraPaths = ["packages/shared-python"] },
@@ -63,6 +63,7 @@ src = [
     "apps/worker",
     "packages/shared-python",
 ]
+exclude = ["deprecated"]
 
 [tool.ruff.lint]
 select = ["E", "F"]

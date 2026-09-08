@@ -9,11 +9,10 @@ while the orchestration model comes from Cursor (default
 ``config.AGENT_EXPLORE_CURSOR_MODEL``, e.g. ``composer-2.5``) instead of
 DeepSeek.
 
-Requires the optional ``cursor-sdk`` dependency (see
-``apps/worker/pyproject.toml``'s ``cursor-harness`` extra) and
-``CURSOR_API_KEY``. The guarded import in ``_require_cursor_sdk`` raises a
-clear, actionable error at harness-selection time if ``cursor-sdk`` isn't
-installed, instead of failing deep inside a running episode.
+Requires ``cursor-sdk`` (base dependency of ``apps/api``; worker debug
+scripts use the ``cursor-harness`` extra) and ``CURSOR_API_KEY``. The
+guarded import in ``_require_cursor_sdk`` raises a clear error at episode
+start if ``cursor-sdk`` isn't installed.
 
 Architectural difference from ``openai_harness.py`` that budget enforcement
 has to work around: this harness does not control the LLM turn loop.
@@ -116,10 +115,10 @@ def _require_cursor_sdk() -> Any:
         import cursor_sdk
     except ImportError as exc:
         raise RuntimeError(
-            "AGENT_EXPLORE_HARNESS=cursor_sdk requires the optional "
+            "AGENT_EXPLORE_HARNESS=cursor_sdk requires the "
             "'cursor-sdk' dependency, which is not installed in this "
-            "interpreter. Install with: uv sync --extra cursor-harness "
-            "(apps/worker/pyproject.toml)."
+            "interpreter. For the API service it is a base dependency "
+            "(apps/api). Worker debug scripts: uv sync --extra cursor-harness."
         ) from exc
     return cursor_sdk
 

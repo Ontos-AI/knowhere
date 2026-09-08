@@ -18,7 +18,7 @@ implemented here since this provider's tool calls are handled one at a time
 by design, not because concurrent dispatch would be unsafe (it no longer is
 — see ``dispatch.py``).
 
-No import from ``nav/`` or ``nav_config.py`` — see ``config.py``.
+No import from archived map-nav modules.
 
 Two Phase 4 fixes (audited live against the eval fixture in
 ``apps/worker/scripts/fixtures/changheba_archive_eval_queries.json``), both
@@ -89,9 +89,7 @@ _TOOL_MESSAGE_FRESH_TURNS = 2
 
 
 def _resolve_client_and_model() -> tuple[Any, str]:
-    """Mirrors ``nav_llm_backend.nav_chat_sync_backend``'s resolve pattern,
-    pinned to ``AGENT_EXPLORE_MODEL`` instead of ``nav_config.MAPNAV_MODEL``.
-    """
+    """Resolve the OpenAI-compatible client and ``AGENT_EXPLORE_MODEL``."""
     from shared.services.ai.llm_overrides import resolve_text
     from shared.services.ai.openai_compatible_client_sync import get_openai_client
 

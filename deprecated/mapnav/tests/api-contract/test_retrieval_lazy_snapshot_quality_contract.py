@@ -6,26 +6,28 @@ from collections import Counter
 import math
 from typing import Any
 
-from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
 from shared.services.retrieval.nav.nav_knowhere import (
-    KnowhereProvider,
     LazyKnowhereProvider,
     NamespaceKnowhereProvider,
-    SectionRow,
-    UnitRow,
     knowhere_database_url,
 )
 from shared.services.retrieval.nav.nav_map_scores import (
-    build_score_units,
     compute_corpus_map_and_unit_scores,
     compute_corpus_map_and_unit_scores_many,
 )
-from shared.services.retrieval.nav.knowhere_hybrid import (
+from shared.services.retrieval.scoring.hierarchy import ProviderToolSpace
+from shared.services.retrieval.scoring.knowhere_hybrid import (
     PersistedBm25Stats,
     PersistedScoreCorpus,
     PersistedScoreUnit,
     score_persisted_corpus_many,
 )
+from shared.services.retrieval.scoring.knowhere_provider import (
+    KnowhereProvider,
+    SectionRow,
+    UnitRow,
+)
+from shared.services.retrieval.scoring.score_units import build_score_units
 
 
 @dataclass

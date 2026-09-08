@@ -23,6 +23,7 @@ dependencies = [
     "limits>=5.8,<6",
     "logfire[celery,fastapi,httpx,sqlalchemy]>=4.25.0",
     "mcp>=1.27.0",
+    "cursor-sdk>=1.0.31",
 ]
 
 [dependency-groups]

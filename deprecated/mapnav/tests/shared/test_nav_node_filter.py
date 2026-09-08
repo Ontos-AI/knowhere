@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
-from shared.services.retrieval.nav.nav_knowhere import (
+from shared.services.retrieval.nav.nav_knowhere import NamespaceKnowhereProvider
+from shared.services.retrieval.scoring.hierarchy import ProviderToolSpace
+from shared.services.retrieval.scoring.knowhere_provider import (
     KnowhereProvider,
-    NamespaceKnowhereProvider,
     SectionRow,
 )
 from shared.services.retrieval.nav.nav_node_filter import (
     apply_node_filter,
-    field_predicate,
     node_filter,
     render_submap_observation,
 )
+from shared.services.retrieval.scoring.node_filter_predicates import field_predicate
 
 
 def _section(

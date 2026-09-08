@@ -104,6 +104,18 @@ async def lifespan(app: FastAPI):
     mcp_server = getattr(app.state, "retrieval_mcp_server", None)
     mcp_session_manager = getattr(mcp_server, "session_manager", None)
 
+    from shared.services.retrieval.agent_explore.harness.resolve import (
+        resolve_harness_name,
+    )
+
+    if resolve_harness_name() == "cursor_sdk" and not os.environ.get(
+        "CURSOR_API_KEY", ""
+    ).strip():
+        logger.error(
+            "Default retrieval harness is cursor_sdk but CURSOR_API_KEY is unset; "
+            "agentic retrieval requests will fail until the key is set"
+        )
+
     logger.info("Document API service started!")
     if mcp_session_manager is not None:
         async with mcp_session_manager.run():

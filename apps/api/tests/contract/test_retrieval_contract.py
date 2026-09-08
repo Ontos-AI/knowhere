@@ -245,20 +245,38 @@ async def test_retrieval_should_use_classic_topk_when_agentic_is_false(
         [], AbstractAsyncContextManager[AsyncClient]
     ],
 ) -> None:
+    from tests.contract.test_retrieval_classic_map_unit_contract import (
+        _publish_document,
+    )
+
     async with developer_api_client_factory() as api_client:
-        await _seed_retrieval_document(
-            user_id="local-dev-user",
+        await _publish_document(
             namespace="contract-agentic-only",
             source_file_name="a.pdf",
-            section_path="agentic/a",
-            content="same ranking marker a",
+            chunks=[
+                {
+                    "chunk_id": "classic-a",
+                    "type": "text",
+                    "content": "same ranking marker a",
+                    "path": "a.pdf/Root/agentic/a",
+                    "order": 1,
+                    "metadata": {},
+                }
+            ],
         )
-        await _seed_retrieval_document(
-            user_id="local-dev-user",
+        await _publish_document(
             namespace="contract-agentic-only",
             source_file_name="b.pdf",
-            section_path="agentic/b",
-            content="same ranking marker b",
+            chunks=[
+                {
+                    "chunk_id": "classic-b",
+                    "type": "text",
+                    "content": "same ranking marker b",
+                    "path": "b.pdf/Root/agentic/b",
+                    "order": 1,
+                    "metadata": {},
+                }
+            ],
         )
         response = await api_client.post(
             "/api/v1/retrieval/query",
@@ -413,62 +431,59 @@ async def test_should_exclude_matching_sections_from_the_response(
 
 
 
-def _episode_keeping_chunks(
+def _episode_keeping_refs(
     *,
     documents: list[dict[str, str]],
-    evidence_text: str = "mapnav evidence",
+    notes: str = "",
 ) -> Any:
-    """Build a minimal EpisodeResult whose kept_chunks use real seeded chunk_ids."""
-    from shared.services.retrieval.nav._compat import AgentStep, Chunk, EpisodeResult
+    from shared.services.retrieval.agent_explore.types import AgentStep, EpisodeResult
 
-    kept: list[Chunk] = []
-    scored: list[tuple[Chunk, float]] = []
+    refs: list[dict[str, str]] = []
     for doc in documents:
-        chunk = Chunk(
-            node_id=doc["chunk_id"],
-            doc_id=doc["document_id"],
-            text=str(doc.get("content") or evidence_text),
-            line_ids=(0,),
-            section_id=doc.get("section_id"),
-        )
-        kept.append(chunk)
-        scored.append((chunk, 1.0))
+        ref = {"document_id": doc["document_id"]}
+        if doc.get("chunk_id"):
+            ref["chunk_id"] = doc["chunk_id"]
+        if doc.get("section_path"):
+            ref["section_path"] = doc["section_path"]
+        refs.append(ref)
     return EpisodeResult(
-        representation="mapnav",
+        refs=refs,
+        notes=notes,
         steps=[
             AgentStep(
-                step_idx=1,
-                action="query_plan",
-                detail={
-                    "plan": {"subgoals": [{"id": "s1"}], "coverage_checklist": []},
-                    "token_limit": 100000,
-                    "tokens_used_total": 1,
-                    "tokens_used_delta": 1,
-                    "elapsed_ms": 1,
-                },
+                step_index=1,
+                tool_name="finish",
+                tool_args={"refs": refs},
+                observation_text=notes or "done",
+                error=None,
+                elapsed_ms=1,
+                tokens_used_delta=1,
+                tokens_used_total=1,
             )
         ],
-        scored_chunks=scored,
-        kept_chunks=kept,
-        evidence_text=evidence_text,
-        evidence_chars_actual=len(evidence_text),
-        retrieved_nodes=[d["chunk_id"] for d in documents],
-        stop_reason="completed",
+        stop_reason="finished",
+        tokens_used=1,
+        model_name="test",
     )
 
 
-def _patch_run_nav_episode(monkeypatch: MonkeyPatch, episode: Any) -> None:
-    def _fake_run_nav_episode(*_args: Any, **_kwargs: Any) -> Any:
-        return episode
+class _FakeHarness:
+    def __init__(self, episode: Any) -> None:
+        self._episode = episode
 
+    async def run_episode(self, **_kwargs: Any) -> Any:
+        return self._episode
+
+
+def _patch_harness(monkeypatch: MonkeyPatch, episode: Any) -> None:
     monkeypatch.setattr(
-        "shared.services.retrieval.nav.run_nav_episode",
-        _fake_run_nav_episode,
+        "shared.services.retrieval.agent_explore.harness.resolve_harness",
+        lambda: _FakeHarness(episode),
     )
 
 
 @pytest.mark.asyncio
-async def test_mapnav_retrieval_should_return_seeded_chunk_via_fake_episode(
+async def test_agent_explore_retrieval_should_return_seeded_chunk_via_fake_episode(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
@@ -477,31 +492,30 @@ async def test_mapnav_retrieval_should_return_seeded_chunk_via_fake_episode(
     async with developer_api_client_factory() as api_client:
         target = await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-mapnav-seed",
+            namespace="contract-explore-seed",
             source_file_name="target.pdf",
             section_path="Findings",
-            content="mapnav seeded EBITDA marker content",
+            content="explore seeded EBITDA marker content",
         )
         await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-mapnav-seed",
+            namespace="contract-explore-seed",
             source_file_name="filler.pdf",
             section_path="filler/section",
             content="unrelated filler content",
         )
-        target_with_content = {**target, "content": "mapnav seeded EBITDA marker content"}
-        _patch_run_nav_episode(
+        _patch_harness(
             monkeypatch,
-            _episode_keeping_chunks(
-                documents=[target_with_content],
-                evidence_text="mapnav seeded EBITDA marker content",
+            _episode_keeping_refs(
+                documents=[target],
+                notes="explore seeded EBITDA marker content",
             ),
         )
 
         response = await api_client.post(
             "/api/v1/retrieval/query",
             json={
-                "namespace": "contract-mapnav-seed",
+                "namespace": "contract-explore-seed",
                 "query": "EBITDA marker",
                 "top_k": 1,
                 "use_agentic": True,
@@ -513,23 +527,17 @@ async def test_mapnav_retrieval_should_return_seeded_chunk_via_fake_episode(
     referenced_chunks = cast(list[dict[str, object]], response_json["referenced_chunks"])
     results = cast(list[dict[str, object]], response_json["results"])
 
-    assert response_json["router_used"] == "mapnav"
-    assert response_json["stop_reason"] == "completed"
+    assert response_json["router_used"] == "agent_explore"
+    assert response_json["stop_reason"] == "finished"
     assert isinstance(response_json.get("decision_trace"), list)
     assert response_json["decision_trace"]
-    assert response_json["decision_trace"][-1]["phase"] == "terminal"
-    assert {
-        "chunk_id": target["chunk_id"],
-        "document_id": target["document_id"],
-        "chunk_type": "text",
-        "section_path": target["section_path"],
-        "file_path": "",
-        "job_id": target["job_id"],
-    } in [
-        {k: v for k, v in ref.items() if k != "score"}
+    assert response_json["decision_trace"][-1]["phase"] == "finish"
+    assert any(
+        ref.get("chunk_id") == target["chunk_id"]
+        and ref.get("document_id") == target["document_id"]
         for ref in referenced_chunks
-    ]
-    assert results[0]["content"] == "mapnav seeded EBITDA marker content"
+    )
+    assert results[0]["content"] == "explore seeded EBITDA marker content"
     assert results[0]["source"] == {
         "document_id": target["document_id"],
         "source_file_name": "target.pdf",
@@ -538,7 +546,47 @@ async def test_mapnav_retrieval_should_return_seeded_chunk_via_fake_episode(
 
 
 @pytest.mark.asyncio
-async def test_mapnav_retrieval_should_not_hydrate_references_outside_request_scope(
+async def test_agentic_router_env_mapnav_is_ignored(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RETRIEVAL_AGENTIC_ROUTER", "mapnav")
+    async with developer_api_client_factory() as api_client:
+        target = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-explore-env",
+            source_file_name="target.pdf",
+            section_path="Findings",
+            content="env ignored content",
+        )
+        await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-explore-env",
+            source_file_name="filler.pdf",
+            section_path="filler/section",
+            content="unrelated filler content",
+        )
+        _patch_harness(
+            monkeypatch,
+            _episode_keeping_refs(documents=[target], notes="env ignored"),
+        )
+        response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": "contract-explore-env",
+                "query": "ignored",
+                "top_k": 1,
+                "use_agentic": True,
+            },
+        )
+    assert response.status_code == 200
+    assert cast(dict[str, object], response.json())["router_used"] == "agent_explore"
+
+
+@pytest.mark.asyncio
+async def test_agent_explore_should_not_hydrate_references_outside_request_scope(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
@@ -547,54 +595,31 @@ async def test_mapnav_retrieval_should_not_hydrate_references_outside_request_sc
     async with developer_api_client_factory() as api_client:
         await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-mapnav-visible",
+            namespace="contract-explore-visible",
             source_file_name="visible.pdf",
             section_path="visible/section",
             content="visible scoped content",
         )
         await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-mapnav-visible",
+            namespace="contract-explore-visible",
             source_file_name="visible-filler.pdf",
             section_path="visible/filler",
             content="visible scoped filler content",
         )
         foreign = await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-mapnav-foreign",
+            namespace="contract-explore-foreign",
             source_file_name="foreign.pdf",
             section_path="foreign/section",
             content="foreign scoped content should not leak",
         )
-
-        def _fake_bridge(_episode: Any, _snapshot: Any) -> tuple[list[dict[str, Any]], dict[str, float]]:
-            return (
-                [
-                    {
-                        "chunk_id": foreign["chunk_id"],
-                        "document_id": foreign["document_id"],
-                        "chunk_type": "text",
-                        "section_path": foreign["section_path"],
-                        "file_path": None,
-                        "job_id": foreign["job_id"],
-                    }
-                ],
-                {foreign["chunk_id"]: 1.0},
-            )
-
-        _patch_run_nav_episode(
-            monkeypatch,
-            _episode_keeping_chunks(documents=[{**foreign, "content": "x"}]),
-        )
-        monkeypatch.setattr(
-            "shared.services.retrieval.nav_bridge.build_referenced_chunks",
-            _fake_bridge,
-        )
+        _patch_harness(monkeypatch, _episode_keeping_refs(documents=[foreign]))
 
         response = await api_client.post(
             "/api/v1/retrieval/query",
             json={
-                "namespace": "contract-mapnav-visible",
+                "namespace": "contract-explore-visible",
                 "query": "visible",
                 "top_k": 1,
                 "use_agentic": True,
@@ -603,13 +628,13 @@ async def test_mapnav_retrieval_should_not_hydrate_references_outside_request_sc
 
     assert response.status_code == 200
     response_json = cast(dict[str, object], response.json())
-    assert response_json["router_used"] == "mapnav"
+    assert response_json["router_used"] == "agent_explore"
     assert response_json["referenced_chunks"] == []
     assert response_json["results"] == []
 
 
 @pytest.mark.asyncio
-async def test_mapnav_retrieval_should_drop_references_with_mismatched_section_path(
+async def test_agent_explore_should_drop_references_with_mismatched_section_path(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
@@ -618,47 +643,28 @@ async def test_mapnav_retrieval_should_drop_references_with_mismatched_section_p
     async with developer_api_client_factory() as api_client:
         visible = await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-mapnav-section-mismatch",
+            namespace="contract-explore-section-mismatch",
             source_file_name="visible.pdf",
             section_path="visible/section",
             content="visible scoped content",
         )
         await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-mapnav-section-mismatch",
+            namespace="contract-explore-section-mismatch",
             source_file_name="filler.pdf",
             section_path="filler/section",
             content="filler content",
         )
-
-        def _fake_bridge(_episode: Any, _snapshot: Any) -> tuple[list[dict[str, Any]], dict[str, float]]:
-            return (
-                [
-                    {
-                        "chunk_id": visible["chunk_id"],
-                        "document_id": visible["document_id"],
-                        "chunk_type": "text",
-                        "section_path": "wrong/section/path",
-                        "file_path": None,
-                        "job_id": visible["job_id"],
-                    }
-                ],
-                {visible["chunk_id"]: 1.0},
-            )
-
-        _patch_run_nav_episode(
-            monkeypatch,
-            _episode_keeping_chunks(documents=[{**visible, "content": "x"}]),
-        )
-        monkeypatch.setattr(
-            "shared.services.retrieval.nav_bridge.build_referenced_chunks",
-            _fake_bridge,
-        )
+        mismatched = {
+            "document_id": visible["document_id"],
+            "section_path": "wrong/section/path",
+        }
+        _patch_harness(monkeypatch, _episode_keeping_refs(documents=[mismatched]))
 
         response = await api_client.post(
             "/api/v1/retrieval/query",
             json={
-                "namespace": "contract-mapnav-section-mismatch",
+                "namespace": "contract-explore-section-mismatch",
                 "query": "visible",
                 "top_k": 1,
                 "use_agentic": True,
@@ -667,13 +673,13 @@ async def test_mapnav_retrieval_should_drop_references_with_mismatched_section_p
 
     assert response.status_code == 200
     response_json = cast(dict[str, object], response.json())
-    assert response_json["router_used"] == "mapnav"
+    assert response_json["router_used"] == "agent_explore"
     assert response_json["referenced_chunks"] == []
     assert response_json["results"] == []
 
 
 @pytest.mark.asyncio
-async def test_mapnav_retrieval_should_fail_when_final_hydration_db_fails(
+async def test_agent_explore_should_fail_when_final_hydration_db_fails(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
@@ -685,26 +691,21 @@ async def test_mapnav_retrieval_should_fail_when_final_hydration_db_fails(
     async with developer_api_client_factory() as api_client:
         visible = await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-mapnav-hydration-failure",
+            namespace="contract-explore-hydration-failure",
             source_file_name="visible.pdf",
             section_path="visible/section",
             content="visible scoped content",
         )
         await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-mapnav-hydration-failure",
+            namespace="contract-explore-hydration-failure",
             source_file_name="filler.pdf",
             section_path="filler/section",
             content="filler content",
         )
         from shared.services.retrieval.execution import routes as retrieval_routes
 
-        _patch_run_nav_episode(
-            monkeypatch,
-            _episode_keeping_chunks(
-                documents=[{**visible, "content": "visible scoped content"}]
-            ),
-        )
+        _patch_harness(monkeypatch, _episode_keeping_refs(documents=[visible]))
         monkeypatch.setattr(
             retrieval_routes,
             "resolve_workflow_references",
@@ -718,7 +719,7 @@ async def test_mapnav_retrieval_should_fail_when_final_hydration_db_fails(
             await api_client.post(
                 "/api/v1/retrieval/query",
                 json={
-                    "namespace": "contract-mapnav-hydration-failure",
+                    "namespace": "contract-explore-hydration-failure",
                     "query": "visible",
                     "top_k": 1,
                     "use_agentic": True,
@@ -727,7 +728,7 @@ async def test_mapnav_retrieval_should_fail_when_final_hydration_db_fails(
 
 
 @pytest.mark.asyncio
-async def test_mapnav_should_preserve_same_chunk_id_across_documents(
+async def test_agent_explore_should_preserve_same_chunk_id_across_documents(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
@@ -738,7 +739,7 @@ async def test_mapnav_should_preserve_same_chunk_id_across_documents(
     async with developer_api_client_factory() as api_client:
         first = await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-mapnav-shared-chunk",
+            namespace="contract-explore-shared-chunk",
             source_file_name="first.pdf",
             section_path="shared/first",
             content="first shared reference content",
@@ -746,34 +747,29 @@ async def test_mapnav_should_preserve_same_chunk_id_across_documents(
         )
         second_doc = await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-mapnav-shared-chunk",
+            namespace="contract-explore-shared-chunk",
             source_file_name="second.pdf",
             section_path="shared/second-host",
             content="host content for second document",
         )
         second = await _seed_retrieval_chunk_for_existing_document(
             user_id="local-dev-user",
-            namespace="contract-mapnav-shared-chunk",
+            namespace="contract-explore-shared-chunk",
             document=second_doc,
             section_path="shared/second",
             content="second shared reference content",
             chunk_id=shared_chunk_id,
         )
 
-        _patch_run_nav_episode(
+        _patch_harness(
             monkeypatch,
-            _episode_keeping_chunks(
-                documents=[
-                    {**first, "content": "first shared reference content"},
-                    {**second, "content": "second shared reference content"},
-                ]
-            ),
+            _episode_keeping_refs(documents=[first, second]),
         )
 
         response = await api_client.post(
             "/api/v1/retrieval/query",
             json={
-                "namespace": "contract-mapnav-shared-chunk",
+                "namespace": "contract-explore-shared-chunk",
                 "query": "shared reference",
                 "top_k": 1,
                 "use_agentic": True,
@@ -785,7 +781,7 @@ async def test_mapnav_should_preserve_same_chunk_id_across_documents(
     referenced_chunks = cast(list[dict[str, object]], response_json["referenced_chunks"])
     results = cast(list[dict[str, object]], response_json["results"])
 
-    assert response_json["router_used"] == "mapnav"
+    assert response_json["router_used"] == "agent_explore"
     assert len(referenced_chunks) == 2
     assert {ref["document_id"] for ref in referenced_chunks} == {
         first["document_id"],

@@ -145,8 +145,8 @@ def _clean_harness_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(_HARNESS_ENV, raising=False)
 
 
-def test_resolve_harness_name_defaults_to_openai() -> None:
-    assert resolve_harness_name() == "openai"
+def test_resolve_harness_name_defaults_to_cursor_sdk() -> None:
+    assert resolve_harness_name() == "cursor_sdk"
 
 
 def test_resolve_harness_name_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -158,7 +158,7 @@ def test_resolve_harness_name_unknown_value_falls_back_to_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(_HARNESS_ENV, "not_a_real_harness")
-    assert resolve_harness_name() == "openai"
+    assert resolve_harness_name() == "cursor_sdk"
 
 
 def test_resolve_harness_name_is_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -166,11 +166,11 @@ def test_resolve_harness_name_is_case_insensitive(monkeypatch: pytest.MonkeyPatc
     assert resolve_harness_name() == "cursor_sdk"
 
 
-def test_resolve_harness_default_builds_openai_harness() -> None:
-    from shared.services.retrieval.agent_explore.harness.openai_harness import OpenAIHarness
+def test_resolve_harness_default_builds_cursor_harness() -> None:
+    from shared.services.retrieval.agent_explore.harness.cursor_harness import CursorHarness
 
     harness = resolve_harness()
-    assert isinstance(harness, OpenAIHarness)
+    assert isinstance(harness, CursorHarness)
     assert isinstance(harness, Harness)
 
 

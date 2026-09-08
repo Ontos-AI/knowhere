@@ -2,9 +2,7 @@
 
 ``DecisionTraceStep`` / ``TraceRecorder`` (``shared/services/retrieval/trace/``)
 are already provider-agnostic — this module only maps this package's own
-``AgentStep`` records onto that shared shape, mirroring what
-``trace/mapnav.py`` does for the map-nav episode object, without importing
-anything from ``nav/``.
+``AgentStep`` records onto that shared shape.
 """
 
 from __future__ import annotations
@@ -12,10 +10,7 @@ from __future__ import annotations
 from shared.services.retrieval.agent_explore.types import AgentStep
 from shared.services.retrieval.trace import DecisionTraceStep
 
-# Mirrors nav_config.MAPNAV_TRACE_RAW_CHARS's existing practice of capping
-# raw trace text before it goes into the public decision_trace response —
-# redeclared locally (not imported) to keep this package decoupled from
-# nav_config.py per config.py's module docstring.
+# Cap raw trace text before it goes into the public decision_trace response.
 TRACE_OBSERVATION_MAX_CHARS = 2_000
 
 

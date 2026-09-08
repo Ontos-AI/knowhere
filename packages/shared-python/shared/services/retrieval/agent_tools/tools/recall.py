@@ -8,9 +8,7 @@ fusion in retrieval):
   (persisted map-unit BM25 over path+content, already RRF-fused internally).
 - ``term``: a fresh substring channel over
   ``document_map_units.term_search_text_lower`` — this column is persisted at
-  index time but, before this tool, was only read by map_unit_discovery's
-  *legacy* PG-FTS fallback, never as an independently-ranked channel (see
-  ``search/map_unit_discovery.py`` module docstring and AGENTS.md Stage ⑤).
+  index time and is ranked here as an independent substring channel.
 
 ``vector`` is accepted in ``channels`` but rejected as reserved/not
 implemented (``CORPUS_SCHEMA.md`` §5) — it is not silently ignored.
@@ -19,7 +17,7 @@ Fusing an already-doubly-fused channel (path_content) with a fresh single
 channel (term) at equal RRF weight is a necessary, disclosed design choice:
 there is no persisted precedent for a different weight ratio between them
 (the old 3-channel weights of path=1.0/content=2.0/term=1.5 no longer exist
-in code — only path=1.0/content=2.0 survive in ``nav.knowhere_hybrid``).
+in code — only path=1.0/content=2.0 survive in ``scoring.knowhere_hybrid``).
 
 The term channel's snippet and the rendered ``text`` preview both go through
 the shared ``agent_tools.snippet.build_snippet`` (head + first-match window +

@@ -12,8 +12,8 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
-from shared.services.retrieval.nav.nav_knowhere import SectionRow, UnitRow
+from shared.services.retrieval.scoring.hierarchy import ProviderToolSpace
+from shared.services.retrieval.scoring.knowhere_provider import SectionRow, UnitRow
 from shared.services.retrieval.nav.nav_projection import (
     _section_summary_for_map,
     build_map,

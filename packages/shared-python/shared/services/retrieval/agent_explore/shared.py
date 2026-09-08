@@ -57,7 +57,7 @@ def tool_message_content(result: ToolResult, *, max_chars: int) -> str:
     """Cap a tool's rendered text before it enters LLM context.
 
     Uses the caller's ``ToolBudget.max_chars`` (``EVIDENCE_TEXT_CHAR_BUDGET``,
-    aligned with map-nav evidence packing — see ``agent_tools/registry.py``)
+    aligned with evidence packing — see ``agent_tools/registry.py``)
     so tools like ``read`` can return unbounded body text while the harness
     still bounds what the model sees per turn. This cap applies uniformly to
     every tool's rendered text (not just ``read``'s body content) — a tool

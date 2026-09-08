@@ -40,21 +40,6 @@ _EXTERNALLY_MANAGED_TABLES: frozenset[str] = frozenset(
         "session",
     }
 )
-_AUTOGENERATE_IGNORED_COLUMNS: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("document_chunks", "content_search_tsv"),
-        ("document_chunks", "path_search_tsv"),
-    }
-)
-
-
-def _resolve_table_name(object_: object, compare_to: object | None) -> str | None:
-    for candidate in (object_, compare_to):
-        table = getattr(candidate, "table", None)
-        table_name = getattr(table, "name", None)
-        if isinstance(table_name, str):
-            return table_name
-    return None
 
 
 def include_object(
@@ -64,14 +49,10 @@ def include_object(
     reflected: bool,
     compare_to: object | None,
 ) -> bool:
-    """Exclude externally managed auth tables and generated TSV columns."""
-    del reflected
+    """Exclude externally managed auth tables."""
+    del object_, compare_to, reflected
     if type_ == "table" and isinstance(name, str) and name in _EXTERNALLY_MANAGED_TABLES:
         return False
-    if type_ == "column" and isinstance(name, str):
-        table_name = _resolve_table_name(object_, compare_to)
-        if table_name is not None and (table_name, name) in _AUTOGENERATE_IGNORED_COLUMNS:
-            return False
     return True
 
 

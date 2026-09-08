@@ -21,7 +21,7 @@ driving the full plan -> harvest -> plan_control -> settle pipeline.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     Any,
     Dict,
@@ -41,7 +41,17 @@ from shared.services.retrieval.hydration.asset_inline import (
 )
 
 if TYPE_CHECKING:
-    from .knowhere_hybrid import PersistedScoreCorpus
+    from shared.services.retrieval.scoring.knowhere_hybrid import PersistedScoreCorpus
+
+
+@dataclass
+class Chunk:
+    node_id: str
+    doc_id: str
+    text: str
+    line_ids: Tuple[int, ...]
+    section_id: Optional[str] = None
+    text_line_id_groups: Optional[Tuple[Tuple[int, ...], ...]] = None
 
 
 @dataclass
@@ -107,10 +117,6 @@ class ProviderToolSpace:
     def __init__(self, provider: HierarchyProvider) -> None:
         self._provider = provider
 
-    def address_level(self, node_id: str):
-        fn = getattr(self._provider, "address_level", None)
-        return fn(node_id) if callable(fn) else None
-
     def owner_document(self, node_id: str) -> Optional[str]:
         fn = getattr(self._provider, "owner_document", None)
         if not callable(fn):
@@ -123,7 +129,7 @@ class ProviderToolSpace:
         fn = getattr(self._provider, "document_ids", None)
         if not callable(fn):
             return []
-        return [str(x) for x in (fn() or ()) if str(x).strip()]
+        return [str(x) for x in cast(Sequence[Any], fn() or ()) if str(x).strip()]
 
     def sections_for_doc(self, doc_id: str) -> List[str]:
         return [str(s) for s in self._provider.roots(doc_id)]
@@ -190,7 +196,7 @@ class ProviderToolSpace:
         unit_text = getattr(self._provider, "unit_text", None)
         if not callable(self_units) or not callable(unit_text):
             return "", 0, 0
-        units = list(self_units(section_id) or ())
+        units = list(cast(Sequence[Any], self_units(section_id) or ()))
         if not units:
             return "", 0, 0
         first_order = int(getattr(units[0], "sort_order", 0) or 0)
@@ -251,8 +257,6 @@ class ProviderToolSpace:
     def _make_chunk(
         self, node_id: str, doc_id: str, text: str, order: int, section_id: str
     ) -> Any:
-        from ._compat import Chunk  # type: ignore
-
         return Chunk(
             node_id=node_id,
             doc_id=doc_id,
@@ -267,7 +271,7 @@ class ProviderToolSpace:
         if not callable(self_units) or not callable(unit_text):
             return []
         out: List[Any] = []
-        for unit in self_units(section_id) or ():
+        for unit in cast(Sequence[Any], self_units(section_id) or ()):
             text = str(unit_text(unit) or "").strip()
             if not text:
                 continue
@@ -293,9 +297,9 @@ class ProviderToolSpace:
             ]
 
         # One unit per descendant leaf, plus one per interstitial parent, so
-        # node ids line up with the keys nav_map_scores.build_score_units emits.
+        # node ids line up with the keys scoring.score_units.build_score_units emits.
         out: List[Any] = []
-        for leaf_id in leaf_fn(section_id) or ():
+        for leaf_id in cast(Sequence[Any], leaf_fn(section_id) or ()):
             text, order, _count = self._node_unit_span(leaf_id)
             if text:
                 out.append(self._make_chunk(leaf_id, doc_id, text, order, leaf_id))
@@ -320,102 +324,3 @@ class ProviderToolSpace:
             return None
         return cast(Optional["PersistedScoreCorpus"], fn(doc_ids, queries))
 
-
-@dataclass
-class InMemoryNode:
-    section_id: str
-    title: str
-    content: str = ""
-    children: List[str] = field(default_factory=list)
-
-
-class InMemoryHierarchyProvider:
-    """Minimal reference ``HierarchyProvider``: no scoring, no ToolSpace.
-
-    Built directly from a ``{doc_id: [InMemoryNode, ...]}`` map plus a
-    ``{doc_id: [root_section_id, ...]}`` map — the "hierarchy + summary is
-    enough" claim's simplest possible witness.
-    """
-
-    def __init__(
-        self,
-        *,
-        roots_by_doc: Dict[str, Sequence[str]],
-        nodes: Dict[str, InMemoryNode],
-        summaries: Optional[Dict[str, str]] = None,
-    ) -> None:
-        self._roots_by_doc = {k: list(v) for k, v in roots_by_doc.items()}
-        self._nodes = dict(nodes)
-        self._summaries = dict(summaries or {})
-        self._parent: Dict[str, str] = {}
-        for node in self._nodes.values():
-            for child_id in node.children:
-                self._parent[child_id] = node.section_id
-        self._owner: Dict[str, str] = {}
-        for doc_id, root_ids in self._roots_by_doc.items():
-            stack = list(root_ids)
-            while stack:
-                sid = stack.pop()
-                if sid in self._owner:
-                    continue
-                self._owner[sid] = doc_id
-                node = self._nodes.get(sid)
-                if node:
-                    stack.extend(node.children)
-
-    def owner_document(self, node_id: str) -> Optional[str]:
-        return self._owner.get(str(node_id or "").strip())
-
-    def roots(self, doc_id: str) -> Sequence[str]:
-        return list(self._roots_by_doc.get(doc_id, ()))
-
-    def children(self, section_id: str) -> Sequence[str]:
-        node = self._nodes.get(section_id)
-        return list(node.children) if node else []
-
-    def node_meta(self, section_id: str) -> NodeMeta:
-        node = self._nodes.get(section_id)
-        if node is None:
-            return NodeMeta()
-        return NodeMeta(
-            title=node.title,
-            summary=self._summaries.get(section_id, ""),
-            has_children=bool(node.children),
-        )
-
-    def parent_id(self, section_id: str) -> Optional[str]:
-        return self._parent.get(section_id)
-
-    def relations(self, section_id: str) -> Tuple[Set[str], Set[str]]:
-        ancestors: Set[str] = set()
-        cur = self._parent.get(section_id)
-        while cur:
-            ancestors.add(cur)
-            cur = self._parent.get(cur)
-        descendants: Set[str] = set()
-        stack = list(self.children(section_id))
-        while stack:
-            cid = stack.pop()
-            if cid in descendants:
-                continue
-            descendants.add(cid)
-            stack.extend(self.children(cid))
-        return ancestors, descendants
-
-    def content(self, section_id: str) -> str:
-        node = self._nodes.get(section_id)
-        if node is None:
-            return ""
-        parts: List[str] = []
-
-        def walk(sid: str) -> None:
-            cur = self._nodes.get(sid)
-            if cur is None:
-                return
-            if cur.content:
-                parts.append(cur.content)
-            for cid in cur.children:
-                walk(cid)
-
-        walk(section_id)
-        return "\n".join(parts)

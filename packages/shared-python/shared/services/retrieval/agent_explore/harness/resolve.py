@@ -1,7 +1,6 @@
-"""``AGENT_EXPLORE_HARNESS`` env switch — same pattern as ``execution/routes.py``'s
-``_resolve_agentic_router()`` (``RETRIEVAL_AGENTIC_ROUTER``): unrecognized or
-unset values fall back to the default rather than raising, so a typo'd env
-var degrades to known-good behavior instead of breaking the route.
+"""``AGENT_EXPLORE_HARNESS`` env switch: unrecognized or unset values fall
+back to the default rather than raising, so a typo'd env var degrades to
+known-good behavior instead of breaking the route.
 
 Each branch below imports its harness implementation lazily so that
 selecting ``openai`` never imports ``cursor_sdk``-dependent code (and
@@ -16,11 +15,11 @@ from shared.services.retrieval.agent_explore.harness.base import Harness
 
 _HARNESS_ENV = "AGENT_EXPLORE_HARNESS"
 _HARNESSES = {"openai", "cursor_sdk"}
-_DEFAULT_HARNESS = "openai"
+_DEFAULT_HARNESS = "cursor_sdk"
 
 
 def resolve_harness_name() -> str:
-    """``openai`` (default, current production behavior) or ``cursor_sdk``."""
+    """``cursor_sdk`` (default) or ``openai``."""
     value = os.environ.get(_HARNESS_ENV, "").strip().lower()
     return value if value in _HARNESSES else _DEFAULT_HARNESS
 

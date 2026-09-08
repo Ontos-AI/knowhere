@@ -13,23 +13,25 @@ from shared.models.database.document import (
     DocumentMapUnitIndex,
     DocumentMapUnitToken,
 )
-from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
 from shared.services.retrieval.nav._compat import Chunk, EpisodeResult
 from shared.services.retrieval.nav import nav_knowhere
+from shared.services.retrieval.nav.nav_knowhere import (
+    LazyKnowhereProvider,
+    NamespaceKnowhereProvider,
+    ReadOnlyChunkStore,
+)
 from shared.services.retrieval.nav.nav_map_scores import (
-    build_score_units,
     compute_corpus_map_and_unit_scores,
     select_map_highlights,
 )
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
-from shared.services.retrieval.nav.nav_knowhere import (
+from shared.services.retrieval.scoring.hierarchy import ProviderToolSpace
+from shared.services.retrieval.scoring.knowhere_provider import (
     KnowhereProvider,
-    LazyKnowhereProvider,
-    NamespaceKnowhereProvider,
-    ReadOnlyChunkStore,
     SectionRow,
     UnitRow,
 )
+from shared.services.retrieval.scoring.score_units import build_score_units
 from shared.services.retrieval.nav_snapshot import load_nav_snapshot
 from shared.services.retrieval.publication_content import (
     replace_document_revision_content,

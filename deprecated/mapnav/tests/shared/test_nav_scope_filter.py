@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 from typing import Any, List
 
-from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
-from shared.services.retrieval.nav.nav_knowhere import (
+from shared.services.retrieval.nav.nav_knowhere import NamespaceKnowhereProvider
+from shared.services.retrieval.scoring.hierarchy import ProviderToolSpace
+from shared.services.retrieval.scoring.knowhere_provider import (
     KnowhereProvider,
-    NamespaceKnowhereProvider,
     SectionRow,
 )
-from shared.services.retrieval.nav.nav_node_filter import field_predicate, node_filter
+from shared.services.retrieval.nav.nav_node_filter import node_filter
+from shared.services.retrieval.scoring.node_filter_predicates import field_predicate
 from shared.services.retrieval.nav.nav_scope_filter import run_scope_filter
 from shared.services.retrieval.nav.nav_types import NavConfig
 

@@ -14,7 +14,7 @@ os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 from shared.services.retrieval.nav._compat import Chunk
-from shared.services.retrieval.nav.nav_knowhere import SectionRow, UnitRow
+from shared.services.retrieval.scoring.knowhere_provider import SectionRow, UnitRow
 from shared.services.retrieval.nav_bridge import build_referenced_chunks
 from shared.services.retrieval.nav_config import (
     MAPNAV_MODEL,

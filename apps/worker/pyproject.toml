@@ -30,10 +30,8 @@ dependencies = [
     "rapidocr-onnxruntime>=1.4.4",
 ]
 
-# AGENT_EXPLORE_HARNESS=cursor_sdk (shared/services/retrieval/agent_explore/
-# harness/cursor_harness.py). Not in the base dependency set: this harness
-# is an alternative to the default OpenAI-compatible one (openai_harness.py),
-# not required for it. Install with `uv sync --extra cursor-harness`.
+# Production retrieval runs in apps/api, where cursor-sdk is a base
+# dependency. This extra is only for worker debug/eval scripts.
 [project.optional-dependencies]
 cursor-harness = [
     "cursor-sdk>=1.0.31",

@@ -11,11 +11,12 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Sequence
 
+from shared.services.retrieval.scoring.node_filter_predicates import field_predicate
+
 from .nav_node_filter import (
     FilterResult,
     NodeFilter,
     apply_node_filter,
-    field_predicate,
     node_filter,
     render_submap_observation,
 )

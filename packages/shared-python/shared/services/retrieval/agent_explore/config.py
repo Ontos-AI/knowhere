@@ -1,21 +1,9 @@
 """Production config for the ``agent_explore`` in-process tool-loop.
 
-Deliberately independent from ``nav_config.py`` / ``nav/`` — see
-``nav_config.py``'s "not read by agent_explore" note. This package must have
-no runtime import from ``nav/`` so Phase 5 can delete that package once
-``agent_explore`` passes its Phase 4 evaluation gate, without having to first
-extract anything out of ``nav/`` for this package to keep working.
-
-Model choice: reuses the same literal model name as ``nav_config.MAPNAV_MODEL``
-(``deepseek-v4-flash``) — not by importing that module, but as its own
-constant — because tool-calling (single, parallel, and forced ``tool_choice``)
-was verified live against this exact model during Phase 3 design; no other
-model has been verified for this codebase's OpenAI-compatible client.
-
-``AGENT_EXPLORE_MAX_STEPS`` / ``AGENT_EXPLORE_WALL_CLOCK_SECONDS`` are new
-product constants (not specified by the plan text, which only named the two
-budget *dimensions* to add). Disclosed here rather than buried: revisit in
-Phase 4 evaluation once real latency data exists.
+Model choice for the OpenAI-compatible harness is ``deepseek-v4-flash``:
+tool-calling (single, parallel, and forced ``tool_choice``) was verified
+live against this exact model; no other model has been verified for this
+codebase's OpenAI-compatible client.
 """
 
 from __future__ import annotations
@@ -32,8 +20,7 @@ AGENT_EXPLORE_MODEL = "deepseek-v4-flash"
 AGENT_EXPLORE_CURSOR_MODEL = "composer-2.5"
 
 # One LLM turn = one round-trip that may contain several parallel tool calls
-# (see episode.py). Kept low relative to map-nav's per-node dispatch depth
-# (≤5) because each turn here can already resolve several tools at once.
+# (see episode.py).
 AGENT_EXPLORE_MAX_STEPS = 12
 
 # Wall-clock ceiling for the whole episode (LLM round-trips + tool

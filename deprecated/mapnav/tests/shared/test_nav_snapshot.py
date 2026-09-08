@@ -13,7 +13,7 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 import pytest
 
-from shared.services.retrieval.nav.nav_knowhere import SectionRow, UnitRow
+from shared.services.retrieval.scoring.knowhere_provider import SectionRow, UnitRow
 from shared.services.retrieval.nav_snapshot import build_nav_snapshot
 
 

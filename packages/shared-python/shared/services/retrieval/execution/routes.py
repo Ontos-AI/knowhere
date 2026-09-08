@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import os
-import resource
 import time
 from contextlib import AbstractAsyncContextManager
 
@@ -25,10 +22,6 @@ from shared.services.retrieval.search.ranking import rank_retrieval_candidates
 from shared.services.retrieval.search.scoped_corpus import (
     count_scoped_chunks,
     load_all_scoped_chunks,
-)
-from shared.services.retrieval.execution.revision_pins import (
-    capture_revision_pins,
-    is_revision_generation_stable,
 )
 
 
@@ -61,20 +54,6 @@ def _render_rows_evidence(rows: list[dict]) -> str:
     return render_evidence_blocks(list(groups.items()))
 
 
-_AGENTIC_ROUTERS = {"mapnav", "agent_explore"}
-_AGENTIC_ROUTER_ENV = "RETRIEVAL_AGENTIC_ROUTER"
-
-
-def _resolve_agentic_router() -> str:
-    """``RETRIEVAL_AGENTIC_ROUTER`` env switch: ``mapnav`` (default, current
-    production route) or ``agent_explore`` (Phase 3 of
-    ``.cursor/plans/agentic_corpus_explore_retrieval_c2c4ea21.plan.md``,
-    pending its Phase 4 evaluation gate before it can become the default).
-    """
-    value = os.environ.get(_AGENTIC_ROUTER_ENV, "").strip().lower()
-    return value if value in _AGENTIC_ROUTERS else "mapnav"
-
-
 async def run_retrieval_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
@@ -82,14 +61,10 @@ async def run_retrieval_route(
     if small_corpus_outcome is not None:
         return small_corpus_outcome
 
-    # Explicit False → classic map-unit BM25 top-K. None/True → agentic,
-    # routed by RETRIEVAL_AGENTIC_ROUTER (default mapnav).
+    # Explicit False → classic map-unit BM25 top-K. None/True → agent_explore.
     if context.use_agentic is False:
         return await _run_classic_topk_route(context)
-
-    if _resolve_agentic_router() == "agent_explore":
-        return await _run_agent_explore_route(context)
-    return await _run_mapnav_route(context)
+    return await _run_agent_explore_route(context)
 
 
 async def _try_run_small_corpus_route(
@@ -211,16 +186,10 @@ async def _run_classic_topk_route(
 async def _run_agent_explore_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
-    """Phase 3 agentic path: in-process ``corpus.*`` tool-calling loop.
+    """Default agentic path: in-process ``corpus.*`` tool-calling loop.
 
-    Selected when ``RETRIEVAL_AGENTIC_ROUTER=agent_explore``; ``mapnav``
-    remains the default route until this one passes its Phase 4 evaluation
-    gate. See ``shared/services/retrieval/agent_explore/``.
-
-    Which provider actually runs the tool-calling loop (OpenAI-compatible
-    default, or Cursor SDK) is the separate ``AGENT_EXPLORE_HARNESS`` switch
-    (Phase 3.5) resolved by ``resolve_harness()`` below — independent of
-    this route selection.
+    Which provider actually runs the tool-calling loop is the
+    ``AGENT_EXPLORE_HARNESS`` switch resolved by ``resolve_harness()``.
     """
     from shared.services.retrieval.agent_explore.bridge import build_decision_trace
     from shared.services.retrieval.agent_explore.budget import EpisodeBudget
@@ -325,199 +294,3 @@ async def _run_agent_explore_route(
         ),
     )
 
-
-async def _run_mapnav_route(
-    context: RetrievalRouteContext,
-) -> RetrievalRouteOutcome:
-    """Default agentic path: PLANNER + HARVEST + CONTROL (checklist map-nav).
-
-    LEGACY, PENDING REPLACEMENT: ``agent_explore`` will become the default
-    agentic route once it passes its evaluation gate; this route then stays
-    only as the ``RETRIEVAL_AGENTIC_ROUTER=mapnav`` fallback until Phase 5
-    cleanup. Do not add new capabilities here — new agentic-retrieval work
-    belongs in ``shared/services/retrieval/agent_tools/`` and
-    ``shared/services/retrieval/agent_explore/``.
-    """
-    process_started = resource.getrusage(resource.RUSAGE_SELF)
-    from shared.services.retrieval import nav_llm_backend  # noqa: F401
-    from shared.services.retrieval.nav import run_nav_episode
-    from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
-    from shared.services.retrieval.nav_bridge import build_referenced_chunks
-    from shared.services.retrieval.nav_config import (
-        MAPNAV_MODEL,
-        build_nav_config,
-        nav_evidence_chars,
-    )
-    from shared.services.retrieval.nav_snapshot import load_nav_snapshot
-    from shared.services.retrieval.trace import (
-        TraceRecorder,
-        build_decision_trace,
-        episode_selected_doc_ids,
-        episode_selected_paths,
-        episode_token_count,
-        episode_workflow_plan,
-    )
-
-    snapshot_started = time.perf_counter()
-    snapshot_pins = context.revision_pins
-    snapshot = await load_nav_snapshot(
-        context.db,
-        user_id=context.user_id,
-        namespace=context.namespace,
-        exclude_document_ids=context.exclude_document_ids,
-        exclude_sections=context.exclude_sections,
-        lazy=True,
-        revision_pins=snapshot_pins,
-        generation=(snapshot_pins.generation if snapshot_pins is not None else None),
-    )
-    if snapshot_pins is not None and not await is_revision_generation_stable(
-        context.db,
-        user_id=context.user_id,
-        namespace=context.namespace,
-        pins=snapshot_pins,
-    ):
-        snapshot.close()
-        snapshot_pins = await capture_revision_pins(
-            context.db,
-            user_id=context.user_id,
-            namespace=context.namespace,
-        )
-        snapshot = await load_nav_snapshot(
-            context.db,
-            user_id=context.user_id,
-            namespace=context.namespace,
-            exclude_document_ids=context.exclude_document_ids,
-            exclude_sections=context.exclude_sections,
-            lazy=True,
-            revision_pins=snapshot_pins,
-            generation=(snapshot_pins.generation if snapshot_pins is not None else None),
-        )
-    snapshot_seconds = time.perf_counter() - snapshot_started
-    logger.info(
-        "retrieval mapnav stage=snapshot_load seconds={:.3f} documents={} refs={} "
-        "conversation_id={}".format(
-            snapshot_seconds,
-            len(snapshot.document_ids),
-            len(snapshot.chunk_ref_index),
-            context.conversation_id or "",
-        )
-    )
-
-    # Small-corpus count / snapshot reads may leave a checkout; drop it before
-    # the sync LLM episode (same pattern as the retired workflow route).
-    await context.db.rollback()
-
-    budget = nav_evidence_chars()
-    cfg = build_nav_config()
-    toolspace = ProviderToolSpace(snapshot.provider)
-
-    episode_started = time.perf_counter()
-    try:
-        episode = await asyncio.to_thread(
-            run_nav_episode,
-            None,
-            context.query,
-            corpus_doc_ids=list(snapshot.document_ids),
-            budget_chars=budget,
-            compose_answer=False,
-            policy="llm",
-            config=cfg,
-            toolspace=toolspace,
-        )
-
-        refs, score_by_chunk_id = build_referenced_chunks(episode, snapshot)
-        logger.info(
-            "retrieval mapnav stage=episode seconds={:.3f} refs={}".format(
-                time.perf_counter() - episode_started,
-                len(refs),
-            )
-        )
-    finally:
-        snapshot.close()
-
-    hydration_started = time.perf_counter()
-    async with open_fresh_database_context() as final_db:
-        resolved = await resolve_workflow_references(
-            db=final_db,
-            user_id=context.user_id,
-            namespace=context.namespace,
-            refs=refs,
-            score_by_chunk_id=score_by_chunk_id or None,
-            revision_pins=snapshot.document_revisions,
-        )
-        assembled_rows = await assemble_retrieval_results(
-            db=final_db,
-            rows=resolved.rows,
-            exclude_document_ids=context.exclude_document_ids,
-            exclude_sections=context.exclude_sections,
-            allowed_chunk_types=context.allowed_chunk_types,
-            revision_pins=snapshot.document_revisions,
-        )
-
-        decision_steps = build_decision_trace(
-            episode,
-            evidence_char_budget=budget,
-            n_refs=len(resolved.refs),
-        )
-        decision_trace = [step.to_dict() for step in decision_steps]
-        selected_paths = episode_selected_paths(episode, resolved.refs)
-        selected_docs = episode_selected_doc_ids(resolved.refs)
-        tokens_used = episode_token_count(episode)
-        trace = TraceRecorder(
-            final_db,
-            user_id=context.user_id,
-            namespace=context.namespace,
-            query=context.query,
-            top_k=context.top_k,
-            chunk_types=context.allowed_chunk_types,
-            workflow_plan=episode_workflow_plan(episode),
-            policy_name="mapnav_checklist_v1",
-        )
-        await trace.create_run()
-        for step in decision_steps:
-            trace.record_decision_trace_step(step)
-        await trace.complete(
-            assembled_rows,
-            "mapnav",
-            token_count=tokens_used,
-            model_name=MAPNAV_MODEL,
-            selected_paths=selected_paths,
-            selected_doc_ids=selected_docs,
-        )
-    logger.info(
-        "retrieval mapnav stage=hydration seconds={:.3f} results={}".format(
-            time.perf_counter() - hydration_started,
-            len(assembled_rows),
-        )
-    )
-
-    stop_reason = str(getattr(episode, "stop_reason", "") or "completed")
-    evidence_text = str(getattr(episode, "evidence_text", "") or "")
-    response = {
-        "namespace": context.namespace,
-        "query": context.query,
-        "router_used": "mapnav",
-        "evidence_text": evidence_text,
-        "answer_text": "",
-        "referenced_chunks": resolved.refs,
-        "results": assembled_rows,
-        "stop_reason": stop_reason,
-        "decision_trace": decision_trace,
-    }
-
-    completion_detail = f"chunks | evidence={len(evidence_text)} chars | router=mapnav"
-    process_finished = resource.getrusage(resource.RUSAGE_SELF)
-    logger.info(
-        "retrieval mapnav stage=process_resources cpu_seconds={:.3f} "
-        "process_max_rss_kb={}",
-        (process_finished.ru_utime + process_finished.ru_stime)
-        - (process_started.ru_utime + process_started.ru_stime),
-        int(process_finished.ru_maxrss),
-    )
-    return RetrievalRouteOutcome(
-        response=response,
-        hit_stats_results=resolved.refs,
-        completion_label="MAPNAV RETRIEVAL",
-        completion_count=len(resolved.refs),
-        completion_detail=completion_detail,
-    )
