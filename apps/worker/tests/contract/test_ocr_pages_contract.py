@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import os
-import sys
-from types import ModuleType
 from unittest.mock import patch
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
@@ -55,19 +53,29 @@ def test_ocr_pages_requires_pages() -> None:
 def test_ocr_pages_writes_joined_text_to_blackboard() -> None:
     ctx = _ctx()
 
-    class FakeEngine:
-        def __call__(self, _image_path: str):
-            return [[[[0, 0], [1, 0], [1, 1], [0, 1]], "Hello", 0.9]], 0.01
-
-    fake_mod = ModuleType("rapidocr_onnxruntime")
-    fake_mod.RapidOCR = lambda: FakeEngine()  # type: ignore[attr-defined]
-
     def fake_render(*_args, **_kwargs):
         return [{"page": 1, "png_path": "/tmp/ocr_page_1.png"}]
 
+    def fake_child(worker_fn, page_paths, *, timeout):
+        assert worker_fn.__name__ == "_run_ocr_worker"
+        assert page_paths == {1: "/tmp/ocr_page_1.png"}
+        assert timeout == 300
+        return {
+            "ok": True,
+            "page_lines": {
+                1: [
+                    {
+                        "box": [[0, 0], [1, 0], [1, 1], [0, 1]],
+                        "text": "Hello",
+                        "score": 0.9,
+                    }
+                ]
+            },
+        }
+
     with (
         patch.dict(ocr_pages.__globals__, {"render_pages": fake_render}),
-        patch.dict(sys.modules, {"rapidocr_onnxruntime": fake_mod}),
+        patch.dict(ocr_pages.__globals__, {"run_in_child_process": fake_child}),
     ):
         result = ocr_pages(ctx, {"pages": [1]})
 

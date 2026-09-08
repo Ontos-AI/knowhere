@@ -7,6 +7,10 @@ from typing import Any
 
 from app.services.document_agent.manifest import ToolContext, ToolResult
 from app.services.document_agent.pdf_text import PageTextBands
+from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
+    run_in_child_process,
+    worker,
+)
 from app.services.document_agent.registry import has_page_features, register_tool
 from app.services.document_agent.visual import render_pages
 
@@ -30,6 +34,28 @@ def _line_score(item: Any) -> float:
         except (TypeError, ValueError):
             return 0.0
     return 0.0
+
+
+@worker
+def _run_ocr_worker(queue: Any, page_paths: dict[int, str]) -> None:
+    """Run the local OCR model outside the heartbeat-bearing worker process."""
+    from rapidocr_onnxruntime import RapidOCR
+
+    engine = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=1)
+    page_lines: dict[int, list[dict[str, Any]]] = {}
+    for page, image_path in page_paths.items():
+        lines: list[dict[str, Any]] = []
+        result, _elapse = engine(image_path)
+        for item in result or []:
+            lines.append(
+                {
+                    "box": _line_box(item),
+                    "text": _line_text(item),
+                    "score": _line_score(item),
+                }
+            )
+        page_lines[page] = lines
+    queue.put({"ok": True, "page_lines": page_lines})
 
 
 @register_tool(
@@ -70,26 +96,18 @@ def ocr_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         if item.get("page") is not None and item.get("png_path")
     }
 
-    from rapidocr_onnxruntime import RapidOCR
-
-    engine = RapidOCR()
+    page_paths = {
+        page: image_path for page, image_path in png_by_page.items() if page in pages
+    }
+    result = run_in_child_process(_run_ocr_worker, page_paths, timeout=300)
+    page_lines = {
+        int(page): list(lines)
+        for page, lines in (result.get("page_lines") or {}).items()
+    }
     page_texts: dict[int, str] = {}
     page_bands: dict[int, PageTextBands] = {}
-    page_lines: dict[int, list[dict[str, Any]]] = {}
     for page in pages:
-        image_path = png_by_page.get(page)
-        lines: list[dict[str, Any]] = []
-        if image_path:
-            result, _elapse = engine(image_path)
-            for item in result or []:
-                text = _line_text(item)
-                lines.append(
-                    {
-                        "box": _line_box(item),
-                        "text": text,
-                        "score": _line_score(item),
-                    }
-                )
+        lines = page_lines.get(page, [])
         page_lines[page] = lines
         content = "\n".join(line["text"] for line in lines if line["text"])
         page_texts[page] = content
