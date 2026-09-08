@@ -110,8 +110,8 @@ def _close_child_connections(
 def _close_parent_connection(connection: Connection) -> None:
     try:
         connection.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Ignoring error while closing parent connection: {}", exc)
 
 
 class _OcrRunner:
