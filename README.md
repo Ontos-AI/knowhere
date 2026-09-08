@@ -33,9 +33,11 @@
 
 ## Overview
 
-**Knowhere is the memory layer between complex, dirty documents and AI agents.**
+**Knowhere is a document parsing and retrieval system that turns complex, dirty files into persistent, navigable memory for AI agents—especially across local and offline document collections.**
 
-It ingests unstructured documents and produces persistent, navigable memory: parsing, hierarchy extraction, multi-modal structuring, and graph construction in a single pipeline. Every chunk retains full semantic context, making the output a natural fit for *Agentic RAG*, *vector-based RAG*, or any LLM workflow.
+It ingests unstructured documents and produces persistent, navigable memory: parsing, hierarchy reconstruction, multi-modal structuring, and graph construction in a single pipeline. Every result stays connected to its document, section, source pages, and related assets, making the output a natural fit for *Agentic RAG*, *vector-based RAG*, or any LLM workflow.
+
+Knowhere supports complementary **Vision and Text tracks**. Text-native documents retain precise extracted structure, while complex PDFs and PowerPoint files can be understood directly as pages by frontier vision models. Both tracks converge into the same memory schema, hierarchy, retrieval engine, and citation model.
 
 > [!NOTE]
 > **Get started in seconds with Knowhere Cloud.**
@@ -43,8 +45,25 @@ It ingests unstructured documents and produces persistent, navigable memory: par
 
 ## 📢 News
 
+- **September 2026**: 👁️ **Introducing dual-track Document Parsing 2.0.** Vision Page and Text Track now converge into one hierarchy-native memory schema for retrieval, understanding, and citation.
 - **June 1, 2026**: 📚 **Knowhere now supports ultra-long PDFs and atlas-style documents.** The parsing pipeline can process long-form PDFs with hundreds of pages (for example, 300, 500, or more) and route technical atlases or drawing collections through a dedicated layout-aware parser.
 - **May 7, 2026**: 🚀 **Knowhere is now Open Source!** We have open-sourced our entire stack for document ingestion, parsing, and agentic RAG. You can now self-host the full platform using [knowhere-self-hosted](https://github.com/Ontos-AI/knowhere-self-hosted). Check out our [Contribution Guide](CONTRIBUTING.md) to get involved!
+
+## Vision + Text: Document Parsing 2.0
+
+Traditional OCR and Document Intelligence pipelines try to extract every element before a model can understand the document. On dirty PDFs and slide decks, mistakes in reading order, layout, tables, or hidden text layers can accumulate into unreliable model context.
+
+Knowhere does not make perfect element-by-element extraction a prerequisite for retrieval. The Text Track preserves precise text and native structure where they are reliable. The Vision Track uses frontier vision models to understand a page or slide as a whole, so visually complex content can still be recalled and understood without first reconstructing every element.
+
+<p align="center">
+  <img alt="Vision and Text tracks converge into a unified navigable memory schema" src="docs/assets/step-1-dual-track-memory.png" width="1000">
+</p>
+
+- **Two tracks, one contract**: Both parsing paths produce the same chunk and metadata schema, so downstream storage, hierarchy, graph construction, and retrieval remain format-independent.
+- **Recall without brittle reconstruction**: Pages can be indexed through summaries, entities, source text, and hierarchy even when OCR or layout extraction cannot reliably recover every component.
+- **One navigable memory**: Text sections and vision-understood pages become compatible hierarchy nodes with source evidence, linked assets, and cross-document relationships.
+
+PDF and `.pptx` uploads through the V2 Jobs API use the Vision Track; other supported formats use the Text Track. The tracks differ in how they understand the source, not in how agents consume the resulting memory.
 
 ## How it Works
 
@@ -52,13 +71,10 @@ Knowhere runs in two steps: build memory from documents, then let agents retriev
 
 ### Step 1: Parse and Build Memory
 
-<p align="center">
-  <img alt="Step 1: Parse and Build Memory" src="docs/assets/step-1-parse-build-memory.png" width="900">
-</p>
-
-- **Parse**: Route PDFs, Office files, images, tables, Markdown, and text to specialized parsers.
-- **Structure**: Our proprietary Tree-like algorithm reconstructs the full document hierarchy instead of flattening it into a sequence, preventing semantic fragmentation across chunks.
-- **Build Memory**: Store chunks, navigation trees, summaries, and graph links as agent-ready context.
+- **Route**: Select the Vision or Text track according to the document format and API generation.
+- **Understand**: Preserve native text structure where it is reliable, or understand complex pages holistically with a vision model.
+- **Normalize**: Convert both tracks into the same hierarchy-native chunk and metadata schema.
+- **Build Memory**: Store navigation trees, linked assets, citations, and cross-document relationships as agent-ready context.
 
 ### Step 2: Agentic Retrieval
 
@@ -66,19 +82,19 @@ Knowhere runs in two steps: build memory from documents, then let agents retriev
   <img alt="Step 2: Agentic Retrieval" src="docs/assets/step-2-agentic-retrieval.png" width="900">
 </p>
 
-- **Discover**: Fuse keyword, path, content, and semantic signals for broad first-pass coverage.
-- **Navigate**: Walk section trees and graph links to drill into the most relevant document regions.
-- **Cite Evidence**: Return traceable results with source document, section, chunk, and linked assets.
+- **Discover**: Fuse path, content, term, summary, and entity signals for broad first-pass coverage.
+- **Navigate**: Use hierarchy-aware MapNav to move from document overviews into the most relevant sections and evidence.
+- **Cite Evidence**: Return traceable results with source document, section, source pages, and linked assets.
 
 ## FAQ
 
 **Q: What is Knowhere's relationship with MinerU?**
 
-A: Knowhere uses MinerU as its default parser because it performs best in our tests. Any parser only gets you raw Markdown. Knowhere's value is what comes after: hierarchy reconstruction, multi-modal normalization, and cross-document graph construction. Any Markdown-outputting tool works.
+A: MinerU remains the default raw PDF extractor for Knowhere's V1 chunk-based pipeline. PDF and PowerPoint uploads through the V2 API use Vision Page instead: Knowhere renders the source pages, combines their visual interpretation with document profiling and TOC structure, and assembles page-grounded hierarchy nodes. MinerU is still useful, but V2 no longer treats parser-generated Markdown as the only source of truth.
 
 **Q: What LLM / VLM dependencies does Knowhere have?**
 
-A: By default, DeepSeek (`deepseek-chat`) handles text and table summarization, and Qwen-VL (`qwen3.6-flash`) handles image OCR and descriptions. Knowhere is model-agnostic. Swap in OpenAI, DashScope, Zhipu, or Volcengine via environment variables.
+A: We recommend [`deepseek-v4-flash-vision-exp`](https://api-docs.deepseek.com/guides/vision/) as a unified model for both Text and Vision workloads. It accepts text and image input, so the same model can handle summarization, hierarchy reasoning, page understanding, and asset descriptions. The model is currently experimental, and Knowhere remains model-agnostic: you can use another model—or separate Text and Vision models—from OpenAI, Qwen, GLM, Volcengine, or any compatible provider.
 
 **Q: How is Agentic Retrieval different from traditional RAG?**
 
@@ -86,7 +102,7 @@ A: Traditional RAG does a flat vector lookup and returns isolated snippets. Know
 
 **Q: Does it handle images and tables?**
 
-A: Yes. Knowhere extracts them, runs them through VLMs for summarization and feature extraction, and links them back to their source chunks so agents can retrieve and cite multi-modal assets at inference time.
+A: Yes. Knowhere extracts images and tables, runs them through VLM-assisted summarization and feature extraction, and links them back to their source section nodes. Vision Page also retains rendered page citations, so agents can return both structured context and the visual source evidence.
 
 ## Performance Benchmark
 
@@ -121,22 +137,25 @@ Agents using Knowhere outperform those working from raw documents, Markitdown, U
 
 ## Features
 
-- **Multi-modal Parsing**: High-fidelity extraction from PDF, Office, and images, preserving headings, tables, and hierarchical paths.
-- **Lightweight Memory Graph**: Context-aware organization that links documents and chunks for better relationship understanding.
-- **Agentic RAG**: A hybrid retrieval engine combining traditional search (RRF) with autonomous agent navigation.
-- **Evidence-based Citations**: Every result is backed by traceable source paths, ensuring reliability for AI Agent decision-making.
+- **Dual-track Parsing**: Vision and Text tracks handle different document conditions while producing the same downstream schema.
+- **Vision Page Understanding**: Frontier vision models make complex PDF and PowerPoint content recallable without requiring perfect element-by-element OCR or layout reconstruction.
+- **Hierarchy-native Memory**: Section nodes preserve document paths, page ranges, summaries, entities, and linked assets instead of returning disconnected chunks.
+- **Cross-document Memory Graph**: Page-derived typed entities and keywords connect related documents across a namespace.
+- **Agentic Retrieval**: MapNav navigates document hierarchies, while classic retrieval combines path, content, and term channels through RRF.
+- **Page-grounded Citations**: Results retain source documents, section paths, page numbers, and rendered visual evidence.
 
 ## Supported Formats
 
 **✅ Supported**
 
-- [x] `.pdf` `.docx` `.pptx` `.xlsx` `.csv`
-- [x] `.jpg` `.png`
-- [x] `.md` `.txt` `.json`
+- [x] `.pdf` `.pptx` — Vision Page through the V2 Jobs API
+- [x] `.doc` `.docx` `.xls` `.xlsx`
+- [x] `.jpg` `.jpeg` `.png`
+- [x] `.md` `.txt` `.html` `.htm` `.json`
 
 **⏳ Coming Soon**
 
-- [ ] `.epub` `.html` `.xml`
+- [ ] `.epub` `.xml`
 - [ ] `.mp4` `.mp3`
 - [ ] `.skills.md`
 
@@ -168,8 +187,8 @@ cp apps/worker/.env.example apps/worker/.env
 - database and Redis connection settings
 - S3-compatible storage credentials
 - at least one LLM provider key: `DS_KEY`, `ALI_API_KEYS`, `GPT_API_KEY`, or `GLM_API_KEY`
-- `MINERU_API_KEYS` if you need PDF parsing
-- a vision-capable model provider if you need image summaries, OCR, atlas classification, or image-aware retrieval
+- a vision-capable model provider for V2 PDF/PowerPoint parsing, page understanding, image summaries, OCR, atlas classification, or image-aware retrieval
+- `MINERU_API_KEYS` only if you use the V1 chunk-based PDF/PowerPoint pipeline
 - any optional billing or webhook providers you want to enable
 
 Most parser and retrieval tuning values have code defaults. Start with the
