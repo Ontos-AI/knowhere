@@ -16,6 +16,30 @@ the LLM round-trip per tool (the dominant cost); true DB-level concurrency
 within a turn is not implemented here.
 
 No import from ``nav/`` or ``nav_config.py`` — see ``config.py``.
+
+Two Phase 4 fixes (audited live against the eval fixture in
+``apps/worker/scripts/fixtures/changheba_archive_eval_queries.json``):
+
+1. **Stale tool-message collapsing** (``_TOOL_MESSAGE_FRESH_TURNS``,
+   ``_collapse_stale_tool_messages``): ``messages`` only ever appended, so a
+   single ``corpus.outline``/``corpus.node_filter`` call (each capped at
+   ``ToolBudget.max_chars`` — currently ``EVIDENCE_TEXT_CHAR_BUDGET=12_000``,
+   see ``registry.py``) was resent in full on every later turn. Verified
+   live: two independent queries (q04, q06 in the eval fixture) hit
+   ``RETRIEVAL_NAV_TOKEN_LIMIT`` (100k default) within 7-8 LLM turns from
+   this resend alone, not from query difficulty — per-turn token cost grew
+   monotonically (q04: 4.4k -> 4.8k -> 19.8k -> 21.5k -> 24.2k -> 29.6k).
+2. **Trajectory refs fallback** (``_dedup_refs`` + the fallback at the end of
+   ``run_agent_explore_episode``): verified live that ``finish`` can be
+   called with no ``refs`` key at all (raw ``function.arguments`` was
+   literally ``'{}'``) even after the model had already read clearly
+   relevant sections via ``corpus.read`` — the ``FINISH_TOOL_SCHEMA``'s
+   ``"required": ["refs"]`` is a schema hint, not a provider-enforced
+   constraint. When ``finish``'s own ``refs`` end up empty (whether from
+   this, from ``no_tool_call``, or from a forced-finish the provider ignored
+   — all three exit paths), the episode now falls back to the refs already
+   returned by every ``corpus.read``/``corpus.assets`` call in the
+   trajectory, deduped, instead of citing nothing.
 """
 
 from __future__ import annotations
@@ -44,6 +68,21 @@ from shared.services.retrieval.agent_tools import (
     load_corpus_schema_text,
 )
 from shared.services.retrieval.agent_tools import tools as _agent_tools_registered  # noqa: F401
+
+# Tools whose ToolResult.refs point at evidence the agent has actually looked
+# at (full body content), as opposed to candidate/listing refs from
+# list_documents/outline/node_filter/recall/grep — those describe *where
+# things are*, not *what was read*, and would inject unread noise into the
+# trajectory-refs fallback below if included.
+_EVIDENCE_TOOL_NAMES = frozenset({"corpus.read", "corpus.assets"})
+
+# A tool-role message is kept in full for the turn it was produced plus this
+# many additional turns, then collapsed to a placeholder — see module
+# docstring point 1. Not tuned against a real recall-vs-token tradeoff yet;
+# 2 was chosen so a result stays fully visible for one full turn after the
+# one it was produced in (enough for the model to act on it immediately),
+# revisit with more Phase 4 data.
+_TOOL_MESSAGE_FRESH_TURNS = 2
 
 
 def _resolve_client_and_model() -> tuple[Any, str]:
@@ -128,7 +167,13 @@ def _tool_message_content(result: ToolResult, *, max_chars: int) -> str:
 
     Uses ``ToolBudget.max_chars`` (``EVIDENCE_TEXT_CHAR_BUDGET``, aligned with
     map-nav evidence packing) so tools like ``read`` can return unbounded body
-    text while the harness still bounds what the model sees per turn.
+    text while the harness still bounds what the model sees per turn. This
+    cap applies uniformly to every tool's rendered text (not just ``read``'s
+    body content) — a tool that returns a "complete, non-truncated" *matched
+    set* by contract (``outline``, ``node_filter`` — see ``registry.py``)
+    still has its *rendered text* capped here the same as any other tool;
+    that promise is about payload/refs cardinality, not about how much of it
+    is shown to the LLM per turn.
     """
     if result.error:
         return f"error: {result.error}"
@@ -138,9 +183,52 @@ def _tool_message_content(result: ToolResult, *, max_chars: int) -> str:
     omitted = len(text) - max_chars
     return (
         text[:max_chars]
-        + f"\n...[truncated, {omitted} more chars — call corpus.read again "
-        "with a narrower/more specific ref if you need the rest]"
+        + f"\n...[truncated, {omitted} more chars — narrow the scope "
+        "(e.g. depth/path_prefix for outline, a tighter predicate for "
+        "node_filter, or a more specific ref for read) and call again if "
+        "you need the rest]"
     )
+
+
+def _collapse_stale_tool_messages(
+    messages: list[dict[str, Any]],
+    tool_message_log: list[dict[str, Any]],
+    *,
+    current_turn: int,
+    fresh_turns: int,
+) -> None:
+    """Replace tool messages older than ``fresh_turns`` with a placeholder.
+
+    ``messages`` only ever grows within one episode (see module docstring
+    point 1); this is what keeps that growth bounded instead of resending
+    every past tool result on every later turn.
+    """
+    for entry in tool_message_log:
+        if entry["collapsed"]:
+            continue
+        if current_turn - entry["turn_index"] < fresh_turns:
+            continue
+        messages[entry["message_index"]]["content"] = (
+            f"[collapsed: {entry['tool_name']} result from turn "
+            f"{entry['turn_index']} was {entry['original_chars']} chars — "
+            "call the tool again if you need it back in view]"
+        )
+        entry["collapsed"] = True
+
+
+def _dedup_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Dedup by ``(document_id, chunk_id)``, keeping first-seen order."""
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict[str, Any]] = []
+    for ref in refs:
+        document_id = str(ref.get("document_id") or "").strip()
+        chunk_id = str(ref.get("chunk_id") or "").strip()
+        key = (document_id, chunk_id)
+        if not document_id or not chunk_id or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(ref)
+    return deduped
 
 
 async def run_agent_explore_episode(
@@ -166,8 +254,24 @@ async def run_agent_explore_episode(
     stop_reason = "finished"
     result_refs: list[dict[str, Any]] = []
     result_notes = ""
+    # Refs from every corpus.read/corpus.assets call this episode, in call
+    # order — the fallback source when finish's own refs end up empty (see
+    # module docstring point 2).
+    trajectory_refs: list[dict[str, Any]] = []
+    # One entry per appended tool-role message: {message_index, turn_index,
+    # tool_name, original_chars, collapsed} — see _collapse_stale_tool_messages.
+    tool_message_log: list[dict[str, Any]] = []
+    turn_index = 0
 
     while True:
+        turn_index += 1
+        _collapse_stale_tool_messages(
+            messages,
+            tool_message_log,
+            current_turn=turn_index,
+            fresh_turns=_TOOL_MESSAGE_FRESH_TURNS,
+        )
+
         forced_reason = budget.exhausted()
         tool_choice: Any = "auto"
         if forced_reason is not None:
@@ -284,6 +388,17 @@ async def run_agent_explore_episode(
             messages.append(
                 {"role": "tool", "tool_call_id": tc.id, "content": content}
             )
+            tool_message_log.append(
+                {
+                    "message_index": len(messages) - 1,
+                    "turn_index": turn_index,
+                    "tool_name": canonical_name,
+                    "original_chars": len(content),
+                    "collapsed": False,
+                }
+            )
+            if canonical_name in _EVIDENCE_TOOL_NAMES and not tool_result.error:
+                trajectory_refs.extend(tool_result.refs)
             # Turn-level token usage is attributed to the first tool step in
             # this turn (the completion that decided all calls in it); the
             # rest are 0 to avoid double-counting the same LLM usage.
@@ -300,6 +415,15 @@ async def run_agent_explore_episode(
                 )
             )
             first_tool_tokens_recorded = True
+
+    if not result_refs:
+        fallback_refs = _dedup_refs(trajectory_refs)
+        if fallback_refs:
+            result_refs = fallback_refs
+            result_notes = (result_notes + " " if result_notes else "") + (
+                "[refs auto-filled from corpus.read/corpus.assets trajectory; "
+                "finish did not cite any]"
+            )
 
     return EpisodeResult(
         refs=result_refs,

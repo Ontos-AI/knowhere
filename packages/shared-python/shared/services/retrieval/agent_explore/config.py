@@ -95,4 +95,11 @@ If you exhaust your tool budget without a confident answer, call
 `{FINISH_TOOL_NAME}` with your best-effort `refs` (or an empty list plus a
 `notes` explanation of why nothing was found) rather than continuing to
 call other tools.
+
+`refs` is REQUIRED and must not be omitted or left empty if you called
+`corpus.read` (or `corpus.assets`) even once during this exploration: copy
+the `document_id` and `chunk_id`/`section_path` of every section/chunk you
+read that supports your answer into `refs` before calling
+`{FINISH_TOOL_NAME}`. Calling `{FINISH_TOOL_NAME}` with no `refs` after
+having already read relevant content discards that evidence.
 """
