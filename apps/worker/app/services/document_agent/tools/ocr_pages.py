@@ -37,25 +37,22 @@ def _line_score(item: Any) -> float:
 
 
 @worker
-def _run_ocr_worker(queue: Any, page_paths: dict[int, str]) -> None:
+def _run_ocr_worker(queue: Any, page: int, image_path: str) -> None:
     """Run the local OCR model outside the heartbeat-bearing worker process."""
     from rapidocr_onnxruntime import RapidOCR
 
-    engine = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=1)
-    page_lines: dict[int, list[dict[str, Any]]] = {}
-    for page, image_path in page_paths.items():
-        lines: list[dict[str, Any]] = []
-        result, _elapse = engine(image_path)
-        for item in result or []:
-            lines.append(
-                {
-                    "box": _line_box(item),
-                    "text": _line_text(item),
-                    "score": _line_score(item),
-                }
-            )
-        page_lines[page] = lines
-    queue.put({"ok": True, "page_lines": page_lines})
+    engine = RapidOCR(intra_op_num_threads=1, inter_op_num_threads=1)
+    lines: list[dict[str, Any]] = []
+    result, _elapse = engine(image_path)
+    for item in result or []:
+        lines.append(
+            {
+                "box": _line_box(item),
+                "text": _line_text(item),
+                "score": _line_score(item),
+            }
+        )
+    queue.put({"ok": True, "page": page, "lines": lines})
 
 
 @register_tool(
@@ -96,14 +93,15 @@ def ocr_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         if item.get("page") is not None and item.get("png_path")
     }
 
-    page_paths = {
-        page: image_path for page, image_path in png_by_page.items() if page in pages
-    }
-    result = run_in_child_process(_run_ocr_worker, page_paths, timeout=300)
-    page_lines = {
-        int(page): list(lines)
-        for page, lines in (result.get("page_lines") or {}).items()
-    }
+    page_lines: dict[int, list[dict[str, Any]]] = {}
+    for page in pages:
+        image_path = png_by_page.get(page)
+        if not image_path:
+            page_lines[page] = []
+            continue
+        result = run_in_child_process(_run_ocr_worker, page, image_path, timeout=300)
+        result_page = int(result.get("page") or page)
+        page_lines[result_page] = list(result.get("lines") or [])
     page_texts: dict[int, str] = {}
     page_bands: dict[int, PageTextBands] = {}
     for page in pages:
