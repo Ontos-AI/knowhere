@@ -77,7 +77,6 @@ from shared.services.retrieval.agent_explore.shared import (
 )
 from shared.services.retrieval.agent_explore.types import AgentStep, EpisodeResult
 from shared.services.retrieval.agent_tools import REGISTRY, ToolBudget, load_corpus_schema_text
-from shared.services.retrieval.agent_tools import tools as _agent_tools_registered  # noqa: F401
 
 # A tool-role message is kept in full for the turn it was produced plus this
 # many additional turns, then collapsed to a placeholder — see module

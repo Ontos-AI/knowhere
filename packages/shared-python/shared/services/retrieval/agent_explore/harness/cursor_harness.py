@@ -93,7 +93,6 @@ from shared.services.retrieval.agent_tools import (
     ToolResult,
     load_corpus_schema_text,
 )
-from shared.services.retrieval.agent_tools import tools as _agent_tools_registered  # noqa: F401
 
 # Grace period for the underlying agent run to actually stop, after a
 # best-effort run.cancel() following a wall_clock timeout, before this

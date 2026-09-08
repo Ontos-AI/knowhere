@@ -24,7 +24,6 @@ from pydantic import create_model
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.retrieval.agent_tools import REGISTRY, ToolContext, ToolSpec
-from shared.services.retrieval.agent_tools import tools as _agent_tools_registered  # noqa: F401
 
 DbFactory = Callable[[], AsyncContextManager[AsyncSession]]
 

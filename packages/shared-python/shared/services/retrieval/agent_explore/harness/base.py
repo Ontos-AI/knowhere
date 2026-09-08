@@ -39,4 +39,4 @@ class Harness(Protocol):
         so concurrent tool calls (a real Cursor SDK behavior, not just a
         theoretical one — see ``harness/cursor_harness.py``) are always safe.
         """
-        ...
+        raise NotImplementedError
