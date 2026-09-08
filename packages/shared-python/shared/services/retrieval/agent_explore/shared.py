@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from shared.services.retrieval.agent_explore.budget import EpisodeBudget
 from shared.services.retrieval.agent_tools import ToolResult
 
 # Tools whose ToolResult.refs point at evidence the agent has actually looked
@@ -89,6 +90,25 @@ def normalize_finish_refs(raw: Any) -> list[dict[str, Any]]:
         if isinstance(item, dict) and str(item.get("document_id") or "").strip():
             normalized.append(item)
     return normalized
+
+
+def budget_status_line(budget: EpisodeBudget) -> str:
+    """One-line remaining-budget summary appended to a tool observation.
+
+    Neither harness previously surfaced ``EpisodeBudget``'s own counters
+    (``steps_used``/``max_steps``, ``tokens_used``/``token_limit``,
+    elapsed/wall_clock) to the model at all — it had no way to tell "I'm on
+    step 3 of 12" from "I'm on step 11 of 12", so it could not self-regulate
+    when to stop exploring and call ``finish``. This exposes the same
+    ``EpisodeBudget.snapshot()`` data already used for the hard cutoff,
+    reused as a soft signal the model can read every turn.
+    """
+    snap = budget.snapshot()
+    return (
+        f"[budget: steps {snap['steps_used']}/{snap['max_steps']}, "
+        f"tokens {snap['tokens_used']}/{snap['token_limit']}, "
+        f"elapsed {snap['elapsed_seconds']:.0f}s/{snap['wall_clock_seconds']:.0f}s]"
+    )
 
 
 def dedup_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:

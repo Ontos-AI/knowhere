@@ -81,6 +81,7 @@ from shared.services.retrieval.agent_explore.config import (
 from shared.services.retrieval.agent_explore.dispatch import DbFactory, dispatch_tool_call
 from shared.services.retrieval.agent_explore.shared import (
     EVIDENCE_TOOL_NAMES,
+    budget_status_line,
     dedup_refs,
     normalize_finish_refs,
     tool_message_content,
@@ -192,12 +193,17 @@ class CursorHarness:
                 tool_result = ToolResult(text="", error=f"{type(exc).__name__}: {exc}")
             elapsed_ms = int((time.perf_counter() - tool_started) * 1000)
             content = tool_message_content(tool_result, max_chars=tool_budget.max_chars)
+            # Appended per call, unlike openai_harness.py's once-per-turn
+            # placement — this harness has no batched-turn concept exposed to
+            # the host process (see module docstring): each corpus.* dispatch
+            # is the only per-step hook available to surface budget state.
+            content_with_budget = content + "\n" + budget_status_line(budget)
             steps.append(
                 AgentStep(
                     step_index=len(steps),
                     tool_name=tool_name,
                     tool_args=args,
-                    observation_text=content,
+                    observation_text=content_with_budget,
                     error=tool_result.error,
                     elapsed_ms=elapsed_ms,
                     tokens_used_delta=0,
@@ -206,7 +212,7 @@ class CursorHarness:
             )
             if tool_name in EVIDENCE_TOOL_NAMES and not tool_result.error:
                 trajectory_refs.extend(tool_result.refs)
-            return content
+            return content_with_budget
 
         custom_tools: dict[str, Any] = {}
         for spec in REGISTRY.all():

@@ -15,6 +15,11 @@ embedded as-is. If that owner chunk itself still contains an unrelated
 SAME-AS marker (a different leaf's page), it is not recursively resolved in
 this pass — a disclosed scope limit, not a silent gap (the raw marker stays
 visible in the embedded text).
+
+``section_path`` refs are resolved via ``agent_tools.section_path_lookup``:
+exact match first, then a unique segment-bound suffix match when the agent
+omits ancestor segments; ambiguous suffix matches return an error listing
+candidate full paths instead of picking one silently.
 """
 
 from __future__ import annotations
@@ -22,7 +27,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
 from shared.models.database.document import (
     Document,
@@ -45,10 +50,12 @@ from shared.services.retrieval.hydration.result_assembly import (
     _image_display_content,
 )
 from shared.services.retrieval.hydration.row_utils import normalize_chunk_type
-from shared.services.retrieval.search.lexical_text import (
-    normalize_section_path,
-    section_path_from_chunk_path,
+from shared.services.retrieval.agent_tools.section_path_lookup import (
+    resolve_section_path_anchor,
+    section_path_anchor_filter,
+    section_path_subtree_filter,
 )
+from shared.services.retrieval.search.lexical_text import section_path_from_chunk_path
 
 _SAME_AS_MARKER_RE = re.compile(r"\[SAME-AS (.+?) p(\d+)\]")
 _BODY_CHUNK_TYPES = ("text", "page")
@@ -256,12 +263,21 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             errors.append(f"ref for {document_id} needs section_path or chunk_id")
             continue
 
-        normalized = normalize_section_path(section_path)
-        path_filter = DocumentSection.section_path == normalized
-        if mode == "descendants":
-            path_filter = or_(
-                path_filter, DocumentSection.section_path.like(f"{normalized} / %")
-            )
+        resolved_path, path_error = await resolve_section_path_anchor(
+            ctx.db,
+            document_id=document_id,
+            job_result_id=job_result_id,
+            section_path=section_path,
+        )
+        if path_error or not resolved_path:
+            errors.append(path_error or f"unknown section_path for {document_id}")
+            continue
+
+        path_filter = (
+            section_path_subtree_filter(resolved_path)
+            if mode == "descendants"
+            else section_path_anchor_filter(resolved_path)
+        )
         section_rows = (
             (
                 await ctx.db.execute(
@@ -275,9 +291,6 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             .scalars()
             .all()
         )
-        if not section_rows:
-            errors.append(f"unknown section_path for {document_id}: {normalized}")
-            continue
         section_ids = [s.section_id for s in section_rows]
         chunk_rows = (
             await ctx.db.execute(

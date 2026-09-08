@@ -239,6 +239,18 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     fused = merge_channels_rrf(channel_rows, weights, top_k)
 
     lines = [f"candidates={len(fused)}"]
+    if len(fused) < 2:
+        # No tool name named here on purpose — this fires on *every* weak
+        # recall regardless of what a better next step happens to be for
+        # this corpus/query, so it nudges the agent to change approach
+        # without prescribing which other tool to reach for (that's already
+        # covered generically in CORPUS_SCHEMA.md §6's tool-selection table).
+        lines.append(
+            "note: few or no candidates for this phrasing — rephrasing the "
+            "query and calling recall again rarely surfaces more; a "
+            "different exploration approach is more likely to help than "
+            "repeating recall with synonyms."
+        )
     if reserved_requested:
         lines.append(f"note: channels {sorted(reserved_requested)} are reserved, not run")
     if requested_top_k > top_k:

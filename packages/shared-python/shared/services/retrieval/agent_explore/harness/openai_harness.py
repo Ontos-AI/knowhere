@@ -68,6 +68,7 @@ from shared.services.retrieval.agent_explore.config import (
 from shared.services.retrieval.agent_explore.dispatch import DbFactory, dispatch_tool_call
 from shared.services.retrieval.agent_explore.shared import (
     EVIDENCE_TOOL_NAMES,
+    budget_status_line,
     build_wire_tool_name_map,
     dedup_refs,
     normalize_finish_refs,
@@ -363,6 +364,14 @@ class OpenAIHarness:
                     )
                 )
                 first_tool_tokens_recorded = True
+
+            # Appended once per turn, to the last tool message only (not
+            # every AgentStep's recorded observation_text above) — the model
+            # only needs to see current remaining budget once before its next
+            # completion call, not once per parallel tool call in this turn.
+            messages[-1]["content"] = (
+                str(messages[-1]["content"]) + "\n" + budget_status_line(budget)
+            )
 
         if not result_refs:
             fallback_refs = dedup_refs(trajectory_refs)
