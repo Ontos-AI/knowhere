@@ -36,26 +36,27 @@ async def main() -> None:
     match = next(q for q in fixture["queries"] if q["id"] == args.query_id)
     query = match["query"]
 
-    from shared.services.retrieval.agent_explore import episode as episode_mod
+    from shared.services.retrieval.agent_explore.harness import openai_harness
 
-    original_safe_json_loads = episode_mod._safe_json_loads
+    original_safe_json_loads = openai_harness._safe_json_loads
 
     def _spy(raw):
         print(f"[SPY] raw arguments received: {raw!r}")
         return original_safe_json_loads(raw)
 
-    episode_mod._safe_json_loads = _spy
+    openai_harness._safe_json_loads = _spy
 
     from shared.core.database import get_db_context
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
 
     print(f"query: {query!r}")
-    async with get_db_context() as db:
-        result = await episode_mod.run_agent_explore_episode(
-            db=db,
-            user_id="debug_local_user",
-            namespace="default",
-            query=query,
-        )
+    result = await openai_harness.OpenAIHarness().run_episode(
+        db_factory=get_db_context,
+        user_id="debug_local_user",
+        namespace="default",
+        query=query,
+        budget=EpisodeBudget(),
+    )
     print(f"\nfinal refs: {result.refs}")
     print(f"final notes: {result.notes!r}")
     print(f"stop_reason: {result.stop_reason}")

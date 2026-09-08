@@ -216,22 +216,28 @@ async def _run_agent_explore_route(
     Selected when ``RETRIEVAL_AGENTIC_ROUTER=agent_explore``; ``mapnav``
     remains the default route until this one passes its Phase 4 evaluation
     gate. See ``shared/services/retrieval/agent_explore/``.
+
+    Which provider actually runs the tool-calling loop (OpenAI-compatible
+    default, or Cursor SDK) is the separate ``AGENT_EXPLORE_HARNESS`` switch
+    (Phase 3.5) resolved by ``resolve_harness()`` below — independent of
+    this route selection.
     """
     from shared.services.retrieval.agent_explore.bridge import build_decision_trace
-    from shared.services.retrieval.agent_explore.episode import (
-        run_agent_explore_episode,
-    )
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import resolve_harness
     from shared.services.retrieval.agent_explore.ref_resolution import (
         resolve_finish_refs,
     )
     from shared.services.retrieval.trace import TraceRecorder
 
+    harness = resolve_harness()
     episode_started = time.perf_counter()
-    episode = await run_agent_explore_episode(
-        db=context.db,
+    episode = await harness.run_episode(
+        db_factory=open_fresh_database_context,
         user_id=context.user_id,
         namespace=context.namespace,
         query=context.query,
+        budget=EpisodeBudget(),
     )
     logger.info(
         "retrieval agent_explore stage=episode seconds={:.3f} refs={} "

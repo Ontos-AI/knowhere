@@ -2,9 +2,9 @@
 
 Prints, for each LLM turn / tool call: tool name, args, elapsed ms,
 tokens_used_delta (turn-level, attributed to the first tool step — see
-``episode.py``), tokens_used_total (cumulative), observation length (chars
-sent back into the LLM's context), and error. Also prints the final
-``EpisodeResult`` (refs/notes/stop_reason).
+``harness/openai_harness.py``), tokens_used_total (cumulative), observation
+length (chars sent back into the LLM's context), and error. Also prints the
+final ``EpisodeResult`` (refs/notes/stop_reason).
 
 Read-only diagnostic; does not modify any behavior.
 
@@ -12,6 +12,7 @@ Usage:
   cd apps/worker
   uv run python scripts/debug_agent_explore_episode.py --query-id q04
   uv run python scripts/debug_agent_explore_episode.py --query "..." --token-limit 200000
+  uv run python scripts/debug_agent_explore_episode.py --query-id q04 --harness cursor_sdk
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ async def main() -> None:
     parser.add_argument("--user-id", default="debug_local_user")
     parser.add_argument("--namespace", default="default")
     parser.add_argument("--token-limit", type=int, default=None)
+    parser.add_argument("--harness", default=None, choices=["openai", "cursor_sdk"])
     args = parser.parse_args()
 
     query = args.query
@@ -56,19 +58,19 @@ async def main() -> None:
 
     from shared.core.database import get_db_context
     from shared.services.retrieval.agent_explore.budget import EpisodeBudget
-    from shared.services.retrieval.agent_explore.episode import run_agent_explore_episode
+    from shared.services.retrieval.agent_explore.harness import resolve_harness
 
-    budget = EpisodeBudget(token_limit=args.token_limit) if args.token_limit else None
+    budget = EpisodeBudget(token_limit=args.token_limit) if args.token_limit else EpisodeBudget()
+    harness = resolve_harness(args.harness)
 
     print(f"query: {query!r}")
-    async with get_db_context() as db:
-        episode = await run_agent_explore_episode(
-            db=db,
-            user_id=args.user_id,
-            namespace=args.namespace,
-            query=query,
-            budget=budget,
-        )
+    episode = await harness.run_episode(
+        db_factory=get_db_context,
+        user_id=args.user_id,
+        namespace=args.namespace,
+        query=query,
+        budget=budget,
+    )
 
     print(f"\nstop_reason={episode.stop_reason} tokens_used={episode.tokens_used} "
           f"model={episode.model_name}")
