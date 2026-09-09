@@ -199,6 +199,12 @@ async def _run_agent_explore_route(
     )
     from shared.services.retrieval.trace import TraceRecorder
 
+    # End any read transaction created by the route's pre-episode work before
+    # handing control to the external agent/LLM. The episode can outlive
+    # PostgreSQL's idle-in-transaction timeout, so the request session must not
+    # be reused for post-episode database work.
+    await context.db.rollback()
+
     harness = resolve_harness()
     episode_started = time.perf_counter()
     episode = await harness.run_episode(
@@ -222,55 +228,56 @@ async def _run_agent_explore_route(
     # episode.refs are document_id + section_path (what the agent actually
     # sees in tool text); resolve_workflow_references requires chunk_id —
     # see ref_resolution.py's module docstring for why this bridge exists.
-    chunk_refs = await resolve_finish_refs(
-        context.db,
-        user_id=context.user_id,
-        namespace=context.namespace,
-        refs=episode.refs,
-    )
-    resolved = await resolve_workflow_references(
-        db=context.db,
-        user_id=context.user_id,
-        namespace=context.namespace,
-        refs=chunk_refs,
-        revision_pins=context.revision_pins,
-    )
-    assembled_rows = await assemble_retrieval_results(
-        db=context.db,
-        rows=resolved.rows,
-        exclude_document_ids=context.exclude_document_ids,
-        exclude_sections=context.exclude_sections,
-        allowed_chunk_types=context.allowed_chunk_types,
-        revision_pins=context.revision_pins,
-    )
-
     decision_steps = build_decision_trace(episode.steps)
     decision_trace = [step.to_dict() for step in decision_steps]
-    selected_doc_ids = list(
-        {row.get("document_id", "") for row in resolved.rows if row.get("document_id")}
-    )
 
-    trace = TraceRecorder(
-        context.db,
-        user_id=context.user_id,
-        namespace=context.namespace,
-        query=context.query,
-        top_k=context.top_k,
-        chunk_types=context.allowed_chunk_types,
-        policy_name="agent_explore_v1",
-    )
-    await trace.create_run()
-    for step in decision_steps:
-        trace.record_decision_trace_step(step)
-    if episode.stop_reason.startswith("budget_"):
-        trace.record_budget_stop(episode.stop_reason.removeprefix("budget_"))
-    await trace.complete(
-        assembled_rows,
-        "agent_explore",
-        token_count=episode.tokens_used,
-        model_name=episode.model_name,
-        selected_doc_ids=selected_doc_ids,
-    )
+    async with open_fresh_database_context() as final_db:
+        chunk_refs = await resolve_finish_refs(
+            final_db,
+            user_id=context.user_id,
+            namespace=context.namespace,
+            refs=episode.refs,
+        )
+        resolved = await resolve_workflow_references(
+            db=final_db,
+            user_id=context.user_id,
+            namespace=context.namespace,
+            refs=chunk_refs,
+            revision_pins=context.revision_pins,
+        )
+        assembled_rows = await assemble_retrieval_results(
+            db=final_db,
+            rows=resolved.rows,
+            exclude_document_ids=context.exclude_document_ids,
+            exclude_sections=context.exclude_sections,
+            allowed_chunk_types=context.allowed_chunk_types,
+            revision_pins=context.revision_pins,
+        )
+
+        selected_doc_ids = list(
+            {row.get("document_id", "") for row in resolved.rows if row.get("document_id")}
+        )
+        trace = TraceRecorder(
+            final_db,
+            user_id=context.user_id,
+            namespace=context.namespace,
+            query=context.query,
+            top_k=context.top_k,
+            chunk_types=context.allowed_chunk_types,
+            policy_name="agent_explore_v1",
+        )
+        await trace.create_run()
+        for step in decision_steps:
+            trace.record_decision_trace_step(step)
+        if episode.stop_reason.startswith("budget_"):
+            trace.record_budget_stop(episode.stop_reason.removeprefix("budget_"))
+        await trace.complete(
+            assembled_rows,
+            "agent_explore",
+            token_count=episode.tokens_used,
+            model_name=episode.model_name,
+            selected_doc_ids=selected_doc_ids,
+        )
 
     evidence_text = _render_rows_evidence(assembled_rows)
     response = {
@@ -293,4 +300,3 @@ async def _run_agent_explore_route(
             f"chunks | evidence={len(evidence_text)} chars | router=agent_explore"
         ),
     )
-
