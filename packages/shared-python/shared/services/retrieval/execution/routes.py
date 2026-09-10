@@ -6,18 +6,19 @@ from contextlib import AbstractAsyncContextManager
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
 from shared.services.retrieval.execution.reference_resolver import (
     resolve_workflow_references,
 )
-from shared.services.retrieval.hydration.result_assembly import (
-    assemble_retrieval_results,
-)
-from shared.services.retrieval.hydration.evidence_text import render_evidence_blocks
 from shared.services.retrieval.execution.route_types import (
     RetrievalRouteContext,
     RetrievalRouteOutcome,
 )
+from shared.services.retrieval.hydration.evidence_text import render_evidence_blocks
+from shared.services.retrieval.hydration.result_assembly import (
+    assemble_retrieval_results,
+)
+from shared.services.retrieval.search.lexical_text import split_section_path
+from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
 from shared.services.retrieval.search.ranking import rank_retrieval_candidates
 from shared.services.retrieval.search.scoped_corpus import (
     count_scoped_chunks,
@@ -38,6 +39,9 @@ def _evidence_path_header(row: dict) -> str:
         source = row
     file_name = str(source.get("source_file_name") or "").strip()
     section_path = str(source.get("section_path") or "").strip()
+    parts = split_section_path(section_path)
+    if len(parts) > 1:
+        section_path = " / ".join(parts[:-1])
     if file_name and section_path:
         return f"{file_name} / {section_path}"
     return file_name or section_path

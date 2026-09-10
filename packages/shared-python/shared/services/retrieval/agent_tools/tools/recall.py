@@ -155,7 +155,8 @@ async def _term_channel_rows(
         "Fuzzy ranked candidate search for a question when you don't know "
         "where the answer lives. Fuses a path+content BM25 channel with a "
         "term substring channel via RRF. Returns candidates with path and "
-        "snippet, not full content — call corpus.read on the winners."
+        "snippet and document_id, not full content — call corpus.read on "
+        "the winners using that document_id, not the filename."
     ),
     json_schema={
         "type": "object",
@@ -256,8 +257,8 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     for row in fused:
         snippet = build_snippet(str(row.get("content") or row.get("snippet") or ""))
         lines.append(
-            f"- {row.get('source_file_name')} / {row.get('section_path')} "
-            f"score={row.get('score')}: {snippet!r}"
+            f"- {row.get('source_file_name')} ({row.get('document_id')}) / "
+            f"{row.get('section_path')} score={row.get('score')}: {snippet!r}"
         )
 
     return ToolResult(

@@ -180,7 +180,7 @@ async def node_filter(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     header = f"hits={len(matched_sections)}"
     lines = [header]
     for entry in matched_sections:
-        block = [entry["section_path"]]
+        block = [f"{entry['document_id']} / {entry['section_path']}"]
         if entry["summary"]:
             block.append(f"    summary: {entry['summary']}")
         lines.append("\n".join(block))
