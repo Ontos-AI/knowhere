@@ -157,7 +157,10 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if requested_max_results > max_results:
         lines.append(f"note: capped to budget.max_items={ctx.budget.max_items}")
     for r in results:
-        lines.append(f"- {r['source_file_name']} / {r['section_path']}: {r['snippet']!r}")
+        lines.append(
+            f"- {r['source_file_name']} ({r['document_id']}) / {r['section_path']}: "
+            f"{r['snippet']!r}"
+        )
 
     return ToolResult(
         text="\n".join(lines),

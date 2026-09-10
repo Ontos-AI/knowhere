@@ -1,7 +1,7 @@
 from shared.services.retrieval.execution.routes import _render_rows_evidence
 
 
-def test_render_rows_evidence_should_group_by_traceable_path() -> None:
+def test_render_rows_evidence_should_group_siblings_under_parent_path() -> None:
     rows = [
         {
             "chunk_id": "c2",
@@ -31,12 +31,13 @@ def test_render_rows_evidence_should_group_by_traceable_path() -> None:
 
     evidence_text = _render_rows_evidence(rows)
 
-    assert "[E1]" in evidence_text
-    assert "[E2]" in evidence_text
-    assert "[E3]" in evidence_text
-    assert "[§ alpha.pdf / Alpha / One]" in evidence_text
-    assert "[§ alpha.pdf / Alpha / Two]" in evidence_text
-    assert "[§ beta.pdf / Beta / Table]" in evidence_text
+    assert evidence_text.count("[E1]") == 1
+    assert evidence_text.count("[E2]") == 1
+    assert "[E3]" not in evidence_text
+    assert "[§ alpha.pdf / Alpha]" in evidence_text
+    assert "[§ beta.pdf / Beta]" in evidence_text
+    assert "[§ alpha.pdf / Alpha / One]" not in evidence_text
+    assert "[§ alpha.pdf / Alpha / Two]" not in evidence_text
     assert "first section content" in evidence_text
     assert "second section content" in evidence_text
     assert "<table><tr><td>metric</td></tr></table>" in evidence_text
