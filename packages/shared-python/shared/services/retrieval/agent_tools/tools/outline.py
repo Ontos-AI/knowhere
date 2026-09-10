@@ -142,8 +142,9 @@ async def outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             line += f"\n{indent}  summary: {node['summary']}"
         lines.append(line)
 
-    text = f"document={document.source_file_name} sections={len(nodes)}\n" + "\n".join(
-        lines
+    text = (
+        f"document={document.source_file_name} ({document_id}) "
+        f"sections={len(nodes)}\n" + "\n".join(lines)
     )
     return ToolResult(
         text=text,

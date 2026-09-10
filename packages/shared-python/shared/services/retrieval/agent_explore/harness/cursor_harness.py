@@ -66,6 +66,7 @@ import asyncio
 import contextlib
 import json
 import os
+import threading
 import time
 from typing import Any
 
@@ -147,6 +148,15 @@ class CursorHarness:
 
         tool_budget = ToolBudget()
         loop = asyncio.get_running_loop()
+        # The Cursor SDK delivers same-turn parallel tool calls as concurrent
+        # HTTP requests on separate threads (ThreadingHTTPServer in
+        # cursor_sdk._tool_callback) — CORPUS_SCHEMA.md's loop contract
+        # explicitly invites the model to call several independent tools in
+        # one turn. Without this lock, the check-then-increment on
+        # budget.steps_used below is a race: several concurrently-dispatched
+        # calls can each read "not exhausted yet" before any of them
+        # increments, letting more calls through than max_steps allows.
+        budget_lock = threading.Lock()
 
         steps: list[AgentStep] = []
         trajectory_refs: list[dict[str, Any]] = []
@@ -158,21 +168,22 @@ class CursorHarness:
         stop_reason = "finished"
 
         def _dispatch_sync(tool_name: str, args: dict[str, Any]) -> str:
-            if budget.steps_used >= budget.max_steps:
-                steps.append(
-                    AgentStep(
-                        step_index=len(steps),
-                        tool_name=tool_name,
-                        tool_args=args,
-                        observation_text=_BUDGET_EXHAUSTED_MESSAGE,
-                        error="budget_max_steps",
-                        elapsed_ms=0,
-                        tokens_used_delta=0,
-                        tokens_used_total=budget.tokens_used,
+            with budget_lock:
+                if budget.steps_used >= budget.max_steps:
+                    steps.append(
+                        AgentStep(
+                            step_index=len(steps),
+                            tool_name=tool_name,
+                            tool_args=args,
+                            observation_text=_BUDGET_EXHAUSTED_MESSAGE,
+                            error="budget_max_steps",
+                            elapsed_ms=0,
+                            tokens_used_delta=0,
+                            tokens_used_total=budget.tokens_used,
+                        )
                     )
-                )
-                return _BUDGET_EXHAUSTED_MESSAGE
-            budget.record_step()
+                    return _BUDGET_EXHAUSTED_MESSAGE
+                budget.record_step()
             tool_started = time.perf_counter()
             future = asyncio.run_coroutine_threadsafe(
                 dispatch_tool_call(

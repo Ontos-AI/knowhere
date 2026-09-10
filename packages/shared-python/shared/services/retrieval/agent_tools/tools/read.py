@@ -132,6 +132,42 @@ async def _resolve_same_as_markers(
         row["content"] = content
 
 
+def _normalize_read_refs(args: dict[str, Any]) -> list[Any]:
+    """Accept the canonical ``refs`` list, or a flat single-document shorthand.
+
+    Deterministic, not model-guessing: observed live tool calls sometimes
+    hoist ``document_id`` to the top level alongside ``section_path(s)`` /
+    ``chunk_id(s)`` instead of nesting each pair inside ``refs`` — the exact
+    shape the ``json_schema`` above documents. Rather than relying on the
+    model to always match the schema, normalize the known equivalent flat
+    shape here so a well-formed ``document_id`` isn't discarded over an
+    outer-structure mismatch. Does not change behavior when ``refs`` is
+    already a non-empty list.
+    """
+    refs = args.get("refs")
+    if isinstance(refs, list) and refs:
+        return refs
+
+    document_id = str(args.get("document_id") or "").strip()
+    if not document_id:
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    section_path = args.get("section_path")
+    if isinstance(section_path, str) and section_path.strip():
+        normalized.append({"document_id": document_id, "section_path": section_path.strip()})
+    for path in args.get("section_paths") or []:
+        if isinstance(path, str) and path.strip():
+            normalized.append({"document_id": document_id, "section_path": path.strip()})
+    chunk_id = args.get("chunk_id")
+    if isinstance(chunk_id, str) and chunk_id.strip():
+        normalized.append({"document_id": document_id, "chunk_id": chunk_id.strip()})
+    for cid in args.get("chunk_ids") or []:
+        if isinstance(cid, str) and cid.strip():
+            normalized.append({"document_id": document_id, "chunk_id": cid.strip()})
+    return normalized
+
+
 @register_tool(
     name="corpus.read",
     description=(
@@ -174,7 +210,7 @@ async def _resolve_same_as_markers(
     },
 )
 async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-    refs = args.get("refs") or []
+    refs = _normalize_read_refs(args)
     if not refs:
         return ToolResult(text="", error="read requires refs")
     mode = str(args.get("mode") or "self").strip().lower()
@@ -384,8 +420,8 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         lines.append(f"errors: {'; '.join(errors)}")
     for row in assembled:
         lines.append(
-            f"### {row.get('source_file_name')} / {row.get('section_path')} "
-            f"[{row.get('chunk_type')}]"
+            f"### {row.get('source_file_name')} ({row.get('document_id')}) / "
+            f"{row.get('section_path')} [{row.get('chunk_type')}]"
         )
         lines.append(str(row.get("content") or ""))
 
