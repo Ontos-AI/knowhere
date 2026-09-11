@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 from collections.abc import Mapping
 from typing import Any
 
@@ -21,10 +23,13 @@ async def hydrate_connected_target_rows(
     rows: list[dict[str, Any]],
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
+    document_scope: DocumentScope = DocumentScope(),
     revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     if db is None:
         return []
+
+    document_scope = document_scope.excluding(exclude_document_ids)
 
     existing_chunk_ids = {
         str(row.get('chunk_id') or '').strip()
@@ -88,6 +93,7 @@ async def hydrate_connected_target_rows(
         )
         .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
         .join(JobResult, JobResult.id == DocumentChunk.job_result_id)
+        .where(document_scope.predicate(Document.document_id))
         .where(or_(*revision_filters))
         .order_by(DocumentChunk.sort_order)
     )
@@ -118,4 +124,5 @@ async def hydrate_connected_target_rows(
         hydrated_rows,
         exclude_document_ids=exclude_document_ids,
         exclude_sections=exclude_sections,
+        document_scope=document_scope,
     )

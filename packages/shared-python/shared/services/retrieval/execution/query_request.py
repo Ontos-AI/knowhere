@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -34,6 +36,7 @@ class RetrievalQuery:
     use_agentic: bool | None = None
     conversation_id: str | None = None
     llm_config: LLMConfig | None = None
+    include_document_ids: list[str] | None = None
 
     @classmethod
     def from_parameters(
@@ -46,6 +49,7 @@ class RetrievalQuery:
         top_k: int,
         exclude_document_ids: list[str],
         exclude_sections: list[dict[str, str]],
+        include_document_ids: list[str] | None = None,
         chunk_types: set[str] | None = None,
         signal_paths: list[str] | None = None,
         filter_mode: str = "delete",
@@ -66,6 +70,7 @@ class RetrievalQuery:
             top_k=top_k,
             exclude_document_ids=exclude_document_ids,
             exclude_sections=exclude_sections,
+            include_document_ids=include_document_ids,
             chunk_types=chunk_types,
             signal_paths=signal_paths,
             filter_mode=filter_mode,
@@ -88,6 +93,9 @@ class RetrievalQuery:
             text_model = text_provider.model if text_provider is not None else None
             vision_model = vision_provider.model if vision_provider is not None else None
         return {
+            "include_document_ids": (
+                None if self.include_document_ids is None else sorted(set(self.include_document_ids))
+            ),
             "chunk_types": sorted(self.chunk_types) if self.chunk_types else None,
             "signal_paths": self.signal_paths,
             "filter_mode": self.filter_mode,
@@ -121,6 +129,10 @@ class RetrievalQuery:
             top_k=self.top_k,
             exclude_document_ids=self.exclude_document_ids,
             exclude_sections=self.exclude_sections,
+            document_scope=DocumentScope(
+                None if self.include_document_ids is None else frozenset(self.include_document_ids),
+                frozenset(self.exclude_document_ids),
+            ),
             allowed_chunk_types=self.resolve_allowed_chunk_types(),
             chunk_types=self.chunk_types,
             signal_paths=self.signal_paths,

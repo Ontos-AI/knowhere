@@ -27,12 +27,14 @@ uses, so window-slicing constants live in one place.
 
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 from typing import Any
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import Document, DocumentChunk
+from shared.models.database.document import DocumentChunk
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
     ToolResult,
@@ -65,28 +67,13 @@ LIMIT :limit
 """
 
 
-async def _excluded_document_ids(
-    db: AsyncSession, *, user_id: str, namespace: str, document_ids: list[str]
-) -> list[str]:
-    if not document_ids:
-        return []
-    rows = await db.execute(
-        select(Document.document_id)
-        .where(Document.user_id == user_id)
-        .where(Document.namespace == namespace)
-        .where(Document.status == "active")
-        .where(Document.document_id.notin_(document_ids))
-    )
-    return [str(r[0]) for r in rows.all()]
-
-
 async def _term_channel_rows(
     db: AsyncSession,
     *,
     user_id: str,
     namespace: str,
     query: str,
-    document_ids: list[str],
+    document_scope: DocumentScope,
     chunk_types: set[str] | None,
     top_k: int,
 ) -> list[dict[str, Any]]:
@@ -100,10 +87,8 @@ async def _term_channel_rows(
         "needle": needle,
         "limit": top_k,
     }
-    doc_clause = ""
-    if document_ids:
-        doc_clause = "AND d.document_id = ANY(:doc_ids)"
-        params["doc_ids"] = document_ids
+    doc_clause, scope_params = document_scope.sql()
+    params.update(scope_params)
     statement = text(_TERM_CHANNEL_SQL.format(doc_clause=doc_clause))
     unit_rows = [dict(row._mapping) for row in (await db.execute(statement, params)).all()]
     if not unit_rows:
@@ -202,20 +187,19 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             error="no runnable channels requested (vector is reserved, not implemented)",
         )
 
+    document_scope = ctx.document_scope.narrow(document_ids) if document_ids else ctx.document_scope
     channel_rows: list[list[dict[str, Any]]] = []
     weights: list[float] = []
 
     if "path_content" in active_channels:
-        exclude_document_ids = await _excluded_document_ids(
-            ctx.db, user_id=ctx.user_id, namespace=ctx.namespace, document_ids=document_ids
-        )
         discovery = await map_unit_discovery(
             ctx.db,
             user_id=ctx.user_id,
             namespace=ctx.namespace,
             query=query,
             top_k=top_k,
-            exclude_document_ids=exclude_document_ids,
+            exclude_document_ids=[],
+            document_scope=document_scope,
             exclude_sections=[],
             chunk_types=chunk_types,
         )
@@ -228,7 +212,7 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             user_id=ctx.user_id,
             namespace=ctx.namespace,
             query=query,
-            document_ids=document_ids,
+            document_scope=document_scope,
             chunk_types=chunk_types,
             top_k=top_k,
         )

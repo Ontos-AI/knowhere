@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,6 +32,13 @@ class RetrievalRouteContext:
     use_agentic: bool | None
     conversation_id: str | None = None
     revision_pins: RetrievalRevisionPins | None = None
+    document_scope: DocumentScope = DocumentScope()
+
+    def __post_init__(self) -> None:
+        # Direct route callers still supply the pre-existing exclude field.
+        object.__setattr__(
+            self, "document_scope", self.document_scope.excluding(self.exclude_document_ids)
+        )
 
 
 @dataclass(frozen=True)

@@ -47,11 +47,15 @@ async def neighbors(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             .where(Document.user_id == ctx.user_id)
             .where(Document.namespace == ctx.namespace)
             .where(Document.status == "active")
+            .where(ctx.document_scope.predicate(Document.document_id))
         )
     ).scalar_one_or_none()
     if document is None:
         return ToolResult(text="", error=f"unknown document_id: {document_id}")
 
+    allowed_nodes = select(GraphNode.node_id).where(
+        ctx.document_scope.predicate(GraphNode.owner_document_id)
+    )
     node_id = f"doc:{document_id}"
     edges = (
         (
@@ -60,6 +64,8 @@ async def neighbors(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 .where(GraphEdge.user_id == ctx.user_id)
                 .where(GraphEdge.namespace == ctx.namespace)
                 .where(GraphEdge.edge_kind == "related")
+                .where(GraphEdge.source_node_id.in_(allowed_nodes))
+                .where(GraphEdge.target_node_id.in_(allowed_nodes))
                 .where(
                     or_(
                         GraphEdge.source_node_id == node_id,
@@ -81,7 +87,10 @@ async def neighbors(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     peer_nodes = (
         (
             await ctx.db.execute(
-                select(GraphNode).where(GraphNode.node_id.in_(peer_node_ids))
+                select(GraphNode).where(
+                    GraphNode.node_id.in_(peer_node_ids),
+                    ctx.document_scope.predicate(GraphNode.owner_document_id),
+                )
             )
         )
         .scalars()

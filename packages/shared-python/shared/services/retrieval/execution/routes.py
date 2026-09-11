@@ -79,6 +79,7 @@ async def _try_run_small_corpus_route(
         user_id=context.user_id,
         namespace=context.namespace,
         exclude_document_ids=context.exclude_document_ids,
+        document_scope=context.document_scope,
         allowed_chunk_types=context.allowed_chunk_types,
         revision_pins=context.revision_pins,
         max_count=context.top_k + 1,
@@ -97,6 +98,7 @@ async def _try_run_small_corpus_route(
         user_id=context.user_id,
         namespace=context.namespace,
         exclude_document_ids=context.exclude_document_ids,
+        document_scope=context.document_scope,
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
         signal_paths=context.signal_paths or [],
@@ -110,6 +112,7 @@ async def _try_run_small_corpus_route(
         db=context.db,
         rows=all_rows,
         exclude_document_ids=context.exclude_document_ids,
+        document_scope=context.document_scope,
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
         revision_pins=context.revision_pins,
@@ -142,6 +145,7 @@ async def _run_classic_topk_route(
         query=context.query,
         top_k=context.effective_recall_k,
         exclude_document_ids=context.exclude_document_ids,
+        document_scope=context.document_scope,
         exclude_sections=context.exclude_sections,
         chunk_types=context.allowed_chunk_types,
         signal_paths=context.signal_paths,
@@ -165,6 +169,7 @@ async def _run_classic_topk_route(
         db=context.db,
         rows=ranked_rows,
         exclude_document_ids=context.exclude_document_ids,
+        document_scope=context.document_scope,
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
         revision_pins=context.revision_pins,
@@ -217,6 +222,7 @@ async def _run_agent_explore_route(
         namespace=context.namespace,
         query=context.query,
         budget=EpisodeBudget(),
+        document_scope=context.document_scope,
     )
     logger.info(
         "retrieval agent_explore stage=episode seconds={:.3f} refs={} "
@@ -241,6 +247,7 @@ async def _run_agent_explore_route(
             user_id=context.user_id,
             namespace=context.namespace,
             refs=episode.refs,
+            document_scope=context.document_scope,
         )
         resolved = await resolve_workflow_references(
             db=final_db,
@@ -253,6 +260,7 @@ async def _run_agent_explore_route(
             db=final_db,
             rows=resolved.rows,
             exclude_document_ids=context.exclude_document_ids,
+            document_scope=context.document_scope,
             exclude_sections=context.exclude_sections,
             allowed_chunk_types=context.allowed_chunk_types,
             revision_pins=context.revision_pins,

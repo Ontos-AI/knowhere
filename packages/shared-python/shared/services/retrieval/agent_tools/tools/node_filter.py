@@ -114,6 +114,7 @@ async def node_filter(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 .where(Document.user_id == ctx.user_id)
                 .where(Document.namespace == ctx.namespace)
                 .where(Document.status == "active")
+                .where(ctx.document_scope.predicate(Document.document_id))
             )
         )
         .scalars()
