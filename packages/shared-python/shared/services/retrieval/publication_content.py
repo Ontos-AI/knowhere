@@ -13,9 +13,6 @@ from shared.models.database.document import (
     DocumentSection,
 )
 from shared.services.retrieval.map_unit_index import replace_document_map_units
-from shared.services.retrieval.namespace_map_snapshot import (
-    patch_namespace_map_snapshot,
-)
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.serving_manifest import persist_revision_serving_state
 from shared.services.retrieval.search.lexical_text import (
@@ -63,7 +60,7 @@ def replace_document_revision_content(
     scope: DocumentPublicationScope,
     chunks: list[dict[str, Any]],
     section_summaries: dict[str, str] | None = None,
-) -> None:
+) -> dict[str, Any]:
     """Replace retrieval sections and chunks for one published document revision."""
     _delete_existing_revision_content(db, scope=scope)
     section_publisher = DocumentSectionPublisher(
@@ -71,6 +68,7 @@ def replace_document_revision_content(
         scope=scope,
         section_summaries=section_summaries,
     )
+    prepared_chunks: list[tuple[int, dict[str, Any], dict[str, Any], str | None, DocumentSection]] = []
     for index, chunk in enumerate(chunks):
         safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
         chunk_metadata = _get_chunk_metadata(safe_chunk)
@@ -83,6 +81,9 @@ def replace_document_revision_content(
             source_file_name=scope.source_file_name,
         )
         section = section_publisher.ensure_section(section_path)
+        prepared_chunks.append((index, safe_chunk, chunk_metadata, source_path, section))
+    db.flush()
+    for index, safe_chunk, chunk_metadata, source_path, section in prepared_chunks:
         db.add(
             _build_document_chunk(
                 chunk=safe_chunk,
@@ -97,7 +98,7 @@ def replace_document_revision_content(
     replace_document_map_units(db, scope=scope)
     db.flush()
     manifest_payload = persist_revision_serving_state(db, scope=scope)
-    patch_namespace_map_snapshot(db, scope=scope, manifest_payload=manifest_payload)
+    return manifest_payload
 
 
 class DocumentSectionPublisher:
@@ -128,6 +129,7 @@ class DocumentSectionPublisher:
                 continue
 
             ancestor_section = DocumentSection(
+                section_id=f"sec_{uuid4().hex[:12]}",
                 user_id=self._scope.user_id,
                 namespace=self._scope.namespace,
                 document_id=self._scope.document_id,
@@ -141,7 +143,6 @@ class DocumentSectionPublisher:
                 summary=self._section_summaries.get(ancestor_path) or None,
             )
             self._db.add(ancestor_section)
-            self._db.flush()
             self._sections_by_path[ancestor_path] = ancestor_section
 
         return self._sections_by_path[section_path]
