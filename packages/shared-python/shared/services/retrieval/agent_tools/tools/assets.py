@@ -66,6 +66,7 @@ async def assets(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     host_of = [str(c).strip() for c in (args.get("host_of") or []) if str(c).strip()]
 
     scope_filters: list[Any] = [
+        ctx.document_scope.predicate(Document.document_id),
         Document.user_id == ctx.user_id,
         Document.namespace == ctx.namespace,
         Document.status == "active",

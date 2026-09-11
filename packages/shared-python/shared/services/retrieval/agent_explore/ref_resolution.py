@@ -19,6 +19,8 @@ when the agent cites a path without ancestor prefixes.
 
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 from typing import Any
 
 from sqlalchemy import select
@@ -38,8 +40,10 @@ async def resolve_finish_refs(
     user_id: str,
     namespace: str,
     refs: list[dict[str, Any]],
+    document_scope: DocumentScope = DocumentScope(),
 ) -> list[dict[str, Any]]:
     """Return refs with ``chunk_id`` populated; drops refs that don't resolve."""
+    refs = [ref for ref in refs if document_scope.allows(str(ref.get("document_id") or "").strip())]
     document_ids = {
         str(ref.get("document_id") or "").strip() for ref in refs if ref.get("document_id")
     }
@@ -54,6 +58,7 @@ async def resolve_finish_refs(
                 .where(Document.user_id == user_id)
                 .where(Document.namespace == namespace)
                 .where(Document.status == "active")
+                .where(document_scope.predicate(Document.document_id))
             )
         )
         .scalars()

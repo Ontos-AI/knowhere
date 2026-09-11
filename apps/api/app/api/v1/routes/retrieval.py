@@ -32,7 +32,13 @@ class RetrievalQueryRequest(BaseModel):
     )
     query: str
     top_k: int = DEFAULT_TOP_K
-    exclude_document_ids: list[str] = Field(default_factory=list)
+    include_document_ids: list[str] | None = Field(
+        None, description="Document allowlist: null means unrestricted, [] means empty; exclusions win."
+    )
+    exclude_document_ids: list[str] = Field(
+        default_factory=list,
+        description="Documents excluded from every retrieval path. Exclusions override include_document_ids.",
+    )
     exclude_sections: list[ExcludeSection] = Field(default_factory=list)
     data_type: int = Field(
         1,
@@ -190,6 +196,7 @@ async def execute_retrieval_query(
         namespace=normalize_retrieval_namespace(payload.namespace),
         query=payload.query,
         top_k=payload.top_k,
+        include_document_ids=payload.include_document_ids,
         exclude_document_ids=payload.exclude_document_ids,
         exclude_sections=[item.model_dump() for item in payload.exclude_sections],
         chunk_types=resolved_chunk_types,

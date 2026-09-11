@@ -103,6 +103,7 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         document_ids=document_ids,
         chunk_types=chunk_types,
     )
+    filters.append(ctx.document_scope.predicate(Document.document_id))
     content_filter = (
         DocumentChunk.content.op("~*")(pattern)
         if is_regex

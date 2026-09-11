@@ -80,6 +80,7 @@ def _cache_shape_digest(
     llm_text_model: str | None = None,
     llm_vision_model: str | None = None,
     harness: str | None = None,
+    include_document_ids: list[str] | None = None,
 ) -> str:
     normalized_excludes = sorted(exclude_document_ids)
     normalized_sections = _normalize_exclude_sections(exclude_sections)
@@ -101,6 +102,9 @@ def _cache_shape_digest(
         ]
     )
     payload = f"{query}|{top_k}|{'|'.join(normalized_excludes)}|{'|'.join(normalized_sections)}|{extra}"
+    payload += "|document_scope_v1|" + repr(
+        None if include_document_ids is None else sorted(set(include_document_ids))
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 

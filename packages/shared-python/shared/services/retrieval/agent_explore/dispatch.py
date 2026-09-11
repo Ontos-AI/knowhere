@@ -18,6 +18,8 @@ checkout per tool call, never a correctness risk.
 
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Any
@@ -36,6 +38,7 @@ async def dispatch_tool_call(
     db_factory: DbFactory,
     user_id: str,
     namespace: str,
+    document_scope: DocumentScope = DocumentScope(),
     budget: ToolBudget | None = None,
 ) -> ToolResult:
     """Run one ``REGISTRY`` tool call against a fresh, call-scoped DB session.
@@ -49,7 +52,8 @@ async def dispatch_tool_call(
     try:
         async with db_factory() as db:
             tool_ctx = ToolContext(
-                db=db, user_id=user_id, namespace=namespace, budget=budget or ToolBudget()
+                db=db, user_id=user_id, namespace=namespace, budget=budget or ToolBudget(),
+                document_scope=document_scope
             )
             return await REGISTRY.dispatch(name, tool_ctx, args)
     except Exception as exc:  # noqa: BLE001 - one broken tool must not kill the episode

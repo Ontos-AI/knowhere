@@ -14,6 +14,8 @@ that chunk. Failures raise; they are not converted into empty results.
 
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 import json
 import time
 from collections.abc import Mapping
@@ -68,7 +70,7 @@ WITH scoped_units AS (
         AND d.namespace = :namespace
         AND d.status = 'active'
         {revision_clause}
-        {exclude_clause}
+        {document_scope_clause}
         {type_clause}
         {signal_clause}
 )
@@ -88,7 +90,7 @@ WITH scoped_units AS (
         AND d.namespace = :namespace
         AND d.status = 'active'
         {revision_clause}
-        {exclude_clause}
+        {document_scope_clause}
         {type_clause}
 )
 """
@@ -146,14 +148,6 @@ def _build_type_clause(
     return f"AND ({' OR '.join(clauses)})", {}
 
 
-def _build_exclude_clause(exclude_document_ids: list[str]) -> tuple[str, dict[str, Any]]:
-    if not exclude_document_ids:
-        return "", {}
-    return "AND d.document_id <> ALL(:excluded_doc_ids)", {
-        "excluded_doc_ids": list(exclude_document_ids)
-    }
-
-
 def _build_signal_clause(
     signal_paths: list[str], filter_mode: str
 ) -> tuple[str, dict[str, Any]]:
@@ -179,6 +173,7 @@ async def map_unit_discovery(
     top_k: int,
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
+    document_scope: DocumentScope = DocumentScope(),
     chunk_types: set[str] | None = None,
     signal_paths: list[str] | None = None,
     filter_mode: str = "delete",
@@ -201,14 +196,15 @@ async def map_unit_discovery(
     revision_join, revision_clause, revision_params = _build_revision_scope(
         revision_pins
     )
-    exclude_clause, exclude_params = _build_exclude_clause(exclude_document_ids)
+    document_scope = document_scope.excluding(exclude_document_ids)
+    document_scope_clause, document_scope_params = document_scope.sql()
     type_clause, type_params = _build_type_clause(chunk_types)
     signal_clause, signal_params = _build_signal_clause(
         signal_paths or [], filter_mode
     )
     params: dict[str, Any] = {"user_id": user_id, "namespace": namespace}
     params.update(revision_params)
-    params.update(exclude_params)
+    params.update(document_scope_params)
     params.update(type_params)
     params.update(signal_params)
 
@@ -218,13 +214,15 @@ async def map_unit_discovery(
             signal_paths,
             exclude_sections,
             exclude_document_ids,
+            document_scope.include is not None,
+            document_scope.exclude,
         )
     )
 
     cte = _SCOPED_UNITS_CTE.format(
         revision_join=revision_join,
         revision_clause=revision_clause,
-        exclude_clause=exclude_clause,
+        document_scope_clause=document_scope_clause,
         type_clause=type_clause,
         signal_clause=signal_clause,
     )
@@ -266,7 +264,7 @@ async def map_unit_discovery(
     frequency_scope_cte = cte if signal_paths else _SCOPED_UNIT_IDS_CTE.format(
         revision_join=revision_join,
         revision_clause=revision_clause,
-        exclude_clause=exclude_clause,
+        document_scope_clause=document_scope_clause,
         type_clause=type_clause,
     )
     frequency_query = text(
@@ -336,7 +334,7 @@ async def map_unit_discovery(
                 else _SCOPED_UNIT_IDS_CTE.format(
                     revision_join=revision_join,
                     revision_clause=revision_clause,
-                    exclude_clause=exclude_clause,
+                    document_scope_clause=document_scope_clause,
                     type_clause=type_clause,
                 )
             )
@@ -429,7 +427,7 @@ async def map_unit_discovery(
                         _SCOPED_UNIT_IDS_CTE.format(
                             revision_join=revision_join,
                             revision_clause=revision_clause,
-                            exclude_clause=exclude_clause,
+                            document_scope_clause=document_scope_clause,
                             type_clause=type_clause,
                         )
                         + """
@@ -656,6 +654,7 @@ async def map_unit_discovery(
         chunk_types=chunk_types,
         exclude_document_ids=exclude_document_ids,
         exclude_sections=exclude_sections,
+        document_scope=document_scope,
         revision_pins=revision_pins,
     )
     logger.info(
@@ -703,6 +702,7 @@ async def _hydrate_winning_units(
     chunk_types: set[str] | None,
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
+    document_scope: DocumentScope = DocumentScope(),
     revision_pins: Mapping[str, str] | None,
 ) -> list[dict[str, Any]]:
     """Map each winning leaf to its one chunk; asset requests follow connect_to."""
@@ -770,6 +770,7 @@ async def _hydrate_winning_units(
         rows=primaries,
         exclude_document_ids=exclude_document_ids,
         exclude_sections=exclude_sections,
+        document_scope=document_scope,
         revision_pins=revision_pins,
     )
     connected_by_id = {

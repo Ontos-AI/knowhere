@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 from typing import Any
 
 from shared.services.retrieval.search.section_filters import is_excluded_section
@@ -58,12 +60,13 @@ def filter_excluded_rows(
     *,
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
+    document_scope: DocumentScope = DocumentScope(),
 ) -> list[dict[str, Any]]:
     filtered: list[dict[str, Any]] = []
-    excluded_documents = set(exclude_document_ids)
+    document_scope = document_scope.excluding(exclude_document_ids)
     for row in rows:
         document_id = row.get('document_id')
-        if document_id in excluded_documents:
+        if not document_scope.allows(document_id):
             continue
         if is_excluded_section(
             document_id=document_id,

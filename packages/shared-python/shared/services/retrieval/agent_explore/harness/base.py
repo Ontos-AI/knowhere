@@ -10,6 +10,8 @@ per harness.
 
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 from typing import Protocol, runtime_checkable
 
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
@@ -27,6 +29,7 @@ class Harness(Protocol):
         db_factory: DbFactory,
         user_id: str,
         namespace: str,
+        document_scope: DocumentScope = DocumentScope(),
         query: str,
         budget: EpisodeBudget,
     ) -> EpisodeResult:
