@@ -52,6 +52,12 @@ class StorageConfig(BaseModel):
     S3_ADDRESSING_STYLE: str = Field(
         default="auto", description="S3 addressing style: auto, path, or virtual"
     )
+    S3_MAX_POOL_CONNECTIONS: int = Field(
+        default=20,
+        ge=1,
+        le=256,
+        description="Maximum connections retained by the shared S3 client pool.",
+    )
 
     # OSS-only configuration.
     OSS_ENDPOINT: str = Field(
@@ -95,6 +101,15 @@ class StorageConfig(BaseModel):
         ge=1,
         le=10,
         description="Maximum concurrent MinerU API calls for shard parsing.",
+    )
+    RESULT_UPLOAD_CONCURRENCY: int = Field(
+        default=20,
+        ge=1,
+        le=64,
+        description=(
+            "Maximum concurrent raw result-file uploads per materialization. "
+            "ZIP bundles remain single-object uploads."
+        ),
     )
     SUPPORTED_EXTENSIONS: str = Field(
         default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.pptx,.jpg,.jpeg,.png,.md,.html,.htm",
@@ -146,6 +161,7 @@ class StorageConfig(BaseModel):
 
         # Configure retries.
         config_kwargs["retries"] = {"max_attempts": 5, "mode": "standard"}
+        config_kwargs["max_pool_connections"] = self.S3_MAX_POOL_CONNECTIONS
 
         config = Config(**config_kwargs) if config_kwargs else None
 
