@@ -45,6 +45,7 @@ async def list_documents(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
         .where(Document.user_id == ctx.user_id)
         .where(Document.namespace == ctx.namespace)
         .where(Document.status == "active")
+        .where(ctx.document_scope.predicate(Document.document_id))
         .order_by(Document.source_file_name)
     )
     rows = (await ctx.db.execute(stmt)).all()

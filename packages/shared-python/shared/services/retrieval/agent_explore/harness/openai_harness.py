@@ -51,6 +51,8 @@ equivalent hook for:
 
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 import asyncio
 import json
 import time
@@ -175,6 +177,7 @@ class OpenAIHarness:
         db_factory: DbFactory,
         user_id: str,
         namespace: str,
+        document_scope: DocumentScope = DocumentScope(),
         query: str,
         budget: EpisodeBudget,
     ) -> EpisodeResult:
@@ -322,6 +325,7 @@ class OpenAIHarness:
                     db_factory=db_factory,
                     user_id=user_id,
                     namespace=namespace,
+                    document_scope=document_scope,
                     budget=tool_budget,
                 )
                 tool_elapsed_ms = int((time.perf_counter() - tool_started) * 1000)

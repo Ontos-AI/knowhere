@@ -12,6 +12,8 @@ provider-specific (MCP / OpenAI tool-calling) concerns.
 
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -60,6 +62,7 @@ class ToolContext:
     user_id: str
     namespace: str
     budget: ToolBudget = field(default_factory=ToolBudget)
+    document_scope: DocumentScope = DocumentScope()
 
 
 @dataclass

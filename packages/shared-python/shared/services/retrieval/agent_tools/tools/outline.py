@@ -74,6 +74,7 @@ async def outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             .where(Document.user_id == ctx.user_id)
             .where(Document.namespace == ctx.namespace)
             .where(Document.status == "active")
+            .where(ctx.document_scope.predicate(Document.document_id))
         )
     ).scalar_one_or_none()
     if document is None or not document.current_job_result_id:

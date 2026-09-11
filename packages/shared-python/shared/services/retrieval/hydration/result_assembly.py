@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 from collections.abc import Mapping
 from typing import Any
 
@@ -24,6 +26,7 @@ async def assemble_retrieval_results(
     rows: list[dict[str, Any]],
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
+    document_scope: DocumentScope = DocumentScope(),
     allowed_chunk_types: set[str] | None = None,
     revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
@@ -31,6 +34,7 @@ async def assemble_retrieval_results(
         rows,
         exclude_document_ids=exclude_document_ids,
         exclude_sections=exclude_sections,
+        document_scope=document_scope,
     )
     if allowed_chunk_types is not None:
         filtered_rows = [
@@ -42,6 +46,7 @@ async def assemble_retrieval_results(
         rows=filtered_rows,
         exclude_document_ids=exclude_document_ids,
         exclude_sections=exclude_sections,
+        document_scope=document_scope,
         revision_pins=revision_pins,
     )
     rows_by_chunk_id = {

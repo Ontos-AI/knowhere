@@ -62,6 +62,8 @@ therefore enforced (or explicitly not) differently here:
 
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 import asyncio
 import contextlib
 import json
@@ -135,6 +137,7 @@ class CursorHarness:
         db_factory: DbFactory,
         user_id: str,
         namespace: str,
+        document_scope: DocumentScope = DocumentScope(),
         query: str,
         budget: EpisodeBudget,
     ) -> EpisodeResult:
@@ -192,6 +195,7 @@ class CursorHarness:
                     db_factory=db_factory,
                     user_id=user_id,
                     namespace=namespace,
+                    document_scope=document_scope,
                     budget=tool_budget,
                 ),
                 loop,

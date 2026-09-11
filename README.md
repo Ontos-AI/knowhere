@@ -269,6 +269,8 @@ make check
 
 ## Additional Guides
 
+- Retrieval document scope:
+  [docs/retrieval-document-scope.md](docs/retrieval-document-scope.md)
 - External dependency guide:
   [docs/external-services.md](docs/external-services.md)
 - Architecture decisions:

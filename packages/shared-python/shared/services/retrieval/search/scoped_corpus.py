@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shared.services.retrieval.document_scope import DocumentScope
+
 from collections.abc import Mapping
 from typing import Any
 
@@ -76,6 +78,7 @@ async def count_scoped_chunks(
     namespace: str,
     exclude_document_ids: list[str],
     allowed_chunk_types: set[str] | None,
+    document_scope: DocumentScope = DocumentScope(),
     revision_pins: Mapping[str, str] | None = None,
     max_count: int | None = None,
 ) -> int:
@@ -103,8 +106,7 @@ async def count_scoped_chunks(
                 )
             )
         )
-    if exclude_document_ids:
-        stmt = stmt.where(Document.document_id.notin_(list(exclude_document_ids)))
+    stmt = stmt.where(document_scope.excluding(exclude_document_ids).predicate(Document.document_id))
     if allowed_chunk_types is not None:
         stmt = stmt.where(func.lower(DocumentChunk.chunk_type).in_(list(allowed_chunk_types)))
 
@@ -124,6 +126,7 @@ async def load_all_scoped_chunks(
     namespace: str,
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
+    document_scope: DocumentScope = DocumentScope(),
     allowed_chunk_types: set[str] | None,
     signal_paths: list[str],
     filter_mode: str,
@@ -152,8 +155,7 @@ async def load_all_scoped_chunks(
     )
     if revision_pins is None:
         stmt = stmt.where(Document.status == 'active')
-    if exclude_document_ids:
-        stmt = stmt.where(Document.document_id.notin_(list(exclude_document_ids)))
+    stmt = stmt.where(document_scope.excluding(exclude_document_ids).predicate(Document.document_id))
     if allowed_chunk_types is not None:
         stmt = stmt.where(func.lower(DocumentChunk.chunk_type).in_(list(allowed_chunk_types)))
 
