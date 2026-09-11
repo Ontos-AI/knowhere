@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import blake2b
 from pathlib import Path
 from uuid import uuid4
+
+import logfire
 
 from app.services.demo.source_catalog import DemoSourceCatalog, DemoSourceDefinition
 from sqlalchemy.exc import IntegrityError
@@ -23,6 +26,8 @@ from shared.models.database.job_result import JobResult
 from shared.services.retrieval.cache_service import invalidate_retrieval_cache_namespaces
 from shared.services.retrieval.publication_service import RetrievalPublicationService
 from shared.services.retrieval.publication_models import DocumentPublicationScope
+from shared.services.redis import RedisPublicationSemaphore, RedisServiceFactory
+from shared.core.config import settings
 from shared.services.storage.result_storage import get_result_storage
 
 
@@ -50,6 +55,7 @@ class DemoSourceMaterializer:
     ) -> None:
         self._catalog = catalog
         self._publication_service = publication_service or RetrievalPublicationService()
+        self._redis_service = RedisServiceFactory.get_service()
 
     async def materialize_sources(
         self,
@@ -93,12 +99,19 @@ class DemoSourceMaterializer:
         results: list[MaterializedDemoSource] = []
         for source in selected_sources:
             try:
+                semaphore = RedisPublicationSemaphore(
+                    self._redis_service,
+                    concurrency=settings.MATERIALIZATION_DB_PUBLICATION_CONCURRENCY,
+                    lease_seconds=settings.MATERIALIZATION_DB_PUBLICATION_LEASE_SECONDS,
+                    acquire_timeout_seconds=settings.MATERIALIZATION_DB_PUBLICATION_ACQUIRE_TIMEOUT_SECONDS,
+                )
                 result = await self._materialize_source(
                     db,
                     user_id=user_id,
                     namespace=namespace,
                     source=source,
                     claim=claims[source.demo_source_id],
+                    semaphore=semaphore,
                 )
                 results.append(result)
             except Exception:
@@ -122,14 +135,21 @@ class DemoSourceMaterializer:
         namespace: str,
         source: DemoSourceDefinition,
         claim: DemoMaterialization,
+        semaphore: RedisPublicationSemaphore,
     ) -> MaterializedDemoSource:
         document_id = f"doc_{uuid4().hex[:12]}"
         job_id = f"job_demo_{uuid4().hex[:12]}"
         job_result_id = str(uuid4())
         timestamp = _utc_now()
+        stage_started_at = time.perf_counter()
         result_bundle = _upload_demo_result_bundle(
             job_id=job_id,
             source_directory=self._catalog.source_directory(source),
+        )
+        logfire.info(
+            "Demo materialization source bundle upload completed",
+            demo_source_id=source.demo_source_id,
+            duration_seconds=time.perf_counter() - stage_started_at,
         )
 
         db.add(
@@ -170,45 +190,79 @@ class DemoSourceMaterializer:
                 updated_at=timestamp,
             )
         )
-        await db.flush()
         chunks = self._catalog.publication_chunks(source)
-        published_state = await db.run_sync(
-            lambda sync_db: self._publication_service.publish_document_state(
-                sync_db,
-                job_id=job_id,
-                job_result_id=job_result_id,
-                chunks=[dict(chunk) for chunk in chunks],
-                update_namespace_snapshot=False,
-            )
+        stage_started_at = time.perf_counter()
+        wait_seconds = await semaphore.acquire()
+        logfire.info(
+            "Demo materialization publication semaphore acquired",
+            demo_source_id=source.demo_source_id,
+            wait_seconds=wait_seconds,
         )
-        await db.run_sync(
-            lambda sync_db: self._publication_service.publish_document_graph(
-                sync_db,
-                job_id=job_id,
-                job_result_id=job_result_id,
+        try:
+            base_rows_started_at = time.perf_counter()
+            await db.flush()
+            logfire.info(
+                "Demo materialization base rows completed",
+                demo_source_id=source.demo_source_id,
+                duration_seconds=time.perf_counter() - base_rows_started_at,
             )
-        )
-        await db.flush()
-
-        if published_state is None or published_state.document_id != document_id:
-            raise RuntimeError("Demo publication did not create its requested document")
-        if published_state.manifest_payload is None:
-            raise RuntimeError("Demo publication did not create a serving manifest")
-        manifest_payload = published_state.manifest_payload
-        await db.run_sync(
-            lambda sync_db: self._publication_service.update_namespace_snapshot(
-                sync_db,
-                scope=DocumentPublicationScope(
-                    user_id=user_id,
-                    namespace=namespace,
-                    document_id=document_id,
+            published_state = await db.run_sync(
+                lambda sync_db: self._publication_service.publish_document_state(
+                    sync_db,
+                    job_id=job_id,
                     job_result_id=job_result_id,
-                    source_file_name=source.title,
-                ),
-                manifest_payload=manifest_payload,
+                    chunks=[dict(chunk) for chunk in chunks],
+                    update_namespace_snapshot=False,
+                )
             )
-        )
-        await db.commit()
+            await db.run_sync(
+                lambda sync_db: self._publication_service.publish_document_graph(
+                    sync_db,
+                    job_id=job_id,
+                    job_result_id=job_result_id,
+                )
+            )
+            await db.flush()
+            logfire.info(
+                "Demo materialization sections chunks and map index completed",
+                demo_source_id=source.demo_source_id,
+                duration_seconds=time.perf_counter() - stage_started_at,
+                chunk_count=len(chunks),
+            )
+
+            if published_state is None or published_state.document_id != document_id:
+                raise RuntimeError("Demo publication did not create its requested document")
+            if published_state.manifest_payload is None:
+                raise RuntimeError("Demo publication did not create a serving manifest")
+            manifest_payload = published_state.manifest_payload
+            stage_started_at = time.perf_counter()
+            await db.run_sync(
+                lambda sync_db: self._publication_service.update_namespace_snapshot(
+                    sync_db,
+                    scope=DocumentPublicationScope(
+                        user_id=user_id,
+                        namespace=namespace,
+                        document_id=document_id,
+                        job_result_id=job_result_id,
+                        source_file_name=source.title,
+                    ),
+                    manifest_payload=manifest_payload,
+                )
+            )
+            logfire.info(
+                "Demo materialization namespace snapshot completed",
+                demo_source_id=source.demo_source_id,
+                duration_seconds=time.perf_counter() - stage_started_at,
+            )
+            commit_started_at = time.perf_counter()
+            await db.commit()
+            logfire.info(
+                "Demo materialization publication commit completed",
+                demo_source_id=source.demo_source_id,
+                duration_seconds=time.perf_counter() - commit_started_at,
+            )
+        finally:
+            await semaphore.release()
 
         claim.document_id = document_id
         claim.status = "ready"

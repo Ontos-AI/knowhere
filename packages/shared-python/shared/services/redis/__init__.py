@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 __all__ = [
     "RedisService",
     "RedisServiceFactory",
+    "RedisPublicationSemaphore",
+    "SyncRedisPublicationSemaphore",
     "RedisMonitor",
     "RedisAlertManager",
     "RedisAlertNotifier",
@@ -38,6 +40,8 @@ __all__ = [
 _EXPORT_MODULES: dict[str, str] = {
     "RedisService": "shared.services.redis.redis_service",
     "RedisServiceFactory": "shared.services.redis.redis_service_factory",
+    "RedisPublicationSemaphore": "shared.services.redis.publication_semaphore",
+    "SyncRedisPublicationSemaphore": "shared.services.redis.publication_semaphore",
     "RedisMonitor": "shared.services.redis.redis_monitor",
     "RedisAlertManager": "shared.services.redis.redis_alerts",
     "RedisAlertNotifier": "shared.services.redis.redis_alerts",
