@@ -11,6 +11,10 @@ if TYPE_CHECKING:
     from .key_builder import RedisKeyBuilder, RedisKeyType, redis_key_builder
     from .redis_alerts import AlertRule, RedisAlertManager, RedisAlertNotifier
     from .redis_monitor import RedisMonitor
+    from .publication_semaphore import (
+        RedisPublicationSemaphore,
+        SyncRedisPublicationSemaphore,
+    )
     from .redis_service import RedisService
     from .redis_service_factory import RedisServiceFactory
     from .retry_policy import RedisHealthChecker, RedisRetry
