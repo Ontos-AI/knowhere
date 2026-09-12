@@ -298,6 +298,32 @@ class RedisService:
                 original_exception=e,
             )
 
+    async def eval(
+        self, script: str, keys: list[str], args: list[Any] | None = None
+    ) -> Any:
+        """Execute a Lua script with consistently namespaced keys."""
+        try:
+            client = await self._get_client()
+            full_keys = [self._build_key(key) for key in keys]
+
+            async def _operation() -> Any:
+                return await _await_redis_result(
+                    client.eval(
+                        script,
+                        len(full_keys),
+                        *(full_keys + (args or [])),
+                    )
+                )
+
+            return await self._execute_with_retry(_operation)
+        except Exception as e:
+            logger.error(f"Redis EVAL operation failed: {e}")
+            raise RedisOperationError(
+                internal_message=f"EVAL operation failed: {str(e)}",
+                operation="EVAL",
+                original_exception=e,
+            )
+
     # ==================== List Operations ====================
 
     async def lpush(self, key: str, *values: Any) -> int:
