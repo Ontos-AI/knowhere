@@ -43,6 +43,13 @@ def test_aws_s3_uses_default_credential_chain_when_keys_are_empty(
     assert client_arguments["region_name"] == "us-east-1"
     assert "aws_access_key_id" not in client_arguments
     assert "aws_secret_access_key" not in client_arguments
+    assert client_arguments["config"].max_pool_connections == 20
+
+
+def test_result_upload_concurrency_defaults_to_twenty() -> None:
+    config: StorageConfig = create_storage_config()
+
+    assert config.RESULT_UPLOAD_CONCURRENCY == 20
 
 
 def test_aws_s3_passes_complete_explicit_credentials(

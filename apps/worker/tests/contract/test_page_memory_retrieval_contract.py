@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import shutil
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -29,6 +31,7 @@ from shared.services.retrieval.settings import normalize_chunk_types  # noqa: E4
 from shared.services.retrieval.execution.reference_resolver import (  # noqa: E402
     resolve_workflow_references,
 )
+from shared.core.exceptions.domain_exceptions import StorageServiceException  # noqa: E402
 from shared.services.storage.result_storage import JobResultStorage  # noqa: E402
 from shared.services.storage.page_pdf_crop import crop_source_pdf_pages  # noqa: E402
 
@@ -267,7 +270,9 @@ def test_result_storage_upload_filters_to_referenced_artifacts(tmp_path) -> None
         def __init__(self) -> None:
             self.uploaded_keys: list[str] = []
 
-        def upload_file(self, local_path: str, key: str, bucket: str | None = None):
+        def upload_file(
+            self, local_path: str, key: str, bucket: str | None = None
+        ) -> dict[str, str]:
             del local_path, bucket
             self.uploaded_keys.append(key)
             return {"key": key}
@@ -320,6 +325,173 @@ def test_result_storage_upload_filters_to_referenced_artifacts(tmp_path) -> None
     assert "results/job-1/pages/page-999.png" not in adapter.uploaded_keys
     assert "results/job-1/page_citation_assets/page-999.png" not in adapter.uploaded_keys
     assert "results/job-1/debug.csv" not in adapter.uploaded_keys
+
+
+def test_result_storage_uploads_raw_files_with_bounded_concurrency(tmp_path) -> None:
+    class ConcurrentStorageAdapter:
+        def __init__(self) -> None:
+            self.uploaded_keys: list[str] = []
+            self.active_uploads = 0
+            self.maximum_active_uploads = 0
+            self.lock = threading.Lock()
+
+        def upload_file(
+            self, local_path: str, key: str, bucket: str | None = None
+        ) -> dict[str, str]:
+            del local_path, bucket
+            with self.lock:
+                self.active_uploads += 1
+                self.maximum_active_uploads = max(
+                    self.maximum_active_uploads,
+                    self.active_uploads,
+                )
+            time.sleep(0.01)
+            with self.lock:
+                self.uploaded_keys.append(key)
+                self.active_uploads -= 1
+            return {"key": key}
+
+        def generate_presigned_url(self, *args, **kwargs) -> str:
+            del args, kwargs
+            return "https://assets.example.test/file"
+
+    result_dir = tmp_path / "result"
+    result_dir.mkdir()
+    for index in range(8):
+        (result_dir / f"asset-{index}.bin").write_bytes(b"asset")
+    zip_path = tmp_path / "result.zip"
+    zip_path.write_bytes(b"zip")
+    adapter = ConcurrentStorageAdapter()
+    storage = JobResultStorage(
+        results_bucket="test-results",
+        storage_adapter=adapter,  # type: ignore[arg-type]
+        upload_concurrency=3,
+    )
+
+    bundle = storage.upload(
+        job_id="job-concurrent",
+        result_dir=str(result_dir),
+        zip_file_path=str(zip_path),
+    )
+
+    assert len(bundle.raw_files) == 8
+    assert adapter.maximum_active_uploads <= 3
+    assert adapter.maximum_active_uploads > 1
+
+
+def test_result_storage_bounds_uploads_across_concurrent_tasks(tmp_path) -> None:
+    class ProcessStorageAdapter:
+        def __init__(self) -> None:
+            self.active_uploads = 0
+            self.maximum_active_uploads = 0
+            self.lock = threading.Lock()
+
+        def upload_file(
+            self, local_path: str, key: str, bucket: str | None = None
+        ) -> dict[str, str]:
+            del local_path, bucket
+            if key.endswith(".zip"):
+                return {"key": key}
+            with self.lock:
+                self.active_uploads += 1
+                self.maximum_active_uploads = max(
+                    self.maximum_active_uploads,
+                    self.active_uploads,
+                )
+            time.sleep(0.02)
+            with self.lock:
+                self.active_uploads -= 1
+            return {"key": key}
+
+        def generate_presigned_url(self, *args, **kwargs) -> str:
+            del args, kwargs
+            return "https://assets.example.test/file"
+
+    def create_result_directory(name: str) -> tuple[Path, Path]:
+        result_dir = tmp_path / name
+        result_dir.mkdir()
+        for index in range(8):
+            (result_dir / f"asset-{index}.bin").write_bytes(b"asset")
+        zip_path = tmp_path / f"{name}.zip"
+        zip_path.write_bytes(b"zip")
+        return result_dir, zip_path
+
+    adapter = ProcessStorageAdapter()
+    first_result_dir, first_zip_path = create_result_directory("first-result")
+    second_result_dir, second_zip_path = create_result_directory("second-result")
+    first_storage = JobResultStorage(
+        storage_adapter=adapter,  # type: ignore[arg-type]
+        upload_concurrency=3,
+    )
+    second_storage = JobResultStorage(
+        storage_adapter=adapter,  # type: ignore[arg-type]
+        upload_concurrency=3,
+    )
+    failures: list[Exception] = []
+
+    def upload_result(
+        storage: JobResultStorage,
+        job_id: str,
+        result_dir: Path,
+        zip_path: Path,
+    ) -> None:
+        try:
+            storage.upload(
+                job_id=job_id,
+                result_dir=str(result_dir),
+                zip_file_path=str(zip_path),
+            )
+        except Exception as exc:
+            failures.append(exc)
+
+    first_thread = threading.Thread(
+        target=upload_result,
+        args=(first_storage, "first-job", first_result_dir, first_zip_path),
+    )
+    second_thread = threading.Thread(
+        target=upload_result,
+        args=(second_storage, "second-job", second_result_dir, second_zip_path),
+    )
+
+    first_thread.start()
+    second_thread.start()
+    first_thread.join()
+    second_thread.join()
+
+    assert failures == []
+    assert adapter.maximum_active_uploads == 3
+
+
+def test_result_storage_upload_propagates_raw_file_failure(tmp_path) -> None:
+    class FailingStorageAdapter:
+        def upload_file(self, local_path: str, key: str, bucket: str | None = None):
+            del local_path, bucket
+            if key.endswith("asset-2.bin"):
+                raise RuntimeError("upload failed")
+            return {"key": key}
+
+        def generate_presigned_url(self, *args, **kwargs) -> str:
+            del args, kwargs
+            return "https://assets.example.test/file"
+
+    result_dir = tmp_path / "result"
+    result_dir.mkdir()
+    for index in range(4):
+        (result_dir / f"asset-{index}.bin").write_bytes(b"asset")
+    zip_path = tmp_path / "result.zip"
+    zip_path.write_bytes(b"zip")
+    storage = JobResultStorage(
+        results_bucket="test-results",
+        storage_adapter=FailingStorageAdapter(),  # type: ignore[arg-type]
+        upload_concurrency=2,
+    )
+
+    with pytest.raises(StorageServiceException, match="Storage upload failed|upload failed"):
+        storage.upload(
+            job_id="job-failure",
+            result_dir=str(result_dir),
+            zip_file_path=str(zip_path),
+        )
 
 
 def test_crop_source_pdf_pages_uploads_and_reuses_page_pdf_cache(tmp_path) -> None:

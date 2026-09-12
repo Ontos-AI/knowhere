@@ -365,7 +365,7 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
 
     assert empty_cached_response.status_code == 200
     assert first_response.status_code == 200
-    assert retry_response.status_code == 200
+    assert retry_response.status_code == 409
     assert retrieval_response.status_code == 200
     assert document_chunks_response.status_code == 200
 
@@ -373,12 +373,10 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
     assert cast(list[dict[str, Any]], empty_cached_body["results"]) == []
 
     first_source = cast(dict[str, Any], first_response.json()["sources"][0])
-    retry_source = cast(dict[str, Any], retry_response.json()["sources"][0])
     document_id = str(first_source["document_id"])
 
     assert first_source["status"] == "created"
-    assert retry_source["status"] == "existing"
-    assert retry_source["document_id"] == document_id
+    assert retry_response.json()["error"]["details"]["reason"] == "ALREADY_EXISTS"
 
     materialization_rows = await ContractDatabase.fetch_all(
         """
@@ -517,7 +515,39 @@ async def test_should_materialize_each_normalized_demo_source_once_per_request(
 
 
 @pytest.mark.asyncio
-async def test_should_serialize_concurrent_first_demo_materialization(
+async def test_should_reject_sequential_duplicate_demo_materialization(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    fake_result_storage = FakeResultStorage()
+
+    async with developer_api_client_factory() as api_client:
+        import app.services.demo.source_materializer as source_materializer_module
+
+        monkeypatch.setattr(
+            source_materializer_module,
+            "get_result_storage",
+            lambda: fake_result_storage,
+        )
+        first_response = await api_client.post(
+            "/api/v1/demo/materializations",
+            json={"namespace": "contract-demo-duplicate", "demo_source_ids": [DEMO_SOURCE_ID]},
+        )
+        second_response = await api_client.post(
+            "/api/v1/demo/materializations",
+            json={"namespace": "contract-demo-duplicate", "demo_source_ids": [DEMO_SOURCE_ID]},
+        )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 409
+    assert second_response.json()["error"]["details"]["reason"] == "ALREADY_EXISTS"
+    assert len(fake_result_storage.raw_files_by_job_id) == 1
+
+
+@pytest.mark.asyncio
+async def test_should_reject_concurrent_duplicate_demo_materialization(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
@@ -550,19 +580,12 @@ async def test_should_serialize_concurrent_first_demo_materialization(
             ),
         )
 
-    assert first_response.status_code == 200
-    assert second_response.status_code == 200
-
-    first_source = cast(dict[str, Any], first_response.json()["sources"][0])
-    second_source = cast(dict[str, Any], second_response.json()["sources"][0])
-    document_ids = {
-        str(first_source["document_id"]),
-        str(second_source["document_id"]),
-    }
-    statuses = {str(first_source["status"]), str(second_source["status"])}
-
-    assert len(document_ids) == 1
-    assert statuses == {"created", "existing"}
+    statuses = {first_response.status_code, second_response.status_code}
+    assert statuses == {200, 409}
+    conflict_response = (
+        first_response if first_response.status_code == 409 else second_response
+    )
+    assert conflict_response.json()["error"]["details"]["reason"] == "ABORTED"
 
     materialization_rows = await ContractDatabase.fetch_all(
         """
@@ -585,12 +608,8 @@ async def test_should_serialize_concurrent_first_demo_materialization(
         {"demo_source_id": DEMO_SOURCE_ID},
     )
 
-    assert materialization_rows == [
-        {
-            "demo_source_id": DEMO_SOURCE_ID,
-            "document_id": next(iter(document_ids)),
-        }
-    ]
+    assert len(materialization_rows) == 1
+    assert materialization_rows[0]["document_id"] is not None
     assert len(job_rows) == 1
 
 

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import os
+import threading
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 from loguru import logger
 
+from shared.core.config import settings
 from shared.services.storage.job_file_storage import JobFileStorage
 from shared.services.storage.storage_adapter import StorageAdapter
 
@@ -15,6 +18,9 @@ _EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
 _EXCLUDED_DIR_NAMES = {"tmp", "temp", "__pycache__"}
 _CLIENT_ARTIFACT_DIRS = {"images", "tables", "page_pdfs", "page_citation_assets"}
 _INTERNAL_RAW_FILES = {"source.pdf"}
+_MAX_RESULT_UPLOAD_CONCURRENCY = 64
+_upload_executor_lock = threading.Lock()
+_upload_executors: dict[int, ThreadPoolExecutor] = {}
 
 
 @dataclass(frozen=True)
@@ -58,12 +64,17 @@ class JobResultStorage:
         *,
         results_bucket: str | None = None,
         storage_adapter: StorageAdapter | None = None,
+        upload_concurrency: int | None = None,
     ) -> None:
         self._job_file_storage = JobFileStorage(
             storage_adapter=storage_adapter,
             results_bucket=results_bucket,
         )
         self.results_bucket = self._job_file_storage.results_bucket
+        configured_concurrency = getattr(settings, "RESULT_UPLOAD_CONCURRENCY", 20)
+        self.upload_concurrency = self._validate_upload_concurrency(
+            configured_concurrency if upload_concurrency is None else upload_concurrency
+        )
 
     def build_zip_key(self, *, job_id: str) -> str:
         return self._job_file_storage.build_result_zip_key(job_id=job_id)
@@ -109,25 +120,73 @@ class JobResultStorage:
         )
         self._cleanup_file(zip_path)
 
-        raw_files: dict[str, str] = {}
         artifact_ref_filter = self._normalize_artifact_refs(artifact_refs)
-        for file_path in self._iter_raw_files(result_path):
-            relative_path = file_path.relative_to(result_path).as_posix()
-            if artifact_ref_filter is not None and relative_path not in artifact_ref_filter:
-                continue
-            raw_key = self.build_raw_key(job_id=job_id, relative_path=relative_path)
-            self._job_file_storage.upload_local_file(
-                str(file_path),
-                raw_key,
-                bucket=self.results_bucket,
+        upload_items = [
+            (
+                file_path,
+                file_path.relative_to(result_path).as_posix(),
             )
-            raw_files[relative_path] = raw_key
+            for file_path in self._iter_raw_files(result_path)
+            if artifact_ref_filter is None
+            or file_path.relative_to(result_path).as_posix() in artifact_ref_filter
+        ]
+        executor = self._get_upload_executor()
+        futures = [
+            executor.submit(
+                self._upload_raw_file,
+                job_id=job_id,
+                file_path=file_path,
+                relative_path=relative_path,
+            )
+            for file_path, relative_path in upload_items
+        ]
+        try:
+            uploaded_items = [future.result() for future in futures]
+        except Exception:
+            for future in futures:
+                future.cancel()
+            raise
+        raw_files = dict(uploaded_items)
 
         return UploadedResultBundle(
             zip_key=zip_key,
             raw_prefix=self.build_raw_prefix(job_id=job_id),
             raw_files=raw_files,
         )
+
+    def _upload_raw_file(
+        self,
+        *,
+        job_id: str,
+        file_path: Path,
+        relative_path: str,
+    ) -> tuple[str, str]:
+        raw_key = self.build_raw_key(job_id=job_id, relative_path=relative_path)
+        self._job_file_storage.upload_local_file(
+            str(file_path),
+            raw_key,
+            bucket=self.results_bucket,
+        )
+        return relative_path, raw_key
+
+    def _validate_upload_concurrency(self, upload_concurrency: int) -> int:
+        if not 1 <= upload_concurrency <= _MAX_RESULT_UPLOAD_CONCURRENCY:
+            raise ValueError(
+                "upload_concurrency must be between 1 and "
+                f"{_MAX_RESULT_UPLOAD_CONCURRENCY}"
+            )
+        return upload_concurrency
+
+    def _get_upload_executor(self) -> ThreadPoolExecutor:
+        with _upload_executor_lock:
+            executor = _upload_executors.get(self.upload_concurrency)
+            if executor is None:
+                executor = ThreadPoolExecutor(
+                    max_workers=self.upload_concurrency,
+                    thread_name_prefix="result-upload",
+                )
+                _upload_executors[self.upload_concurrency] = executor
+            return executor
 
     def generate_url(self, *, storage_key: str, expires_in: int = 3600) -> str | None:
         return self._job_file_storage.generate_download_url(
