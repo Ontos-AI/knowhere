@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
+os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
+os.environ.setdefault("S3_BUCKET_NAME", "test-uploads")
+os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
+os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
+os.environ.setdefault("S3_TEMP_PATH", "/tmp")
+
 import pytest
 
 from shared.services.retrieval.hydration.asset_inline import (
@@ -159,6 +168,84 @@ async def test_asset_type_filter_keeps_body_that_connects_to_requested_asset(
     assert [row["chunk_id"] for row in assembled] == ["text-1"]
     assert display_marker in assembled[0]["content"]
     assert "资产说明" in assembled[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_assemble_inlines_connected_image_without_placeholder() -> None:
+    """#206: connect_to image must be inlined, not dropped from both surfaces."""
+    rows = [
+        {
+            "chunk_id": "text-1",
+            "chunk_type": "text",
+            "content": "The process is illustrated below.",
+            "chunk_metadata": {
+                "connect_to": [
+                    {
+                        "target": "image-1",
+                        "relation": "embeds",
+                        "ref": "[images/flow.png]",
+                    }
+                ]
+            },
+        },
+        {
+            "chunk_id": "image-1",
+            "chunk_type": "image",
+            "content": "Flowchart of the ingestion pipeline.",
+            "file_path": "images/flow.png",
+            "asset_url": "https://assets.example.com/job-synth/images/flow.png",
+        },
+    ]
+    assembled = await assemble_retrieval_results(
+        rows=rows,
+        exclude_document_ids=[],
+        exclude_sections=[],
+    )
+    assert [row["chunk_id"] for row in assembled] == ["text-1"]
+    content = assembled[0]["content"]
+    assert "[images/" not in content
+    assert "[Image: https://assets.example.com/job-synth/images/flow.png]" in content
+    assert "Flowchart of the ingestion pipeline." in content
+    assert "The process is illustrated below." in content
+
+
+@pytest.mark.asyncio
+async def test_assemble_inserts_image_at_placeholder() -> None:
+    rows = [
+        {
+            "chunk_id": "text-1",
+            "chunk_type": "text",
+            "content": "see [images/a.png] end",
+            "chunk_metadata": {
+                "connect_to": [
+                    {
+                        "target": "img-1",
+                        "relation": "embeds",
+                        "ref": "[images/a.png]",
+                    }
+                ]
+            },
+        },
+        {
+            "chunk_id": "img-1",
+            "chunk_type": "image",
+            "content": "chart summary",
+            "file_path": "images/a.png",
+        },
+    ]
+    assembled = await assemble_retrieval_results(
+        rows=rows,
+        exclude_document_ids=[],
+        exclude_sections=[],
+    )
+    assert len(assembled) == 1
+    content = assembled[0]["content"]
+    assert "[images/" not in content
+    assert content.index("see") < content.index("[Image:")
+    assert content.index("[Image:") < content.index("end")
+    assert "[Image: images/a.png]" in content
+    assert "chart summary" in content
+    assert content.count("[Image:") == 1
 
 
 def test_node_unit_span_inlines_section_assets() -> None:
