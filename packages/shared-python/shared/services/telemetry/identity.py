@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
-import fcntl
 import os
+import sys
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import IO
 from uuid import UUID, uuid4
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
+
+_PROCESS_LOCK = threading.Lock()
 
 
 def get_or_create_installation_id(
@@ -27,8 +38,7 @@ def get_or_create_installation_id(
     lock_path = installation_id_path.with_suffix(f"{installation_id_path.suffix}.lock")
 
     with lock_path.open("a+", encoding="utf-8") as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
+        with _exclusive_file_lock(lock_file):
             existing_installation_id = _read_valid_installation_id(
                 installation_id_path
             )
@@ -41,8 +51,46 @@ def get_or_create_installation_id(
                 generated_installation_id,
             )
             return generated_installation_id
+
+
+@contextmanager
+def _exclusive_file_lock(lock_file: IO[str]) -> Iterator[None]:
+    """Cross-process file lock plus an in-process mutex.
+
+    POSIX uses ``fcntl.flock``. Windows ``msvcrt.locking`` is per-process, so a
+    thread lock is required for concurrent callers in the same interpreter.
+    """
+    with _PROCESS_LOCK:
+        _lock_exclusive(lock_file)
+        try:
+            yield
         finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            _unlock_exclusive(lock_file)
+
+
+def _lock_exclusive(lock_file: IO[str]) -> None:
+    if sys.platform == "win32":
+        _ensure_lock_byte(lock_file)
+        lock_file.seek(0)
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+        return
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+
+
+def _unlock_exclusive(lock_file: IO[str]) -> None:
+    if sys.platform == "win32":
+        lock_file.seek(0)
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        return
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _ensure_lock_byte(lock_file: IO[str]) -> None:
+    lock_file.seek(0, os.SEEK_END)
+    if lock_file.tell() == 0:
+        lock_file.write("0")
+        lock_file.flush()
+        os.fsync(lock_file.fileno())
 
 
 def _read_valid_installation_id(installation_id_path: Path) -> str:
