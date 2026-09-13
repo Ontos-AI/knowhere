@@ -451,9 +451,13 @@ async def map_unit_discovery(
         has_index_storage_mismatch = indexed_unit_count != int(
             actual_unit_count or 0
         ) or indexed_token_count != int(actual_token_count or 0)
+    # Equality against indexes.unit_count is only valid when unit_rows is the
+    # full inventory of those revisions. Image/table type filters, signal
+    # paths, and exclude_sections load a subset, so require the looser
+    # undercount check used for unfiltered token projection.
     has_index_unit_count_mismatch = (
         indexed_unit_count < len(unit_rows)
-        if is_unfiltered_scope
+        if is_unfiltered_scope or type_clause or signal_paths or exclude_sections
         else indexed_unit_count != len(unit_rows)
     )
     is_index_format_incompatible = any(
@@ -488,8 +492,9 @@ async def map_unit_discovery(
             _token_count,
         ) in index_parts
     )
+    has_revision_coverage_mismatch = len(index_parts) != len(expected_revisions)
     has_unusable_index = (
-        len(index_parts) != len(expected_revisions)
+        has_revision_coverage_mismatch
         or has_index_unit_count_mismatch
         or has_index_storage_mismatch
         or is_index_format_incompatible
@@ -505,11 +510,24 @@ async def map_unit_discovery(
             )
         except Exception as exc:
             logger.warning("retrieval index readiness publish failed: %s", exc)
+        if has_revision_coverage_mismatch:
+            unusable_reason = "revision_coverage"
+        elif is_index_format_incompatible:
+            unusable_reason = "format"
+        elif has_index_storage_mismatch:
+            unusable_reason = "storage"
+        else:
+            unusable_reason = "unit_count_mismatch"
+        chunk_types_label = (
+            ",".join(sorted(chunk_types)) if chunk_types else "none"
+        )
         raise RuntimeError(
             "retrieval map-unit index is incomplete or incompatible "
-            f"(user_id={user_id} namespace={namespace} "
+            f"(reason={unusable_reason} user_id={user_id} namespace={namespace} "
             f"expected_revisions={len(expected_revisions)} "
-            f"indexed_revisions={len(index_parts)})"
+            f"indexed_revisions={len(index_parts)} "
+            f"indexed_unit_count={indexed_unit_count} unit_rows={len(unit_rows)} "
+            f"unfiltered={is_unfiltered_scope} chunk_types={chunk_types_label})"
         )
     if has_incomplete_index_statistics:
         logger.warning(

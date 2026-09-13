@@ -47,6 +47,22 @@ class DatabaseConfig(BaseModel):
         default=50, description="Celery gevent worker concurrency"
     )
 
+    MATERIALIZATION_DB_PUBLICATION_CONCURRENCY: int = Field(
+        default=2,
+        ge=1,
+        description="Maximum concurrent materialization database publications",
+    )
+    MATERIALIZATION_DB_PUBLICATION_LEASE_SECONDS: int = Field(
+        default=900,
+        ge=60,
+        description="Redis lease duration for a materialization publication permit",
+    )
+    MATERIALIZATION_DB_PUBLICATION_ACQUIRE_TIMEOUT_SECONDS: float = Field(
+        default=30.0,
+        ge=0.1,
+        description="Maximum time to wait for a materialization publication permit",
+    )
+
     def get_ssl_connect_args(self) -> dict:
         """Return SSL connect args for psycopg2."""
         ssl_args = {"sslmode": self.DB_SSL_MODE}

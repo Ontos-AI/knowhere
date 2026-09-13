@@ -6,7 +6,7 @@ from collections import Counter
 from hashlib import sha256
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import Table, delete, insert, select
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import (
@@ -28,6 +28,8 @@ from shared.services.retrieval.scoring.score_units import build_score_units
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 
 __all__ = ["MAP_UNIT_INDEX_FORMAT_VERSION", "replace_document_map_units"]
+
+_BULK_INSERT_BATCH_SIZE = 5_000
 
 
 def replace_document_map_units(
@@ -86,6 +88,8 @@ def replace_document_map_units(
     )
     persisted_count = 0
     token_count = 0
+    map_unit_rows: list[dict[str, object]] = []
+    token_rows: list[dict[str, object]] = []
     path_unit_df: Counter[str] = Counter()
     content_unit_df: Counter[str] = Counter()
     path_document_count: int = 0
@@ -113,39 +117,43 @@ def replace_document_map_units(
         # embeds them), so this is the same ownership the query-time scorer
         # sees, not a new computation.
         section_chunk_types = {u.chunk_type for u in provider.self_units(section_id)}
-        db.add(
-            DocumentMapUnit(
-                id=map_unit_id,
-                document_id=scope.document_id,
-                job_result_id=scope.job_result_id,
-                unit_id=unit_id,
-                section_id=section_id,
-                unit_kind=str(unit.get("kind") or "leaf"),
-                path_token_count=len(path_tokens),
-                content_token_count=len(content_tokens),
-                term_search_text_lower=str(unit.get("term_search_text") or "").lower(),
-                has_image="image" in section_chunk_types,
-                has_table="table" in section_chunk_types,
-                sort_order=sort_order,
-            )
+        map_unit_rows.append(
+            {
+                "id": map_unit_id,
+                "document_id": scope.document_id,
+                "job_result_id": scope.job_result_id,
+                "unit_id": unit_id,
+                "section_id": section_id,
+                "unit_kind": str(unit.get("kind") or "leaf"),
+                "path_token_count": len(path_tokens),
+                "content_token_count": len(content_tokens),
+                "term_search_text_lower": str(
+                    unit.get("term_search_text") or ""
+                ).lower(),
+                "has_image": "image" in section_chunk_types,
+                "has_table": "table" in section_chunk_types,
+                "sort_order": sort_order,
+            }
         )
         for channel, frequencies in (
             ("path", Counter(path_tokens)),
             ("content", Counter(content_tokens)),
         ):
             for token, frequency in frequencies.items():
-                db.add(
-                    DocumentMapUnitToken(
-                        id=f"dmut_{uuid4().hex[:31]}",
-                        map_unit_id=map_unit_id,
-                        channel=channel,
-                        token=token,
-                        token_hash=sha256(token.encode("utf-8")).hexdigest(),
-                        frequency=frequency,
-                    )
+                token_rows.append(
+                    {
+                        "id": f"dmut_{uuid4().hex[:31]}",
+                        "map_unit_id": map_unit_id,
+                        "channel": channel,
+                        "token": token,
+                        "token_hash": sha256(token.encode("utf-8")).hexdigest(),
+                        "frequency": frequency,
+                    }
                 )
             token_count += len(frequencies)
         persisted_count += 1
+    _execute_bulk_insert(db, DocumentMapUnit, map_unit_rows)
+    _execute_bulk_insert(db, DocumentMapUnitToken, token_rows)
     db.add(
         DocumentMapUnitIndex(
             id=f"dmui_{uuid4().hex}",
@@ -168,6 +176,19 @@ def replace_document_map_units(
             content_total_length=content_total_length,
         )
     )
+
+
+def _execute_bulk_insert(
+    db: Session,
+    model: type[DocumentMapUnit] | type[DocumentMapUnitToken],
+    rows: list[dict[str, object]],
+) -> None:
+    """Insert derived index rows in bounded Core batches."""
+    if not rows:
+        return
+    table: Table = model.__table__
+    for start in range(0, len(rows), _BULK_INSERT_BATCH_SIZE):
+        db.execute(insert(table), rows[start : start + _BULK_INSERT_BATCH_SIZE])
 
 
 def _to_section_row(section: DocumentSection) -> SectionRow:

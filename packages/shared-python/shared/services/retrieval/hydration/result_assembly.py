@@ -30,20 +30,15 @@ async def assemble_retrieval_results(
     allowed_chunk_types: set[str] | None = None,
     revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    filtered_rows = filter_excluded_rows(
+    scoped_rows = filter_excluded_rows(
         rows,
         exclude_document_ids=exclude_document_ids,
         exclude_sections=exclude_sections,
         document_scope=document_scope,
     )
-    if allowed_chunk_types is not None:
-        filtered_rows = [
-            row for row in filtered_rows
-            if normalize_chunk_type(row.get('chunk_type')) in allowed_chunk_types
-        ]
     hydrated_rows = await hydrate_connected_target_rows(
         db=db,
-        rows=filtered_rows,
+        rows=scoped_rows,
         exclude_document_ids=exclude_document_ids,
         exclude_sections=exclude_sections,
         document_scope=document_scope,
@@ -51,9 +46,14 @@ async def assemble_retrieval_results(
     )
     rows_by_chunk_id = {
         str(row.get('chunk_id') or ''): row
-        for row in [*filtered_rows, *hydrated_rows]
+        for row in [*scoped_rows, *hydrated_rows]
         if row.get('chunk_id')
     }
+    filtered_rows = _filter_rows_by_allowed_chunk_types(
+        scoped_rows,
+        allowed_chunk_types=allowed_chunk_types,
+        rows_by_chunk_id=rows_by_chunk_id,
+    )
 
     embedded_targets: set[str] = set()
     for row in filtered_rows:
@@ -86,6 +86,27 @@ async def assemble_retrieval_results(
         assembled_row['content'] = strip_path_placeholders(assembled_row['content'])
         assembled.append(assembled_row)
     return assembled
+
+
+def _filter_rows_by_allowed_chunk_types(
+    rows: list[dict[str, Any]],
+    *,
+    allowed_chunk_types: set[str] | None,
+    rows_by_chunk_id: Mapping[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if allowed_chunk_types is None:
+        return rows
+
+    return [
+        row
+        for row in rows
+        if normalize_chunk_type(row.get('chunk_type')) in allowed_chunk_types
+        or any(
+            normalize_chunk_type(rows_by_chunk_id.get(target_id, {}).get('chunk_type'))
+            in allowed_chunk_types
+            for target_id in iter_connected_target_ids(row)
+        )
+    ]
 
 
 def _page_summary(row: dict[str, Any]) -> str:

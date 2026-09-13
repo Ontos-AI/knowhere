@@ -781,6 +781,252 @@ async def test_classic_route_image_filter_scores_only_units_with_images(
     assert results[0]["chunk_type"] == "image"
 
 
+async def test_classic_route_mixed_section_asset_filters_do_not_mark_index_unusable(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    identifier = uuid4().hex[:8]
+    namespace = f"classic-mixed-{identifier}"
+    async with developer_api_client_factory() as api_client:
+        mixed = await _publish_document(
+            namespace=namespace,
+            source_file_name="mixed-assets.pdf",
+            chunks=[
+                {
+                    "chunk_id": f"plain-{identifier}",
+                    "type": "text",
+                    "content": "mixedsection plaintext filler with no assets",
+                    "path": "mixed-assets.pdf/Root/Plain/body",
+                    "order": 1,
+                    "metadata": {},
+                },
+                {
+                    "chunk_id": f"chart-body-{identifier}",
+                    "type": "text",
+                    "content": "mixedsection chartmarker beside a plot",
+                    "path": "mixed-assets.pdf/Root/Chart/body",
+                    "order": 2,
+                    "metadata": {"connect_to": [{"target": f"chart-{identifier}"}]},
+                },
+                {
+                    "chunk_id": f"chart-{identifier}",
+                    "type": "image",
+                    "content": "mixedsection chartmarker plot",
+                    "path": "images/mixed-chart.png",
+                    "order": 3,
+                    "file_path": "images/mixed-chart.png",
+                    "metadata": {},
+                },
+                {
+                    "chunk_id": f"grid-body-{identifier}",
+                    "type": "text",
+                    "content": "mixedsection tablemarker beside a grid",
+                    "path": "mixed-assets.pdf/Root/Grid/body",
+                    "order": 4,
+                    "metadata": {"connect_to": [{"target": f"grid-{identifier}"}]},
+                },
+                {
+                    "chunk_id": f"grid-{identifier}",
+                    "type": "table",
+                    "content": "<table><tr><td>mixedsection tablemarker grid</td></tr></table>",
+                    "path": "tables/mixed-grid.html",
+                    "order": 5,
+                    "file_path": "tables/mixed-grid.html",
+                    "metadata": {},
+                },
+            ],
+        )
+        for extra_kind, extra_type, extra_path, extra_content in (
+            ("photo", "image", "images/extra-photo.png", "unrelated landscape photo"),
+            ("diagram", "image", "images/extra-diagram.png", "unrelated diagram"),
+            ("sheet", "table", "tables/extra-sheet.html", "<table><tr><td>unrelated sheet</td></tr></table>"),
+            ("grid", "table", "tables/extra-grid.html", "<table><tr><td>unrelated grid</td></tr></table>"),
+        ):
+            extra_chunk_id = f"{extra_kind}-{identifier}"
+            await _publish_document(
+                namespace=namespace,
+                source_file_name=f"extra-{extra_kind}.pdf",
+                chunks=[
+                    {
+                        "chunk_id": f"{extra_kind}-body-{identifier}",
+                        "type": "text",
+                        "content": f"unrelated {extra_kind} caption",
+                        "path": f"extra-{extra_kind}.pdf/Root/Section/body",
+                        "order": 1,
+                        "metadata": {"connect_to": [{"target": extra_chunk_id}]},
+                    },
+                    {
+                        "chunk_id": extra_chunk_id,
+                        "type": extra_type,
+                        "content": extra_content,
+                        "path": extra_path,
+                        "order": 2,
+                        "file_path": extra_path,
+                        "metadata": {},
+                    },
+                ],
+            )
+        async with contract_db_session() as db:
+            mixed_units = list(
+                (
+                    await db.execute(
+                        select(DocumentMapUnit).where(
+                            DocumentMapUnit.document_id == mixed["document_id"]
+                        )
+                    )
+                ).scalars()
+            )
+        assert len(mixed_units) >= 3
+        assert any(unit.has_image and not unit.has_table for unit in mixed_units)
+        assert any(unit.has_table and not unit.has_image for unit in mixed_units)
+        assert any(not unit.has_image and not unit.has_table for unit in mixed_units)
+
+        image_response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": namespace,
+                "query": "mixedsection chartmarker",
+                "top_k": 1,
+                "use_agentic": False,
+                "chunk_types": ["image"],
+            },
+        )
+        table_response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": namespace,
+                "query": "mixedsection tablemarker",
+                "top_k": 1,
+                "use_agentic": False,
+                "chunk_types": ["table"],
+            },
+        )
+        unfiltered_response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": namespace,
+                "query": "mixedsection plaintext",
+                "top_k": 1,
+                "use_agentic": False,
+            },
+        )
+
+    assert image_response.status_code == 200
+    image_body = cast(dict[str, object], image_response.json())
+    image_results = cast(list[dict[str, object]], image_body["results"])
+    assert image_body["router_used"] == "classic_topk"
+    assert [row["chunk_id"] for row in image_results] == [f"chart-{identifier}"]
+    assert image_results[0]["chunk_type"] == "image"
+
+    assert table_response.status_code == 200
+    table_body = cast(dict[str, object], table_response.json())
+    table_results = cast(list[dict[str, object]], table_body["results"])
+    assert table_body["router_used"] == "classic_topk"
+    assert [row["chunk_id"] for row in table_results] == [f"grid-{identifier}"]
+    assert table_results[0]["chunk_type"] == "table"
+
+    assert unfiltered_response.status_code == 200
+    unfiltered_body = cast(dict[str, object], unfiltered_response.json())
+    assert unfiltered_body["router_used"] == "classic_topk"
+
+
+@pytest.mark.parametrize(
+    "incomplete_index_kind", ["legacy_format", "missing_index"]
+)
+async def test_classic_route_image_filter_raises_when_index_is_unusable(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    incomplete_index_kind: str,
+) -> None:
+    identifier = uuid4().hex[:8]
+    namespace = f"classic-image-unusable-{incomplete_index_kind}-{identifier}"
+    async with developer_api_client_factory() as api_client:
+        document = await _publish_document(
+            namespace=namespace,
+            source_file_name="unusable-image.pdf",
+            chunks=[
+                {
+                    "chunk_id": f"plain-{identifier}",
+                    "type": "text",
+                    "content": "unusable image plaintext filler",
+                    "path": "unusable-image.pdf/Root/Plain/body",
+                    "order": 1,
+                    "metadata": {},
+                },
+                {
+                    "chunk_id": f"body-{identifier}",
+                    "type": "text",
+                    "content": "unusable image marker next to a chart",
+                    "path": "unusable-image.pdf/Root/Chart/body",
+                    "order": 2,
+                    "metadata": {"connect_to": [{"target": f"chart-{identifier}"}]},
+                },
+                {
+                    "chunk_id": f"chart-{identifier}",
+                    "type": "image",
+                    "content": "unusable image marker chart",
+                    "path": "images/unusable-chart.png",
+                    "order": 3,
+                    "file_path": "images/unusable-chart.png",
+                    "metadata": {},
+                },
+            ],
+        )
+        await _publish_document(
+            namespace=namespace,
+            source_file_name="extra-image.pdf",
+            chunks=[
+                {
+                    "chunk_id": f"extra-body-{identifier}",
+                    "type": "text",
+                    "content": "unrelated extra caption",
+                    "path": "extra-image.pdf/Root/Section/body",
+                    "order": 1,
+                    "metadata": {"connect_to": [{"target": f"extra-{identifier}"}]},
+                },
+                {
+                    "chunk_id": f"extra-{identifier}",
+                    "type": "image",
+                    "content": "unrelated extra photo",
+                    "path": "images/extra.png",
+                    "order": 2,
+                    "file_path": "images/extra.png",
+                    "metadata": {},
+                },
+            ],
+        )
+        if incomplete_index_kind == "legacy_format":
+            await ContractDatabase.execute(
+                """
+                UPDATE document_map_unit_indexes
+                SET format_version = 1
+                WHERE document_id = :document_id
+                """,
+                {"document_id": document["document_id"]},
+            )
+        else:
+            await ContractDatabase.execute(
+                """
+                DELETE FROM document_map_unit_indexes
+                WHERE document_id = :document_id
+                """,
+                {"document_id": document["document_id"]},
+            )
+        with pytest.raises(RuntimeError, match="map-unit index is incomplete"):
+            await api_client.post(
+                "/api/v1/retrieval/query",
+                json={
+                    "namespace": namespace,
+                    "query": "unusable image marker",
+                    "top_k": 1,
+                    "use_agentic": False,
+                    "chunk_types": ["image"],
+                },
+            )
+
+
 async def test_connected_hydration_does_not_load_legacy_job_chunks(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]

@@ -29,10 +29,16 @@ class DemoMaterialization(Base):
         String(255), nullable=False, default="default"
     )
     demo_source_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    document_id: Mapped[str] = mapped_column(
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="ready"
+    )
+    document_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("documents.document_id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+    )
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False

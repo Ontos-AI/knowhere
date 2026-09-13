@@ -23,6 +23,7 @@ from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
 from shared.services.retrieval.namespace_map_snapshot import (
+    patch_namespace_map_snapshot,
     remove_document_from_namespace_map_snapshot,
 )
 from shared.services.retrieval.publication_content import (
@@ -81,6 +82,7 @@ class RetrievalPublicationService:
         job_result_id: str,
         chunks: list[dict[str, Any]],
         section_summaries: dict[str, str] | None = None,
+        update_namespace_snapshot: bool = True,
     ) -> PublishedDocumentState | None:
         job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
         if not job:
@@ -93,6 +95,7 @@ class RetrievalPublicationService:
             job_result_id=job_result_id,
             chunks=chunks,
             section_summaries=section_summaries,
+            update_namespace_snapshot=update_namespace_snapshot,
         )
 
     def _publish_document_state_for_job(
@@ -103,6 +106,7 @@ class RetrievalPublicationService:
         job_result_id: str,
         chunks: list[dict[str, Any]],
         section_summaries: dict[str, str] | None = None,
+        update_namespace_snapshot: bool = True,
     ) -> PublishedDocumentState | None:
 
         job_metadata = job.job_metadata or {}
@@ -136,16 +140,6 @@ class RetrievalPublicationService:
                     Document.document_id == str(document_id)
                 )
             ).scalar_one_or_none()
-        namespaces_to_lock = {namespace}
-        if existing_namespace:
-            namespaces_to_lock.add(str(existing_namespace))
-        for namespace_to_lock in sorted(namespaces_to_lock):
-            lock_namespace_generation(
-                db,
-                user_id=str(job.user_id),
-                namespace=namespace_to_lock,
-            )
-
         document = self._upsert_document_revision(
             db,
             job=job,
@@ -172,7 +166,7 @@ class RetrievalPublicationService:
             job_result_id=job_result_id,
             source_file_name=str(source_file_name) if source_file_name else None,
         )
-        replace_document_revision_content(
+        manifest_payload = replace_document_revision_content(
             db,
             scope=scope,
             chunks=deduped_chunks,
@@ -180,31 +174,60 @@ class RetrievalPublicationService:
         )
 
         db.flush()
-        if existing_namespace and str(existing_namespace) != scope.namespace:
-            remove_document_from_namespace_map_snapshot(
+        if update_namespace_snapshot:
+            self.update_namespace_snapshot(
                 db,
-                user_id=scope.user_id,
-                namespace=str(existing_namespace),
-                document_id=document.document_id,
+                scope=scope,
+                manifest_payload=manifest_payload,
+                previous_namespace=(
+                    str(existing_namespace)
+                    if existing_namespace and str(existing_namespace) != scope.namespace
+                    else None
+                ),
             )
-            # A namespace move mutates both namespace snapshots. Advance the
-            # old namespace generation as well so request-scoped/process-local
-            # snapshot caches cannot reuse the pre-move generation.
-            advance_namespace_generation(
-                db,
-                user_id=scope.user_id,
-                namespace=str(existing_namespace),
-            )
-        advance_namespace_generation(
-            db,
-            user_id=scope.user_id,
-            namespace=scope.namespace,
-        )
         return PublishedDocumentState(
             user_id=str(job.user_id),
             namespace=namespace,
             document_id=document.document_id,
+            manifest_payload=manifest_payload,
         )
+
+    def update_namespace_snapshot(
+        self,
+        db: Session,
+        *,
+        scope: DocumentPublicationScope,
+        manifest_payload: dict[str, Any],
+        previous_namespace: str | None = None,
+    ) -> None:
+        """Patch one namespace snapshot while holding only its short lock."""
+        namespaces = [scope.namespace]
+        if previous_namespace:
+            namespaces.insert(0, previous_namespace)
+        for namespace in namespaces:
+            lock_namespace_generation(
+                db,
+                user_id=scope.user_id,
+                namespace=namespace,
+            )
+            if namespace == scope.namespace:
+                patch_namespace_map_snapshot(
+                    db,
+                    scope=scope,
+                    manifest_payload=manifest_payload,
+                )
+            else:
+                remove_document_from_namespace_map_snapshot(
+                    db,
+                    user_id=scope.user_id,
+                    namespace=namespace,
+                    document_id=scope.document_id,
+                )
+            advance_namespace_generation(
+                db,
+                user_id=scope.user_id,
+                namespace=namespace,
+            )
 
     def _upsert_document_revision(
         self,

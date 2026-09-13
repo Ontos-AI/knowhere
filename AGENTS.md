@@ -589,8 +589,8 @@ are resolved to chunks, then assembled like classic. Map-nav is archived at
 `hydration.result_assembly.assemble_retrieval_results()`:
 
 1. Filters by `exclude_document_ids` and `exclude_sections`
-2. Filters by `allowed_chunk_types` (data_type parameter)
-3. Hydrates `connect_to` targets (related table chunks inlined into text)
+2. Hydrates `connect_to` targets
+3. Filters by `allowed_chunk_types` while retaining body chunks connected to a requested image/table
 4. Cleans asset path references from content
 5. Public projection builds `source`: `{document_id, source_file_name, section_path}` plus `page_nums` for `chunk_type=page` when present
 

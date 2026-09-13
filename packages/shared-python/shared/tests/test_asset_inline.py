@@ -101,6 +101,66 @@ async def test_assemble_inserts_table_at_placeholder() -> None:
     assert "SHOULD NOT LEAK" not in content
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("asset_type", "file_path", "placeholder", "display_marker"),
+    [
+        ("image", "images/a.png", "[images/a.png]", "[Image: images/a.png]"),
+        ("table", "tables/a.html", "[tables/a.html]", "[Table: tables/a.html]"),
+    ],
+)
+async def test_asset_type_filter_keeps_body_that_connects_to_requested_asset(
+    monkeypatch,
+    asset_type: str,
+    file_path: str,
+    placeholder: str,
+    display_marker: str,
+) -> None:
+    body_row = {
+        "chunk_id": "text-1",
+        "chunk_type": "text",
+        "content": f"查看 {placeholder}",
+        "chunk_metadata": {
+            "connect_to": [
+                {
+                    "target": "asset-1",
+                    "relation": "embeds",
+                    "ref": placeholder,
+                }
+            ]
+        },
+    }
+    asset_row = {
+        "chunk_id": "asset-1",
+        "chunk_type": asset_type,
+        "content": "资产说明" if asset_type == "image" else "<table></table>",
+        "file_path": file_path,
+        "chunk_metadata": {"summary": "资产说明"},
+    }
+
+    async def hydrate_connected_rows(**_kwargs: object) -> list[dict[str, object]]:
+        return [asset_row]
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.result_assembly.hydrate_connected_target_rows",
+        hydrate_connected_rows,
+    )
+
+    assembled = await assemble_retrieval_results(
+        rows=[
+            body_row,
+            {"chunk_id": "text-2", "chunk_type": "text", "content": "无图"},
+        ],
+        exclude_document_ids=[],
+        exclude_sections=[],
+        allowed_chunk_types={asset_type},
+    )
+
+    assert [row["chunk_id"] for row in assembled] == ["text-1"]
+    assert display_marker in assembled[0]["content"]
+    assert "资产说明" in assembled[0]["content"]
+
+
 def test_node_unit_span_inlines_section_assets() -> None:
     provider = KnowhereProvider(
         doc_id="doc-1",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +12,8 @@ from shared.models.database.job import Job
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
+from shared.services.redis.publication_semaphore import SyncRedisPublicationSemaphore
+from shared.core.config import settings
 from shared.services.retrieval.publication_service import RetrievalPublicationService
 from shared.services.retrieval.publication_models import (
     ExistingDocumentScope,
@@ -53,25 +56,38 @@ class SyncJobPublicationFinalizer:
         section_summaries: dict[str, str] | None,
         document_top_summary: str | None = None,
     ) -> JobPublicationOutcome:
-        previous_document_scope = self._retrieval_publication.get_existing_document_scope(
-            db,
-            job_id=job_id,
+        semaphore = SyncRedisPublicationSemaphore(
+            SyncRedisServiceFactory.get_service(),
+            concurrency=settings.MATERIALIZATION_DB_PUBLICATION_CONCURRENCY,
+            lease_seconds=settings.MATERIALIZATION_DB_PUBLICATION_LEASE_SECONDS,
+            acquire_timeout_seconds=settings.MATERIALIZATION_DB_PUBLICATION_ACQUIRE_TIMEOUT_SECONDS,
         )
-        published_document_state = self._retrieval_publication.publish_document_state(
-            db,
-            job_id=job_id,
-            job_result_id=job_result_id,
-            chunks=chunks,
-            section_summaries=section_summaries,
+        job_type = db.execute(
+            select(Job.job_type).where(Job.job_id == job_id)
+        ).scalar_one_or_none()
+        publication_context = (
+            semaphore if job_type == "demo_materialization" else nullcontext()
         )
-        if _should_publish_document_graph(published_document_state):
-            assert published_document_state is not None
-            self._retrieval_publication.publish_document_graph(
+        with publication_context:
+            previous_document_scope = self._retrieval_publication.get_existing_document_scope(
+                db,
+                job_id=job_id,
+            )
+            published_document_state = self._retrieval_publication.publish_document_state(
                 db,
                 job_id=job_id,
                 job_result_id=job_result_id,
-                top_summary=document_top_summary,
+                chunks=chunks,
+                section_summaries=section_summaries,
             )
+            if _should_publish_document_graph(published_document_state):
+                assert published_document_state is not None
+                self._retrieval_publication.publish_document_graph(
+                    db,
+                    job_id=job_id,
+                    job_result_id=job_result_id,
+                    top_summary=document_top_summary,
+                )
 
         cache_invalidation = self._build_cache_invalidation(
             db,
