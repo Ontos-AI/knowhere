@@ -10,8 +10,10 @@ from urllib.parse import unquote, urlparse
 from app.repositories.job_repository import JobRepository
 from app.services.document_ingestion.command import DocumentIngestionCommand
 from app.services.document_ingestion.scope_service import (
+    find_active_document_by_source_file_name,
     is_active_document_job_unique_violation,
     raise_document_ingestion_conflict,
+    raise_duplicate_filename_conflict,
 )
 from app.services.jobs.result_projection import to_job_status_value
 from app.services.rate_limit.data_structures import CurrentUser
@@ -145,6 +147,29 @@ class DocumentIngestionCreationService:
         }
         await job_info_service.save_job_info(job_id, job_info)
 
+    async def _reject_duplicate_source_file_name(
+        self,
+        db: AsyncSession,
+        *,
+        payload: JobCreateBase,
+        current_user: CurrentUser,
+        scope: ResolvedDocumentIngestionScope,
+        source_file_name: str,
+    ) -> None:
+        if payload.document_id:
+            return
+        existing = await find_active_document_by_source_file_name(
+            db,
+            user_id=current_user.user_id,
+            namespace=scope.namespace,
+            source_file_name=source_file_name,
+        )
+        if existing is not None:
+            raise_duplicate_filename_conflict(
+                existing_document_id=existing.document_id,
+                source_file_name=source_file_name,
+            )
+
     async def _create_file_job(
         self,
         db: AsyncSession,
@@ -155,6 +180,13 @@ class DocumentIngestionCreationService:
         scope: ResolvedDocumentIngestionScope,
     ) -> JobResponse:
         assert payload.file_name is not None
+        await self._reject_duplicate_source_file_name(
+            db,
+            payload=payload,
+            current_user=current_user,
+            scope=scope,
+            source_file_name=payload.file_name,
+        )
         file_extension = os.path.splitext(payload.file_name)[1]
         s3_key = f"uploads/{job_id}{file_extension}"
         JobMetadataHelper.set_file_source(
@@ -231,6 +263,13 @@ class DocumentIngestionCreationService:
         source_file_name = _resolve_url_source_file_name(
             source_url=payload.source_url,
             file_extension=file_extension,
+        )
+        await self._reject_duplicate_source_file_name(
+            db,
+            payload=payload,
+            current_user=current_user,
+            scope=scope,
+            source_file_name=source_file_name,
         )
         s3_key = f"uploads/{job_id}{file_extension}"
         JobMetadataHelper.set_url_source(

@@ -137,6 +137,7 @@ async def _insert_document(
     user_id: str = "local-dev-user",
     namespace: str = "contract-jobs",
     status: str = "active",
+    source_file_name: str | None = None,
 ) -> None:
     engine = await _create_contract_engine()
     timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -174,7 +175,7 @@ async def _insert_document(
                     "user_id": user_id,
                     "namespace": namespace,
                     "status": status,
-                    "source_file_name": f"{document_id}.pdf",
+                    "source_file_name": source_file_name or f"{document_id}.pdf",
                     "parse_track": "chunk",
                     "created_at": timestamp,
                     "updated_at": timestamp,
@@ -870,6 +871,254 @@ async def test_should_inherit_existing_document_namespace_when_update_namespace_
     assert job_metadata["document_id"] == document_id
     assert job_metadata["namespace"] == existing_namespace
     assert original_request["namespace"] == namespace_value
+
+
+@pytest.mark.asyncio
+async def test_should_return_conflict_when_creating_a_job_for_a_duplicate_file_name(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_dup_{uuid4().hex[:12]}"
+    file_name = f"01-p1-70-{uuid4().hex[:8]}.pdf"
+    payload: dict[str, str] = {
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": file_name,
+        "data_id": "contract-job-duplicate-filename",
+    }
+
+    async with developer_api_client_factory() as api_client:
+        await _insert_document(document_id=document_id, source_file_name=file_name)
+        jobs_before = await _count_jobs()
+        response = await api_client.post("/api/v1/jobs", json=payload)
+        jobs_after = await _count_jobs()
+
+    assert response.status_code == 409
+    response_json: dict[str, object] = response.json()
+    error = cast(dict[str, object], response_json["error"])
+    assert response_json["success"] is False
+    assert error["code"] == "ALREADY_EXISTS"
+    assert error["message"] == (
+        f"A document named {file_name!r} already exists. "
+        "To replace it, retry with document_id set to details.id."
+    )
+    assert error["details"] == {
+        "reason": "ALREADY_EXISTS",
+        "resource": "Document",
+        "id": document_id,
+    }
+    assert jobs_after == jobs_before
+
+
+@pytest.mark.asyncio
+async def test_should_update_existing_document_when_duplicate_file_name_includes_document_id(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_dup_update_{uuid4().hex[:12]}"
+    file_name = f"01-p1-70-{uuid4().hex[:8]}.pdf"
+    payload: dict[str, str] = {
+        "document_id": document_id,
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": file_name,
+        "data_id": "contract-job-duplicate-filename-update",
+    }
+
+    async with developer_api_client_factory() as api_client:
+        await _insert_document(document_id=document_id, source_file_name=file_name)
+        response = await api_client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 200
+    response_json: dict[str, object] = response.json()
+    assert response_json["document_id"] == document_id
+    assert response_json["status"] == "waiting-file"
+    job_id = cast(str, response_json["job_id"])
+    job_metadata = cast(dict[str, object], (await _load_job_record(job_id))["job_metadata"])
+    assert job_metadata["document_id"] == document_id
+    assert job_metadata["source_file_name"] == file_name
+
+
+@pytest.mark.asyncio
+async def test_should_allow_same_file_name_in_a_different_namespace(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_dup_ns_{uuid4().hex[:12]}"
+    file_name = f"01-p1-70-{uuid4().hex[:8]}.pdf"
+    payload: dict[str, str] = {
+        "namespace": "contract-jobs-other",
+        "source_type": "file",
+        "file_name": file_name,
+        "data_id": "contract-job-duplicate-filename-other-ns",
+    }
+
+    async with developer_api_client_factory() as api_client:
+        await _insert_document(document_id=document_id, source_file_name=file_name)
+        response = await api_client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 200
+    response_json: dict[str, object] = response.json()
+    assert response_json["document_id"] != document_id
+    assert response_json["namespace"] == "contract-jobs-other"
+
+
+@pytest.mark.asyncio
+async def test_should_return_conflict_when_url_source_resolves_to_a_duplicate_file_name(
+    monkeypatch: MonkeyPatch,
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_dup_url_{uuid4().hex[:12]}"
+    file_name = f"01-p1-70-{uuid4().hex[:8]}.pdf"
+    payload: dict[str, str] = {
+        "namespace": "contract-jobs",
+        "source_type": "url",
+        "source_url": f"https://example.com/contracts/{file_name}",
+        "data_id": "contract-job-duplicate-filename-url",
+    }
+
+    class _FakeHeadResponse:
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {"content-type": "application/pdf"}
+            self.status_code = 200
+
+    class _FakeAsyncHttpClient:
+        async def head(
+            self,
+            url: str,
+            *,
+            follow_redirects: bool = True,
+        ) -> _FakeHeadResponse:
+            del url
+            assert follow_redirects is False
+            return _FakeHeadResponse()
+
+    def resolve_public_address(
+        host: str,
+        port: int | None,
+        *args: object,
+        **kwargs: object,
+    ) -> list[tuple[socket.AddressFamily, socket.SocketKind, int, str, tuple[str, int]]]:
+        del host, port, args, kwargs
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+
+    import shared.services.http.client_pool as client_pool_module
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve_public_address)
+    monkeypatch.setattr(
+        client_pool_module,
+        "get_async_client",
+        lambda: _FakeAsyncHttpClient(),
+    )
+
+    async with developer_api_client_factory() as api_client:
+        await _insert_document(document_id=document_id, source_file_name=file_name)
+        jobs_before = await _count_jobs()
+        response = await api_client.post("/api/v1/jobs", json=payload)
+        jobs_after = await _count_jobs()
+
+    assert response.status_code == 409
+    error = cast(dict[str, object], response.json()["error"])
+    assert error["code"] == "ALREADY_EXISTS"
+    assert error["details"] == {
+        "reason": "ALREADY_EXISTS",
+        "resource": "Document",
+        "id": document_id,
+    }
+    assert jobs_after == jobs_before
+
+
+@pytest.mark.asyncio
+async def test_should_return_conflict_when_creating_a_v2_job_for_a_duplicate_file_name(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_dup_v2_{uuid4().hex[:12]}"
+    file_name = f"01-p1-70-{uuid4().hex[:8]}.pdf"
+    payload: dict[str, str] = {
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": file_name,
+        "data_id": "contract-job-duplicate-filename-v2",
+    }
+
+    async with developer_api_client_factory() as api_client:
+        await _insert_document(document_id=document_id, source_file_name=file_name)
+        jobs_before = await _count_jobs()
+        response = await api_client.post("/api/v2/jobs", json=payload)
+        jobs_after = await _count_jobs()
+
+    assert response.status_code == 409
+    error = cast(dict[str, object], response.json()["error"])
+    assert error["code"] == "ALREADY_EXISTS"
+    assert error["details"] == {
+        "reason": "ALREADY_EXISTS",
+        "resource": "Document",
+        "id": document_id,
+    }
+    assert jobs_after == jobs_before
+
+
+@pytest.mark.asyncio
+async def test_should_allow_same_file_name_when_existing_document_is_archived(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_dup_archived_{uuid4().hex[:12]}"
+    file_name = f"01-p1-70-{uuid4().hex[:8]}.pdf"
+    payload: dict[str, str] = {
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": file_name,
+        "data_id": "contract-job-duplicate-filename-archived",
+    }
+
+    async with developer_api_client_factory() as api_client:
+        await _insert_document(
+            document_id=document_id,
+            source_file_name=file_name,
+            status="archived",
+        )
+        response = await api_client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["document_id"] != document_id
+
+
+@pytest.mark.asyncio
+async def test_should_allow_same_file_name_owned_by_another_user(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_dup_other_{uuid4().hex[:12]}"
+    file_name = f"01-p1-70-{uuid4().hex[:8]}.pdf"
+    payload: dict[str, str] = {
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": file_name,
+        "data_id": "contract-job-duplicate-filename-other-user",
+    }
+
+    other_user_id = "another-contract-user"
+    async with developer_api_client_factory() as api_client:
+        await ContractDatabase.insert_user(user_id=other_user_id)
+        await _insert_document(
+            document_id=document_id,
+            user_id=other_user_id,
+            source_file_name=file_name,
+        )
+        response = await api_client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["document_id"] != document_id
 
 
 @pytest.mark.asyncio

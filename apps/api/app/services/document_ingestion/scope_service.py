@@ -16,6 +16,7 @@ from shared.core.exceptions.domain_exceptions import (
     NotFoundException,
     ValidationException,
 )
+from shared.models.database.document import Document
 from shared.models.database.job import Job
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 
@@ -64,6 +65,45 @@ def raise_document_ingestion_conflict(
         resource="Document",
         resource_id=document_id,
         internal_message=f"Active ingestion conflict for document_id={document_id}",
+    )
+
+
+async def find_active_document_by_source_file_name(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    namespace: str,
+    source_file_name: str,
+) -> Document | None:
+    result = await db.execute(
+        select(Document)
+        .where(Document.user_id == user_id)
+        .where(Document.namespace == namespace)
+        .where(Document.status == "active")
+        .where(Document.source_file_name == source_file_name)
+        .order_by(Document.created_at.asc(), Document.document_id.asc())
+        .limit(1)
+    )
+    return result.scalars().first()
+
+
+def raise_duplicate_filename_conflict(
+    *,
+    existing_document_id: str,
+    source_file_name: str,
+) -> None:
+    raise ConflictException(
+        user_message=(
+            f"A document named {source_file_name!r} already exists. "
+            "To replace it, retry with document_id set to details.id."
+        ),
+        reason="ALREADY_EXISTS",
+        resource="Document",
+        resource_id=existing_document_id,
+        internal_message=(
+            "Duplicate source_file_name="
+            f"{source_file_name!r} document_id={existing_document_id}"
+        ),
     )
 
 
