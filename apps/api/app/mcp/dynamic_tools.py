@@ -55,7 +55,9 @@ def _make_tool(spec: ToolSpec, *, db_factory: DbFactory) -> Tool:
         namespace = resolve_mcp_namespace(ctx=ctx)
         async with db_factory() as db:
             user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
-            tool_ctx = ToolContext(db=db, user_id=user_id, namespace=namespace)
+            tool_ctx = ToolContext(
+                db=db, user_id=user_id, namespace=namespace, db_factory=db_factory
+            )
             result = await REGISTRY.dispatch(spec.name, tool_ctx, kwargs)
         return {"text": result.text, "payload": result.payload, "refs": result.refs, "error": result.error}
 

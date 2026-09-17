@@ -52,8 +52,12 @@ async def dispatch_tool_call(
     try:
         async with db_factory() as db:
             tool_ctx = ToolContext(
-                db=db, user_id=user_id, namespace=namespace, budget=budget or ToolBudget(),
-                document_scope=document_scope
+                db=db,
+                user_id=user_id,
+                namespace=namespace,
+                db_factory=db_factory,
+                budget=budget or ToolBudget(),
+                document_scope=document_scope,
             )
             return await REGISTRY.dispatch(name, tool_ctx, args)
     except Exception as exc:  # noqa: BLE001 - one broken tool must not kill the episode

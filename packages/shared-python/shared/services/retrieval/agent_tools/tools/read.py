@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from shared.models.database.document import (
     Document,
@@ -59,6 +59,24 @@ from shared.services.retrieval.search.lexical_text import section_path_from_chun
 
 _SAME_AS_MARKER_RE = re.compile(r"\[SAME-AS (.+?) p(\d+)\]")
 _BODY_CHUNK_TYPES = ("text", "page")
+
+
+def _section_belongs_to_resolved_path(
+    section: DocumentSection,
+    *,
+    document_id: str,
+    job_result_id: str,
+    resolved_path: str,
+    mode: str,
+) -> bool:
+    if section.document_id != document_id or section.job_result_id != job_result_id:
+        return False
+    if mode == "descendants":
+        return (
+            section.section_path == resolved_path
+            or section.section_path.startswith(f"{resolved_path} / ")
+        )
+    return section.section_path == resolved_path
 
 # ``_compose_text_content`` doesn't branch on chunk_type — it just inlines
 # connect_to placeholders — so the ``page`` branch below reuses it directly
@@ -248,7 +266,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         )
         job_id_by_revision = {str(rid): str(jid) for rid, jid in job_rows.all() if rid and jid}
 
-    base_rows: list[dict[str, Any]] = []
+    emit_items: list[tuple[str, Any]] = []
     errors: list[str] = []
     for ref in refs:
         document_id = str(ref.get("document_id") or "").strip()
@@ -279,20 +297,25 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 errors.append(f"unknown chunk_id: {chunk_id} in {document_id}")
                 continue
             chunk, resolved_section_path = row
-            base_rows.append(
-                {
-                    "document_id": document_id,
-                    "job_result_id": job_result_id,
-                    "job_id": job_id,
-                    "source_file_name": source_file_name,
-                    "chunk_id": chunk.chunk_id,
-                    "section_id": chunk.section_id,
-                    "section_path": resolved_section_path,
-                    "chunk_type": chunk.chunk_type,
-                    "content": chunk.content,
-                    "chunk_metadata": chunk.chunk_metadata or {},
-                    "file_path": chunk.file_path,
-                }
+            emit_items.append(
+                (
+                    "chunk_rows",
+                    [
+                        {
+                            "document_id": document_id,
+                            "job_result_id": job_result_id,
+                            "job_id": job_id,
+                            "source_file_name": source_file_name,
+                            "chunk_id": chunk.chunk_id,
+                            "section_id": chunk.section_id,
+                            "section_path": resolved_section_path,
+                            "chunk_type": chunk.chunk_type,
+                            "content": chunk.content,
+                            "chunk_metadata": chunk.chunk_metadata or {},
+                            "file_path": chunk.file_path,
+                        }
+                    ],
+                )
             )
             continue
 
@@ -309,52 +332,106 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         if path_error or not resolved_path:
             errors.append(path_error or f"unknown section_path for {document_id}")
             continue
-
-        path_filter = (
-            section_path_subtree_filter(resolved_path)
-            if mode == "descendants"
-            else section_path_anchor_filter(resolved_path)
+        emit_items.append(
+            (
+                "section_job",
+                {
+                    "document_id": document_id,
+                    "job_result_id": job_result_id,
+                    "resolved_path": resolved_path,
+                    "source_file_name": source_file_name,
+                    "job_id": job_id,
+                },
+            )
         )
-        section_rows = (
+
+    section_jobs = [payload for kind, payload in emit_items if kind == "section_job"]
+    section_matches: list[DocumentSection] = []
+    batched_chunks: list[DocumentChunk] = []
+    if section_jobs:
+        path_clauses = []
+        for job in section_jobs:
+            path_filter = (
+                section_path_subtree_filter(job["resolved_path"])
+                if mode == "descendants"
+                else section_path_anchor_filter(job["resolved_path"])
+            )
+            path_clauses.append(
+                and_(
+                    DocumentSection.document_id == job["document_id"],
+                    DocumentSection.job_result_id == job["job_result_id"],
+                    path_filter,
+                )
+            )
+        section_matches = list(
             (
                 await ctx.db.execute(
-                    select(DocumentSection)
-                    .where(DocumentSection.document_id == document_id)
-                    .where(DocumentSection.job_result_id == job_result_id)
-                    .where(path_filter)
-                    .order_by(DocumentSection.sort_order)
+                    select(DocumentSection).where(or_(*path_clauses))
                 )
             )
             .scalars()
             .all()
         )
-        section_ids = [s.section_id for s in section_rows]
-        chunk_rows = (
-            await ctx.db.execute(
-                select(DocumentChunk).where(
-                    DocumentChunk.document_id == document_id,
-                    DocumentChunk.job_result_id == job_result_id,
-                    DocumentChunk.section_id.in_(section_ids),
-                    # Body chunks only (text/page). image/table chunks share a
-                    # section_id with whichever section happens to store them
-                    # in the DB (always Root — CORPUS_SCHEMA.md §3), which is
-                    # not the same as "belonging" to that section; their real
-                    # association is connect_to on the body chunk, resolved
-                    # below via hydrate_connected_target_rows. Without this
-                    # filter, reading Root would return every still-unmounted
-                    # asset in the document as spurious top-level entries.
-                    DocumentChunk.chunk_type.in_(_BODY_CHUNK_TYPES),
+        section_ids = [section.section_id for section in section_matches]
+        if section_ids:
+            batched_chunks = list(
+                (
+                    await ctx.db.execute(
+                        select(DocumentChunk).where(
+                            DocumentChunk.document_id.in_(
+                                {job["document_id"] for job in section_jobs}
+                            ),
+                            DocumentChunk.job_result_id.in_(
+                                {job["job_result_id"] for job in section_jobs}
+                            ),
+                            DocumentChunk.section_id.in_(section_ids),
+                            # Body chunks only (text/page). image/table chunks share a
+                            # section_id with whichever section happens to store them
+                            # in the DB (always Root — CORPUS_SCHEMA.md §3), which is
+                            # not the same as "belonging" to that section; their real
+                            # association is connect_to on the body chunk, resolved
+                            # below via hydrate_connected_target_rows. Without this
+                            # filter, reading Root would return every still-unmounted
+                            # asset in the document as spurious top-level entries.
+                            DocumentChunk.chunk_type.in_(_BODY_CHUNK_TYPES),
+                        )
+                    )
                 )
+                .scalars()
+                .all()
             )
-        ).scalars().all()
-        section_path_by_id = {s.section_id: s.section_path for s in section_rows}
-        for chunk in chunk_rows:
+
+    base_rows: list[dict[str, Any]] = []
+    for kind, payload in emit_items:
+        if kind == "chunk_rows":
+            base_rows.extend(payload)
+            continue
+        job = payload
+        matched_ids = {
+            section.section_id
+            for section in section_matches
+            if _section_belongs_to_resolved_path(
+                section,
+                document_id=job["document_id"],
+                job_result_id=job["job_result_id"],
+                resolved_path=job["resolved_path"],
+                mode=mode,
+            )
+        }
+        section_path_by_id = {
+            section.section_id: section.section_path
+            for section in section_matches
+            if section.section_id in matched_ids
+        }
+        for chunk in batched_chunks:
+            if chunk.section_id not in matched_ids:
+                continue
             base_rows.append(
                 {
-                    "document_id": document_id,
-                    "job_result_id": job_result_id,
-                    "job_id": job_id,
-                    "source_file_name": source_file_name,
+                    "document_id": job["document_id"],
+                    "job_result_id": job["job_result_id"],
+                    "job_id": job["job_id"],
+                    "source_file_name": job["source_file_name"],
                     "chunk_id": chunk.chunk_id,
                     "section_id": chunk.section_id,
                     "section_path": (

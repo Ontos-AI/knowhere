@@ -33,6 +33,7 @@ async def run_retrieval_query(
     threshold: float = 0.0,
     internal_recall_k: int | None = None,
     use_agentic: bool | None = None,
+    agent_explore_model: str | None = None,
     conversation_id: str | None = None,
     llm_config: LLMConfig | None = None,
 ) -> dict[str, Any]:
@@ -54,6 +55,7 @@ async def run_retrieval_query(
         threshold=threshold,
         internal_recall_k=internal_recall_k,
         use_agentic=use_agentic,
+        agent_explore_model=agent_explore_model,
         conversation_id=conversation_id,
         llm_config=llm_config,
     )

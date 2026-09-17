@@ -6,6 +6,9 @@ import zipfile
 
 from app.services.document_parser.formats.docx.toc import detect_doc_tocs, detect_sdt_toc
 from app.services.document_parser.assets.image_size_filter import is_below_img_min_size
+from app.services.document_parser.formats.docx.word_package import (
+    normalize_word_package_bytes,
+)
 from docx import Document
 from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
@@ -16,6 +19,7 @@ from lxml import etree
 
 
 def iter_block_items(doc_data):
+    doc_data = normalize_word_package_bytes(doc_data)
     doc_stream = io.BytesIO(doc_data)
     doc = Document(doc_stream)
 

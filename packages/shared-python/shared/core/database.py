@@ -24,33 +24,46 @@ ssl_connect_args = settings.get_async_ssl_connect_args()
 is_async_database_pool_disabled: bool = (
     os.getenv("DB_USE_NULL_POOL", "false").lower() == "true"
 )
-engine_options: dict[str, Any] = {
-    "pool_recycle": settings.DB_POOL_RECYCLE,
-    "pool_pre_ping": ProcessingConstants.DB_POOL_PRE_PING,
-    "pool_reset_on_return": ProcessingConstants.DB_POOL_RESET_ON_RETURN,
-    "connect_args": {
-        "server_settings": {
-            "application_name": "knowhere_api",
-            "timezone": "UTC",
-            "statement_timeout": "30000",
-            "idle_in_transaction_session_timeout": "60000",
-        },
-        "command_timeout": 30,
-        **ssl_connect_args,
-    },
-    "pool_events": [],
-}
 
-if is_async_database_pool_disabled:
-    engine_options["poolclass"] = NullPool
-else:
-    engine_options.update(
-        {
-            "pool_size": settings.DB_POOL_SIZE,
-            "max_overflow": settings.DB_MAX_OVERFLOW,
-            "pool_timeout": settings.DB_POOL_TIMEOUT,
-        }
-    )
+
+def _async_engine_options(
+    *,
+    statement_timeout_ms: int,
+    command_timeout_seconds: int,
+) -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "pool_recycle": settings.DB_POOL_RECYCLE,
+        "pool_pre_ping": ProcessingConstants.DB_POOL_PRE_PING,
+        "pool_reset_on_return": ProcessingConstants.DB_POOL_RESET_ON_RETURN,
+        "connect_args": {
+            "server_settings": {
+                "application_name": "knowhere_api",
+                "timezone": "UTC",
+                "statement_timeout": str(statement_timeout_ms),
+                "idle_in_transaction_session_timeout": "60000",
+            },
+            "command_timeout": command_timeout_seconds,
+            **ssl_connect_args,
+        },
+        "pool_events": [],
+    }
+    if is_async_database_pool_disabled:
+        options["poolclass"] = NullPool
+    else:
+        options.update(
+            {
+                "pool_size": settings.DB_POOL_SIZE,
+                "max_overflow": settings.DB_MAX_OVERFLOW,
+                "pool_timeout": settings.DB_POOL_TIMEOUT,
+            }
+        )
+    return options
+
+
+engine_options: dict[str, Any] = _async_engine_options(
+    statement_timeout_ms=30000,
+    command_timeout_seconds=30,
+)
 
 engine = create_async_engine(
     settings.DATABASE_URL,
@@ -61,6 +74,32 @@ AsyncSessionFactory = async_sessionmaker(
     bind=engine,
     expire_on_commit=False,  # Keep ORM objects usable after commit.
 )
+
+_timeout_session_factories: dict[
+    tuple[int, int], async_sessionmaker[AsyncSession]
+] = {}
+_timeout_engines: list[AsyncEngine] = []
+
+
+def _session_factory_for_timeouts(
+    statement_timeout_ms: int,
+    command_timeout_seconds: int,
+) -> async_sessionmaker[AsyncSession]:
+    key = (statement_timeout_ms, command_timeout_seconds)
+    factory = _timeout_session_factories.get(key)
+    if factory is not None:
+        return factory
+    extra_engine = create_async_engine(
+        settings.DATABASE_URL,
+        **_async_engine_options(
+            statement_timeout_ms=statement_timeout_ms,
+            command_timeout_seconds=command_timeout_seconds,
+        ),
+    )
+    factory = async_sessionmaker(bind=extra_engine, expire_on_commit=False)
+    _timeout_session_factories[key] = factory
+    _timeout_engines.append(extra_engine)
+    return factory
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -77,12 +116,13 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
-# Create an app-level context manager for operations without an injected DB session.
 @asynccontextmanager
-async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
+async def _session_context(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncGenerator[AsyncSession, None]:
     session: AsyncSession | None = None
     try:
-        session = AsyncSessionFactory()
+        session = session_factory()
         yield session
         try:
             await session.commit()
@@ -115,6 +155,27 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
             except Exception as close_error:
                 # Log close failures only to avoid cross-event-loop connection work.
                 logger.warning(f"Database session close failed: {close_error}")
+
+
+# Create an app-level context manager for operations without an injected DB session.
+@asynccontextmanager
+async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
+    async with _session_context(AsyncSessionFactory) as session:
+        yield session
+
+
+@asynccontextmanager
+async def get_db_context_with_timeouts(
+    statement_timeout_ms: int,
+    command_timeout_seconds: int,
+) -> AsyncGenerator[AsyncSession, None]:
+    """Open a session on a dedicated engine with the given statement/command timeouts."""
+    async with _session_context(
+        _session_factory_for_timeouts(
+            statement_timeout_ms, command_timeout_seconds
+        )
+    ) as session:
+        yield session
 
 
 # Helper for DB work when a session cannot be passed in directly.
@@ -294,3 +355,13 @@ async def safe_dispose_engine(db_engine: AsyncEngine) -> None:
     except Exception as e:
         logger.error(f"Error while shutting down the database engine: {e}")
         # Suppress dispose failures to avoid blocking app shutdown.
+
+
+async def dispose_all_engines() -> None:
+    """Dispose timeout-bound engines first, then the default engine."""
+    extras = list(_timeout_engines)
+    _timeout_engines.clear()
+    _timeout_session_factories.clear()
+    for extra_engine in extras:
+        await safe_dispose_engine(extra_engine)
+    await safe_dispose_engine(engine)

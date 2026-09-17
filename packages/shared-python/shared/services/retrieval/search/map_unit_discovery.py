@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from shared.services.retrieval.document_scope import DocumentScope
 
+import asyncio
 import json
 import time
 from collections.abc import Mapping
@@ -49,6 +50,30 @@ from shared.services.retrieval.search.section_filters import is_excluded_section
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 
 _MAP_SCORE_CHANNELS = ("path", "content")
+
+
+def _schedule_index_readiness(
+    *,
+    user_id: str,
+    namespace: str,
+    ready: bool,
+    expected_revisions: int,
+    indexed_revisions: int,
+) -> None:
+    async def _publish() -> None:
+        try:
+            await record_retrieval_index_readiness(
+                user_id=user_id,
+                namespace=namespace,
+                ready=ready,
+                expected_revisions=expected_revisions,
+                indexed_revisions=indexed_revisions,
+            )
+        except Exception as exc:
+            logger.warning("retrieval index readiness publish failed: %s", exc)
+
+    asyncio.get_running_loop().create_task(_publish())
+
 
 _SCOPED_UNITS_CTE = """
 WITH scoped_units AS (
@@ -500,16 +525,13 @@ async def map_unit_discovery(
         or is_index_format_incompatible
     )
     if has_unusable_index:
-        try:
-            await record_retrieval_index_readiness(
-                user_id=user_id,
-                namespace=namespace,
-                ready=False,
-                expected_revisions=len(expected_revisions),
-                indexed_revisions=len(index_parts),
-            )
-        except Exception as exc:
-            logger.warning("retrieval index readiness publish failed: %s", exc)
+        _schedule_index_readiness(
+            user_id=user_id,
+            namespace=namespace,
+            ready=False,
+            expected_revisions=len(expected_revisions),
+            indexed_revisions=len(index_parts),
+        )
         if has_revision_coverage_mismatch:
             unusable_reason = "revision_coverage"
         elif is_index_format_incompatible:
@@ -564,16 +586,13 @@ async def map_unit_discovery(
             time.monotonic() - stage_started,
             len(unit_rows),
         )
-    try:
-        await record_retrieval_index_readiness(
-            user_id=user_id,
-            namespace=namespace,
-            ready=not has_incomplete_index_statistics,
-            expected_revisions=len(expected_revisions),
-            indexed_revisions=len(index_parts),
-        )
-    except Exception as exc:
-        logger.warning("retrieval index readiness publish failed: %s", exc)
+    _schedule_index_readiness(
+        user_id=user_id,
+        namespace=namespace,
+        ready=not has_incomplete_index_statistics,
+        expected_revisions=len(expected_revisions),
+        indexed_revisions=len(index_parts),
+    )
     average_idf_path = combine_average_idf(
         [
             (path_idf, unit_count)

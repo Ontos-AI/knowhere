@@ -486,7 +486,7 @@ class _FakeHarness:
 def _patch_harness(monkeypatch: MonkeyPatch, episode: Any) -> None:
     monkeypatch.setattr(
         "shared.services.retrieval.agent_explore.harness.resolve_harness",
-        lambda: _FakeHarness(episode),
+        lambda **_kwargs: _FakeHarness(episode),
     )
 
 
@@ -818,7 +818,8 @@ async def test_agent_explore_should_release_route_session_before_final_hydration
             events.append("final_db_close")
 
     class FakeHarness:
-        async def run_episode(self, **_kwargs: object) -> EpisodeResult:
+        async def run_episode(self, **kwargs: object) -> EpisodeResult:
+            assert kwargs["db_factory"] is retrieval_routes.open_agent_explore_database_context
             events.append("episode")
             assert events[:2] == ["route_rollback", "episode"]
             # Model an episode exceeding a simulated idle-in-transaction
@@ -908,7 +909,7 @@ async def test_agent_explore_should_release_route_session_before_final_hydration
     monkeypatch.setattr(retrieval_routes, "open_fresh_database_context", fake_open_fresh_database_context)
     monkeypatch.setattr(
         "shared.services.retrieval.agent_explore.harness.resolve_harness",
-        lambda: FakeHarness(),
+        lambda **_kwargs: FakeHarness(),
     )
     monkeypatch.setattr(
         "shared.services.retrieval.agent_explore.ref_resolution.resolve_finish_refs",

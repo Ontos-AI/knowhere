@@ -129,7 +129,8 @@ class CursorHarness:
     """``Harness`` implementation over the Cursor SDK local agent."""
 
     def __init__(self, *, model: str | None = None) -> None:
-        self._model = model or AGENT_EXPLORE_CURSOR_MODEL
+        env_model = os.environ.get("AGENT_EXPLORE_CURSOR_MODEL", "").strip()
+        self._model = model or env_model or AGENT_EXPLORE_CURSOR_MODEL
 
     async def run_episode(
         self,

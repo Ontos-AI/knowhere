@@ -8,7 +8,7 @@ from custom_openapi import custom_openapi
 
 # Import from shared packages
 from shared.core.config import redis_pool_manager, settings
-from shared.core.database import engine, safe_dispose_engine
+from shared.core.database import dispose_all_engines
 from shared.core.logging import setup_logging
 
 # Import from local API project
@@ -162,7 +162,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"async HTTP client close failed: {e}")
 
     logger.info("Document API service stopped!")
-    await safe_dispose_engine(engine)
+    await dispose_all_engines()
     logger.info("database engine connection pool disposed.")
     logger.info("service stopped.")
 

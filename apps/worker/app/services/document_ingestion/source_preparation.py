@@ -6,7 +6,13 @@ from dataclasses import dataclass
 from app.services.document_ingestion.file_size_policy import (
     build_file_size_limit_message,
 )
-from app.services.document_ingestion.processing_context import ParseJobContext
+from app.services.document_ingestion.office_compat_normalizer import (
+    normalize_office_source,
+)
+from app.services.document_ingestion.processing_context import (
+    ParseJobContext,
+    persist_job_metadata_updates,
+)
 from app.services.document_parser.support.internal_parse_name import (
     prepare_internal_parse_input,
 )
@@ -64,10 +70,18 @@ def prepare_source_file(
         f"local_path={prepared_parse_input.file_path}"
     )
 
+    normalized_source = normalize_office_source(prepared_parse_input.file_path)
+    if normalized_source.conversion is not None:
+        persist_job_metadata_updates(
+            job_id=job_id,
+            job_context=job_context,
+            metadata_updates={"office_compat": normalized_source.conversion},
+        )
+
     return PreparedSourceFile(
         source_file_name=source_file_name,
         internal_parse_name=prepared_parse_input.internal_filename,
-        local_file_path=prepared_parse_input.file_path,
+        local_file_path=normalized_source.file_path,
         file_extension=file_extension,
     )
 

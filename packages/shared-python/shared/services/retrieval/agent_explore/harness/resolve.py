@@ -24,15 +24,25 @@ def resolve_harness_name() -> str:
     return value if value in _HARNESSES else _DEFAULT_HARNESS
 
 
-def resolve_harness(name: str | None = None) -> Harness:
-    """Build the ``Harness`` implementation for ``name`` (default: env-resolved)."""
+def resolve_harness(
+    name: str | None = None,
+    *,
+    cursor_model: str | None = None,
+) -> Harness:
+    """Build the ``Harness`` implementation for ``name`` (default: env-resolved).
+
+    ``cursor_model`` is only used by the Cursor SDK harness: a non-empty
+    value overrides ``AGENT_EXPLORE_CURSOR_MODEL``. The OpenAI harness
+    ignores it.
+    """
     resolved = (name or resolve_harness_name()).strip().lower()
     if resolved == "cursor_sdk":
         from shared.services.retrieval.agent_explore.harness.cursor_harness import (
             CursorHarness,
         )
 
-        return CursorHarness()
+        model = str(cursor_model or "").strip() or None
+        return CursorHarness(model=model)
     from shared.services.retrieval.agent_explore.harness.openai_harness import (
         OpenAIHarness,
     )

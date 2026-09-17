@@ -33,6 +33,20 @@ def open_fresh_database_context() -> AbstractAsyncContextManager[AsyncSession]:
     return get_db_context()
 
 
+def open_agent_explore_database_context() -> AbstractAsyncContextManager[AsyncSession]:
+    """Open a tool-dispatch session whose timeouts match the episode wall clock."""
+    from shared.core.database import get_db_context_with_timeouts
+    from shared.services.retrieval.agent_explore.config import (
+        AGENT_EXPLORE_WALL_CLOCK_SECONDS,
+    )
+
+    timeout_seconds = int(AGENT_EXPLORE_WALL_CLOCK_SECONDS)
+    return get_db_context_with_timeouts(
+        statement_timeout_ms=timeout_seconds * 1000,
+        command_timeout_seconds=timeout_seconds,
+    )
+
+
 def _evidence_path_header(row: dict) -> str:
     source = row.get("source")
     if not isinstance(source, dict):
@@ -214,10 +228,10 @@ async def _run_agent_explore_route(
     # be reused for post-episode database work.
     await context.db.rollback()
 
-    harness = resolve_harness()
+    harness = resolve_harness(cursor_model=context.agent_explore_model)
     episode_started = time.perf_counter()
     episode = await harness.run_episode(
-        db_factory=open_fresh_database_context,
+        db_factory=open_agent_explore_database_context,
         user_id=context.user_id,
         namespace=context.namespace,
         query=context.query,

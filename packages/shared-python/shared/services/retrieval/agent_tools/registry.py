@@ -3,7 +3,8 @@
 Mirrors the shape of ``apps/worker/app/services/document_agent/registry.py``
 (``ToolSpec`` + a decorator-based registry), adapted for the async DB-backed
 corpus tools in this package: ``ToolSpec(name, description, json_schema, run)``,
-``ToolContext(db, user_id, namespace, budget)``, ``ToolResult(text, payload, refs)``.
+``ToolContext(db, user_id, namespace, db_factory, budget)``,
+``ToolResult(text, payload, refs)``.
 
 Both the API ``/mcp`` server and the in-process ``agent_explore`` tool-loop
 (Phase 3) dispatch through the same ``REGISTRY`` — this module has no
@@ -12,15 +13,17 @@ provider-specific (MCP / OpenAI tool-calling) concerns.
 
 from __future__ import annotations
 
-from shared.services.retrieval.document_scope import DocumentScope
-
 from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.retrieval.document_scope import DocumentScope
 from shared.services.retrieval.settings import EVIDENCE_TEXT_CHAR_BUDGET
+
+DbFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
 
 @dataclass(frozen=True)
@@ -61,6 +64,7 @@ class ToolContext:
     db: AsyncSession
     user_id: str
     namespace: str
+    db_factory: DbFactory
     budget: ToolBudget = field(default_factory=ToolBudget)
     document_scope: DocumentScope = DocumentScope()
 

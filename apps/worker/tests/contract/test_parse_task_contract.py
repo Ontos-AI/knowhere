@@ -1,15 +1,34 @@
 from __future__ import annotations
 
 import json
+import os
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
+from xml.etree import ElementTree
 
 import pandas as pd
 import pytest
+from docx import Document
 
+from app.services.document_ingestion.office_compat_normalizer import (
+    OLE_CFBF_SIGNATURE,
+)
+from app.services.document_parser.orchestration.office_container_inspection import (
+    CONTENT_TYPES_MEMBER,
+    CONTENT_TYPES_NAMESPACE,
+)
 from app.services.document_parser.orchestration.parse_output import ParseOutput
 from support.worker_parse_contract import WorkerParseContract
+
+_DOCX_STANDARD_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+)
+_DOCX_MACRO_CONTENT_TYPE = (
+    "application/vnd.ms-word.document.macroEnabled.main+xml"
+)
+_COMPAT_BODY_MARKER = "office-compat-body-marker"
 
 _REPO_ROOT: Path = Path(__file__).resolve().parents[4]
 _FIXTURES_ROOT: Path = _REPO_ROOT / "apps" / "worker" / "tests" / "fixtures"
@@ -710,6 +729,146 @@ def test_parse_task_should_report_invalid_docx_as_client_file_error(
                 "description": (
                     "Expected a valid DOCX ZIP package containing word/document.xml"
                 ),
+            }
+        ]
+    }
+
+
+def _write_docx_with_body(file_path: Path, body_text: str) -> None:
+    document = Document()
+    document.add_paragraph(body_text)
+    document.save(file_path)
+
+
+def _rewrite_docx_main_content_type(
+    source_path: Path,
+    destination_path: Path,
+    content_type: str,
+) -> None:
+    override_tag = f"{{{CONTENT_TYPES_NAMESPACE}}}Override"
+    with zipfile.ZipFile(source_path, "r") as source_archive:
+        with zipfile.ZipFile(destination_path, "w") as destination_archive:
+            for info in source_archive.infolist():
+                data = source_archive.read(info.filename)
+                if info.filename == CONTENT_TYPES_MEMBER:
+                    root = ElementTree.fromstring(data)
+                    for override in root.findall(override_tag):
+                        if override.get("PartName") == "/word/document.xml":
+                            override.set("ContentType", content_type)
+                    data = ElementTree.tostring(
+                        root,
+                        encoding="UTF-8",
+                        xml_declaration=True,
+                    )
+                destination_archive.writestr(info, data)
+
+
+def _restore_standard_docx_content_type(
+    source_path: str,
+    outdir: str = ".",
+) -> tuple[str, str]:
+    os.makedirs(outdir, exist_ok=True)
+    output_name = f"{Path(source_path).stem}.docx"
+    output_path = os.path.join(outdir, output_name)
+    _rewrite_docx_main_content_type(
+        Path(source_path),
+        Path(output_path),
+        _DOCX_STANDARD_CONTENT_TYPE,
+    )
+    return output_path, output_name
+
+
+def test_parse_task_should_parse_macro_content_type_docx_after_compat_conversion(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    contract = WorkerParseContract.create()
+    contract.use_workspace_root(monkeypatch, tmp_path)
+    contract.use_billing(monkeypatch, is_enabled=True)
+
+    source_docx = tmp_path / "plain.docx"
+    _write_docx_with_body(source_docx, _COMPAT_BODY_MARKER)
+    variant_docx = tmp_path / "macro-named.docx"
+    _rewrite_docx_main_content_type(
+        source_docx,
+        variant_docx,
+        _DOCX_MACRO_CONTENT_TYPE,
+    )
+    job = contract.create_file_job(
+        source_file_name="contract-macro.docx",
+        job_id_prefix="job_macro_docx",
+    )
+    contract.upload_source_file(
+        local_file_path=variant_docx,
+        s3_key=job["s3_key"],
+    )
+    monkeypatch.setattr(
+        "app.services.document_ingestion.office_compat_normalizer.normalize_docx_variant",
+        _restore_standard_docx_content_type,
+    )
+
+    celery_result = contract.enqueue_parse_task(
+        job_id=job["job_id"],
+        user_id=job["user_id"],
+    )
+
+    assert celery_result.successful()
+    observed = contract.observe_successful_job(job["job_id"])
+    document_chunks = observed["document_chunks"]
+    assert any(
+        _COMPAT_BODY_MARKER in str(row["content"]) for row in document_chunks
+    )
+    metadata = contract.get_job_metadata(job["job_id"])
+    assert metadata["office_compat"] == {
+        "content_type": _DOCX_MACRO_CONTENT_TYPE,
+    }
+    assert contract.find_task_workspaces(tmp_path, job["job_id"]) == []
+
+
+def test_parse_task_should_report_encrypted_docx_as_client_file_error(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    contract = WorkerParseContract.create()
+    contract.use_workspace_root(monkeypatch, tmp_path)
+    contract.use_billing(monkeypatch, is_enabled=True)
+
+    encrypted_docx = tmp_path / "locked.docx"
+    encrypted_docx.write_bytes(OLE_CFBF_SIGNATURE + b"\x00")
+    job = contract.create_file_job(
+        source_file_name="contract-encrypted.docx",
+        job_id_prefix="job_encrypted_docx",
+    )
+    contract.upload_source_file(
+        local_file_path=encrypted_docx,
+        s3_key=job["s3_key"],
+    )
+
+    celery_result = contract.enqueue_parse_task(
+        job_id=job["job_id"],
+        user_id=job["user_id"],
+    )
+
+    assert celery_result.failed()
+    assert contract.find_task_workspaces(tmp_path, job["job_id"]) == []
+
+    job_row = contract.observe_job_status(job["job_id"])
+    assert job_row["status"] == "failed"
+    assert job_row["error_code"] == "INVALID_ARGUMENT"
+    assert job_row["error_message"] == (
+        "Invalid file: the uploaded .docx file is encrypted or "
+        "password-protected. Please unlock the file and upload again."
+    )
+    assert contract.count_job_results(job["job_id"]) == 0
+
+    metadata = contract.get_job_metadata(job["job_id"])
+    assert metadata["error_details"] == {
+        "violations": [
+            {
+                "field": "file",
+                "description": "Encrypted or password-protected Office file",
             }
         ]
     }

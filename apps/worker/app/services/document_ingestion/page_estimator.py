@@ -117,9 +117,11 @@ class PageEstimator:
     @classmethod
     def _count_docx(cls, file_path: str) -> int:
         """Estimate pages for DOCX using word-based counting."""
-        from docx import Document
+        from app.services.document_parser.formats.docx.word_package import (
+            open_word_document,
+        )
 
-        document = Document(file_path)
+        document = open_word_document(file_path)
         total_text = ""
 
         for paragraph in document.paragraphs:

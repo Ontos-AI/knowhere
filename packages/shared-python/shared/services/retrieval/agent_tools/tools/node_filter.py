@@ -32,10 +32,13 @@ from shared.services.retrieval.scoring.node_filter_predicates import (
     name="corpus.node_filter",
     description=(
         "Deterministic FOR-ALL/EXISTS/ANY/NOT filter over section titles "
-        "(section_path) and summaries — not body text (use corpus.grep for "
-        "that). Predicates AND together across fields; terms within one "
-        "field's 'terms' list OR together. Returns the complete matched set "
-        "and its count, never a truncated top-K."
+        "and summaries — not body text (use corpus.grep for that). Call "
+        "with document_ids plus a predicates array; each predicate is "
+        "{field: 'path'|'summary', terms: [...], match: 'substring'|'regex'}. "
+        "field=path matches the section path; field=summary matches the "
+        "section summary. Predicates AND together across the array; terms "
+        "within one predicate's 'terms' list OR together. Returns the "
+        "complete matched set and its count, never a truncated top-K."
     ),
     json_schema={
         "type": "object",
@@ -127,11 +130,14 @@ async def node_filter(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(text="", error="no active documents found for document_ids")
 
     revision_pairs = list(revision_by_doc.items())
+    scoped_document_ids = [document_id for document_id, _ in revision_pairs]
+    scoped_revision_ids = [revision_id for _, revision_id in revision_pairs]
     sections = (
         (
             await ctx.db.execute(
                 select(DocumentSection).where(
-                    DocumentSection.document_id.in_([d for d, _ in revision_pairs])
+                    DocumentSection.document_id.in_(scoped_document_ids),
+                    DocumentSection.job_result_id.in_(scoped_revision_ids),
                 )
             )
         )
@@ -148,8 +154,8 @@ async def node_filter(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if chunk_types:
         chunk_rows = await ctx.db.execute(
             select(DocumentChunk.section_id, DocumentChunk.chunk_type).where(
-                DocumentChunk.document_id.in_([d for d, _ in revision_pairs]),
-                DocumentChunk.job_result_id.in_([r for _, r in revision_pairs]),
+                DocumentChunk.document_id.in_(scoped_document_ids),
+                DocumentChunk.job_result_id.in_(scoped_revision_ids),
             )
         )
         allowed_section_ids = {

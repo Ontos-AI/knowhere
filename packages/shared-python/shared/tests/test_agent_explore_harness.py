@@ -21,6 +21,7 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 import pytest
 
+from shared.services.retrieval.agent_explore.config import LOOP_CONTRACT_SUFFIX
 from shared.services.retrieval.agent_explore.harness.base import Harness
 from shared.services.retrieval.agent_explore.harness.resolve import (
     _HARNESS_ENV,
@@ -193,3 +194,34 @@ def test_resolve_harness_explicit_name_overrides_env(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv(_HARNESS_ENV, "cursor_sdk")
     harness = resolve_harness("openai")
     assert isinstance(harness, OpenAIHarness)
+
+
+def test_resolve_harness_passes_cursor_model_to_cursor_harness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.agent_explore.harness.cursor_harness import CursorHarness
+
+    monkeypatch.delenv("AGENT_EXPLORE_CURSOR_MODEL", raising=False)
+    harness = resolve_harness("cursor_sdk", cursor_model="  grok-4.6  ")
+    assert isinstance(harness, CursorHarness)
+    assert harness._model == "grok-4.6"
+
+    from shared.services.retrieval.agent_explore.config import AGENT_EXPLORE_CURSOR_MODEL
+
+    default_harness = resolve_harness("cursor_sdk", cursor_model="  ")
+    assert default_harness._model == AGENT_EXPLORE_CURSOR_MODEL
+
+
+def test_loop_contract_keeps_dependent_grep_off_the_same_turn() -> None:
+    text = LOOP_CONTRACT_SUFFIX
+    assert "same turn" in text
+    for name in (
+        "corpus.grep",
+        "corpus.recall",
+        "corpus.read",
+        "corpus.list_documents",
+        "corpus.outline",
+        "corpus.node_filter",
+        "corpus.assets",
+    ):
+        assert name in text

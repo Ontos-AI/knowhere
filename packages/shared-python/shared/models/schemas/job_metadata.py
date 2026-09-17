@@ -40,6 +40,10 @@ class JobMetadataBase(BaseModel):
         None,
         description="Worker processing stages, including token_usage and timing_ms",
     )
+    office_compat: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Office compatibility conversion applied before parse",
+    )
     # result_mode was removed and is no longer supported.
 
     # Source-file fields.

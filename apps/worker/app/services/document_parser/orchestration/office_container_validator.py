@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-import zipfile
 from dataclasses import dataclass
+from typing import NoReturn
 
 from app.services.document_parser.orchestration.format_router import DocumentFormat
+from app.services.document_parser.orchestration.office_container_inspection import (
+    CONTENT_TYPES_MEMBER,
+    inspect_office_container,
+)
 
 from shared.core.exceptions.domain_exceptions import ValidationException
 
@@ -29,7 +33,6 @@ class _OfficeContainerRequirement:
         )
 
 
-_CONTENT_TYPES_MEMBER: str = "[Content_Types].xml"
 _OFFICE_CONTAINER_REQUIREMENTS: dict[
     DocumentFormat,
     _OfficeContainerRequirement,
@@ -61,23 +64,18 @@ def validate_office_container(
     if requirement is None:
         return
 
-    if not zipfile.is_zipfile(file_path):
+    inspection = inspect_office_container(file_path)
+    if inspection is None:
         _raise_invalid_office_file(requirement)
 
-    try:
-        with zipfile.ZipFile(file_path, "r") as archive:
-            member_names = set(archive.namelist())
-    except zipfile.BadZipFile as exc:
-        raise _build_invalid_office_file_exception(requirement) from exc
-
     if (
-        _CONTENT_TYPES_MEMBER not in member_names
-        or requirement.required_member not in member_names
+        CONTENT_TYPES_MEMBER not in inspection.member_names
+        or requirement.required_member not in inspection.member_names
     ):
         _raise_invalid_office_file(requirement)
 
 
-def _raise_invalid_office_file(requirement: _OfficeContainerRequirement) -> None:
+def _raise_invalid_office_file(requirement: _OfficeContainerRequirement) -> NoReturn:
     raise _build_invalid_office_file_exception(requirement)
 
 

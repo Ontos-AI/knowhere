@@ -51,7 +51,7 @@ def _convert_with_libreoffice(
     expected_output_ext: str,
     operation: str,
 ) -> tuple[str, str]:
-    """Convert a legacy Office document to an OOXML format via LibreOffice."""
+    """Convert an Office document to an OOXML format via LibreOffice."""
     soffice_path = resolve_libreoffice_binary()
 
     os.makedirs(outdir, exist_ok=True)
@@ -123,4 +123,26 @@ def xls_to_xlsx(xls_path: str, outdir: str = ".") -> tuple[str, str]:
         convert_to_arg="xlsx",
         expected_output_ext="xlsx",
         operation="convert_xls_to_xlsx",
+    )
+
+
+def normalize_docx_variant(source_path: str, outdir: str = ".") -> tuple[str, str]:
+    """Repair a non-standard DOCX container (macro/template content type) via LibreOffice."""
+    return _convert_with_libreoffice(
+        source_path=source_path,
+        outdir=outdir,
+        convert_to_arg="docx",
+        expected_output_ext="docx",
+        operation="normalize_docx_variant",
+    )
+
+
+def normalize_xlsx_variant(source_path: str, outdir: str = ".") -> tuple[str, str]:
+    """Repair a non-standard XLSX container (macro/template content type) via LibreOffice."""
+    return _convert_with_libreoffice(
+        source_path=source_path,
+        outdir=outdir,
+        convert_to_arg="xlsx",
+        expected_output_ext="xlsx",
+        operation="normalize_xlsx_variant",
     )

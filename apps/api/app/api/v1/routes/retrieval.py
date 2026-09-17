@@ -90,6 +90,16 @@ class RetrievalQueryRequest(BaseModel):
             "Set false to force classic map-unit BM25 top-K retrieval."
         ),
     )
+    agent_explore_model: str | None = Field(
+        None,
+        max_length=255,
+        description=(
+            "Optional Cursor SDK model for agent_explore when the cursor_sdk "
+            "harness is active. Omit or leave empty to use "
+            "AGENT_EXPLORE_CURSOR_MODEL (default composer-2.5). Ignored on "
+            "the classic route and the OpenAI harness."
+        ),
+    )
     conversation_id: str | None = Field(
         None,
         max_length=255,
@@ -208,6 +218,11 @@ async def execute_retrieval_query(
         threshold=payload.threshold,
         internal_recall_k=payload.internal_recall_k,
         use_agentic=payload.use_agentic,
+        agent_explore_model=(
+            str(payload.agent_explore_model).strip()
+            if payload.agent_explore_model
+            else None
+        ),
         conversation_id=payload.conversation_id,
         llm_config=llm_config,
     )

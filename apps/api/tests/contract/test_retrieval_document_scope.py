@@ -303,7 +303,7 @@ async def test_agent_scope_survives_dispatch_and_untrusted_finish(
 
             monkeypatch.setattr(
                 "shared.services.retrieval.agent_explore.harness.resolve_harness",
-                lambda: Harness(),
+                lambda **_kwargs: Harness(),
             )
             response = await client.post(
                 "/api/v1/retrieval/query",
@@ -413,6 +413,20 @@ def test_cache_scope_none_empty_and_set_identity():
         == 5
     )
     assert digest(["b", "a", "a"]) == digest(["a", "b"])
+
+
+def test_cache_digest_changes_with_agent_explore_model() -> None:
+    def digest(model: str | None) -> str:
+        return _cache_shape_digest(
+            query="same",
+            top_k=10,
+            exclude_document_ids=[],
+            exclude_sections=[],
+            agent_explore_model=model,
+        )
+
+    assert digest(None) != digest("grok-4.6")
+    assert digest("grok-4.6") == digest("grok-4.6")
 
 
 async def test_legacy_excludes_only_narrow_scope_in_database(

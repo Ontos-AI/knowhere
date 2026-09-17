@@ -46,6 +46,11 @@ async def main() -> None:
     parser.add_argument("--namespace", default="default")
     parser.add_argument("--token-limit", type=int, default=None)
     parser.add_argument("--harness", default=None, choices=["openai", "cursor_sdk"])
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Cursor SDK model override (AGENT_EXPLORE_CURSOR_MODEL when omitted)",
+    )
     args = parser.parse_args()
 
     query = args.query
@@ -61,7 +66,7 @@ async def main() -> None:
     from shared.services.retrieval.agent_explore.harness import resolve_harness
 
     budget = EpisodeBudget(token_limit=args.token_limit) if args.token_limit else EpisodeBudget()
-    harness = resolve_harness(args.harness)
+    harness = resolve_harness(args.harness, cursor_model=args.model)
 
     print(f"query: {query!r}")
     episode = await harness.run_episode(

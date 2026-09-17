@@ -34,6 +34,7 @@ class RetrievalQuery:
     threshold: float = 0.0
     internal_recall_k: int | None = None
     use_agentic: bool | None = None
+    agent_explore_model: str | None = None
     conversation_id: str | None = None
     llm_config: LLMConfig | None = None
     include_document_ids: list[str] | None = None
@@ -59,6 +60,7 @@ class RetrievalQuery:
         threshold: float = 0.0,
         internal_recall_k: int | None = None,
         use_agentic: bool | None = None,
+        agent_explore_model: str | None = None,
         conversation_id: str | None = None,
         llm_config: LLMConfig | None = None,
     ) -> "RetrievalQuery":
@@ -80,6 +82,7 @@ class RetrievalQuery:
             threshold=threshold,
             internal_recall_k=internal_recall_k,
             use_agentic=use_agentic,
+            agent_explore_model=agent_explore_model,
             conversation_id=conversation_id,
             llm_config=llm_config,
         )
@@ -105,6 +108,7 @@ class RetrievalQuery:
             "threshold": self.threshold,
             "internal_recall_k": self.internal_recall_k,
             "use_agentic": self.use_agentic,
+            "agent_explore_model": self.agent_explore_model,
             "llm_text_model": text_model,
             "llm_vision_model": vision_model,
             "harness": (
@@ -144,5 +148,6 @@ class RetrievalQuery:
             internal_recall_k=self.internal_recall_k,
             effective_recall_k=self.resolve_effective_recall_k(),
             use_agentic=self.use_agentic,
+            agent_explore_model=self.agent_explore_model,
             conversation_id=self.conversation_id,
         )
