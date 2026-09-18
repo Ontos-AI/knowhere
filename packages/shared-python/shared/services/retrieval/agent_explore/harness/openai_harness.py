@@ -36,17 +36,12 @@ equivalent hook for:
    ``RETRIEVAL_NAV_TOKEN_LIMIT`` (100k default) within 7-8 LLM turns from
    this resend alone, not from query difficulty — per-turn token cost grew
    monotonically (q04: 4.4k -> 4.8k -> 19.8k -> 21.5k -> 24.2k -> 29.6k).
-2. **Trajectory refs fallback** (``shared.dedup_refs`` + the fallback at the
-   end of ``run_episode``): verified live that ``finish`` can be called with
-   no ``refs`` key at all (raw ``function.arguments`` was literally ``'{}'``)
-   even after the model had already read clearly relevant sections via
-   ``corpus.read`` — the ``FINISH_TOOL_SCHEMA``'s ``"required": ["refs"]`` is
-   a schema hint, not a provider-enforced constraint. When ``finish``'s own
-   ``refs`` end up empty (whether from this, from ``no_tool_call``, or from a
-   forced-finish the provider ignored — all three exit paths), the episode
-   now falls back to the refs already returned by every
-   ``corpus.read``/``corpus.assets`` call in the trajectory, deduped, instead
-   of citing nothing.
+2. **Trajectory refs fallback** (``shared.select_episode_refs``): verified
+   live that ``finish`` can be called with no ``refs`` key at all (raw
+   ``function.arguments`` was literally ``'{}'``) even after the model had
+   already read clearly relevant sections via ``corpus.read``. Omitted refs
+   (``None``) still fall back to ``corpus.read``/``corpus.assets`` trajectory
+   refs. An explicit ``refs: []`` is respected and does not fall back.
 """
 
 from __future__ import annotations
@@ -72,8 +67,8 @@ from shared.services.retrieval.agent_explore.shared import (
     EVIDENCE_TOOL_NAMES,
     budget_status_line,
     build_wire_tool_name_map,
-    dedup_refs,
-    normalize_finish_refs,
+    finish_refs_from_args,
+    select_episode_refs,
     tool_message_content,
     wire_safe_tool_name,
 )
@@ -192,7 +187,7 @@ class OpenAIHarness:
         ]
 
         steps: list[AgentStep] = []
-        result_refs: list[dict[str, Any]] = []
+        finish_refs: list[dict[str, Any]] | None = None
         result_notes = ""
         # Refs from every corpus.read/corpus.assets call this episode, in call
         # order — the fallback source when finish's own refs end up empty (see
@@ -257,7 +252,8 @@ class OpenAIHarness:
             )
             if finish_call is not None:
                 args = _safe_json_loads(finish_call.function.arguments)
-                result_refs = normalize_finish_refs(args.get("refs"))
+                finish_refs = finish_refs_from_args(args)
+                cited = finish_refs if finish_refs is not None else []
                 result_notes = str(args.get("notes") or "")
                 stop_reason = f"budget_{forced_reason}" if forced_reason else "finished"
                 steps.append(
@@ -265,7 +261,7 @@ class OpenAIHarness:
                         step_index=len(steps),
                         tool_name=FINISH_TOOL_NAME,
                         tool_args=args,
-                        observation_text=f"refs={len(result_refs)} notes={result_notes!r}",
+                        observation_text=f"refs={len(cited)} notes={result_notes!r}",
                         error=None,
                         elapsed_ms=turn_elapsed_ms,
                         tokens_used_delta=turn_tokens,
@@ -373,20 +369,14 @@ class OpenAIHarness:
                 str(messages[-1]["content"]) + "\n" + budget_status_line(budget)
             )
 
-        if not result_refs:
-            fallback_refs = dedup_refs(trajectory_refs)
-            if fallback_refs:
-                result_refs = fallback_refs
-                result_notes = (result_notes + " " if result_notes else "") + (
-                    "[refs auto-filled from corpus.read/corpus.assets trajectory; "
-                    "finish did not cite any]"
-                )
-
+        selection = select_episode_refs(finish_refs, trajectory_refs, result_notes)
         return EpisodeResult(
-            refs=result_refs,
-            notes=result_notes,
+            refs=selection.refs,
+            notes=selection.notes,
             steps=steps,
             stop_reason=stop_reason,
             tokens_used=budget.tokens_used,
             model_name=model,
+            agent_selected_refs=selection.agent_selected_refs,
+            fallback_refs=selection.fallback_refs,
         )

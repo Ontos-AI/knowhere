@@ -32,7 +32,9 @@ from shared.services.retrieval.agent_explore.shared import (
     EVIDENCE_TOOL_NAMES,
     build_wire_tool_name_map,
     dedup_refs,
+    finish_refs_from_args,
     normalize_finish_refs,
+    select_episode_refs,
     tool_message_content,
     wire_safe_tool_name,
 )
@@ -113,6 +115,141 @@ def test_normalize_finish_refs_non_list_input_is_empty() -> None:
     assert normalize_finish_refs(None) == []
     assert normalize_finish_refs("refs") == []
     assert normalize_finish_refs({"document_id": "doc_a"}) == []
+
+
+def test_finish_refs_from_args_omitted_is_none_explicit_empty_is_list() -> None:
+    assert finish_refs_from_args(None) is None
+    assert finish_refs_from_args({}) is None
+    assert finish_refs_from_args({"notes": "none"}) is None
+    assert finish_refs_from_args({"refs": None}) is None
+    assert finish_refs_from_args({"refs": []}) == []
+    assert finish_refs_from_args(
+        {"refs": [{"document_id": "doc_a", "section_path": "Intro"}]}
+    ) == [{"document_id": "doc_a", "section_path": "Intro"}]
+
+
+def test_select_episode_refs_omitted_finish_uses_trajectory() -> None:
+    trajectory = [{"document_id": "doc_a", "chunk_id": "c1"}]
+    selection = select_episode_refs(None, trajectory, "notes")
+    assert selection.refs == trajectory
+    assert selection.agent_selected_refs is None
+    assert selection.fallback_refs == trajectory
+    assert "finish was not called" in selection.notes
+
+
+def test_select_episode_refs_keeps_agent_cited_refs() -> None:
+    cited = [{"document_id": "doc_a", "section_path": "Intro"}]
+    selection = select_episode_refs(
+        cited, [{"document_id": "doc_b", "chunk_id": "other"}], ""
+    )
+    assert selection.refs == cited
+    assert selection.agent_selected_refs == cited
+    assert selection.fallback_refs == []
+
+
+def test_build_decision_trace_marks_finish_phase() -> None:
+    from shared.services.retrieval.agent_explore.bridge import build_decision_trace
+    from shared.services.retrieval.agent_explore.types import AgentStep
+
+    steps = build_decision_trace(
+        [
+            AgentStep(
+                step_index=0,
+                tool_name="corpus.read",
+                tool_args={},
+                observation_text="body",
+                error=None,
+                elapsed_ms=1,
+                tokens_used_delta=0,
+                tokens_used_total=0,
+            ),
+            AgentStep(
+                step_index=1,
+                tool_name="finish",
+                tool_args={"refs": [{"document_id": "doc_a"}]},
+                observation_text="refs=1 notes=''",
+                error=None,
+                elapsed_ms=0,
+                tokens_used_delta=0,
+                tokens_used_total=0,
+            ),
+        ]
+    )
+    assert steps[0].phase == "tool_call"
+    assert steps[1].phase == "finish"
+    assert steps[1].decision["args"]["refs"] == [{"document_id": "doc_a"}]
+
+
+def test_attach_ref_provenance_reuses_finish_step() -> None:
+    from shared.services.retrieval.agent_explore.bridge import (
+        attach_ref_provenance,
+        build_decision_trace,
+    )
+    from shared.services.retrieval.agent_explore.types import AgentStep
+
+    steps = build_decision_trace(
+        [
+            AgentStep(
+                step_index=0,
+                tool_name="finish",
+                tool_args={"refs": []},
+                observation_text="refs=0 notes=''",
+                error=None,
+                elapsed_ms=0,
+                tokens_used_delta=0,
+                tokens_used_total=0,
+            )
+        ]
+    )
+    attached = attach_ref_provenance(
+        steps,
+        agent_selected_refs=[],
+        fallback_refs=[],
+        resolved_refs=[],
+        dropped_refs=[{"ref": {"document_id": "doc_a"}, "reason": "unknown document_id: doc_a"}],
+    )
+    assert len(attached) == 1
+    assert attached[0].phase == "finish"
+    assert attached[0].result["agent_selected_refs"] == []
+    assert attached[0].result["dropped_refs"][0]["reason"] == "unknown document_id: doc_a"
+
+
+def test_attach_ref_provenance_appends_finish_when_missing() -> None:
+    from shared.services.retrieval.agent_explore.bridge import attach_ref_provenance
+    from shared.services.retrieval.trace import DecisionTraceStep
+
+    steps = [
+        DecisionTraceStep(
+            step_index=0,
+            agent="agent_explore",
+            phase="tool_call",
+            observation={"observation_text": "hit"},
+            decision={"action": "corpus.read", "args": {}},
+            result={"status": "ok", "error": None},
+        )
+    ]
+    attached = attach_ref_provenance(
+        steps,
+        agent_selected_refs=None,
+        fallback_refs=[{"document_id": "doc_a", "chunk_id": "c1"}],
+        resolved_refs=[{"document_id": "doc_a", "chunk_id": "c1"}],
+        dropped_refs=[],
+    )
+    assert len(attached) == 2
+    assert attached[1].phase == "finish"
+    assert attached[1].observation["observation_text"] == "finish was not called"
+    assert attached[1].result["fallback_refs"] == [
+        {"document_id": "doc_a", "chunk_id": "c1"}
+    ]
+
+
+def test_select_episode_refs_explicit_empty_does_not_fallback() -> None:
+    trajectory = [{"document_id": "doc_a", "chunk_id": "c1"}]
+    selection = select_episode_refs([], trajectory, "chose none")
+    assert selection.refs == []
+    assert selection.agent_selected_refs == []
+    assert selection.fallback_refs == []
+    assert selection.notes == "chose none"
 
 
 def test_dedup_refs_keeps_first_seen_and_drops_missing_ids() -> None:

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.contract_database import ContractDatabase
 
+from shared.services.retrieval.agent_explore.ref_resolution import FinishRefResolution
 from shared.services.retrieval.execution import routes as retrieval_routes
 from shared.services.retrieval.execution.reference_resolver import (
     ResolvedWorkflowReferences,
@@ -851,12 +852,14 @@ async def test_agent_explore_should_release_route_session_before_final_hydration
     async def fake_resolve_finish_refs(
         db: AsyncSession,
         **_kwargs: object,
-    ) -> list[dict[str, str]]:
+    ) -> FinishRefResolution:
         assert db is final_db
         assert _kwargs["user_id"] == "contract-user"
         assert _kwargs["namespace"] == "contract-namespace"
         events.append("resolve_finish_refs")
-        return [{"document_id": "doc_contract", "chunk_id": "chunk_contract"}]
+        return FinishRefResolution(
+            resolved=[{"document_id": "doc_contract", "chunk_id": "chunk_contract"}]
+        )
 
     async def fake_resolve_workflow_references(
         *,

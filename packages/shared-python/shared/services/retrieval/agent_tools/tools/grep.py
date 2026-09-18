@@ -13,7 +13,6 @@ duplicate window-slicing logic or drift to different constants.
 
 from __future__ import annotations
 
-import asyncio
 import re
 from typing import Any
 
@@ -29,7 +28,9 @@ from shared.services.retrieval.agent_tools.registry import (
 from shared.services.retrieval.agent_tools.snippet import (
     HIT_CONTEXT_CHARS,
     build_snippet,
+    format_search_hit_line,
 )
+from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 
 _DEFAULT_MAX_RESULTS = 30
 _DEFAULT_CONTEXT_CHARS = HIT_CONTEXT_CHARS
@@ -138,7 +139,15 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         DocumentChunk.content,
         DocumentChunk.section_id,
         DocumentChunk.sort_order,
-    ).where(DocumentChunk.content.is_not(None), content_filter)
+    ).where(
+        DocumentChunk.content.is_not(None),
+        content_filter,
+        DocumentChunk.user_id == ctx.user_id,
+        DocumentChunk.namespace == ctx.namespace,
+        ctx.document_scope.predicate(DocumentChunk.document_id),
+    )
+    if document_ids:
+        matched = matched.where(DocumentChunk.document_id.in_(document_ids))
     if chunk_types:
         matched = matched.where(
             func.lower(DocumentChunk.chunk_type).in_(sorted(chunk_types))
@@ -155,12 +164,6 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if document_ids:
         scope_filters.append(Document.document_id.in_(document_ids))
 
-    count_stmt = (
-        select(func.count(matched.c.id))
-        .select_from(matched)
-        .join(Document, Document.document_id == matched.c.document_id)
-        .where(*scope_filters)
-    )
     rows_stmt = (
         select(
             matched.c.chunk_id,
@@ -169,6 +172,7 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             matched.c.content,
             DocumentSection.section_path,
             Document.source_file_name,
+            func.count().over().label("total_matches"),
         )
         .select_from(matched)
         .join(Document, Document.document_id == matched.c.document_id)
@@ -177,16 +181,19 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         .order_by(matched.c.document_id, matched.c.sort_order)
         .limit(max_results)
     )
-    async with ctx.db_factory() as rows_db:
-        count_result, rows_result = await asyncio.gather(
-            ctx.db.execute(count_stmt),
-            rows_db.execute(rows_stmt),
-        )
-    total_matches = int(count_result.scalar_one())
-    rows = rows_result.all()
+    rows = (await ctx.db.execute(rows_stmt)).all()
+    total_matches = int(rows[0][-1]) if rows else 0
 
     results: list[dict[str, Any]] = []
-    for chunk_id, document_id, chunk_type, content, section_path, source_file_name in rows:
+    for (
+        chunk_id,
+        document_id,
+        chunk_type,
+        content,
+        section_path,
+        source_file_name,
+        _total_matches,
+    ) in rows:
         text = str(content or "")
         match = compiled.search(text)
         snippet = build_snippet(
@@ -207,9 +214,16 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if requested_max_results > max_results:
         lines.append(f"note: capped to budget.max_items={ctx.budget.max_items}")
     for r in results:
+        chunk_type = str(r["chunk_type"] or "").strip()
         lines.append(
-            f"- {r['source_file_name']} ({r['document_id']}) / {r['section_path']}: "
-            f"{r['snippet']!r}"
+            format_search_hit_line(
+                source_file_name=r["source_file_name"],
+                document_id=r["document_id"],
+                section_path=r["section_path"],
+                snippet=r["snippet"],
+                chunk_type=chunk_type,
+                chunk_id=r["chunk_id"] if chunk_type in ASSET_CHUNK_TYPES else None,
+            )
         )
 
     return ToolResult(

@@ -15,6 +15,7 @@ hook exposed to the host process).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
@@ -79,6 +80,66 @@ def tool_message_content(result: ToolResult, *, max_chars: int) -> str:
         "node_filter, or a more specific ref for read) and call again if "
         "you need the rest]"
     )
+
+
+@dataclass(frozen=True)
+class EpisodeRefSelection:
+    """Final episode refs plus how they were chosen.
+
+    ``agent_selected_refs`` is ``None`` only when finish was never called.
+    An explicit empty finish stays empty and does not take the trajectory
+    fallback.
+    """
+
+    refs: list[dict[str, Any]]
+    notes: str
+    agent_selected_refs: list[dict[str, Any]] | None
+    fallback_refs: list[dict[str, Any]]
+
+
+def select_episode_refs(
+    finish_refs: list[dict[str, Any]] | None,
+    trajectory_refs: list[dict[str, Any]],
+    notes: str,
+) -> EpisodeRefSelection:
+    """Choose episode refs without treating ``[]`` and ``None`` as the same."""
+    if finish_refs is None:
+        fallback_refs = dedup_refs(trajectory_refs)
+        if not fallback_refs:
+            return EpisodeRefSelection(
+                refs=[],
+                notes=notes,
+                agent_selected_refs=None,
+                fallback_refs=[],
+            )
+        suffix = (
+            "[refs auto-filled from corpus.read/corpus.assets trajectory; "
+            "finish was not called]"
+        )
+        return EpisodeRefSelection(
+            refs=fallback_refs,
+            notes=(notes + " " if notes else "") + suffix,
+            agent_selected_refs=None,
+            fallback_refs=fallback_refs,
+        )
+    return EpisodeRefSelection(
+        refs=list(finish_refs),
+        notes=notes,
+        agent_selected_refs=list(finish_refs),
+        fallback_refs=[],
+    )
+
+
+def finish_refs_from_args(args: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+    """Return cited refs, or ``None`` when finish omitted the ``refs`` key.
+
+    ``None`` means the agent did not specify refs (never called finish, or
+    called finish with ``{}``). An explicit ``refs: []`` stays an empty list
+    and must not be collapsed into ``None``.
+    """
+    if not isinstance(args, dict) or "refs" not in args or args.get("refs") is None:
+        return None
+    return normalize_finish_refs(args.get("refs"))
 
 
 def normalize_finish_refs(raw: Any) -> list[dict[str, Any]]:

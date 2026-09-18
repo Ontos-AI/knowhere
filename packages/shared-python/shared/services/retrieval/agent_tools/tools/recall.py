@@ -41,7 +41,11 @@ from shared.services.retrieval.agent_tools.registry import (
     capped_limit,
     register_tool,
 )
-from shared.services.retrieval.agent_tools.snippet import build_snippet
+from shared.services.retrieval.agent_tools.snippet import (
+    build_snippet,
+    format_search_hit_line,
+)
+from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
 from shared.services.retrieval.search.scoring import merge_channels_rrf
 
@@ -139,9 +143,10 @@ async def _term_channel_rows(
     description=(
         "Fuzzy ranked candidate search for a question when you don't know "
         "where the answer lives. Fuses a path+content BM25 channel with a "
-        "term substring channel via RRF. Returns candidates with path and "
-        "snippet and document_id, not full content — call corpus.read on "
-        "the winners using that document_id, not the filename."
+        "term substring channel via RRF. Returns candidates with chunk_type, "
+        "document_id, path and snippet, not full content. Image/table hits "
+        "also include chunk_id. Call corpus.read using document_id plus "
+        "section_path or chunk_id, not the filename."
     ),
     json_schema={
         "type": "object",
@@ -240,9 +245,19 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         lines.append(f"note: capped to budget.max_items={ctx.budget.max_items}")
     for row in fused:
         snippet = build_snippet(str(row.get("content") or row.get("snippet") or ""))
+        chunk_type = str(row.get("chunk_type") or "").strip()
         lines.append(
-            f"- {row.get('source_file_name')} ({row.get('document_id')}) / "
-            f"{row.get('section_path')} score={row.get('score')}: {snippet!r}"
+            format_search_hit_line(
+                source_file_name=row.get("source_file_name"),
+                document_id=row.get("document_id"),
+                section_path=row.get("section_path"),
+                snippet=snippet,
+                chunk_type=chunk_type,
+                chunk_id=(
+                    row.get("chunk_id") if chunk_type in ASSET_CHUNK_TYPES else None
+                ),
+                score=row.get("score"),
+            )
         )
 
     return ToolResult(

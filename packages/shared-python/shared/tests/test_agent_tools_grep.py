@@ -1,13 +1,7 @@
-"""Regression for ``corpus.grep`` concurrent COUNT + row fetch.
-
-COUNT stays on the tool's call session; rows use a second session from the
-same ``db_factory`` so both queries can run at once. Output must stay the
-same as sequential execution.
-"""
+"""Regression coverage for ``corpus.grep`` scope and exact-count query."""
 
 from __future__ import annotations
 
-import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -23,6 +17,7 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from shared.services.retrieval.agent_tools.registry import REGISTRY, ToolContext
+from shared.services.retrieval.agent_tools.snippet import format_search_hit_line
 from shared.services.retrieval.agent_tools.tools.grep import (
     _content_search,
     _terms_from_args,
@@ -30,66 +25,146 @@ from shared.services.retrieval.agent_tools.tools.grep import (
 )
 
 
-class _CountResult:
-    def scalar_one(self) -> int:
-        return 2
-
-
 class _RowsResult:
-    def all(self) -> list[tuple[str, str, str, str, str, str]]:
+    def all(self) -> list[tuple[str, str, str, str, str, str, int]]:
         return [
-            ("chunk_a", "doc_a", "text", "alpha HFrEF body", "guide.pdf / Intro", "guide.pdf"),
-            ("chunk_b", "doc_b", "text", "other HFrEF note", "notes.pdf / Leaf", "notes.pdf"),
+            (
+                "chunk_a",
+                "doc_a",
+                "text",
+                "alpha HFrEF body",
+                "guide.pdf / Intro",
+                "guide.pdf",
+                2,
+            ),
+            (
+                "chunk_b",
+                "doc_a",
+                "text",
+                "other HFrEF note",
+                "notes.pdf / Leaf",
+                "notes.pdf",
+                2,
+            ),
         ]
 
 
-class _RecordingDb:
-    def __init__(self, result: object, *, delay: float) -> None:
-        self.result = result
-        self.delay = delay
-        self.started_at: float | None = None
-        self.finished_at: float | None = None
-        self.execute_count = 0
+class _LimitedRowsResult:
+    def all(self) -> list[tuple[str, str, str, str, str, str, int]]:
+        return [
+            (
+                "chunk_a",
+                "doc_a",
+                "text",
+                "alpha HFrEF body",
+                "guide.pdf / Intro",
+                "guide.pdf",
+                2,
+            )
+        ]
 
-    async def execute(self, _statement):  # noqa: ANN001
+
+class _EmptyRowsResult:
+    def all(self) -> list[tuple[str, str, str, str, str, str, int]]:
+        return []
+
+
+class _RecordingDb:
+    def __init__(self, result: object) -> None:
+        self.result = result
+        self.execute_count = 0
+        self.statement = None
+
+    async def execute(self, statement):  # noqa: ANN001
         self.execute_count += 1
-        self.started_at = asyncio.get_running_loop().time()
-        await asyncio.sleep(self.delay)
-        self.finished_at = asyncio.get_running_loop().time()
+        self.statement = statement
         return self.result
 
 
 @pytest.mark.asyncio
-async def test_grep_runs_count_and_rows_on_two_connections() -> None:
-    count_db = _RecordingDb(_CountResult(), delay=0.05)
-    rows_db = _RecordingDb(_RowsResult(), delay=0.05)
+async def test_grep_runs_one_scoped_query_with_exact_total() -> None:
+    db = _RecordingDb(_RowsResult())
 
     @asynccontextmanager
     async def rows_factory():
-        yield rows_db
+        raise AssertionError("grep must not open a second database connection")
+        yield  # pragma: no cover
 
     ctx = ToolContext(
-        db=count_db,  # type: ignore[arg-type]
+        db=db,  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
         db_factory=rows_factory,
     )
-    result = await grep(ctx, {"pattern": "HFrEF"})
+    result = await grep(ctx, {"pattern": "HFrEF", "document_ids": ["doc_a"]})
 
     assert result.error is None
     assert result.payload["total_matches"] == 2
     assert [row["chunk_id"] for row in result.payload["results"]] == ["chunk_a", "chunk_b"]
     assert result.refs == [
         {"document_id": "doc_a", "chunk_id": "chunk_a"},
-        {"document_id": "doc_b", "chunk_id": "chunk_b"},
+        {"document_id": "doc_a", "chunk_id": "chunk_b"},
     ]
-    assert count_db.execute_count == 1
-    assert rows_db.execute_count == 1
-    assert count_db.started_at is not None and rows_db.started_at is not None
-    assert count_db.finished_at is not None and rows_db.finished_at is not None
-    assert count_db.started_at < rows_db.finished_at
-    assert rows_db.started_at < count_db.finished_at
+    assert db.execute_count == 1
+    assert db.statement is not None
+    sql = str(
+        db.statement.compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    matched_sql = sql.split(")\n SELECT", 1)[0]
+    assert "count(*) OVER ()" in sql
+    assert "document_chunks.user_id = 'user_grep'" in matched_sql
+    assert "document_chunks.namespace = 'default'" in matched_sql
+    assert "document_chunks.document_id IN ('doc_a')" in matched_sql
     assert result.text.startswith("total_matches=2 returned=2")
+    assert "- [text] guide.pdf (doc_a) / guide.pdf / Intro:" in result.text
+    assert "chunk_id=" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_grep_exact_total_survives_row_limit() -> None:
+    db = _RecordingDb(_LimitedRowsResult())
+
+    @asynccontextmanager
+    async def unused_factory():
+        raise AssertionError("grep must not open a second database connection")
+        yield  # pragma: no cover
+
+    ctx = ToolContext(
+        db=db,  # type: ignore[arg-type]
+        user_id="user_grep",
+        namespace="default",
+        db_factory=unused_factory,
+    )
+    result = await grep(ctx, {"pattern": "HFrEF", "max_results": 1})
+
+    assert result.payload["total_matches"] == 2
+    assert len(result.payload["results"]) == 1
+    assert result.text.startswith("total_matches=2 returned=1")
+
+
+@pytest.mark.asyncio
+async def test_grep_empty_result_reports_zero_total() -> None:
+    db = _RecordingDb(_EmptyRowsResult())
+
+    @asynccontextmanager
+    async def unused_factory():
+        raise AssertionError("grep must not open a second database connection")
+        yield  # pragma: no cover
+
+    ctx = ToolContext(
+        db=db,  # type: ignore[arg-type]
+        user_id="user_grep",
+        namespace="default",
+        db_factory=unused_factory,
+    )
+    result = await grep(ctx, {"pattern": "missing"})
+
+    assert result.payload == {"total_matches": 0, "results": []}
+    assert result.refs == []
+    assert result.text == "total_matches=0 returned=0"
 
 
 @pytest.mark.asyncio
@@ -98,10 +173,10 @@ async def test_grep_requires_pattern_or_patterns() -> None:
     # enough here — mirrors the other tests' db_factory shape for consistency.
     @asynccontextmanager
     async def rows_factory():
-        yield _RecordingDb(_RowsResult(), delay=0.0)
+        yield _RecordingDb(_RowsResult())
 
     ctx = ToolContext(
-        db=_RecordingDb(_CountResult(), delay=0.0),  # type: ignore[arg-type]
+        db=_RecordingDb(_RowsResult()),  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
         db_factory=rows_factory,
@@ -164,3 +239,67 @@ def test_content_search_ors_literal_terms_in_sql_and_matcher() -> None:
     assert "foo" in sql
     assert "bar" in sql
     assert "ilike" not in sql.lower()
+
+
+class _TableRowsResult:
+    def all(self) -> list[tuple[str, str, str, str, str, str, int]]:
+        return [
+            (
+                "chunk_table",
+                "doc_a",
+                "table",
+                "<table><tr><td>30 mg</td></tr></table>",
+                "guide.pdf / Root",
+                "guide.pdf",
+                1,
+            )
+        ]
+
+
+@pytest.mark.asyncio
+async def test_grep_table_hit_text_includes_chunk_id() -> None:
+    db = _RecordingDb(_TableRowsResult())
+
+    @asynccontextmanager
+    async def unused_factory():
+        raise AssertionError("grep must not open a second database connection")
+        yield  # pragma: no cover
+
+    ctx = ToolContext(
+        db=db,  # type: ignore[arg-type]
+        user_id="user_grep",
+        namespace="default",
+        db_factory=unused_factory,
+    )
+    result = await grep(ctx, {"pattern": "30 mg"})
+
+    assert result.error is None
+    assert (
+        "- [table] guide.pdf (doc_a) chunk_id=chunk_table / guide.pdf / Root:"
+        in result.text
+    )
+
+
+def test_format_search_hit_line_body_omits_chunk_id() -> None:
+    assert format_search_hit_line(
+        source_file_name="guide.pdf",
+        document_id="doc_a",
+        section_path="guide.pdf / Intro",
+        snippet="alpha",
+        chunk_type="text",
+    ) == "- [text] guide.pdf (doc_a) / guide.pdf / Intro: 'alpha'"
+
+
+def test_format_search_hit_line_asset_includes_chunk_id() -> None:
+    assert format_search_hit_line(
+        source_file_name="guide.pdf",
+        document_id="doc_a",
+        section_path="guide.pdf / Root",
+        snippet="30 mg",
+        chunk_type="table",
+        chunk_id="chunk_table",
+        score=1.5,
+    ) == (
+        "- [table] guide.pdf (doc_a) chunk_id=chunk_table / "
+        "guide.pdf / Root score=1.5: '30 mg'"
+    )

@@ -214,7 +214,10 @@ async def _run_agent_explore_route(
     Which provider actually runs the tool-calling loop is the
     ``AGENT_EXPLORE_HARNESS`` switch resolved by ``resolve_harness()``.
     """
-    from shared.services.retrieval.agent_explore.bridge import build_decision_trace
+    from shared.services.retrieval.agent_explore.bridge import (
+        attach_ref_provenance,
+        build_decision_trace,
+    )
     from shared.services.retrieval.agent_explore.budget import EpisodeBudget
     from shared.services.retrieval.agent_explore.harness import resolve_harness
     from shared.services.retrieval.agent_explore.ref_resolution import (
@@ -253,15 +256,22 @@ async def _run_agent_explore_route(
     # sees in tool text); resolve_workflow_references requires chunk_id —
     # see ref_resolution.py's module docstring for why this bridge exists.
     decision_steps = build_decision_trace(episode.steps)
-    decision_trace = [step.to_dict() for step in decision_steps]
 
     async with open_fresh_database_context() as final_db:
-        chunk_refs = await resolve_finish_refs(
+        finish_resolution = await resolve_finish_refs(
             final_db,
             user_id=context.user_id,
             namespace=context.namespace,
             refs=episode.refs,
             document_scope=context.document_scope,
+        )
+        chunk_refs = finish_resolution.resolved
+        decision_steps = attach_ref_provenance(
+            decision_steps,
+            agent_selected_refs=episode.agent_selected_refs,
+            fallback_refs=episode.fallback_refs,
+            resolved_refs=chunk_refs,
+            dropped_refs=finish_resolution.dropped,
         )
         resolved = await resolve_workflow_references(
             db=final_db,
@@ -305,6 +315,7 @@ async def _run_agent_explore_route(
             selected_doc_ids=selected_doc_ids,
         )
 
+    decision_trace = [step.to_dict() for step in decision_steps]
     evidence_text = _render_rows_evidence(assembled_rows)
     response = {
         "namespace": context.namespace,

@@ -132,7 +132,11 @@ async def _forward_search(
 
     lines = [f"assets={len(results)}"]
     for r in results:
-        lines.append(f"- [{r['chunk_type']}] {r['file_path']} — {r['summary']}")
+        lines.append(
+            f"- [{r['chunk_type']}] document_id={r['document_id']} "
+            f"chunk_id={r['chunk_id']} file_path={r['file_path']} "
+            f"section_path={r['section_path']} — {r['summary']}"
+        )
 
     return ToolResult(
         text="\n".join(lines),

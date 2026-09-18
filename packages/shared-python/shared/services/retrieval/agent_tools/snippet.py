@@ -1,16 +1,9 @@
-"""Shared hit-anchored snippet builder for ``corpus.grep`` and ``corpus.recall``.
+"""Shared hit rendering for ``corpus.grep`` and ``corpus.recall``.
 
-Both tools locate a single pattern/term inside one chunk's text and need to
-show a bounded excerpt around it. The shape is: head anchor + the window
-around the (first) match + tail anchor, with ``...`` between spans that do
-not touch. Overlapping/adjacent spans are merged before rendering so short
-chunks never produce duplicate text or a stray ``...`` inside otherwise
-continuous text.
-
-Only the first match is windowed. A single call passes a single
-pattern/term, but that pattern can still occur more than once inside one
-chunk (verified against real data); later occurrences in the same chunk are
-not separately windowed here — use ``corpus.read`` on the chunk for the rest.
+``build_snippet`` windows body text around the first match: head + first-match
+window + tail, ``...``-joined, overlap-merged. Only the first match is
+windowed. ``format_search_hit_line`` renders the model-visible identifier
+line so both tools stay on the same shape.
 """
 
 from __future__ import annotations
@@ -70,3 +63,32 @@ def build_snippet(
     if prev_end < len(text):
         parts.append("...")
     return "".join(parts)
+
+
+def format_search_hit_line(
+    *,
+    source_file_name: object,
+    document_id: object,
+    section_path: object,
+    snippet: str,
+    chunk_type: object,
+    chunk_id: object | None = None,
+    score: object | None = None,
+) -> str:
+    """Render one grep/recall hit with the fields the model can copy into read.
+
+    Body hits keep ``document_id`` + ``section_path``. Image/table hits also
+    include ``chunk_id`` because their stored ``section_path`` is the document
+    Root, not the host section.
+    """
+    type_label = str(chunk_type or "").strip()
+    score_part = f" score={score}" if score is not None else ""
+    if chunk_id:
+        return (
+            f"- [{type_label}] {source_file_name} ({document_id}) "
+            f"chunk_id={chunk_id} / {section_path}{score_part}: {snippet!r}"
+        )
+    return (
+        f"- [{type_label}] {source_file_name} ({document_id}) / "
+        f"{section_path}{score_part}: {snippet!r}"
+    )
