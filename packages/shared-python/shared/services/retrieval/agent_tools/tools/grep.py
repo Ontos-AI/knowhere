@@ -1,9 +1,14 @@
-"""``corpus.grep`` — exact string/regex lookup against body text.
+"""``corpus.grep`` — exact string lookup against published term text.
 
-SQL ``ILIKE`` / ``~*`` on ``document_chunks.content``, scoped to the current
-revision. Reports a total match count (over the full in-scope corpus, not
-just the returned page) alongside capped snippets, so ANY/ALL logic can close
-over body text the same way ``corpus.node_filter`` closes over titles/summaries.
+SQL ``ILIKE`` on ``document_chunks.term_search_text``, scoped to the
+current revision. That field is already published (body + filename + section
+path; tables use summary/keywords/caption; images use their description).
+Reports a total match count (over the full in-scope corpus, not just the
+returned page) alongside capped snippets.
+
+Matching table/image chunks, and body chunks that list ``connect_to``
+targets, are mounted through the shared explore mount so the tool result
+includes rendered table/image content.
 
 Snippets are built by the shared ``agent_tools.snippet.build_snippet`` (head
 + first-match window + tail, ``...``-joined, overlap-merged) — the same
@@ -16,9 +21,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
+from shared.models.database.job_result import JobResult
+from shared.services.retrieval.agent_tools.explore_mount import mount_explore_hits
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
     ToolResult,
@@ -52,32 +59,31 @@ def _terms_from_args(args: dict[str, Any]) -> list[str]:
     return terms
 
 
-def _content_search(
-    terms: list[str], *, is_regex: bool
-) -> tuple[re.Pattern[str], Any]:
-    """Build the Python matcher and the SQL content predicate for ``terms``.
+def _term_search(terms: list[str]) -> tuple[re.Pattern[str], Any]:
+    """Build the Python matcher and the SQL term_search_text predicate.
 
-    One literal term stays on ``ILIKE`` (trgm-index path). Several terms, or
-    any regex call, become a ``~*`` alternation — ``ILIKE`` has no OR form.
+    Every term uses ``ILIKE``. Several terms become ``OR`` of those clauses.
     """
-    if is_regex:
-        combined = "|".join(f"(?:{term})" for term in terms)
-        compiled = re.compile(combined, flags=re.IGNORECASE)
-        return compiled, DocumentChunk.content.op("~*")(combined)
-    if len(terms) == 1:
-        compiled = re.compile(re.escape(terms[0]), flags=re.IGNORECASE)
-        return compiled, DocumentChunk.content.ilike(f"%{terms[0]}%")
-    combined = "|".join(re.escape(term) for term in terms)
-    compiled = re.compile(combined, flags=re.IGNORECASE)
-    return compiled, DocumentChunk.content.op("~*")(combined)
+    compiled = re.compile(
+        "|".join(re.escape(term) for term in terms),
+        flags=re.IGNORECASE,
+    )
+    return compiled, or_(
+        *(
+            DocumentChunk.term_search_text.ilike(f"%{term}%")
+            for term in terms
+        )
+    )
 
 
 @register_tool(
     name="corpus.grep",
     description=(
-        "Exact string or regex search against chunk body text (content), "
-        "not titles/summaries (use corpus.node_filter for that). Returns the "
-        "total number of matching chunks plus a capped list of snippets. "
+        "Exact string search against published term_search_text "
+        "(body text, image descriptions, table summaries/keywords, plus "
+        "filename and section path). Returns the total number of matching "
+        "chunks plus a capped list of snippets. Table and image hits include "
+        "rendered content; body hits include any connected table or image. "
         "Provide 'pattern' for one term, or 'patterns' for several candidate "
         "terms OR'd together in this single call (e.g. synonyms) — issue one "
         "call with multiple terms instead of several parallel corpus.grep "
@@ -89,7 +95,7 @@ def _content_search(
         "properties": {
             "pattern": {
                 "type": "string",
-                "description": "One search term (string or regex per is_regex).",
+                "description": "One search term.",
             },
             "patterns": {
                 "type": "array",
@@ -98,7 +104,6 @@ def _content_search(
             },
             "document_ids": {"type": "array", "items": {"type": "string"}},
             "chunk_types": {"type": "array", "items": {"type": "string"}},
-            "is_regex": {"type": "boolean", "default": False},
             "context_chars": {"type": "integer", "default": _DEFAULT_CONTEXT_CHARS},
             "max_results": {"type": "integer", "default": _DEFAULT_MAX_RESULTS},
         },
@@ -112,7 +117,6 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     terms = _terms_from_args(args)
     if not terms:
         return ToolResult(text="", error="grep requires pattern or patterns")
-    is_regex = bool(args.get("is_regex", False))
     context_chars = int(args.get("context_chars") or _DEFAULT_CONTEXT_CHARS)
     requested_max_results = int(args.get("max_results") or _DEFAULT_MAX_RESULTS)
     max_results = capped_limit(requested_max_results, ctx.budget)
@@ -123,25 +127,26 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         str(t).strip().lower() for t in (args.get("chunk_types") or []) if str(t).strip()
     }
 
-    try:
-        compiled, content_filter = _content_search(terms, is_regex=is_regex)
-    except re.error as exc:
-        return ToolResult(text="", error=f"invalid regex: {exc}")
-    # Match content first so PostgreSQL can use idx_document_chunks_content_trgm.
-    # Joining documents first makes the planner filter every in-scope chunk
-    # and ignore the trigram index (observed: 31s vs 0.4s for the same count).
+    compiled, term_filter = _term_search(terms)
+    # Match term_search_text first so PostgreSQL can use
+    # idx_document_chunks_term_trgm. Joining documents first makes the
+    # planner filter every in-scope chunk and ignore the trigram index
+    # (observed on the previous content index: 31s vs 0.4s).
     matched = select(
         DocumentChunk.id,
         DocumentChunk.chunk_id,
         DocumentChunk.document_id,
         DocumentChunk.job_result_id,
         DocumentChunk.chunk_type,
+        DocumentChunk.term_search_text,
         DocumentChunk.content,
+        DocumentChunk.file_path,
+        DocumentChunk.chunk_metadata,
         DocumentChunk.section_id,
         DocumentChunk.sort_order,
     ).where(
-        DocumentChunk.content.is_not(None),
-        content_filter,
+        DocumentChunk.term_search_text.is_not(None),
+        term_filter,
         DocumentChunk.user_id == ctx.user_id,
         DocumentChunk.namespace == ctx.namespace,
         ctx.document_scope.predicate(DocumentChunk.document_id),
@@ -169,7 +174,12 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             matched.c.chunk_id,
             matched.c.document_id,
             matched.c.chunk_type,
+            matched.c.term_search_text,
             matched.c.content,
+            matched.c.file_path,
+            matched.c.chunk_metadata,
+            matched.c.job_result_id,
+            JobResult.job_id,
             DocumentSection.section_path,
             Document.source_file_name,
             func.count().over().label("total_matches"),
@@ -177,6 +187,7 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         .select_from(matched)
         .join(Document, Document.document_id == matched.c.document_id)
         .outerjoin(DocumentSection, DocumentSection.section_id == matched.c.section_id)
+        .outerjoin(JobResult, JobResult.id == Document.current_job_result_id)
         .where(*scope_filters)
         .order_by(matched.c.document_id, matched.c.sort_order)
         .limit(max_results)
@@ -189,12 +200,17 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         chunk_id,
         document_id,
         chunk_type,
+        term_search_text,
         content,
+        file_path,
+        chunk_metadata,
+        job_result_id,
+        job_id,
         section_path,
         source_file_name,
         _total_matches,
     ) in rows:
-        text = str(content or "")
+        text = str(term_search_text or "")
         match = compiled.search(text)
         snippet = build_snippet(
             text, match.span() if match else None, hit_context=context_chars
@@ -207,7 +223,18 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 "chunk_type": chunk_type,
                 "section_path": section_path,
                 "snippet": snippet,
+                "content": content,
+                "file_path": file_path,
+                "chunk_metadata": chunk_metadata or {},
+                "job_result_id": job_result_id,
+                "job_id": job_id,
             }
+        )
+
+    media: list[dict[str, str]] = []
+    if results:
+        results, media = await mount_explore_hits(
+            ctx, results, char_budget=ctx.budget.max_chars
         )
 
     lines = [f"total_matches={total_matches} returned={len(results)}"]
@@ -225,6 +252,9 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 chunk_id=r["chunk_id"] if chunk_type in ASSET_CHUNK_TYPES else None,
             )
         )
+        rendered = str(r.get("rendered") or "").strip()
+        if rendered:
+            lines.append(rendered)
 
     return ToolResult(
         text="\n".join(lines),
@@ -232,4 +262,5 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         refs=[
             {"document_id": r["document_id"], "chunk_id": r["chunk_id"]} for r in results
         ],
+        media=media,
     )

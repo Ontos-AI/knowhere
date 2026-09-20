@@ -13,6 +13,7 @@ from shared.services.retrieval.agent_tools.tools import (
     neighbors as _neighbors,
     node_filter as _node_filter,
     outline as _outline,
+    query_table as _query_table,
     read as _read,
     recall as _recall,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "_neighbors",
     "_node_filter",
     "_outline",
+    "_query_table",
     "_read",
     "_recall",
 ]

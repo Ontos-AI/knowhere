@@ -31,8 +31,11 @@ from shared.services.retrieval.agent_explore.harness.resolve import (
 from shared.services.retrieval.agent_explore.shared import (
     EVIDENCE_TOOL_NAMES,
     build_wire_tool_name_map,
+    cursor_execute_content,
     dedup_refs,
     finish_refs_from_args,
+    https_image_parts,
+    model_accepts_images,
     normalize_finish_refs,
     select_episode_refs,
     tool_message_content,
@@ -88,6 +91,47 @@ def test_tool_message_content_surfaces_error_instead_of_text() -> None:
 def test_tool_message_content_empty_text_placeholder() -> None:
     result = ToolResult(text="")
     assert tool_message_content(result, max_chars=100) == "(empty result)"
+
+
+def test_model_accepts_images_only_when_name_contains_vision() -> None:
+    assert model_accepts_images("gpt-4-vision") is True
+    assert model_accepts_images("deepseek-v4-flash") is False
+
+
+def test_https_image_parts_keeps_https_and_drops_filesystem() -> None:
+    result = ToolResult(
+        text="body",
+        media=[
+            {"type": "image_url", "url": "https://cdn.example/a.png"},
+            {"type": "image_url", "url": "filesystem:///tmp/a.png"},
+            {"type": "image_url", "url": "http://insecure.example/a.png"},
+        ],
+    )
+    assert https_image_parts(result) == [
+        {
+            "type": "image_url",
+            "image_url": {"url": "https://cdn.example/a.png"},
+        }
+    ]
+
+
+def test_cursor_execute_content_attaches_https_image_parts() -> None:
+    result = ToolResult(
+        text="caption",
+        media=[{"type": "image_url", "url": "https://cdn.example/a.png"}],
+    )
+    assert cursor_execute_content(result, text="caption") == [
+        {"type": "text", "text": "caption"},
+        {
+            "type": "image_url",
+            "image_url": {"url": "https://cdn.example/a.png"},
+        },
+    ]
+    text_only = ToolResult(
+        text="caption",
+        media=[{"type": "image_url", "url": "filesystem:///tmp/a.png"}],
+    )
+    assert cursor_execute_content(text_only, text="caption") == "caption"
 
 
 # --------------------------------------------------------------------------
@@ -269,8 +313,10 @@ def test_dedup_refs_keeps_first_seen_and_drops_missing_ids() -> None:
     ]
 
 
-def test_evidence_tool_names_is_read_and_assets_only() -> None:
-    assert EVIDENCE_TOOL_NAMES == frozenset({"corpus.read", "corpus.assets"})
+def test_evidence_tool_names_includes_read_assets_and_query_table() -> None:
+    assert EVIDENCE_TOOL_NAMES == frozenset(
+        {"corpus.read", "corpus.assets", "corpus.query_table"}
+    )
 
 
 # --------------------------------------------------------------------------

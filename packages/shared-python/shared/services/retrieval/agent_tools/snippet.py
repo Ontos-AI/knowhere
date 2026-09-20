@@ -83,12 +83,13 @@ def format_search_hit_line(
     """
     type_label = str(chunk_type or "").strip()
     score_part = f" score={score}" if score is not None else ""
+    snippet_part = f": {snippet!r}" if snippet else ""
     if chunk_id:
         return (
             f"- [{type_label}] {source_file_name} ({document_id}) "
-            f"chunk_id={chunk_id} / {section_path}{score_part}: {snippet!r}"
+            f"chunk_id={chunk_id} / {section_path}{score_part}{snippet_part}"
         )
     return (
         f"- [{type_label}] {source_file_name} ({document_id}) / "
-        f"{section_path}{score_part}: {snippet!r}"
+        f"{section_path}{score_part}{snippet_part}"
     )

@@ -4,7 +4,7 @@ Mirrors the shape of ``apps/worker/app/services/document_agent/registry.py``
 (``ToolSpec`` + a decorator-based registry), adapted for the async DB-backed
 corpus tools in this package: ``ToolSpec(name, description, json_schema, run)``,
 ``ToolContext(db, user_id, namespace, db_factory, budget)``,
-``ToolResult(text, payload, refs)``.
+``ToolResult(text, payload, refs, media)``.
 
 Both the API ``/mcp`` server and the in-process ``agent_explore`` tool-loop
 (Phase 3) dispatch through the same ``REGISTRY`` — this module has no
@@ -79,12 +79,14 @@ class ToolResult:
     that a harness can fold into ``referenced_chunks`` (Phase 3 bridge).
     ``error`` is set instead of raising for caller-facing input mistakes (bad
     args, unknown document_id) so a tool-loop agent can see and correct them.
+    ``media`` is optional HTTPS image URLs for a vision-capable harness.
     """
 
     text: str
     payload: dict[str, Any] = field(default_factory=dict)
     refs: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
+    media: list[dict[str, str]] = field(default_factory=list)
 
 
 ToolHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[ToolResult]]

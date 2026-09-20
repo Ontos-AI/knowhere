@@ -84,6 +84,7 @@ from shared.services.retrieval.agent_explore.dispatch import DbFactory, dispatch
 from shared.services.retrieval.agent_explore.shared import (
     EVIDENCE_TOOL_NAMES,
     budget_status_line,
+    cursor_execute_content,
     finish_refs_from_args,
     select_episode_refs,
     tool_message_content,
@@ -169,7 +170,9 @@ class CursorHarness:
         finish_state: dict[str, Any] = {"refs": None, "notes": ""}
         stop_reason = "finished"
 
-        def _dispatch_sync(tool_name: str, args: dict[str, Any]) -> str:
+        def _dispatch_sync(
+            tool_name: str, args: dict[str, Any]
+        ) -> str | list[dict[str, Any]]:
             with budget_lock:
                 if budget.steps_used >= budget.max_steps:
                     steps.append(
@@ -210,6 +213,9 @@ class CursorHarness:
             # the host process (see module docstring): each corpus.* dispatch
             # is the only per-step hook available to surface budget state.
             content_with_budget = content + "\n" + budget_status_line(budget)
+            observation = cursor_execute_content(
+                tool_result, text=content_with_budget
+            )
             steps.append(
                 AgentStep(
                     step_index=len(steps),
@@ -224,14 +230,16 @@ class CursorHarness:
             )
             if tool_name in EVIDENCE_TOOL_NAMES and not tool_result.error:
                 trajectory_refs.extend(tool_result.refs)
-            return content_with_budget
+            return observation
 
         custom_tools: dict[str, Any] = {}
         for spec in REGISTRY.all():
             wire_name = wire_safe_tool_name(spec.name)
 
             def _make_execute(resolved_name: str):
-                def execute(args: dict[str, Any], _ctx: Any) -> str:
+                def execute(
+                    args: dict[str, Any], _ctx: Any
+                ) -> str | list[dict[str, Any]]:
                     return _dispatch_sync(resolved_name, dict(args or {}))
 
                 return execute

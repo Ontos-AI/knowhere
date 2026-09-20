@@ -68,6 +68,8 @@ from shared.services.retrieval.agent_explore.shared import (
     budget_status_line,
     build_wire_tool_name_map,
     finish_refs_from_args,
+    https_image_parts,
+    model_accepts_images,
     select_episode_refs,
     tool_message_content,
     wire_safe_tool_name,
@@ -329,9 +331,16 @@ class OpenAIHarness:
                 messages.append(
                     {"role": "tool", "tool_call_id": tc.id, "content": content}
                 )
+                tool_message_index = len(messages) - 1
+                if model_accepts_images(model):
+                    image_parts = https_image_parts(tool_result)
+                    if image_parts:
+                        messages.append(
+                            {"role": "user", "content": image_parts}
+                        )
                 tool_message_log.append(
                     {
-                        "message_index": len(messages) - 1,
+                        "message_index": tool_message_index,
                         "turn_index": turn_index,
                         "tool_name": canonical_name,
                         "original_chars": len(content),
@@ -365,9 +374,18 @@ class OpenAIHarness:
             # every AgentStep's recorded observation_text above) — the model
             # only needs to see current remaining budget once before its next
             # completion call, not once per parallel tool call in this turn.
-            messages[-1]["content"] = (
-                str(messages[-1]["content"]) + "\n" + budget_status_line(budget)
+            last_tool = next(
+                (
+                    message
+                    for message in reversed(messages)
+                    if message.get("role") == "tool"
+                ),
+                None,
             )
+            if last_tool is not None:
+                last_tool["content"] = (
+                    str(last_tool["content"]) + "\n" + budget_status_line(budget)
+                )
 
         selection = select_episode_refs(finish_refs, trajectory_refs, result_notes)
         return EpisodeResult(

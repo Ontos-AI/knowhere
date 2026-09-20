@@ -53,13 +53,18 @@ class _AsyncSessionAdapter:
 
 
 class _GrepRows:
-    def all(self) -> list[tuple[str, str, str, str, str, str, int]]:
+    def all(self) -> list[tuple[object, ...]]:
         return [
             (
                 CHUNK_TABLE,
                 DOC_ID,
                 "table",
+                "dose table 30 mg",
                 "<table><tr><td>30 mg</td></tr></table>",
+                TABLE_FILE,
+                {"summary": "dose table"},
+                REV_ID,
+                JOB_ID,
                 PATH_ROOT,
                 FILE_NAME,
                 1,

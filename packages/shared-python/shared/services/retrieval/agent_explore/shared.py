@@ -26,7 +26,41 @@ from shared.services.retrieval.agent_tools import ToolResult
 # list_documents/outline/node_filter/recall/grep — those describe *where
 # things are*, not *what was read*, and would inject unread noise into the
 # trajectory-refs fallback below if included.
-EVIDENCE_TOOL_NAMES = frozenset({"corpus.read", "corpus.assets"})
+EVIDENCE_TOOL_NAMES = frozenset(
+    {"corpus.read", "corpus.assets", "corpus.query_table"}
+)
+
+
+def model_accepts_images(model: str) -> bool:
+    """OpenAI-compatible models attach images only when the name contains vision."""
+    return "vision" in str(model or "").lower()
+
+
+def https_image_parts(result: ToolResult) -> list[dict[str, Any]]:
+    """HTTPS image blocks for a vision harness. ``filesystem://`` is omitted."""
+    parts: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in result.media:
+        url = str(item.get("url") or "").strip()
+        if item.get("type") != "image_url" or not url.startswith("https://"):
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        parts.append({"type": "image_url", "image_url": {"url": url}})
+    return parts
+
+
+def cursor_execute_content(
+    result: ToolResult,
+    *,
+    text: str,
+) -> str | list[dict[str, Any]]:
+    """Cursor ``execute`` returns text, or text plus HTTPS image parts."""
+    images = https_image_parts(result)
+    if not images:
+        return text
+    return [{"type": "text", "text": text}, *images]
 
 
 def wire_safe_tool_name(name: str) -> str:
@@ -113,8 +147,8 @@ def select_episode_refs(
                 fallback_refs=[],
             )
         suffix = (
-            "[refs auto-filled from corpus.read/corpus.assets trajectory; "
-            "finish was not called]"
+            "[refs auto-filled from corpus.read/corpus.assets/"
+            "corpus.query_table trajectory; finish was not called]"
         )
         return EpisodeRefSelection(
             refs=fallback_refs,
