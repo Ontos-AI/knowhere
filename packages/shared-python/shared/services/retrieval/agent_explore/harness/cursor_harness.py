@@ -269,7 +269,7 @@ class CursorHarness:
                         tokens_used_total=budget.tokens_used,
                     )
                 )
-            return json.dumps({"status": "finished", "refs": len(selected)})
+            return json.dumps({"status": "finished", "refs": len(cited)})
 
         custom_tools[FINISH_TOOL_NAME] = cursor_sdk.CustomTool(
             execute=finish_execute,

@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from loguru import logger
 
 from shared.services.retrieval.settings import (
@@ -73,14 +73,18 @@ def load_table_html(row: Mapping[str, Any]) -> str:
 def html_to_grid(table_html: str) -> list[list[str]]:
     soup = BeautifulSoup(str(table_html or ""), "html.parser")
     table = soup.find("table")
-    if table is None:
+    if not isinstance(table, Tag):
         return []
     source_rows = table.find_all("tr")
     parsed: list[list[tuple[str, int, int]]] = []
     max_cols = 0
     for tr in source_rows:
+        if not isinstance(tr, Tag):
+            continue
         cells: list[tuple[str, int, int]] = []
         for td in tr.find_all(["td", "th"], recursive=False):
+            if not isinstance(td, Tag):
+                continue
             rowspan = _span(td.get("rowspan"))
             colspan = _span(td.get("colspan"))
             cells.append((td.get_text(strip=True), rowspan, colspan))
@@ -219,7 +223,7 @@ def _join_headers(values: list[str]) -> str:
 
 def _span(value: object) -> int:
     try:
-        parsed = int(value or 1)
+        parsed = int(str(value or 1))
     except (TypeError, ValueError):
         return 1
     return parsed if parsed > 0 else 1
