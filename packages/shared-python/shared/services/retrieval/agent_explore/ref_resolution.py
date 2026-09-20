@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from shared.services.retrieval.document_scope import DocumentScope
 
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import select
@@ -34,6 +35,12 @@ from shared.services.retrieval.agent_tools.section_path_lookup import (
 _BODY_CHUNK_TYPES = ("text", "page")
 
 
+@dataclass
+class FinishRefResolution:
+    resolved: list[dict[str, Any]] = field(default_factory=list)
+    dropped: list[dict[str, Any]] = field(default_factory=list)
+
+
 async def resolve_finish_refs(
     db: AsyncSession,
     *,
@@ -41,14 +48,27 @@ async def resolve_finish_refs(
     namespace: str,
     refs: list[dict[str, Any]],
     document_scope: DocumentScope = DocumentScope(),
-) -> list[dict[str, Any]]:
-    """Return refs with ``chunk_id`` populated; drops refs that don't resolve."""
-    refs = [ref for ref in refs if document_scope.allows(str(ref.get("document_id") or "").strip())]
+) -> FinishRefResolution:
+    """Return refs with ``chunk_id`` populated; dropped refs keep a reason."""
+    resolution = FinishRefResolution()
+    scoped: list[dict[str, Any]] = []
+    for ref in refs:
+        document_id = str(ref.get("document_id") or "").strip()
+        if not document_id:
+            resolution.dropped.append({"ref": ref, "reason": "missing document_id"})
+            continue
+        if not document_scope.allows(document_id):
+            resolution.dropped.append(
+                {"ref": ref, "reason": f"document_id out of scope: {document_id}"}
+            )
+            continue
+        scoped.append(ref)
+
     document_ids = {
-        str(ref.get("document_id") or "").strip() for ref in refs if ref.get("document_id")
+        str(ref.get("document_id") or "").strip() for ref in scoped if ref.get("document_id")
     }
     if not document_ids:
-        return []
+        return resolution
 
     documents = (
         (
@@ -68,17 +88,24 @@ async def resolve_finish_refs(
         d.document_id: d.current_job_result_id for d in documents if d.current_job_result_id
     }
 
-    resolved: list[dict[str, Any]] = []
-    for ref in refs:
+    for ref in scoped:
         document_id = str(ref.get("document_id") or "").strip()
         chunk_id = str(ref.get("chunk_id") or "").strip()
         if document_id and chunk_id:
-            resolved.append({"document_id": document_id, "chunk_id": chunk_id})
+            resolution.resolved.append({"document_id": document_id, "chunk_id": chunk_id})
             continue
 
         section_path = str(ref.get("section_path") or "").strip()
         job_result_id = revision_by_doc.get(document_id)
-        if not (document_id and section_path and job_result_id):
+        if not job_result_id:
+            resolution.dropped.append(
+                {"ref": ref, "reason": f"unknown document_id: {document_id}"}
+            )
+            continue
+        if not section_path:
+            resolution.dropped.append(
+                {"ref": ref, "reason": f"ref for {document_id} needs section_path or chunk_id"}
+            )
             continue
 
         resolved_path, path_error = await resolve_section_path_anchor(
@@ -88,6 +115,12 @@ async def resolve_finish_refs(
             section_path=section_path,
         )
         if path_error or not resolved_path:
+            resolution.dropped.append(
+                {
+                    "ref": ref,
+                    "reason": path_error or f"unknown section_path for {document_id}",
+                }
+            )
             continue
 
         row = (
@@ -105,7 +138,13 @@ async def resolve_finish_refs(
             )
         ).first()
         if row is None:
+            resolution.dropped.append(
+                {
+                    "ref": ref,
+                    "reason": f"no body chunk for {document_id}: {resolved_path}",
+                }
+            )
             continue
-        resolved.append({"document_id": document_id, "chunk_id": str(row[0])})
+        resolution.resolved.append({"document_id": document_id, "chunk_id": str(row[0])})
 
-    return resolved
+    return resolution

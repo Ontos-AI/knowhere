@@ -35,13 +35,19 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import DocumentChunk
+from shared.services.retrieval.agent_tools.explore_mount import mount_explore_hits
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
     ToolResult,
     capped_limit,
     register_tool,
 )
-from shared.services.retrieval.agent_tools.snippet import build_snippet
+from shared.services.retrieval.agent_tools.snippet import (
+    build_snippet,
+    format_search_hit_line,
+)
+from shared.services.retrieval.hydration.row_utils import normalize_chunk_type
+from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
 from shared.services.retrieval.search.scoring import merge_channels_rrf
 
@@ -51,12 +57,13 @@ _DEFAULT_TOP_K = 10
 
 _TERM_CHANNEL_SQL = """
 SELECT dmu.document_id, dmu.job_result_id, dmu.section_id, ds.section_path,
-       d.source_file_name, dmu.term_search_text_lower
+       d.source_file_name, dmu.term_search_text_lower, jr.job_id
 FROM document_map_units dmu
 JOIN documents d
     ON d.document_id = dmu.document_id
     AND d.current_job_result_id = dmu.job_result_id
 JOIN document_sections ds ON ds.section_id = dmu.section_id
+JOIN job_results jr ON jr.id = dmu.job_result_id
 WHERE d.user_id = :user_id
     AND d.namespace = :namespace
     AND d.status = 'active'
@@ -129,9 +136,28 @@ async def _term_channel_rows(
                 "source_file_name": unit_row["source_file_name"],
                 "chunk_type": chunk.chunk_type,
                 "snippet": build_snippet(haystack, hit),
+                "content": chunk.content,
+                "file_path": chunk.file_path,
+                "chunk_metadata": chunk.chunk_metadata or {},
+                "job_result_id": chunk.job_result_id,
+                "job_id": unit_row["job_id"],
             }
         )
     return results
+
+
+def _identifier_snippet(row: dict[str, Any]) -> str:
+    """Body/image fall back to content; tables never use the stored path."""
+    snippet = str(row.get("snippet") or "").strip()
+    if snippet:
+        return snippet
+    if normalize_chunk_type(row.get("chunk_type")) == "table":
+        metadata = row.get("chunk_metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        summary = str(metadata.get("summary") or "").strip()
+        return build_snippet(summary) if summary else ""
+    return build_snippet(str(row.get("content") or ""))
 
 
 @register_tool(
@@ -139,9 +165,11 @@ async def _term_channel_rows(
     description=(
         "Fuzzy ranked candidate search for a question when you don't know "
         "where the answer lives. Fuses a path+content BM25 channel with a "
-        "term substring channel via RRF. Returns candidates with path and "
-        "snippet and document_id, not full content — call corpus.read on "
-        "the winners using that document_id, not the filename."
+        "term substring channel via RRF. Returns candidates with chunk_type, "
+        "document_id, path and snippet. Table and image hits include rendered "
+        "content; body hits include any connected table or image. Image/table "
+        "hits also include chunk_id. Call corpus.read using document_id plus "
+        "section_path or chunk_id, not the filename."
     ),
     json_schema={
         "type": "object",
@@ -220,6 +248,11 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         weights.append(1.0)
 
     fused = merge_channels_rrf(channel_rows, weights, top_k)
+    media: list[dict[str, str]] = []
+    if fused:
+        fused, media = await mount_explore_hits(
+            ctx, fused, char_budget=ctx.budget.max_chars
+        )
 
     lines = [f"candidates={len(fused)}"]
     if len(fused) < 2:
@@ -239,11 +272,24 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if requested_top_k > top_k:
         lines.append(f"note: capped to budget.max_items={ctx.budget.max_items}")
     for row in fused:
-        snippet = build_snippet(str(row.get("content") or row.get("snippet") or ""))
+        snippet = _identifier_snippet(row)
+        chunk_type = str(row.get("chunk_type") or "").strip()
         lines.append(
-            f"- {row.get('source_file_name')} ({row.get('document_id')}) / "
-            f"{row.get('section_path')} score={row.get('score')}: {snippet!r}"
+            format_search_hit_line(
+                source_file_name=row.get("source_file_name"),
+                document_id=row.get("document_id"),
+                section_path=row.get("section_path"),
+                snippet=snippet,
+                chunk_type=chunk_type,
+                chunk_id=(
+                    row.get("chunk_id") if chunk_type in ASSET_CHUNK_TYPES else None
+                ),
+                score=row.get("score"),
+            )
         )
+        rendered = str(row.get("rendered") or "").strip()
+        if rendered:
+            lines.append(rendered)
 
     return ToolResult(
         text="\n".join(lines),
@@ -252,4 +298,5 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             {"document_id": row.get("document_id"), "chunk_id": row.get("chunk_id")}
             for row in fused
         ],
+        media=media,
     )

@@ -57,6 +57,16 @@ class ResultStorage(Protocol):
     def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None:
         raise NotImplementedError
 
+    def download_raw_to_temp(
+        self,
+        *,
+        job_id: str,
+        relative_path: str,
+        suffix: str,
+        temp_dir: str,
+    ) -> str:
+        raise NotImplementedError
+
 
 class JobResultStorage:
     def __init__(

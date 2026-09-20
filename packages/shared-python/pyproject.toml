@@ -69,6 +69,9 @@ dependencies = [
     "blingfire>=0.1.8",
     "syntok>=1.4.4",
 
+    # HTML table grid expansion (explore read / query_table)
+    "beautifulsoup4==4.13.4",
+
     # Image processing (used by ZipResultService)
     "pillow==12.2.0",
     "pypdf==6.10.2",
