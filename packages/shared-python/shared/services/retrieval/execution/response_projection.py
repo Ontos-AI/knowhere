@@ -25,6 +25,7 @@ async def project_public_retrieval_response(response: dict[str, Any]) -> dict[st
         'namespace': response.get('namespace'),
         'query': response.get('query'),
         'router_used': response.get('router_used'),
+        'evidence': response.get('evidence') or [],
         'evidence_text': response.get('evidence_text') or '',
         'answer_text': '',
         'referenced_chunks': response.get('referenced_chunks') or [],

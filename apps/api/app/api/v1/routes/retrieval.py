@@ -154,9 +154,13 @@ class RetrievalQueryResponse(BaseModel):
     namespace: str
     query: str
     router_used: str
+    evidence: list[dict] = Field(
+        default_factory=list,
+        description="Composed evidence parts (text and inline images) for downstream agents.",
+    )
     evidence_text: str = Field(
         default="",
-        description="Hierarchical evidence text. Primary output for downstream agents.",
+        description="Text projection of evidence. Tables stay as HTML; images are data URLs.",
     )
     answer_text: str = Field(
         default="",

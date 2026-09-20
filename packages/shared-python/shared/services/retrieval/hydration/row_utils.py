@@ -12,6 +12,7 @@ PUBLIC_RESULT_FIELDS = {
     'chunk_type',
     'content',
     'content_source',
+    'composed',
     'score',
     'asset_url',
     'source_chunk_path',

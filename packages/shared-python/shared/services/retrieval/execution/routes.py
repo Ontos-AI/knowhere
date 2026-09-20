@@ -13,11 +13,13 @@ from shared.services.retrieval.execution.route_types import (
     RetrievalRouteContext,
     RetrievalRouteOutcome,
 )
-from shared.services.retrieval.hydration.evidence_text import render_evidence_blocks
+from shared.services.retrieval.hydration.evidence_compose import (
+    collect_evidence,
+    flatten_parts,
+)
 from shared.services.retrieval.hydration.result_assembly import (
     assemble_retrieval_results,
 )
-from shared.services.retrieval.search.lexical_text import split_section_path
 from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
 from shared.services.retrieval.search.ranking import rank_retrieval_candidates
 from shared.services.retrieval.search.scoped_corpus import (
@@ -47,29 +49,12 @@ def open_agent_explore_database_context() -> AbstractAsyncContextManager[AsyncSe
     )
 
 
-def _evidence_path_header(row: dict) -> str:
-    source = row.get("source")
-    if not isinstance(source, dict):
-        source = row
-    file_name = str(source.get("source_file_name") or "").strip()
-    section_path = str(source.get("section_path") or "").strip()
-    parts = split_section_path(section_path)
-    if len(parts) > 1:
-        section_path = " / ".join(parts[:-1])
-    if file_name and section_path:
-        return f"{file_name} / {section_path}"
-    return file_name or section_path
-
-
-def _render_rows_evidence(rows: list[dict]) -> str:
-    groups: dict[str, list[str]] = {}
-    for row in rows:
-        header = _evidence_path_header(row)
-        content = str(row.get("content") or "").strip()
-        if not content:
-            continue
-        groups.setdefault(header, []).append(content)
-    return render_evidence_blocks(list(groups.items()))
+def _evidence_fields(rows: list[dict]) -> dict:
+    evidence = collect_evidence(rows)
+    return {
+        "evidence": evidence,
+        "evidence_text": flatten_parts(evidence),
+    }
 
 
 async def run_retrieval_route(
@@ -136,7 +121,7 @@ async def _try_run_small_corpus_route(
         "namespace": context.namespace,
         "query": context.query,
         "router_used": "small_corpus_all",
-        "evidence_text": _render_rows_evidence(results),
+        **_evidence_fields(results),
         "answer_text": "",
         "results": results,
     }
@@ -193,7 +178,7 @@ async def _run_classic_topk_route(
         "namespace": context.namespace,
         "query": context.query,
         "router_used": "classic_topk",
-        "evidence_text": _render_rows_evidence(results),
+        **_evidence_fields(results),
         "answer_text": "",
         "results": results,
     }
@@ -316,12 +301,12 @@ async def _run_agent_explore_route(
         )
 
     decision_trace = [step.to_dict() for step in decision_steps]
-    evidence_text = _render_rows_evidence(assembled_rows)
+    evidence_fields = _evidence_fields(assembled_rows)
     response = {
         "namespace": context.namespace,
         "query": context.query,
         "router_used": "agent_explore",
-        "evidence_text": evidence_text,
+        **evidence_fields,
         "answer_text": "",
         "referenced_chunks": resolved.refs,
         "results": assembled_rows,
@@ -334,6 +319,6 @@ async def _run_agent_explore_route(
         completion_label="AGENT EXPLORE RETRIEVAL",
         completion_count=len(resolved.refs),
         completion_detail=(
-            f"chunks | evidence={len(evidence_text)} chars | router=agent_explore"
+            f"chunks | evidence={len(evidence_fields['evidence_text'])} chars | router=agent_explore"
         ),
     )

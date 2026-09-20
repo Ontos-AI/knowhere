@@ -15,10 +15,13 @@ _PATH_REF_RE = re.compile(r"\[(?:images|tables)/[^\]\n]+\]")
 _SAME_AS_RE = re.compile(r"\[SAME-AS [^\]]+\]")
 
 
-def strip_path_placeholders(content: str) -> str:
+def remove_path_placeholders(content: str) -> str:
     text = _PATH_REF_RE.sub("", content)
-    text = _SAME_AS_RE.sub("", text)
-    return text.strip()
+    return _SAME_AS_RE.sub("", text)
+
+
+def strip_path_placeholders(content: str) -> str:
+    return remove_path_placeholders(content).strip()
 
 
 def inline_assets_at_placeholders(

@@ -1,46 +1,26 @@
-from shared.services.retrieval.execution.routes import _render_rows_evidence
+from shared.services.retrieval.execution.routes import _evidence_fields
 
 
-def test_render_rows_evidence_should_group_siblings_under_parent_path() -> None:
+def test_evidence_fields_flatten_composed_parts_in_result_order() -> None:
     rows = [
+        {"composed": [{"type": "text", "text": "first"}]},
         {
-            "chunk_id": "c2",
-            "content": "second section content",
-            "sort_order": 2,
-            "source": {
-                "source_file_name": "alpha.pdf",
-                "section_path": "Alpha / Two",
-            },
+            "composed": [
+                {"type": "text", "text": "mid "},
+                {"type": "image", "media_type": "image/png", "data": "abc"},
+            ]
         },
-        {
-            "chunk_id": "c1",
-            "content": "first section content\nwith more detail",
-            "sort_order": 1,
-            "source": {
-                "source_file_name": "alpha.pdf",
-                "section_path": "Alpha / One",
-            },
-        },
-        {
-            "chunk_id": "c3",
-            "content": "<table><tr><td>metric</td></tr></table>",
-            "source_file_name": "beta.pdf",
-            "section_path": "Beta / Table",
-        },
+        {"composed": [{"type": "text", "text": "<table><tr><td>metric</td></tr></table>"}]},
     ]
 
-    evidence_text = _render_rows_evidence(rows)
+    fields = _evidence_fields(rows)
 
-    assert evidence_text.count("[E1]") == 1
-    assert evidence_text.count("[E2]") == 1
-    assert "[E3]" not in evidence_text
-    assert "[§ alpha.pdf / Alpha]" in evidence_text
-    assert "[§ beta.pdf / Beta]" in evidence_text
-    assert "[§ alpha.pdf / Alpha / One]" not in evidence_text
-    assert "[§ alpha.pdf / Alpha / Two]" not in evidence_text
-    assert "first section content" in evidence_text
-    assert "second section content" in evidence_text
-    assert "<table><tr><td>metric</td></tr></table>" in evidence_text
-    assert "[Document]" not in evidence_text
-    assert "▸" not in evidence_text
-    assert "┈" not in evidence_text
+    assert fields["evidence"] == [
+        {"type": "text", "text": "first"},
+        {"type": "text", "text": "mid "},
+        {"type": "image", "media_type": "image/png", "data": "abc"},
+        {"type": "text", "text": "<table><tr><td>metric</td></tr></table>"},
+    ]
+    assert fields["evidence_text"] == (
+        "firstmid data:image/png;base64,abc<table><tr><td>metric</td></tr></table>"
+    )
