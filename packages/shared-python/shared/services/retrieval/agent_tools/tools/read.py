@@ -8,9 +8,10 @@ p<N>]`` markers resolved to the owner section's text (§2 of
 ``CORPUS_SCHEMA.md``) rather than stripped or summarized. ``connect_to``
 assets are still inlined via the same placeholder mechanism as retrieval.
 Table chunks load the stored HTML: small tables return that HTML; large
-tables return headers plus an optional focus window. Image ``file_path``
-values are converted to URLs before display so a vision harness can attach
-HTTPS images.
+tables return row/column headers only and point at ``corpus.query_table``
+(no window — GREP/recall never scan table-cell HTML, so there is no real
+"hit cell" to center a window on). Image ``file_path`` values are converted
+to URLs before display so a vision harness can attach HTTPS images.
 
 SAME-AS resolution is single-level: the owner chunk's full content is
 embedded as-is. If that owner chunk itself still contains an unrelated
@@ -149,14 +150,12 @@ def _compose_explore_text(
     row: dict[str, Any],
     rows_by_chunk_id: dict[str, dict[str, Any]],
     *,
-    focus: object,
     char_budget: int,
 ) -> str:
     base_content = str(row.get("content") or "")
     display = _explore_display_by_target(
         row,
         rows_by_chunk_id,
-        focus=focus,
         char_budget=char_budget,
     )
     if not display:
@@ -177,7 +176,6 @@ def _explore_display_by_target(
     row: dict[str, Any],
     rows_by_chunk_id: dict[str, dict[str, Any]],
     *,
-    focus: object,
     char_budget: int,
 ) -> dict[str, str]:
     display: dict[str, str] = {}
@@ -188,7 +186,7 @@ def _explore_display_by_target(
         target_type = normalize_chunk_type(target_row.get("chunk_type"))
         if target_type == "table":
             target_content = render_explore_table(
-                target_row, focus=focus, char_budget=char_budget
+                target_row, char_budget=char_budget
             )
         elif target_type == "image":
             target_content = _image_display_content(target_row)
@@ -278,9 +276,10 @@ def _normalize_read_refs(args: dict[str, Any]) -> list[Any]:
         "Read full body content for already-located sections or chunks. "
         "Resolves page-track SAME-AS pointers to the owner section's text, "
         "inlines connect_to assets, loads table HTML (small tables in full; "
-        "large tables as headers plus an optional focus window), and "
-        "converts asset/page_assets references to URLs. Use after "
-        "outline/node_filter/recall/grep have located where to look."
+        "large tables as row/column headers plus a pointer to "
+        "corpus.query_table), and converts asset/page_assets references to "
+        "URLs. Use after outline/node_filter/recall/grep have located where "
+        "to look."
     ),
     json_schema={
         "type": "object",
@@ -310,12 +309,6 @@ def _normalize_read_refs(args: dict[str, Any]) -> list[Any]:
             },
             "include_assets": {"type": "boolean", "default": True},
             "resolve_same_as": {"type": "boolean", "default": True},
-            "focus": {
-                "description": (
-                    "Optional table focus: cell=rXcY, {row, col} (1-based), "
-                    "{cell}, or a locate string."
-                )
-            },
         },
         "required": ["refs"],
     },
@@ -329,7 +322,6 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(text="", error=f"unsupported mode: {mode}")
     include_assets = bool(args.get("include_assets", True))
     resolve_same_as_flag = bool(args.get("resolve_same_as", True))
-    focus = args.get("focus")
     char_budget = ctx.budget.max_chars
 
     document_ids = {
@@ -587,7 +579,6 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 _compose_explore_text(
                     row,
                     rows_by_chunk_id,
-                    focus=focus,
                     char_budget=char_budget,
                 )
                 if include_assets
@@ -595,7 +586,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             )
         elif chunk_type == "table":
             composed["content"] = render_explore_table(
-                row, focus=focus, char_budget=char_budget
+                row, char_budget=char_budget
             )
         elif chunk_type == "image":
             composed["content"] = _image_display_content(row)

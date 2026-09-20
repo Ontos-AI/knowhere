@@ -14,17 +14,16 @@ from pathlib import Path
 from typing import Any
 
 from bs4 import BeautifulSoup
+from loguru import logger
 
 from shared.services.retrieval.settings import (
     EVIDENCE_TEXT_CHAR_BUDGET,
     LARGE_TABLE_AXIS,
     QUERY_TABLE_NAME,
-    TABLE_FOCUS_RADIUS,
 )
 from shared.services.storage.result_storage import get_result_storage
 
 _TABLE_HTML_RE = re.compile(r"<table(?:\s|>)", re.IGNORECASE)
-_CELL_RE = re.compile(r"^(?:cell=)?r(\d+)c(\d+)$", re.IGNORECASE)
 _FORBIDDEN_SQL = re.compile(
     r"\b(insert|update|delete|drop|alter|create|attach|detach|"
     r"pragma|replace|vacuum|reindex|into)\b",
@@ -32,12 +31,22 @@ _FORBIDDEN_SQL = re.compile(
 )
 
 
+class TableDownloadError(RuntimeError):
+    """Raised when stored table HTML exists but fails to download."""
+
+
 def looks_like_table_html(text: str) -> bool:
     return bool(_TABLE_HTML_RE.search(str(text or "")))
 
 
 def load_table_html(row: Mapping[str, Any]) -> str:
-    """Return table HTML from inline content or the stored artifact file."""
+    """Return table HTML from inline content or the stored artifact file.
+
+    Returns ``""`` when there is no artifact to load (nothing to fetch).
+    Raises ``TableDownloadError`` when an artifact reference exists but the
+    download itself fails (network/storage error) — callers decide how to
+    surface that (a warning note, not a crash of the whole tool call).
+    """
     content = str(row.get("content") or "").strip()
     if looks_like_table_html(content):
         return content
@@ -47,13 +56,18 @@ def load_table_html(row: Mapping[str, Any]) -> str:
     normalized = storage.normalize_artifact_ref(artifact)
     if not job_id or not normalized:
         return ""
-    temp_path = storage.download_raw_to_temp(
-        job_id=job_id,
-        relative_path=normalized,
-        suffix=".html",
-        temp_dir=tempfile.gettempdir(),
-    )
-    return Path(temp_path).read_text(encoding="utf-8")
+    try:
+        temp_path = storage.download_raw_to_temp(
+            job_id=job_id,
+            relative_path=normalized,
+            suffix=".html",
+            temp_dir=tempfile.gettempdir(),
+        )
+        return Path(temp_path).read_text(encoding="utf-8")
+    except Exception as exc:
+        raise TableDownloadError(
+            f"job_id={job_id} path={normalized}: {exc}"
+        ) from exc
 
 
 def html_to_grid(table_html: str) -> list[list[str]]:
@@ -112,86 +126,6 @@ def is_large_grid(grid: list[list[str]]) -> bool:
     return len(grid) >= LARGE_TABLE_AXIS or len(grid[0]) >= LARGE_TABLE_AXIS
 
 
-def cell_label(row: int, col: int) -> str:
-    return f"r{row + 1}c{col + 1}"
-
-
-def parse_focus(focus: object) -> tuple[int, int] | str | None:
-    """Return 0-based (row, col), a locate string, or None."""
-    if focus is None:
-        return None
-    if isinstance(focus, Mapping):
-        cell = str(focus.get("cell") or "").strip()
-        parsed_cell = _parse_cell_label(cell)
-        if parsed_cell is not None:
-            return parsed_cell
-        if focus.get("row") is not None and focus.get("col") is not None:
-            return int(focus["row"]) - 1, int(focus["col"]) - 1
-        locate = str(focus.get("locate") or "").strip()
-        return locate or None
-    text = str(focus).strip()
-    parsed_cell = _parse_cell_label(text)
-    if parsed_cell is not None:
-        return parsed_cell
-    return text or None
-
-
-def locate_cell(
-    grid: list[list[str]],
-    matcher: re.Pattern[str] | str,
-) -> tuple[int, int] | None:
-    if isinstance(matcher, str):
-        if not matcher:
-            return None
-        compiled = re.compile(re.escape(matcher), flags=re.IGNORECASE)
-    else:
-        compiled = matcher
-    for row_idx, row in enumerate(grid):
-        for col_idx, cell in enumerate(row):
-            if compiled.search(cell):
-                return row_idx, col_idx
-    return None
-
-
-def window_grid(
-    grid: list[list[str]],
-    *,
-    row: int,
-    col: int,
-    radius: int = TABLE_FOCUS_RADIUS,
-) -> list[list[str]]:
-    if not grid:
-        return []
-    col_count = len(grid[0])
-    row_start = max(0, row - radius)
-    row_end = min(len(grid), row + radius + 1)
-    col_start = max(0, col - radius)
-    col_end = min(col_count, col + radius + 1)
-    include_header_row = row_start > 0
-    include_header_col = col_start > 0
-    window: list[list[str]] = []
-    if include_header_row:
-        header = _window_row(
-            grid[0],
-            col_start=col_start,
-            col_end=col_end,
-            include_header_col=include_header_col,
-            header_cell=grid[0][0] if grid[0] else "",
-        )
-        window.append(header)
-    for row_idx in range(row_start, row_end):
-        window.append(
-            _window_row(
-                grid[row_idx],
-                col_start=col_start,
-                col_end=col_end,
-                include_header_col=include_header_col,
-                header_cell=grid[row_idx][0] if grid[row_idx] else "",
-            )
-        )
-    return window
-
-
 def grid_to_html(grid: list[list[str]]) -> str:
     if not grid:
         return ""
@@ -209,10 +143,14 @@ def grid_to_html(grid: list[list[str]]) -> str:
 def render_explore_table(
     row: Mapping[str, Any],
     *,
-    focus: object = None,
     char_budget: int = EVIDENCE_TEXT_CHAR_BUDGET,
 ) -> str:
-    table_html = load_table_html(row)
+    chunk_id = str(row.get("chunk_id") or "")
+    try:
+        table_html = load_table_html(row)
+    except TableDownloadError as exc:
+        logger.warning(f"table download failed for chunk_id={chunk_id}: {exc}")
+        return f"[table unavailable: chunk_id={chunk_id} — download failed]"
     if not table_html:
         return ""
     grid = html_to_grid(table_html)
@@ -221,7 +159,6 @@ def render_explore_table(
     too_large = is_large_grid(grid) or len(table_html) > char_budget
     if not too_large:
         return table_html
-    chunk_id = str(row.get("chunk_id") or "")
     document_id = str(row.get("document_id") or "")
     lines = [
         (
@@ -233,12 +170,6 @@ def render_explore_table(
         f"Row headers: {_join_headers(row_headers(grid))}",
         f"SQL table name: {QUERY_TABLE_NAME}",
     ]
-    resolved = _resolve_focus_cell(grid, focus)
-    if resolved is not None:
-        focus_row, focus_col = resolved
-        window = window_grid(grid, row=focus_row, col=focus_col)
-        lines.append(f"Window around {cell_label(focus_row, focus_col)}:")
-        lines.append(grid_to_html(window))
     return "\n".join(line for line in lines if line)
 
 
@@ -282,45 +213,8 @@ def grid_sql_rows(grid: list[list[str]]) -> list[list[str]]:
     return rows
 
 
-def _resolve_focus_cell(
-    grid: list[list[str]],
-    focus: object,
-) -> tuple[int, int] | None:
-    parsed = parse_focus(focus)
-    if parsed is None:
-        return None
-    if isinstance(parsed, tuple):
-        row, col = parsed
-        if 0 <= row < len(grid) and 0 <= col < len(grid[0]):
-            return row, col
-        return None
-    return locate_cell(grid, parsed)
-
-
-def _window_row(
-    row: list[str],
-    *,
-    col_start: int,
-    col_end: int,
-    include_header_col: bool,
-    header_cell: str,
-) -> list[str]:
-    cells: list[str] = []
-    if include_header_col:
-        cells.append(header_cell)
-    cells.extend(row[col_start:col_end])
-    return cells
-
-
 def _join_headers(values: list[str]) -> str:
     return " | ".join(value for value in values if value) or "(none)"
-
-
-def _parse_cell_label(text: str) -> tuple[int, int] | None:
-    match = _CELL_RE.match(str(text or "").strip())
-    if match is None:
-        return None
-    return int(match.group(1)) - 1, int(match.group(2)) - 1
 
 
 def _span(value: object) -> int:

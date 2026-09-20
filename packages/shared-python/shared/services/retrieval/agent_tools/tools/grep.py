@@ -1,8 +1,9 @@
 """``corpus.grep`` — exact string lookup against published term text.
 
-SQL ``ILIKE`` on ``document_chunks.term_search_text``, scoped to the
-current revision. That field is already published (body + filename + section
-path; tables use summary/keywords/caption; images use their description).
+SQL ``LIKE`` on ``lower(coalesce(term_search_text, ''))``, scoped to the
+current revision. That expression is the existing term trigram index.
+The field is already published (body + filename + section path; tables
+use summary/keywords/caption; images use their description).
 Reports a total match count (over the full in-scope corpus, not just the
 returned page) alongside capped snippets.
 
@@ -59,10 +60,16 @@ def _terms_from_args(args: dict[str, Any]) -> list[str]:
     return terms
 
 
-def _term_search(terms: list[str]) -> tuple[re.Pattern[str], Any]:
-    """Build the Python matcher and the SQL term_search_text predicate.
+def _indexed_term_search_text() -> Any:
+    """Haystack expression for ``idx_document_chunks_term_trgm``."""
+    return func.lower(func.coalesce(DocumentChunk.term_search_text, ""))
 
-    Every term uses ``ILIKE``. Several terms become ``OR`` of those clauses.
+
+def _term_search(terms: list[str]) -> tuple[re.Pattern[str], Any]:
+    """Build the Python matcher and the SQL term predicate.
+
+    Every term uses ``LIKE`` on the indexed lowercased haystack. Several
+    terms become ``OR`` of those same clauses.
     """
     compiled = re.compile(
         "|".join(re.escape(term) for term in terms),
@@ -70,7 +77,7 @@ def _term_search(terms: list[str]) -> tuple[re.Pattern[str], Any]:
     )
     return compiled, or_(
         *(
-            DocumentChunk.term_search_text.ilike(f"%{term}%")
+            _indexed_term_search_text().like(f"%{term.lower()}%")
             for term in terms
         )
     )
@@ -128,10 +135,9 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     }
 
     compiled, term_filter = _term_search(terms)
-    # Match term_search_text first so PostgreSQL can use
+    # Match the indexed haystack first so PostgreSQL can use
     # idx_document_chunks_term_trgm. Joining documents first makes the
-    # planner filter every in-scope chunk and ignore the trigram index
-    # (observed on the previous content index: 31s vs 0.4s).
+    # planner filter every in-scope chunk and ignore that index.
     matched = select(
         DocumentChunk.id,
         DocumentChunk.chunk_id,

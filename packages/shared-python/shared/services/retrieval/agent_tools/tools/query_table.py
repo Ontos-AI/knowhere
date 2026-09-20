@@ -15,6 +15,7 @@ from shared.services.retrieval.agent_tools.registry import (
     register_tool,
 )
 from shared.services.retrieval.hydration.table_grid import (
+    TableDownloadError,
     grid_sql_rows,
     grid_to_html,
     html_to_grid,
@@ -93,13 +94,18 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if row is None:
         return ToolResult(text="", error=f"unknown table chunk_id: {chunk_id} in {document_id}")
     chunk, section_path = row
-    table_html = load_table_html(
-        {
-            "content": chunk.content,
-            "file_path": chunk.file_path,
-            "job_id": job_id,
-        }
-    )
+    try:
+        table_html = load_table_html(
+            {
+                "content": chunk.content,
+                "file_path": chunk.file_path,
+                "job_id": job_id,
+            }
+        )
+    except TableDownloadError as exc:
+        return ToolResult(
+            text="", error=f"table download failed for {chunk_id}: {exc}"
+        )
     grid = html_to_grid(table_html)
     if not grid:
         return ToolResult(text="", error=f"table HTML not available for {chunk_id}")

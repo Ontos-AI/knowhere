@@ -41,7 +41,7 @@ FINISH_TOOL_SCHEMA: dict[str, object] = {
             "description": (
                 "Final cited evidence, in priority order. Each item "
                 "identifies one section or chunk you have already looked at "
-                "via corpus.read (or, for an asset, corpus.assets)."
+                "via corpus.read, corpus.assets, or corpus.query_table."
             ),
             "items": {
                 "type": "object",
@@ -99,18 +99,19 @@ If you exhaust your tool budget without a confident answer, call
 call other tools.
 
 `refs` is REQUIRED and must not be omitted or left empty if you called
-`corpus.read` (or `corpus.assets`) even once during this exploration: copy
-the `document_id` and `chunk_id`/`section_path` of every section/chunk you
-read that supports your answer into `refs` before calling
-`{FINISH_TOOL_NAME}`. Calling `{FINISH_TOOL_NAME}` with no `refs` after
-having already read relevant content discards that evidence.
+`corpus.read`, `corpus.assets`, or `corpus.query_table` even once during
+this exploration: copy the `document_id` and `chunk_id`/`section_path` of
+every section/chunk you looked at that supports your answer into `refs`
+before calling `{FINISH_TOOL_NAME}`. Calling `{FINISH_TOOL_NAME}` with no
+`refs` after having already read relevant content discards that evidence.
 
-Before calling `{FINISH_TOOL_NAME}`, if you have not called `corpus.read`
-(or `corpus.assets`) even once this exploration, you have not actually
-verified anything yet — a search tool returning candidates is not the same
-as having read them. In that case, either read your best candidate section
-first, or — only if you have positively confirmed there is nothing to read
-(e.g. a structural check came back with zero matching sections) — say so
-explicitly in `notes`. Repeatedly rephrasing the same search instead of
-reading a candidate you already found is not a substitute for reading it.
+Before calling `{FINISH_TOOL_NAME}`, if you have not called `corpus.read`,
+`corpus.assets`, or `corpus.query_table` even once this exploration, you
+have not actually verified anything yet — a search tool returning
+candidates is not the same as having read them. In that case, either read
+your best candidate section first, or — only if you have positively
+confirmed there is nothing to read (e.g. a structural check came back
+with zero matching sections) — say so explicitly in `notes`. Repeatedly
+rephrasing the same search instead of reading a candidate you already
+found is not a substitute for reading it.
 """

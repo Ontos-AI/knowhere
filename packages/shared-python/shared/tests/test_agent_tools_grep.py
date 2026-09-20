@@ -142,8 +142,12 @@ async def test_grep_runs_one_scoped_query_with_exact_total() -> None:
     assert "document_chunks.user_id = 'user_grep'" in matched_sql
     assert "document_chunks.namespace = 'default'" in matched_sql
     assert "document_chunks.document_id IN ('doc_a')" in matched_sql
-    assert "ilike" in matched_sql.lower()
+    assert "lower(" in matched_sql.lower()
+    assert "coalesce" in matched_sql.lower()
+    assert " like " in matched_sql.lower()
+    assert "ilike" not in matched_sql.lower()
     assert "~*" not in matched_sql
+    assert "%hfref%" in matched_sql.lower()
     assert result.text.startswith("total_matches=2 returned=2")
     assert "- [text] guide.pdf (doc_a) / guide.pdf / Intro:" in result.text
     assert "chunk_id=" not in result.text
@@ -246,13 +250,16 @@ def _sql(predicate: object) -> str:
     )
 
 
-def test_term_search_single_literal_uses_ilike() -> None:
+def test_term_search_single_literal_uses_indexed_lower_like() -> None:
     compiled, predicate = _term_search(["HFrEF"])
     assert compiled.search("alpha HFrEF body")
     sql = _sql(predicate)
-    assert "ilike" in sql.lower()
+    assert "lower(" in sql.lower()
+    assert "coalesce" in sql.lower()
+    assert " like " in sql.lower()
+    assert "ilike" not in sql.lower()
     assert "term_search_text" in sql
-    assert "HFrEF" in sql
+    assert "%hfref%" in sql.lower()
     assert "~*" not in sql
 
 
@@ -263,11 +270,13 @@ def test_term_search_ors_literal_terms_in_sql_and_matcher() -> None:
     assert compiled.search("xxx BAR yyy")
     assert compiled.search("xxx baz yyy") is None
     sql = _sql(predicate)
-    assert sql.lower().count("ilike") == 2
-    assert " or " in sql.lower()
+    lowered = sql.lower()
+    assert lowered.count(" like ") == 2
+    assert "ilike" not in lowered
+    assert " or " in lowered
     assert "term_search_text" in sql
-    assert "foo" in sql
-    assert "bar" in sql
+    assert "%foo%" in lowered
+    assert "%bar%" in lowered
     assert "~*" not in sql
 
 
@@ -322,6 +331,43 @@ async def test_grep_table_hit_text_includes_chunk_id(
     assert "<table>" in result.text
     assert "30 mg" in result.text
     assert "tables/dose.html" not in result.text.split("\n", 1)[-1]
+
+
+@pytest.mark.asyncio
+async def test_grep_table_download_failure_does_not_fail_whole_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A table download error must not crash the grep call — grep still
+    returns its total_matches/text; only that hit's rendering becomes a
+    warning note instead of raising."""
+    from shared.services.retrieval.hydration.table_grid import TableDownloadError
+
+    db = _RecordingDb(_TableRowsResult())
+
+    @asynccontextmanager
+    async def unused_factory():
+        raise AssertionError("grep must not open a second database connection")
+        yield  # pragma: no cover
+
+    def _raise_download_error(_row):
+        raise TableDownloadError("S3 301: PermanentRedirect")
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.table_grid.load_table_html",
+        _raise_download_error,
+    )
+    ctx = ToolContext(
+        db=db,  # type: ignore[arg-type]
+        user_id="user_grep",
+        namespace="default",
+        db_factory=unused_factory,
+    )
+    result = await grep(ctx, {"pattern": "30 mg"})
+
+    assert result.error is None
+    assert result.payload["total_matches"] == 1
+    assert "table unavailable" in result.text
+    assert "download failed" in result.text
 
 
 @pytest.mark.asyncio

@@ -48,15 +48,11 @@ SMALL_HTML = (
 )
 
 
-def _large_table_html(*, rows: int, cols: int, hit: str = "HIT-CELL") -> str:
+def _large_table_html(*, rows: int, cols: int) -> str:
     parts = ["<table>"]
     parts.append("<tr>" + "".join(f"<th>H{col}</th>" for col in range(cols)) + "</tr>")
     for row in range(1, rows):
-        cells = []
-        for col in range(cols):
-            cells.append(
-                f"<td>{hit if row == 1 and col == 1 else f'R{row}C{col}'}</td>"
-            )
+        cells = [f"<td>R{row}C{col}</td>" for col in range(cols)]
         parts.append("<tr>" + "".join(cells) + "</tr>")
     parts.append("</table>")
     return "".join(parts)
@@ -251,9 +247,9 @@ def test_corpus_schema_documents_explore_table_rules() -> None:
 
     text = load_corpus_schema_text()
     assert "query_table" in text
-    assert "cell=rXcY" in text
     assert "Grep does not scan table-cell HTML" in text
     assert "Table **cells** are searched only when `document_ids` is set" not in text
+    assert "focus" not in text.lower()
 
 
 @pytest.mark.asyncio
@@ -269,9 +265,12 @@ async def test_read_small_table_returns_html_not_summary(
 
 
 @pytest.mark.asyncio
-async def test_read_large_table_without_focus_has_headers_not_full_html(
+async def test_read_large_table_has_headers_not_full_html(
     explore_ctx: ToolContext,
 ) -> None:
+    """No focus/window: GREP/recall never scan table-cell HTML, so there is
+    no real "hit cell" to center a window on — large tables always get
+    headers plus a corpus.query_table pointer, nothing else."""
     result = await read(explore_ctx, _read_table(CHUNK_LARGE))
     assert result.error is None
     assert "too large" in result.text
@@ -279,24 +278,7 @@ async def test_read_large_table_without_focus_has_headers_not_full_html(
     assert "Row headers:" in result.text
     assert "corpus.query_table" in result.text
     assert "Window around" not in result.text
-    assert "HIT-CELL" not in result.text
     assert result.text.count("<table") == 0
-
-
-@pytest.mark.asyncio
-async def test_read_large_table_focus_from_grep_cell_shows_window(
-    explore_ctx: ToolContext,
-) -> None:
-    result = await read(
-        explore_ctx,
-        _read_table(CHUNK_LARGE, focus="cell=r2c2"),
-    )
-    assert result.error is None
-    assert "too large" in result.text
-    assert "Window around r2c2:" in result.text
-    assert "HIT-CELL" in result.text
-    assert "<table>" in result.text
-    assert result.text.count("R49C2") == 0
 
 
 @pytest.mark.asyncio
@@ -317,6 +299,39 @@ async def test_read_inlines_connected_small_table_html(
     assert "<table" in result.text
     assert "30 mg" in result.text
     assert "[Table:" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_read_connected_table_download_failure_keeps_body_content(
+    explore_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connected table that fails to download must not take the body
+    chunk down with it — the body's own content still comes back, with a
+    warning note where the table would have been."""
+    from shared.services.retrieval.hydration.table_grid import TableDownloadError
+
+    def _raise_download_error(_row):
+        raise TableDownloadError("S3 301: PermanentRedirect")
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.table_grid.load_table_html",
+        _raise_download_error,
+    )
+    result = await read(
+        explore_ctx,
+        {
+            "refs": [{"document_id": DOC_ID, "section_path": PATH_INTRO}],
+            "mode": "self",
+            "include_assets": True,
+            "resolve_same_as": False,
+        },
+    )
+    assert result.error is None
+    assert "intro body" in result.text
+    assert "table unavailable" in result.text
+    assert "download failed" in result.text
+    assert "<table" not in result.text
 
 
 @pytest.mark.asyncio
@@ -361,6 +376,32 @@ async def test_query_table_rejects_writes_and_multiple_statements(
         },
     )
     assert multi.error is not None
+
+
+@pytest.mark.asyncio
+async def test_query_table_download_failure_returns_error_not_raise(
+    explore_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.hydration.table_grid import TableDownloadError
+
+    def _raise_download_error(_row):
+        raise TableDownloadError("S3 301: PermanentRedirect")
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.agent_tools.tools.query_table.load_table_html",
+        _raise_download_error,
+    )
+    result = await query_table(
+        explore_ctx,
+        {
+            "document_id": DOC_ID,
+            "chunk_id": CHUNK_SMALL,
+            "sql": "SELECT * FROM t",
+        },
+    )
+    assert result.error is not None
+    assert "download failed" in result.error
 
 
 @pytest.mark.asyncio

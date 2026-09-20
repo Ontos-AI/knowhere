@@ -191,7 +191,7 @@ class OpenAIHarness:
         steps: list[AgentStep] = []
         finish_refs: list[dict[str, Any]] | None = None
         result_notes = ""
-        # Refs from every corpus.read/corpus.assets call this episode, in call
+        # Refs from every corpus.read/corpus.assets/corpus.query_table call this episode, in call
         # order — the fallback source when finish's own refs end up empty (see
         # module docstring point 2).
         trajectory_refs: list[dict[str, Any]] = []
