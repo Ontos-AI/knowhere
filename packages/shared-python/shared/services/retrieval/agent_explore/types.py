@@ -30,3 +30,5 @@ class EpisodeResult:
     stop_reason: str = "finished"
     tokens_used: int = 0
     model_name: str = ""
+    agent_selected_refs: list[dict[str, Any]] | None = None
+    fallback_refs: list[dict[str, Any]] = field(default_factory=list)

@@ -6,9 +6,12 @@ down-weights ``page`` chunks to their summary — see that module's
 ``read`` returns the page chunk's full body content, with ``[SAME-AS <owner>
 p<N>]`` markers resolved to the owner section's text (§2 of
 ``CORPUS_SCHEMA.md``) rather than stripped or summarized. ``connect_to``
-assets are still inlined via the same placeholder mechanism as retrieval, and
-``page_assets``/asset ``file_path`` are converted to URLs via the existing
-``enrich_rows_with_retrieval_asset_url``.
+assets are still inlined via the same placeholder mechanism as retrieval.
+Table chunks load the stored HTML: small tables return that HTML; large
+tables return row/column headers only and point at ``corpus.query_table``
+(no window — GREP/recall never scan table-cell HTML, so there is no real
+"hit cell" to center a window on). Image ``file_path`` values are converted
+to URLs before display so a vision harness can attach HTTPS images.
 
 SAME-AS resolution is single-level: the owner chunk's full content is
 embedded as-is. If that owner chunk itself still contains an unrelated
@@ -40,16 +43,17 @@ from shared.services.retrieval.agent_tools.registry import (
     ToolResult,
     register_tool,
 )
+from shared.services.retrieval.hydration.asset_inline import inline_assets_at_placeholders
 from shared.services.retrieval.hydration.assets import (
     enrich_rows_with_retrieval_asset_url,
 )
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
-from shared.services.retrieval.hydration.result_assembly import (
-    _compose_table_content,
-    _compose_text_content,
-    _image_display_content,
+from shared.services.retrieval.hydration.result_assembly import _image_display_content
+from shared.services.retrieval.hydration.row_utils import (
+    iter_connected_target_ids,
+    normalize_chunk_type,
 )
-from shared.services.retrieval.hydration.row_utils import normalize_chunk_type
+from shared.services.retrieval.hydration.table_grid import render_explore_table
 from shared.services.retrieval.agent_tools.section_path_lookup import (
     resolve_section_path_anchor,
     section_path_anchor_filter,
@@ -77,14 +81,6 @@ def _section_belongs_to_resolved_path(
             or section.section_path.startswith(f"{resolved_path} / ")
         )
     return section.section_path == resolved_path
-
-# ``_compose_text_content`` doesn't branch on chunk_type — it just inlines
-# connect_to placeholders — so the ``page`` branch below reuses it directly
-# instead of carrying a near-identical copy. The behavioral difference from
-# retrieval's own page handling (never downgrading to a summary — see the
-# module docstring) comes entirely from *not* calling ``_page_summary``
-# first, which this module never did.
-
 
 async def _resolve_same_as_markers(
     db: Any,
@@ -150,6 +146,94 @@ async def _resolve_same_as_markers(
         row["content"] = content
 
 
+def _compose_explore_text(
+    row: dict[str, Any],
+    rows_by_chunk_id: dict[str, dict[str, Any]],
+    *,
+    char_budget: int,
+) -> str:
+    base_content = str(row.get("content") or "")
+    display = _explore_display_by_target(
+        row,
+        rows_by_chunk_id,
+        char_budget=char_budget,
+    )
+    if not display:
+        return base_content
+    metadata = row.get("chunk_metadata") or row.get("metadata") or {}
+    connections = (
+        metadata.get("connect_to") if isinstance(metadata, dict) else None
+    ) or []
+    content, _embedded = inline_assets_at_placeholders(
+        base_content,
+        connections=connections if isinstance(connections, list) else [],
+        display_by_target=display,
+    )
+    return content
+
+
+def _explore_display_by_target(
+    row: dict[str, Any],
+    rows_by_chunk_id: dict[str, dict[str, Any]],
+    *,
+    char_budget: int,
+) -> dict[str, str]:
+    display: dict[str, str] = {}
+    for target_id in iter_connected_target_ids(row):
+        target_row = rows_by_chunk_id.get(target_id)
+        if not target_row:
+            continue
+        target_type = normalize_chunk_type(target_row.get("chunk_type"))
+        if target_type == "table":
+            target_content = render_explore_table(
+                target_row, char_budget=char_budget
+            )
+        elif target_type == "image":
+            target_content = _image_display_content(target_row)
+        else:
+            continue
+        if target_content:
+            display[target_id] = target_content
+    return display
+
+
+def _https_image_media(row: dict[str, Any]) -> list[dict[str, str]]:
+    if normalize_chunk_type(row.get("chunk_type")) != "image":
+        return []
+    url = str(row.get("asset_url") or "").strip()
+    if url.startswith("https://"):
+        return [{"type": "image_url", "url": url}]
+    return []
+
+
+def _collect_https_image_media(
+    assembled: list[dict[str, Any]],
+    *,
+    rows_by_chunk_id: dict[str, dict[str, Any]],
+    include_assets: bool,
+) -> list[dict[str, str]]:
+    media: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def _add(row: dict[str, Any]) -> None:
+        for item in _https_image_media(row):
+            url = item["url"]
+            if url in seen:
+                continue
+            seen.add(url)
+            media.append(item)
+
+    for row in assembled:
+        _add(row)
+        if not include_assets:
+            continue
+        for target_id in iter_connected_target_ids(row):
+            target_row = rows_by_chunk_id.get(target_id)
+            if target_row:
+                _add(target_row)
+    return media
+
+
 def _normalize_read_refs(args: dict[str, Any]) -> list[Any]:
     """Accept the canonical ``refs`` list, or a flat single-document shorthand.
 
@@ -191,9 +275,11 @@ def _normalize_read_refs(args: dict[str, Any]) -> list[Any]:
     description=(
         "Read full body content for already-located sections or chunks. "
         "Resolves page-track SAME-AS pointers to the owner section's text, "
-        "inlines connect_to assets, and converts asset/page_assets "
-        "references to URLs. Use after outline/node_filter/recall/grep "
-        "have located where to look."
+        "inlines connect_to assets, loads table HTML (small tables in full; "
+        "large tables as row/column headers plus a pointer to "
+        "corpus.query_table), and converts asset/page_assets references to "
+        "URLs. Use after outline/node_filter/recall/grep have located where "
+        "to look."
     ),
     json_schema={
         "type": "object",
@@ -236,6 +322,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(text="", error=f"unsupported mode: {mode}")
     include_assets = bool(args.get("include_assets", True))
     resolve_same_as_flag = bool(args.get("resolve_same_as", True))
+    char_budget = ctx.budget.max_chars
 
     document_ids = {
         str(ref.get("document_id") or "").strip() for ref in refs if ref.get("document_id")
@@ -469,30 +556,41 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             document_scope=ctx.document_scope,
             exclude_sections=[],
         )
+    enriched_rows = await enrich_rows_with_retrieval_asset_url(
+        [*base_rows, *connected_rows],
+        log_context="agent_tools.read",
+    )
     rows_by_chunk_id = {
         str(row.get("chunk_id") or ""): row
-        for row in [*base_rows, *connected_rows]
+        for row in enriched_rows
         if row.get("chunk_id")
     }
+    base_ids = {str(row.get("chunk_id") or "") for row in base_rows}
 
     assembled: list[dict[str, Any]] = []
-    for row in base_rows:
+    for row in enriched_rows:
+        chunk_id = str(row.get("chunk_id") or "")
+        if chunk_id not in base_ids:
+            continue
         chunk_type = normalize_chunk_type(row.get("chunk_type"))
         composed = dict(row)
-        if chunk_type == "text":
-            composed["content"] = _compose_text_content(row, rows_by_chunk_id) if include_assets else row.get("content")
-        elif chunk_type == "page":
-            composed["content"] = _compose_text_content(row, rows_by_chunk_id) if include_assets else row.get("content")
+        if chunk_type in _BODY_CHUNK_TYPES:
+            composed["content"] = (
+                _compose_explore_text(
+                    row,
+                    rows_by_chunk_id,
+                    char_budget=char_budget,
+                )
+                if include_assets
+                else row.get("content")
+            )
         elif chunk_type == "table":
-            composed["content"] = _compose_table_content(row, rows_by_chunk_id)
+            composed["content"] = render_explore_table(
+                row, char_budget=char_budget
+            )
         elif chunk_type == "image":
             composed["content"] = _image_display_content(row)
         assembled.append(composed)
-
-    if include_assets:
-        assembled = await enrich_rows_with_retrieval_asset_url(
-            assembled, log_context="agent_tools.read"
-        )
 
     lines = []
     if errors:
@@ -511,4 +609,9 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             {"document_id": row["document_id"], "chunk_id": row["chunk_id"]}
             for row in assembled
         ],
+        media=_collect_https_image_media(
+            assembled,
+            rows_by_chunk_id=rows_by_chunk_id,
+            include_assets=include_assets,
+        ),
     )

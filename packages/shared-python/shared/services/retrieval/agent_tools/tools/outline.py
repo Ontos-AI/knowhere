@@ -138,7 +138,10 @@ async def outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         }
         nodes.append(node)
         indent = "  " * max(relative_depth, 0)
-        line = f"{indent}- {node['section_title'] or node['section_path']} (chunks={node['chunk_count']})"
+        line = (
+            f"{indent}- {node['section_title'] or node['section_path']} "
+            f"| section_path={node['section_path']} (chunks={node['chunk_count']})"
+        )
         if node["summary"]:
             line += f"\n{indent}  summary: {node['summary']}"
         lines.append(line)

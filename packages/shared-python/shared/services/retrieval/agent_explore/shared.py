@@ -15,6 +15,7 @@ hook exposed to the host process).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
@@ -25,7 +26,41 @@ from shared.services.retrieval.agent_tools import ToolResult
 # list_documents/outline/node_filter/recall/grep — those describe *where
 # things are*, not *what was read*, and would inject unread noise into the
 # trajectory-refs fallback below if included.
-EVIDENCE_TOOL_NAMES = frozenset({"corpus.read", "corpus.assets"})
+EVIDENCE_TOOL_NAMES = frozenset(
+    {"corpus.read", "corpus.assets", "corpus.query_table"}
+)
+
+
+def model_accepts_images(model: str) -> bool:
+    """OpenAI-compatible models attach images only when the name contains vision."""
+    return "vision" in str(model or "").lower()
+
+
+def https_image_parts(result: ToolResult) -> list[dict[str, Any]]:
+    """HTTPS image blocks for a vision harness. ``filesystem://`` is omitted."""
+    parts: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in result.media:
+        url = str(item.get("url") or "").strip()
+        if item.get("type") != "image_url" or not url.startswith("https://"):
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        parts.append({"type": "image_url", "image_url": {"url": url}})
+    return parts
+
+
+def cursor_execute_content(
+    result: ToolResult,
+    *,
+    text: str,
+) -> str | list[dict[str, Any]]:
+    """Cursor ``execute`` returns text, or text plus HTTPS image parts."""
+    images = https_image_parts(result)
+    if not images:
+        return text
+    return [{"type": "text", "text": text}, *images]
 
 
 def wire_safe_tool_name(name: str) -> str:
@@ -79,6 +114,66 @@ def tool_message_content(result: ToolResult, *, max_chars: int) -> str:
         "node_filter, or a more specific ref for read) and call again if "
         "you need the rest]"
     )
+
+
+@dataclass(frozen=True)
+class EpisodeRefSelection:
+    """Final episode refs plus how they were chosen.
+
+    ``agent_selected_refs`` is ``None`` only when finish was never called.
+    An explicit empty finish stays empty and does not take the trajectory
+    fallback.
+    """
+
+    refs: list[dict[str, Any]]
+    notes: str
+    agent_selected_refs: list[dict[str, Any]] | None
+    fallback_refs: list[dict[str, Any]]
+
+
+def select_episode_refs(
+    finish_refs: list[dict[str, Any]] | None,
+    trajectory_refs: list[dict[str, Any]],
+    notes: str,
+) -> EpisodeRefSelection:
+    """Choose episode refs without treating ``[]`` and ``None`` as the same."""
+    if finish_refs is None:
+        fallback_refs = dedup_refs(trajectory_refs)
+        if not fallback_refs:
+            return EpisodeRefSelection(
+                refs=[],
+                notes=notes,
+                agent_selected_refs=None,
+                fallback_refs=[],
+            )
+        suffix = (
+            "[refs auto-filled from corpus.read/corpus.assets/"
+            "corpus.query_table trajectory; finish was not called]"
+        )
+        return EpisodeRefSelection(
+            refs=fallback_refs,
+            notes=(notes + " " if notes else "") + suffix,
+            agent_selected_refs=None,
+            fallback_refs=fallback_refs,
+        )
+    return EpisodeRefSelection(
+        refs=list(finish_refs),
+        notes=notes,
+        agent_selected_refs=list(finish_refs),
+        fallback_refs=[],
+    )
+
+
+def finish_refs_from_args(args: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+    """Return cited refs, or ``None`` when finish omitted the ``refs`` key.
+
+    ``None`` means the agent did not specify refs (never called finish, or
+    called finish with ``{}``). An explicit ``refs: []`` stays an empty list
+    and must not be collapsed into ``None``.
+    """
+    if not isinstance(args, dict) or "refs" not in args or args.get("refs") is None:
+        return None
+    return normalize_finish_refs(args.get("refs"))
 
 
 def normalize_finish_refs(raw: Any) -> list[dict[str, Any]]:

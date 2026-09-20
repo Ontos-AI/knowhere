@@ -7,6 +7,8 @@ are already provider-agnostic — this module only maps this package's own
 
 from __future__ import annotations
 
+from typing import Any
+
 from shared.services.retrieval.agent_explore.types import AgentStep
 from shared.services.retrieval.trace import DecisionTraceStep
 
@@ -45,3 +47,40 @@ def build_decision_trace(steps: list[AgentStep]) -> list[DecisionTraceStep]:
             )
         )
     return trace_steps
+
+
+def attach_ref_provenance(
+    steps: list[DecisionTraceStep],
+    *,
+    agent_selected_refs: list[dict[str, Any]] | None,
+    fallback_refs: list[dict[str, Any]],
+    resolved_refs: list[dict[str, Any]],
+    dropped_refs: list[dict[str, Any]],
+) -> list[DecisionTraceStep]:
+    """Write ref provenance onto the existing finish TRACE step.
+
+    Reuses ``DecisionTraceStep.result``. If the episode never called finish,
+    append one finish step so the same public TRACE shape still holds the
+    four lists.
+    """
+    provenance = {
+        "agent_selected_refs": agent_selected_refs,
+        "fallback_refs": fallback_refs,
+        "resolved_refs": resolved_refs,
+        "dropped_refs": dropped_refs,
+    }
+    for step in reversed(steps):
+        if step.phase == "finish":
+            step.result = {**step.result, **provenance}
+            return steps
+    steps.append(
+        DecisionTraceStep(
+            step_index=len(steps),
+            agent="agent_explore",
+            phase="finish",
+            observation={"observation_text": "finish was not called"},
+            decision={"action": "finish", "args": {"refs": None}},
+            result={"status": "ok", "error": None, **provenance},
+        )
+    )
+    return steps

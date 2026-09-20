@@ -202,7 +202,7 @@ async def test_scope_matrix_all_corpus_tools_and_refs(developer_api_client_facto
                     refs=refs,
                     document_scope=scope,
                 )
-                assert {r["document_id"] for r in final_refs} == expected
+                assert {r["document_id"] for r in final_refs.resolved} == expected
                 padded_refs = await resolve_finish_refs(
                     db,
                     user_id="local-dev-user",
@@ -216,7 +216,7 @@ async def test_scope_matrix_all_corpus_tools_and_refs(developer_api_client_facto
                     ],
                     document_scope=scope,
                 )
-                assert padded_refs == final_refs
+                assert padded_refs.resolved == final_refs.resolved
 
 
 @pytest.mark.parametrize("version", ["v1", "v2"])
