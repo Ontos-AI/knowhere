@@ -123,6 +123,7 @@ class RetrievalExecutionPlan:
                 "namespace": request.namespace,
                 "query": request.query,
                 "router_used": "empty_query_filtered",
+                "evidence": [],
                 "evidence_text": "",
                 "answer_text": "",
                 "referenced_chunks": [],

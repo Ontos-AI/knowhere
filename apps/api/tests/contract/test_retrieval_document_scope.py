@@ -387,7 +387,8 @@ async def test_connected_hydration_and_assembly_reject_outside_rows(
                 )
                 assert {r["document_id"] for r in assembled} == expected
                 for row in assembled:
-                    assert "asset secret" in row["content"]
+                    # content stays raw for debug; compose keeps the placeholder intact.
+                    assert "[images/" in row["content"]
 
 
 def test_cache_scope_none_empty_and_set_identity():

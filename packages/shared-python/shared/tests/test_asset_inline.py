@@ -94,11 +94,17 @@ async def test_assemble_inserts_table_at_placeholder() -> None:
     )
     assert len(assembled) == 1
     content = assembled[0]["content"]
-    assert "[tables/" not in content
-    assert content.index("见表") < content.index("[Table:")
-    assert content.index("[Table:") < content.index("结束")
-    assert "企业入驻信息登记模板" in content
-    assert "SHOULD NOT LEAK" not in content
+    assert "[tables/table-1.html]" in content
+    assert "[Table:" not in content
+    composed_text = "".join(
+        str(part.get("text") or "")
+        for part in assembled[0]["composed"]
+        if part.get("type") == "text"
+    )
+    assert composed_text.index("见表") < composed_text.index("<table")
+    assert composed_text.index("<table") < composed_text.index("结束")
+    assert "SHOULD NOT LEAK" in composed_text
+    assert "[tables/" not in composed_text
 
 
 @pytest.mark.asyncio
@@ -157,8 +163,8 @@ async def test_asset_type_filter_keeps_body_that_connects_to_requested_asset(
     )
 
     assert [row["chunk_id"] for row in assembled] == ["text-1"]
-    assert display_marker in assembled[0]["content"]
-    assert "资产说明" in assembled[0]["content"]
+    assert placeholder in assembled[0]["content"]
+    assert display_marker not in assembled[0]["content"]
 
 
 def test_node_unit_span_inlines_section_assets() -> None:

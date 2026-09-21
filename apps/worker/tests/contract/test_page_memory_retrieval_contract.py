@@ -142,13 +142,15 @@ async def test_table_result_assembly_uses_summary_not_html() -> None:
 
     assert len(assembled) == 1
     content = assembled[0]["content"]
-    assert "[Table: https://assets.example.com/job-1/tables/table-1.html]" in content
-    assert "企业入驻信息登记模板" in content
-    assert "企业名称;统一社会信用代码" in content
-    assert "SHOULD NOT LEAK" not in content
-    assert "<table" not in content
-    assert "[tables/" not in content
-    assert content.index("见表") < content.index("[Table:")
+    assert content == "见表 [tables/table-1.html]"
+    composed_text = "".join(
+        str(part.get("text") or "")
+        for part in assembled[0]["composed"]
+        if part.get("type") == "text"
+    )
+    assert "<table><tr><td>SHOULD NOT LEAK</td></tr></table>" in composed_text
+    assert "[tables/" not in composed_text
+    assert composed_text.index("见表") < composed_text.index("<table")
 
 
 @pytest.mark.asyncio

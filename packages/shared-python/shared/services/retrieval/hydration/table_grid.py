@@ -1,7 +1,7 @@
 """Load table HTML from storage and expand rowspan/colspan into a grid.
 
-Used by explore-phase ``corpus.read``, grep/recall hit mounting, and
-``corpus.query_table``. Final retrieval assembly does not call this module.
+Used by explore-phase ``corpus.read``, grep/recall hit mounting,
+``corpus.query_table``, and final evidence compose for table HTML.
 """
 
 from __future__ import annotations
