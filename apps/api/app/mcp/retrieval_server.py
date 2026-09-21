@@ -54,11 +54,12 @@ def resolve_mcp_namespace(*, ctx: Context | None) -> str:
 
 
 def to_mcp_query_response(response: dict[str, Any]) -> dict[str, Any]:
-    """Project the internal retrieval response to the MCP agent contract.
+    """Project the public retrieval response to the MCP agent contract.
 
-    MCP returns composed evidence plus the text projection and citations:
-    - evidence: composed parts (text and inline images)
+    MCP returns the same Knowhere package the HTTP query emits:
+    - evidence: composed parts (text/HTML and inline images)
     - evidence_text: text projection of those parts
+    - results: raw path chunks for debug
     - referenced_chunks: structured chunk references for citation / follow-up
     - decision_trace: navigation decisions including terminal stop/failure
     """
@@ -66,6 +67,7 @@ def to_mcp_query_response(response: dict[str, Any]) -> dict[str, Any]:
         "query": response.get("query"),
         "evidence": response.get("evidence") or [],
         "evidence_text": response.get("evidence_text") or "",
+        "results": response.get("results") or [],
         "referenced_chunks": response.get("referenced_chunks") or [],
         "decision_trace": response.get("decision_trace") or [],
     }
@@ -103,8 +105,10 @@ def create_retrieval_mcp_server(
     @server.tool(
         name="retrieval.query",
         description=(
-            "Search published documents. Returns evidence (composed parts for "
-            "LLM consumption), evidence_text (text projection of those parts), "
+            "Search published documents. Compose already happened in Knowhere. "
+            "Returns evidence (composed parts for LLM consumption), "
+            "results (raw path chunks for debug), "
+            "evidence_text (text projection of evidence), "
             "referenced_chunks (cited chunk metadata for follow-up queries), "
             "and decision_trace (navigation decisions including stop/failure reasons). "
             "Include navigation intent directly in your query text — the "

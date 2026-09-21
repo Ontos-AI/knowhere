@@ -170,7 +170,10 @@ class RetrievalQueryResponse(BaseModel):
         ),
     )
     referenced_chunks: list[dict] = Field(default_factory=list)
-    results: list[dict] = Field(default_factory=list)
+    results: list[dict] = Field(
+        default_factory=list,
+        description="Raw path chunks for debug. Content keeps placeholders; composed parts live on evidence.",
+    )
     stop_reason: str | None = None
     failure_reason: str | None = None
     decision_trace: list[dict] | None = Field(
