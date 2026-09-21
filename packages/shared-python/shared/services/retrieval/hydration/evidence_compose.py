@@ -256,8 +256,9 @@ def _try_read_image(row: dict[str, Any]) -> dict[str, Any] | None:
 def _try_read_page_image(row: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
     asset, warning = _select_page_asset(row)
     if asset is None:
-        _warn_skipped(row, "image", warning)
-        return None, warning
+        reason = warning or "missing page image"
+        _warn_skipped(row, "image", reason)
+        return None, reason
     artifact = str(asset.get("artifact_ref") or "").strip()
     media_type = (
         str(asset.get("content_type") or "").split(";", 1)[0].strip()
@@ -316,8 +317,11 @@ def _select_page_asset(row: dict[str, Any]) -> tuple[dict[str, Any] | None, str 
     if not page_nums:
         return None, "missing page number"
     for item in candidates:
+        raw_page_num = item.get("page_num")
+        if raw_page_num is None:
+            continue
         try:
-            page_num = int(item.get("page_num"))
+            page_num = int(raw_page_num)
         except (TypeError, ValueError):
             continue
         if page_num in page_nums:
