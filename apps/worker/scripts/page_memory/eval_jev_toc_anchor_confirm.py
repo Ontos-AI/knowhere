@@ -12,7 +12,7 @@ rewritten.
 
 Usage (from apps/worker):
 
-  TYPESAFE_API_KEY=... uv run python scripts/page_memory/eval_jev_toc_anchor_confirm.py \\
+  JEV_KEY=... uv run python scripts/page_memory/eval_jev_toc_anchor_confirm.py \\
       --debug-dir ~/.knowhere/_debug_parse/EN_medical.pdf/page_memory
 """
 
@@ -55,11 +55,6 @@ from shared.services.ai.openai_compatible_client_sync import get_openai_client
 
 TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone"
 TYPESAFE_MODEL = "jev-latest"
-
-
-def _load_env_keys() -> None:
-    if not os.environ.get("TYPESAFE_API_KEY") and os.environ.get("JET_KEY"):
-        os.environ["TYPESAFE_API_KEY"] = os.environ["JET_KEY"]
 
 
 def _load_page_texts(debug_dir: Path) -> dict[int, str]:
@@ -261,11 +256,9 @@ def _eval_one(debug_dir: Path, *, baseline_model: str | None, jev_model: str) ->
         report["error"] = "no TOC keyword candidates"
         return report
 
-    api_key = os.environ.get("TYPESAFE_API_KEY") or ""
+    api_key = os.environ.get("JEV_KEY") or ""
     if not api_key:
-        raise SystemExit(
-            "TYPESAFE_API_KEY (or JET_KEY) is required for the Jev arm"
-        )
+        raise SystemExit("JEV_KEY is required for the Jev arm")
 
     for chunk in _iter_chunks(pages, BOUNDARY_STEP_PAGES):
         logger.info("chunk pages={}", chunk)
@@ -342,7 +335,6 @@ def main() -> int:
     )
     parser.add_argument("--jev-model", default=TYPESAFE_MODEL)
     args = parser.parse_args()
-    _load_env_keys()
 
     debug_dirs = [Path(path).expanduser().resolve() for path in args.debug_dir]
     if not debug_dirs:
