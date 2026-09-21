@@ -76,7 +76,11 @@ def test_page_parts_do_not_inline_connected_charts() -> None:
             }
         },
     )
-    assert parts == [{"type": "text", "text": "只要摘要"}]
+    assert parts[0] == {"type": "text", "text": "只要摘要"}
+    assert parts[1] == {
+        "type": "text",
+        "text": "Page image unavailable: missing page image",
+    }
 
 
 def test_standalone_table_uses_html() -> None:
@@ -311,4 +315,44 @@ def test_page_image_requires_matching_page_num(monkeypatch) -> None:
         },
         {},
     )
-    assert parts == [{"type": "text", "text": "只要摘要"}]
+    assert parts == [
+        {"type": "text", "text": "只要摘要"},
+        {
+            "type": "text",
+            "text": "Page image unavailable: page image does not match this page",
+        },
+    ]
+
+
+def test_page_image_missing_page_number_does_not_use_first_asset(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.evidence_compose._try_read_image_artifact",
+        lambda row, artifact, media_type: {
+            "type": "image",
+            "media_type": media_type,
+            "data": "cGFnZQ==",
+        },
+    )
+    parts = compose_evidence_parts(
+        {
+            "chunk_type": "page",
+            "chunk_metadata": {
+                "summary": "只要摘要",
+                "page_assets": [
+                    {
+                        "page_num": 1,
+                        "artifact_ref": "page_citation_assets/page-1.png",
+                        "content_type": "image/png",
+                    }
+                ],
+            },
+        },
+        {},
+    )
+    assert parts == [
+        {"type": "text", "text": "只要摘要"},
+        {
+            "type": "text",
+            "text": "Page image unavailable: missing page number",
+        },
+    ]

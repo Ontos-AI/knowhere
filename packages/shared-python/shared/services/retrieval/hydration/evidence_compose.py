@@ -20,6 +20,7 @@ from shared.services.retrieval.hydration.asset_inline import (
 from shared.services.retrieval.hydration.row_utils import (
     extract_page_nums,
     normalize_chunk_type,
+    page_summary,
 )
 from shared.services.retrieval.hydration.table_grid import (
     TableDownloadError,
@@ -80,12 +81,14 @@ def flatten_parts(parts: list[dict[str, Any]] | None) -> str:
 
 def _compose_page_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
     parts: list[dict[str, Any]] = []
-    summary = _page_summary(row)
+    summary = page_summary(row)
     if summary:
         parts.append(_text_part(summary))
-    image = _try_read_page_image(row)
+    image, warning = _try_read_page_image(row)
     if image is not None:
         parts.append(image)
+    if warning:
+        parts.append(_text_part(f"Page image unavailable: {warning}"))
     return parts
 
 
@@ -250,16 +253,20 @@ def _try_read_image(row: dict[str, Any]) -> dict[str, Any] | None:
     return _try_read_image_artifact(row, artifact, media_type=_media_type_from_path(artifact))
 
 
-def _try_read_page_image(row: dict[str, Any]) -> dict[str, Any] | None:
-    asset = _select_page_asset(row)
+def _try_read_page_image(row: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    asset, warning = _select_page_asset(row)
     if asset is None:
-        return None
+        _warn_skipped(row, "image", warning)
+        return None, warning
     artifact = str(asset.get("artifact_ref") or "").strip()
     media_type = (
         str(asset.get("content_type") or "").split(";", 1)[0].strip()
         or _media_type_from_path(artifact)
     )
-    return _try_read_image_artifact(row, artifact, media_type=media_type)
+    image = _try_read_image_artifact(row, artifact, media_type=media_type)
+    if image is None:
+        return None, "could not read page image"
+    return image, None
 
 
 def _try_read_image_artifact(
@@ -295,34 +302,27 @@ def _try_read_image_artifact(
     }
 
 
-def _select_page_asset(row: dict[str, Any]) -> dict[str, Any] | None:
+def _select_page_asset(row: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
     metadata = row.get("chunk_metadata") or row.get("metadata") or {}
     if not isinstance(metadata, dict):
-        return None
+        return None, "missing page image"
     assets = metadata.get("page_assets") or []
     if not isinstance(assets, list):
-        return None
+        return None, "missing page image"
     candidates = [item for item in assets if isinstance(item, dict)]
     if not candidates:
-        return None
+        return None, "missing page image"
     page_nums = extract_page_nums(row) or []
     if not page_nums:
-        return candidates[0]
+        return None, "missing page number"
     for item in candidates:
         try:
             page_num = int(item.get("page_num"))
         except (TypeError, ValueError):
             continue
         if page_num in page_nums:
-            return item
-    return None
-
-
-def _page_summary(row: dict[str, Any]) -> str:
-    metadata = row.get("chunk_metadata") or row.get("metadata") or {}
-    if not isinstance(metadata, dict):
-        return ""
-    return str(metadata.get("summary") or "").strip()
+            return item, None
+    return None, "page image does not match this page"
 
 
 def _media_type_from_path(path: str) -> str:

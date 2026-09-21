@@ -41,6 +41,13 @@ def extract_page_nums(row: dict[str, Any]) -> list[int] | None:
     return page_nums if isinstance(page_nums, list) else None
 
 
+def page_summary(row: dict[str, Any]) -> str:
+    metadata = row.get('chunk_metadata') or row.get('metadata') or {}
+    if not isinstance(metadata, dict):
+        return ''
+    return str(metadata.get('summary') or '').strip()
+
+
 def build_reference_lookup_key(
     *,
     document_id: object,

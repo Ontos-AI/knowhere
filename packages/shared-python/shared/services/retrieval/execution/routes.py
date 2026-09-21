@@ -50,6 +50,8 @@ def open_agent_explore_database_context() -> AbstractAsyncContextManager[AsyncSe
 
 
 def _evidence_fields(rows: list[dict]) -> dict:
+    # TODO: 后面用 TypeSafe JEV 补结果重排/筛选。现在没有这一步。
+    # 无论怎么做，发出去的 evidence 和 results 都是已经筛过或重排过的完整列表，不在 Knowhere 外面做。
     evidence = collect_evidence(rows)
     return {
         "evidence": evidence,

@@ -1,8 +1,8 @@
 """``corpus.read`` — full body content for already-located sections/chunks.
 
 Unlike ``hydration.result_assembly.assemble_retrieval_results`` (which
-down-weights ``page`` chunks to their summary — see that module's
-``_page_summary``, a deliberate trade-off for the retrieval-answer surface),
+down-weights ``page`` chunks to their summary — see ``page_summary``, a
+deliberate trade-off for the retrieval-answer surface),
 ``read`` returns the page chunk's full body content, with ``[SAME-AS <owner>
 p<N>]`` markers resolved to the owner section's text (§2 of
 ``CORPUS_SCHEMA.md``) rather than stripped or summarized. ``connect_to``

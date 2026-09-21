@@ -12,8 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from shared.services.retrieval.hydration.evidence_text import render_evidence_blocks
-
 from ._compat import Chunk
 from ._compat import line_node_id
 from ._compat import ToolSpace
@@ -322,12 +320,42 @@ def _render_group(
     *,
     evidence_index: int,
 ) -> str:
-    """Render one evidence block via the shared evidence renderer."""
+    """Render one evidence block as ``[E#]`` + path + bodies."""
     bodies = [_chunk_body(child.chunk) for child in selected]
-    return render_evidence_blocks(
+    return _render_evidence_blocks(
         [(group.parent_title or "", bodies)],
         start_index=evidence_index,
     )
+
+
+def _render_evidence_blocks(
+    groups: Sequence[tuple[str, Sequence[str]]],
+    *,
+    start_index: int = 1,
+) -> str:
+    parts: list[str] = []
+    index = max(1, int(start_index or 1))
+    for path, bodies in groups:
+        texts = [str(t or "").strip() for t in bodies]
+        texts = [t for t in texts if t]
+        if not texts:
+            continue
+        block: list[str] = [f"[E{index + len(parts)}]"]
+        header = str(path or "").strip()
+        if header:
+            block.append(f"[§ {header}]")
+        indent = len(texts) >= 2
+        for text in texts:
+            if indent:
+                block.append(
+                    "\n".join(
+                        ("  " + ln if ln.strip() else ln) for ln in text.splitlines()
+                    )
+                )
+            else:
+                block.append(text)
+        parts.append("\n".join(block).strip())
+    return "\n\n".join(parts)
 
 
 def _scored_flat(groups: Sequence[_ParentGroup]) -> List[Tuple[Chunk, float]]:

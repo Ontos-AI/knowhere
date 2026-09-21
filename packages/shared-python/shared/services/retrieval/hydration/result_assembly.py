@@ -14,6 +14,7 @@ from shared.services.retrieval.hydration.row_utils import (
     filter_excluded_rows,
     iter_connected_target_ids,
     normalize_chunk_type,
+    page_summary,
 )
 
 
@@ -66,7 +67,7 @@ async def assemble_retrieval_results(
         base_content = str(row.get('content') or '')
         chunk_type = normalize_chunk_type(row.get('chunk_type'))
         if chunk_type == 'page':
-            assembled_row['content'] = _page_summary(row)
+            assembled_row['content'] = page_summary(row)
             assembled_row['content_source'] = 'summary'
             page_nums = extract_page_nums(row)
             if page_nums is not None:
@@ -101,13 +102,6 @@ def _filter_rows_by_allowed_chunk_types(
             for target_id in iter_connected_target_ids(row)
         )
     ]
-
-
-def _page_summary(row: dict[str, Any]) -> str:
-    metadata = row.get('chunk_metadata') or row.get('metadata') or {}
-    if not isinstance(metadata, dict):
-        return ''
-    return str(metadata.get('summary') or '').strip()
 
 
 def _image_display_content(row: dict[str, Any]) -> str:
