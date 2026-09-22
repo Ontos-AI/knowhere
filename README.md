@@ -1,4 +1,4 @@
-<img width="1000" height="233" alt="Knowhere 2.0" src="docs/assets/knowhere-banner-2.0.png" />
+<img width="1000" height="233" alt="Knowhere" src="docs/assets/knowhere-banner.png" />
 
 <h1 align="center">Prepare unstructured data for AI Agents</h1>
 
