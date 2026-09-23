@@ -455,6 +455,46 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
 
 
 @pytest.mark.asyncio
+async def test_should_release_materialization_claims_after_publication_failure(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def fail_materialization(*args: Any, **kwargs: Any) -> Any:
+        raise TimeoutError("publication timed out")
+
+    async with developer_api_client_factory() as api_client:
+        import app.services.demo.source_materializer as source_materializer_module
+
+        monkeypatch.setattr(
+            source_materializer_module.DemoSourceMaterializer,
+            "_materialize_source",
+            fail_materialization,
+        )
+
+        with pytest.raises(TimeoutError, match="publication timed out"):
+            await api_client.post(
+                "/api/v1/demo/materializations",
+                json={
+                    "namespace": "contract-demo-publication-failure",
+                    "demo_source_ids": [DEMO_SOURCE_ID],
+                },
+            )
+
+        materialization_rows = await ContractDatabase.fetch_all(
+            """
+            SELECT demo_source_id, status, document_id
+            FROM demo_materializations
+            WHERE user_id = 'local-dev-user'
+              AND namespace = 'contract-demo-publication-failure'
+            """,
+        )
+
+    assert materialization_rows == []
+
+
+@pytest.mark.asyncio
 async def test_should_materialize_each_normalized_demo_source_once_per_request(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
