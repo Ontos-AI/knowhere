@@ -96,6 +96,7 @@ class DemoSourceMaterializer:
                 resource="Demo materialization",
             ) from error
         await db.commit()
+        claim_ids = tuple(claim.id for claim in claims.values())
         results: list[MaterializedDemoSource] = []
         for source in selected_sources:
             try:
@@ -118,7 +119,7 @@ class DemoSourceMaterializer:
                 await db.rollback()
                 await self._release_claims(
                     db,
-                    claims=claims.values(),
+                    claim_ids=claim_ids,
                 )
                 raise
         await invalidate_retrieval_cache_namespaces(
@@ -340,9 +341,9 @@ class DemoSourceMaterializer:
         self,
         db: AsyncSession,
         *,
-        claims: Iterable[DemoMaterialization],
+        claim_ids: Iterable[str],
     ) -> None:
-        claim_ids = [claim.id for claim in claims]
+        claim_ids = tuple(claim_ids)
         if not claim_ids:
             return
         await db.execute(
