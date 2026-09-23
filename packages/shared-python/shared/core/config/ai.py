@@ -16,6 +16,10 @@ class AIConfig(BaseModel):
         default="https://api.deepseek.com/v1", description="DeepSeek API URL"
     )
     GPT_API_KEY: str = Field(default="", description="OpenAI API key")
+    ORCA_API_KEY: str = Field(default="", description="OrcaRouter API key")
+    ORCA_URL: str = Field(
+        default="https://api.orcarouter.ai/v1", description="OrcaRouter API URL"
+    )
     # Default behavior: text/table summaries use deepseek-v4-flash. Hierarchy parsing
     # can be overridden independently with HIERARCHY_LLM_MODEL. Existing
     # environment overrides for NORMOL_MODEL / HIERARCHY_LLM_MODEL /
