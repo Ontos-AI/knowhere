@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/knowhere-banner-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/knowhere-banner-light.png">
-    <img width="1000" height="500" alt="Knowhere — Prepare unstructured data for AI agents" src="docs/assets/knowhere-banner-light.png" />
+    <img width="1000" alt="Knowhere — Prepare unstructured data for AI agents" src="docs/assets/knowhere-banner-light.png" />
   </picture>
 </p>
 
