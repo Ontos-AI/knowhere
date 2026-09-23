@@ -86,18 +86,20 @@ class RetrievalQueryRequest(BaseModel):
     use_agentic: bool | None = Field(
         None,
         description=(
-            "Agent explore (cursor_sdk harness by default) when unset/true. "
-            "Set false to force classic map-unit BM25 top-K retrieval."
+            "Turns agent retrieval on or off. False uses classic map-unit "
+            "BM25. Unset or true turns agent retrieval on; "
+            "AGENT_EXPLORE_HARNESS then selects Cursor (cursor_sdk) or "
+            "Knowhere's own harness (openai)."
         ),
     )
     agent_explore_model: str | None = Field(
         None,
         max_length=255,
         description=(
-            "Optional Cursor SDK model for agent_explore when the cursor_sdk "
-            "harness is active. Omit or leave empty to use "
-            "AGENT_EXPLORE_CURSOR_MODEL (default composer-2.5). Ignored on "
-            "the classic route and the OpenAI harness."
+            "Optional Cursor model when agent retrieval is on and "
+            "AGENT_EXPLORE_HARNESS=cursor_sdk. Omit or leave empty to use "
+            "AGENT_EXPLORE_CURSOR_MODEL (default composer-2.5). Ignored when "
+            "agent retrieval is off or the harness is openai."
         ),
     )
     conversation_id: str | None = Field(

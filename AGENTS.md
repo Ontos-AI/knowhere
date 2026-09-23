@@ -103,10 +103,13 @@ flowchart TB
     subgraph RETRIEVE["⑤ Retrieval (shared)"]
         Query["POST /v1|/v2 retrieval/query"] --> Pipeline["run_retrieval_query"]
         Pipeline --> Classic["classic_topk / small_corpus (use_agentic=False)"]
-        Pipeline --> Explore["agent_explore + cursor_sdk (default / use_agentic≠False)"]
+        Pipeline --> Explore["agent_explore (use_agentic unset/true)"]
+        Explore --> Cursor["AGENT_EXPLORE_HARNESS=cursor_sdk"]
+        Explore --> Own["AGENT_EXPLORE_HARNESS=openai"]
         Classic --> Channels["map_unit_discovery: path+content BM25 -> RRF"]
         Channels --> Rank["rank_retrieval_candidates"]
-        Explore --> Tools["corpus.* tools + harness.run_episode"]
+        Cursor --> Tools["corpus.* tools + harness.run_episode"]
+        Own --> Tools
         Rank --> Assemble["assemble_retrieval_results"]
         Tools --> Assemble
         Assemble --> Results["Cited Evidence Results"]
@@ -545,14 +548,14 @@ Core retrieval internals are grouped by ownership:
 - `execution/`: request shaping, route selection (classic / agent_explore / small_corpus), and public response projection.
 - `search/`: `map_unit_discovery` (persisted map-unit BM25 discovery; incomplete or incompatible indexes raise), scoring, section filters, candidate ranking.
 - `hydration/`: row/path/reference hydration, inline assets, and result assembly.
-- `agent_explore/` + `agent_tools/`: default agentic route (cursor_sdk harness). Map-nav is archived under `deprecated/mapnav/`.
+- `agent_explore/` + `agent_tools/`: agent retrieval when `use_agentic` is on. Harness is `cursor_sdk` (Cursor) or `openai` (Knowhere's own). Map-nav is archived under `deprecated/mapnav/`.
 - `trace/`: `DecisionTraceStep` mapping and `TraceRecorder`.
 - `graph/`: document graph publication/query support.
 - `stats/`: retrieval hit recording.
 
-### Two Retrieval Modes
+### Retrieval Switch and Agent Modes
 
-Per-request `use_agentic`: `False` → classic top-K (map-unit BM25); `None`/`True` → agent_explore (default harness `cursor_sdk`).
+Per-request `use_agentic` only turns agent retrieval on or off: `False` → classic top-K (map-unit BM25); `None`/`True` → agent_explore. When agent retrieval is on, `AGENT_EXPLORE_HARNESS` selects Cursor (`cursor_sdk`) or Knowhere's own harness (`openai`).
 
 #### Classic Mode (map-unit BM25)
 
