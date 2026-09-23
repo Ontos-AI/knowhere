@@ -24,9 +24,9 @@ from shared.services.retrieval.agent_tools.registry import (
     description=(
         "List every active document in the namespace with its parse_track "
         "and, when available, document-level graph metadata (top_keywords, "
-        "top_summary, chunk type mix). Use this to start cold: which "
-        "documents exist and what are they about, before picking one for "
-        "outline/node_filter/recall/read."
+        "top_summary, chunk type mix). Use only when explicitly asked to "
+        "inventory the namespace's documents, not as a first step for "
+        "question answering."
     ),
     json_schema={
         "type": "object",
