@@ -41,7 +41,7 @@ from shared.services.retrieval.agent_explore.shared import (
     tool_message_content,
     wire_safe_tool_name,
 )
-from shared.services.retrieval.agent_tools import ToolResult
+from shared.services.retrieval.agent_tools import REGISTRY, ToolResult
 
 
 # --------------------------------------------------------------------------
@@ -317,6 +317,19 @@ def test_evidence_tool_names_includes_read_assets_and_query_table() -> None:
     assert EVIDENCE_TOOL_NAMES == frozenset(
         {"corpus.read", "corpus.assets", "corpus.query_table"}
     )
+
+
+def test_agent_explore_keeps_inventory_tool_for_explicit_inventory_requests() -> None:
+    from shared.services.retrieval.agent_explore.harness.openai_harness import (
+        _build_openai_tools,
+    )
+
+    assert REGISTRY.get("corpus.list_documents") is not None
+    tools, name_map = _build_openai_tools()
+    wire_names = {tool["function"]["name"] for tool in tools}
+    assert "corpus_list_documents" in wire_names
+    assert name_map["corpus_list_documents"] == "corpus.list_documents"
+    assert "only if the user explicitly asks to list or inventory" in LOOP_CONTRACT_SUFFIX
 
 
 # --------------------------------------------------------------------------
