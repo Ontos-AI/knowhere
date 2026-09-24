@@ -112,6 +112,13 @@ class DocumentIngestionHandoffService:
                 user_message="Job state is still settling. Retrying shortly.",
             )
 
+        if outcome.from_state != JobStatus.WAITING_FILE.value:
+            logger.info(
+                "Upload handoff already claimed by another trigger: "
+                f"job_id={job.job_id}, status={outcome.from_state}"
+            )
+            return
+
         await self._worker_dispatcher.start_uploaded_file_parse(
             job_id=job.job_id,
             user_id=user_id,
