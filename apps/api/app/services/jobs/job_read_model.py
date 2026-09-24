@@ -18,7 +18,9 @@ from shared.core.exceptions.domain_exceptions import (
     PermissionDeniedException,
     ValidationException,
 )
-from shared.models.schemas.job import JobList, JobResultResponse
+from shared.models.schemas.job import JobDeleteResponse, JobList, JobResultResponse
+from shared.models.schemas.job_metadata import JobMetadataHelper
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.redis import RedisServiceFactory
 from shared.utils.utc_now import utc_now_naive
 
@@ -36,6 +38,7 @@ class JobReadModel:
         recent_days: Optional[int],
         start_time: Optional[datetime],
         end_time: Optional[datetime],
+        namespace: Optional[str] = None,
     ) -> JobList:
         return await list_jobs_for_user(
             db,
@@ -47,6 +50,7 @@ class JobReadModel:
             recent_days=recent_days,
             start_time=start_time,
             end_time=end_time,
+            namespace=namespace,
         )
 
     async def get_job_result_for_user(
@@ -58,6 +62,21 @@ class JobReadModel:
     ) -> JobResultResponse:
         return await get_job_result_for_user(db, job_id=job_id, user_id=user_id)
 
+    async def delete_job_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        job_id: str,
+        user_id: str,
+        archive_document: bool = True,
+    ) -> JobDeleteResponse:
+        return await delete_job_for_user(
+            db,
+            job_id=job_id,
+            user_id=user_id,
+            archive_document=archive_document,
+        )
+
 
 def check_job_permission(job, user_id: str, job_id: str) -> None:
     if not job:
@@ -68,6 +87,13 @@ def check_job_permission(job, user_id: str, job_id: str) -> None:
     if str(job.user_id) != user_id:
         raise PermissionDeniedException(
             user_message="You don't have permission to access this job",
+        )
+
+    # A soft-deleted job is invisible to the owner, exactly like a missing one.
+    # The permission check runs first so deletion never leaks job existence.
+    if getattr(job, "deleted_at", None) is not None:
+        raise NotFoundException(
+            resource="Job", resource_id=job_id, internal_message="Job is deleted"
         )
 
 
@@ -90,6 +116,7 @@ async def list_jobs_for_user(
     recent_days: Optional[int],
     start_time: Optional[datetime],
     end_time: Optional[datetime],
+    namespace: Optional[str] = None,
 ) -> JobList:
     try:
         job_repo = JobRepository()
@@ -123,6 +150,13 @@ async def list_jobs_for_user(
             created_after = normalized_start_time
         created_before = normalized_end_time
 
+        # Jobs persist the normalized namespace, so the filter has to be
+        # normalized the same way or an unnormalized query silently matches
+        # nothing. An omitted namespace means "no filter", not "default".
+        normalized_namespace = (
+            normalize_retrieval_namespace(namespace) if namespace is not None else None
+        )
+
         total_count = await job_repo.count_jobs_by_user(
             db=db,
             user_id=user_id,
@@ -130,6 +164,7 @@ async def list_jobs_for_user(
             created_before=created_before,
             job_type=job_type,
             job_status=job_status,
+            namespace=normalized_namespace,
         )
         jobs = await job_repo.get_jobs_by_user(
             db=db,
@@ -140,6 +175,7 @@ async def list_jobs_for_user(
             created_before=created_before,
             job_type=job_type,
             job_status=job_status,
+            namespace=normalized_namespace,
         )
 
         redis_service = RedisServiceFactory.get_service()
@@ -206,4 +242,71 @@ async def get_job_result_for_user(
         logger.error(f"Failed to get job result: {exc}")
         raise JobOperationException(
             internal_message=f"Failed to get job result: {str(exc)}"
+        )
+
+
+async def delete_job_for_user(
+    db: AsyncSession,
+    *,
+    job_id: str,
+    user_id: str,
+    archive_document: bool = True,
+) -> JobDeleteResponse:
+    """Soft-delete a job and, by default, archive the document it produced.
+
+    The job row is retained so in-flight workers, billing records, and audit
+    history are unaffected; it simply stops appearing in the read APIs. The
+    linked document is archived only when no other live job still targets it,
+    which keeps a re-parse of the same document from losing its content.
+    """
+    from app.services.documents.lifecycle_service import DocumentService
+
+    try:
+        job_repo = JobRepository()
+        job = await job_repo.get_job_by_id(db, job_id)
+        check_job_permission(job, user_id, job_id)
+        assert job is not None
+
+        redis_service = RedisServiceFactory.get_service()
+        job_metadata = await job_repo.get_job_metadata(db, job_id, redis_service)
+        document_id = JobMetadataHelper.get_document_id(job_metadata)
+
+        await job_repo.soft_delete_job(db, job_id)
+
+        document_archived = False
+        if archive_document and document_id:
+            remaining_jobs = await job_repo.count_active_jobs_for_document(
+                db,
+                user_id=user_id,
+                document_id=document_id,
+                exclude_job_id=job_id,
+            )
+            if remaining_jobs == 0:
+                document = await DocumentService().archive_document(
+                    db,
+                    user_id=user_id,
+                    document_id=document_id,
+                )
+                document_archived = document is not None
+            else:
+                logger.info(
+                    f"Skipped archiving document {document_id}: "
+                    f"{remaining_jobs} other job(s) still reference it"
+                )
+
+        return JobDeleteResponse(
+            job_id=job_id,
+            deleted=True,
+            document_id=document_id,
+            document_archived=document_archived,
+        )
+
+    except NotFoundException:
+        raise
+    except PermissionDeniedException:
+        raise
+    except Exception as exc:
+        logger.error(f"Failed to delete job {job_id}: {exc}")
+        raise JobOperationException(
+            internal_message=f"Failed to delete job: {str(exc)}"
         )

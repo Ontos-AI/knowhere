@@ -12,6 +12,7 @@ from app.api.dependencies.current_user import with_current_user
 from app.api.dependencies.job_admission import require_billing_limits
 from app.services.document_ingestion import DocumentIngestionService
 from app.services.jobs import (
+    delete_job_for_user,
     get_job_result_for_user,
     list_jobs_for_user,
 )
@@ -23,6 +24,7 @@ from shared.core.database import get_db
 from shared.models.schemas.job import (
     ConfirmUploadRequest,
     JobCreate,
+    JobDeleteResponse,
     JobList,
     JobResponse,
     JobResultResponse,
@@ -69,6 +71,7 @@ async def list_jobs(
         None, description="Start time in ISO format"
     ),
     end_time: Optional[datetime] = Query(None, description="End time in ISO format"),
+    namespace: Optional[str] = Query(None, description="Namespace filter"),
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -85,6 +88,7 @@ async def list_jobs(
         recent_days=recent_days,
         start_time=start_time,
         end_time=end_time,
+        namespace=namespace,
     )
 
 
@@ -101,6 +105,37 @@ async def get_job_result(
         db,
         job_id=job_id,
         user_id=current_user.user_id,
+    )
+
+
+@router.delete(
+    "/{job_id}", response_model=JobDeleteResponse, summary="Delete a job"
+)
+async def delete_job(
+    job_id: str,
+    archive_document: bool = Query(
+        True,
+        description=(
+            "Archive the document this job produced, removing it from "
+            "retrieval. Skipped when another live job still targets it."
+        ),
+    ),
+    current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Delete a job.
+
+    The job is soft-deleted: its row is retained so in-flight workers, billing
+    records, and audit history stay intact, but it no longer appears in the
+    job read APIs.
+    """
+    return await delete_job_for_user(
+        db,
+        job_id=job_id,
+        user_id=current_user.user_id,
+        archive_document=archive_document,
     )
 
 
