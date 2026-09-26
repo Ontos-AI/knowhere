@@ -104,8 +104,8 @@ Service endpoints:
   - Redis: localhost:6379
 
 Next steps:
-  1. Start the API: cd apps/api && uv run uvicorn main:app --host 0.0.0.0 --port 5005 --reload
-  2. Start the worker: cd apps/worker && uv run python worker.py
+  1. Start the API: cd apps/api && uv run --env-file .env uvicorn main:app --host 0.0.0.0 --port 5005 --reload
+  2. Start the worker: cd apps/worker && uv run --env-file .env python worker.py
 
 Stop services:
   ${SCRIPT_DIR}/stop-dev.sh
