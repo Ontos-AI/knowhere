@@ -63,7 +63,6 @@ WORKER_STAGING_ENVIRONMENT: dict[str, str] = {
     "DB_SYNC_POOL_SIZE": "2",
     "HIERARCHY_LLM_MODEL": "deepseek-chat",
     "IMAGE_MODEL": "qwen3.5-flash",
-    "IMAGE_MODEL_MAX": "qwen3.5-flash",
     "MAX_PDF_PAGE_LIMIT": "200",
     "NORMOL_MODEL": "deepseek-chat",
     "OVERSIZED_PDF_SHARD_ENABLED": "true",

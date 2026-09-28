@@ -1,6 +1,10 @@
-<img width="1000" height="233" alt="Knowhere" src="docs/assets/knowhere-banner.png" />
-
-<h1 align="center">Prepare unstructured data for AI Agents</h1>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/knowhere-banner-dark.jpg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/knowhere-banner-light.jpg">
+    <img width="1000" alt="Knowhere — Prepare unstructured data for AI agents" src="docs/assets/knowhere-banner-light.jpg" />
+  </picture>
+</p>
 
 <p align="center">
   <a href="https://www.python.org/downloads/">
@@ -57,7 +61,11 @@ Traditional OCR and Document Intelligence pipelines try to extract every element
 Knowhere does not make perfect element-by-element extraction a prerequisite for retrieval. The Text Track preserves precise text and native structure where they are reliable. The Vision Track uses frontier vision models to understand a page or slide as a whole, so visually complex content can still be recalled and understood without first reconstructing every element.
 
 <p align="center">
-  <img alt="Vision and Text tracks converge into a unified navigable memory schema" src="docs/assets/step-1-dual-track-memory.png" width="1000">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/step-1-dual-track-memory-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/step-1-dual-track-memory.jpg">
+    <img alt="Vision and Text tracks converge into a unified navigable memory schema" src="docs/assets/step-1-dual-track-memory.jpg" width="1000">
+  </picture>
 </p>
 
 - **Two tracks, one contract**: Both parsing paths produce the same chunk and metadata schema, so downstream storage, hierarchy, graph construction, and retrieval remain format-independent.
@@ -82,7 +90,11 @@ Knowhere runs in two steps: build memory from documents, then let agents retriev
 Knowhere provides the document-memory substrate; the agent decides how to explore it.
 
 <p align="center">
-  <img alt="Any agent can explore Knowhere Memory through one neutral corpus tool contract" src="docs/assets/step-2-agent-neutral-retrieval.png" width="900">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/step-2-agent-neutral-retrieval-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/step-2-agent-neutral-retrieval.jpg">
+    <img alt="Any agent can explore Knowhere Memory through one neutral corpus tool contract" src="docs/assets/step-2-agent-neutral-retrieval.jpg" width="900">
+  </picture>
 </p>
 
 - **Provide the substrate**: Knowhere exposes one corpus schema and tools for document outlines, structural filters, exact search, fuzzy recall, full reading, assets, and cross-document relationships.
@@ -97,7 +109,7 @@ A: MinerU remains the default raw PDF extractor for Knowhere's V1 chunk-based pi
 
 **Q: What LLM / VLM dependencies does Knowhere have?**
 
-A: We recommend [`deepseek-v4-flash-vision-exp`](https://api-docs.deepseek.com/guides/vision/) as a unified model for both Text and Vision workloads. It accepts text and image input, so the same model can handle summarization, hierarchy reasoning, page understanding, and asset descriptions. The model is currently experimental, and Knowhere remains model-agnostic: you can use another model—or separate Text and Vision models—from OpenAI, Qwen, GLM, Volcengine, or any compatible provider.
+A: We recommend [`deepseek-flash`](https://api-docs.deepseek.com/guides/vision/) as a unified model for both Text and Vision workloads. It accepts text and image input, so the same model can handle summarization, hierarchy reasoning, page understanding, and asset descriptions. Knowhere remains model-agnostic: you can use another model—or separate Text and Vision models—from OpenAI, Qwen, GLM, Volcengine, or any compatible provider.
 
 **Q: How is Agentic Retrieval different from traditional RAG?**
 
@@ -112,7 +124,11 @@ A: Yes. Knowhere extracts images and tables, runs them through VLM-assisted summ
 Agents using Knowhere outperform those working from raw documents, Markitdown, Unstructured, or MinerU output on real-world tasks: searching, modifying, and answering questions.
 
 <p align="center">
-  <img alt="Benchmark Performance: Agent + Knowhere vs Others" src="docs/assets/benchmark.png" width="900">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/benchmark-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/benchmark-light.png">
+    <img alt="Benchmark Performance: Agent + Knowhere vs Others" src="docs/assets/benchmark-light.png" width="900">
+  </picture>
 </p>
 
 > **We're not developing the next MinerU — we're building document memory infrastructure that agents can effectively consume.**

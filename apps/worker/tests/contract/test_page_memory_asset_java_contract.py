@@ -17,8 +17,10 @@ from app.services.page_memory import page_assets
 from app.services.page_memory.page_renderer import PageRenderResult
 
 
-def test_page_assets_default_to_qwen_flash_and_full_page_scan() -> None:
-    assert page_assets.get_asset_model() == "qwen3.6-flash"
+def test_page_assets_default_to_image_model_and_full_page_scan() -> None:
+    from shared.models.schemas.page_memory_config import resolve_asset_model
+
+    assert page_assets.get_asset_model() == resolve_asset_model()
     assert page_assets.get_asset_max_pages(301) == 301
 
 
@@ -69,7 +71,7 @@ def test_page_asset_detection_uses_lowest_temperature(monkeypatch, tmp_path) -> 
     )
 
     prompt = captured["messages"][0]["content"][0]["text"]  # type: ignore[index]
-    assert captured["model"] == "qwen3.6-flash"
+    assert captured["model"] == page_assets.get_asset_model()
     assert captured["temperature"] == 0
     assert assets[0].bbox_px == [10, 12, 30, 36]
     assert assets[0].title == "table title"

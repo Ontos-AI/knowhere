@@ -203,6 +203,7 @@ async def map_unit_discovery(
     signal_paths: list[str] | None = None,
     filter_mode: str = "delete",
     revision_pins: Mapping[str, str] | None = None,
+    publish_index_readiness: bool = True,
     **_kwargs: Any,
 ) -> DiscoveryResult:
     """Score the whole in-scope corpus via the persisted map-unit BM25 scorer."""
@@ -215,7 +216,7 @@ async def map_unit_discovery(
     if revision_pins is not None and not revision_pins:
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
     query_token_hashes = [
-        sha256(token.encode("utf-8")).hexdigest() for token in query_tokens
+        sha256(token.encode("utf-8")).digest() for token in query_tokens
     ]
 
     revision_join, revision_clause, revision_params = _build_revision_scope(
@@ -256,7 +257,8 @@ async def map_unit_discovery(
         unit_statement = (
             "WITH matching_tokens AS MATERIALIZED ("
             "SELECT DISTINCT map_unit_id FROM document_map_unit_tokens "
-            "WHERE channel = ANY(:channels) AND token_hash = ANY(:token_hashes)"
+            "WHERE channel = ANY(:channels) "
+            "AND decode(token_hash, 'hex') = ANY(:token_hashes)"
             "), "
             + cte.lstrip().removeprefix("WITH ")
             + " SELECT DISTINCT scoped_units.* "
@@ -297,7 +299,7 @@ async def map_unit_discovery(
         "SELECT map_unit_id, channel, token, frequency "
         "FROM document_map_unit_tokens "
         "WHERE channel = ANY(:channels) "
-        "AND token_hash = ANY(:token_hashes)"
+        "AND decode(token_hash, 'hex') = ANY(:token_hashes)"
         "), "
         + frequency_scope_cte.lstrip().removeprefix("WITH ")
         + """
@@ -525,13 +527,14 @@ async def map_unit_discovery(
         or is_index_format_incompatible
     )
     if has_unusable_index:
-        _schedule_index_readiness(
-            user_id=user_id,
-            namespace=namespace,
-            ready=False,
-            expected_revisions=len(expected_revisions),
-            indexed_revisions=len(index_parts),
-        )
+        if publish_index_readiness:
+            _schedule_index_readiness(
+                user_id=user_id,
+                namespace=namespace,
+                ready=False,
+                expected_revisions=len(expected_revisions),
+                indexed_revisions=len(index_parts),
+            )
         if has_revision_coverage_mismatch:
             unusable_reason = "revision_coverage"
         elif is_index_format_incompatible:
@@ -586,13 +589,14 @@ async def map_unit_discovery(
             time.monotonic() - stage_started,
             len(unit_rows),
         )
-    _schedule_index_readiness(
-        user_id=user_id,
-        namespace=namespace,
-        ready=not has_incomplete_index_statistics,
-        expected_revisions=len(expected_revisions),
-        indexed_revisions=len(index_parts),
-    )
+    if publish_index_readiness:
+        _schedule_index_readiness(
+            user_id=user_id,
+            namespace=namespace,
+            ready=not has_incomplete_index_statistics,
+            expected_revisions=len(expected_revisions),
+            indexed_revisions=len(index_parts),
+        )
     average_idf_path = combine_average_idf(
         [
             (path_idf, unit_count)

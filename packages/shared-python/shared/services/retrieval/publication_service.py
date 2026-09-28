@@ -9,11 +9,11 @@ boundaries and call this service, not define retrieval state construction.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import Document
@@ -39,6 +39,11 @@ from shared.services.retrieval.serving_generation import (
     advance_namespace_generation,
     lock_namespace_generation,
 )
+from shared.services.retrieval.publication_trace_stage import trace_publication_stage
+from shared.services.retrieval.publication_strategy import resolve_publication_strategy
+
+if TYPE_CHECKING:
+    from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
 
 
 def utc_now_naive() -> datetime:
@@ -53,25 +58,33 @@ class RetrievalPublicationService:
         db: Session,
         *,
         job_id: str,
+        trace: PublicationTrace | None = None,
     ) -> ExistingDocumentScope | None:
-        job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
-        if not job:
-            return None
+        with trace_publication_stage(trace, "document_resolution"):
+            return self._get_existing_document_scope(db, job_id=job_id)
 
-        metadata = job.job_metadata or {}
-        document_id = metadata.get("document_id")
-        if not document_id:
-            return None
-
-        document = db.execute(
-            select(Document).where(Document.document_id == document_id)
-        ).scalar_one_or_none()
-        if not document:
+    def _get_existing_document_scope(
+        self, db: Session, *, job_id: str
+    ) -> ExistingDocumentScope | None:
+        metadata, document_id, namespace = db.execute(
+            select(
+                Job.job_metadata,
+                Document.document_id,
+                Document.namespace,
+            )
+            .select_from(Job)
+            .outerjoin(
+                Document,
+                Document.document_id == Job.job_metadata["document_id"].as_string(),
+            )
+            .where(Job.job_id == job_id)
+        ).one_or_none() or (None, None, None)
+        if not isinstance(metadata, dict) or not document_id or namespace is None:
             return None
 
         return ExistingDocumentScope(
-            document_id=document.document_id,
-            namespace=document.namespace,
+            document_id=str(document_id),
+            namespace=str(namespace),
         )
 
     def publish_document_state(
@@ -83,6 +96,7 @@ class RetrievalPublicationService:
         chunks: list[dict[str, Any]],
         section_summaries: dict[str, str] | None = None,
         update_namespace_snapshot: bool = True,
+        trace: PublicationTrace | None = None,
     ) -> PublishedDocumentState | None:
         job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
         if not job:
@@ -96,6 +110,7 @@ class RetrievalPublicationService:
             chunks=chunks,
             section_summaries=section_summaries,
             update_namespace_snapshot=update_namespace_snapshot,
+            trace=trace,
         )
 
     def _publish_document_state_for_job(
@@ -107,6 +122,7 @@ class RetrievalPublicationService:
         chunks: list[dict[str, Any]],
         section_summaries: dict[str, str] | None = None,
         update_namespace_snapshot: bool = True,
+        trace: PublicationTrace | None = None,
     ) -> PublishedDocumentState | None:
 
         job_metadata = job.job_metadata or {}
@@ -118,7 +134,35 @@ class RetrievalPublicationService:
         )
         document_metadata = JobMetadataHelper.get_document_metadata(job_metadata)
 
-        deduped_chunks = deduplicate_chunks_by_source_path(chunks)
+        # A job result is one immutable publication revision. Once it has
+        # been bound to a document, a replay of the same completion must not
+        # create another document or rewrite serving state. Locking the row
+        # also serializes concurrent replays of the same revision.
+        existing_document_id = db.execute(
+            select(JobResult.document_id)
+            .where(JobResult.id == job_result_id)
+            .with_for_update()
+        ).scalar_one_or_none()
+        if existing_document_id:
+            logger.info(
+                "Skipping duplicate document publication: "
+                f"job_id={job.job_id}, job_result_id={job_result_id}, "
+                f"document_id={existing_document_id}"
+            )
+            return PublishedDocumentState(
+                user_id=str(job.user_id),
+                namespace=namespace,
+                document_id=None,
+                skipped_all_duplicate=True,
+            )
+
+        if resolve_publication_strategy() == "candidate":
+            # Keep bulk GIN updates inside the publication transaction while
+            # allowing background cleanup between publications.
+            db.execute(text("SET LOCAL gin_pending_list_limit = '64MB'"))
+
+        with trace_publication_stage(trace, "chunks_prepare"):
+            deduped_chunks = deduplicate_chunks_by_source_path(chunks)
 
         # If ALL chunks are duplicates → skip document creation entirely
         if not deduped_chunks:
@@ -133,14 +177,7 @@ class RetrievalPublicationService:
                 skipped_all_duplicate=True,
             )
 
-        existing_namespace = None
-        if document_id:
-            existing_namespace = db.execute(
-                select(Document.namespace).where(
-                    Document.document_id == str(document_id)
-                )
-            ).scalar_one_or_none()
-        document = self._upsert_document_revision(
+        document, existing_namespace = self._upsert_document_revision(
             db,
             job=job,
             job_result_id=job_result_id,
@@ -149,15 +186,17 @@ class RetrievalPublicationService:
             parse_track=parse_track,
             source_file_name=str(source_file_name) if source_file_name else None,
             document_metadata=document_metadata,
+            trace=trace,
         )
         if document is None:
             return None
 
-        self._bind_job_result_document(
-            db,
-            job_result_id=job_result_id,
-            document_id=document.document_id,
-        )
+        with trace_publication_stage(trace, "result_binding"):
+            self._bind_job_result_document(
+                db,
+                job_result_id=job_result_id,
+                document_id=document.document_id,
+            )
         namespace = normalize_retrieval_namespace(namespace or document.namespace)
         scope = DocumentPublicationScope(
             user_id=str(job.user_id),
@@ -166,14 +205,16 @@ class RetrievalPublicationService:
             job_result_id=job_result_id,
             source_file_name=str(source_file_name) if source_file_name else None,
         )
+        if trace is not None:
+            trace.record_count("chunks", len(deduped_chunks))
         manifest_payload = replace_document_revision_content(
             db,
             scope=scope,
             chunks=deduped_chunks,
             section_summaries=section_summaries,
+            trace=trace,
         )
 
-        db.flush()
         if update_namespace_snapshot:
             self.update_namespace_snapshot(
                 db,
@@ -184,12 +225,18 @@ class RetrievalPublicationService:
                     if existing_namespace and str(existing_namespace) != scope.namespace
                     else None
                 ),
+                trace=trace,
             )
         return PublishedDocumentState(
             user_id=str(job.user_id),
             namespace=namespace,
             document_id=document.document_id,
             manifest_payload=manifest_payload,
+            previous_namespace=(
+                str(existing_namespace)
+                if existing_namespace and str(existing_namespace) != scope.namespace
+                else None
+            ),
         )
 
     def update_namespace_snapshot(
@@ -199,22 +246,26 @@ class RetrievalPublicationService:
         scope: DocumentPublicationScope,
         manifest_payload: dict[str, Any],
         previous_namespace: str | None = None,
+        trace: PublicationTrace | None = None,
     ) -> None:
         """Patch one namespace snapshot while holding only its short lock."""
         namespaces = [scope.namespace]
         if previous_namespace:
             namespaces.insert(0, previous_namespace)
         for namespace in namespaces:
-            lock_namespace_generation(
-                db,
-                user_id=scope.user_id,
-                namespace=namespace,
-            )
+            with trace_publication_stage(trace, "namespace_generation_lock_wait"):
+                generation = lock_namespace_generation(
+                    db,
+                    user_id=scope.user_id,
+                    namespace=namespace,
+                )
             if namespace == scope.namespace:
                 patch_namespace_map_snapshot(
                     db,
                     scope=scope,
                     manifest_payload=manifest_payload,
+                    current_generation=generation,
+                    trace=trace,
                 )
             else:
                 remove_document_from_namespace_map_snapshot(
@@ -222,12 +273,16 @@ class RetrievalPublicationService:
                     user_id=scope.user_id,
                     namespace=namespace,
                     document_id=scope.document_id,
+                    current_generation=generation,
+                    trace=trace,
                 )
-            advance_namespace_generation(
-                db,
-                user_id=scope.user_id,
-                namespace=namespace,
-            )
+            with trace_publication_stage(trace, "namespace_generation_lock_wait"):
+                advance_namespace_generation(
+                    db,
+                    user_id=scope.user_id,
+                    namespace=namespace,
+                    locked_generation=generation,
+                )
 
     def _upsert_document_revision(
         self,
@@ -240,53 +295,61 @@ class RetrievalPublicationService:
         parse_track: str,
         source_file_name: str | None,
         document_metadata: dict[str, Any],
-    ) -> Document | None:
+        trace: PublicationTrace | None = None,
+    ) -> tuple[Document | None, str | None]:
         document = None
+        previous_namespace: str | None = None
         if document_id:
-            document = db.execute(
-                select(Document)
-                .where(
-                    Document.document_id == document_id,
-                    Document.user_id == str(job.user_id),
-                )
-                .with_for_update()
-            ).scalar_one_or_none()
+            with trace_publication_stage(trace, "existing_document_lock_wait"):
+                document = db.execute(
+                    select(Document)
+                    .where(
+                        Document.document_id == document_id,
+                        Document.user_id == str(job.user_id),
+                    )
+                    .with_for_update()
+                ).scalar_one_or_none()
+            if document is not None:
+                previous_namespace = document.namespace
 
-        if document is None:
-            document = Document(
-                document_id=document_id or f"doc_{uuid4().hex[:12]}",
-                user_id=str(job.user_id),
-                namespace=namespace,
-                status="active",
-                current_job_result_id=job_result_id,
-                source_file_name=source_file_name,
-                document_metadata=document_metadata,
-                parse_track=parse_track,
-            )
-            db.add(document)
-        else:
-            if self._is_stale_document_completion(
-                db,
-                document=document,
-                job=job,
-            ):
-                logger.warning(
-                    "Skipping stale document publication: "
-                    f"job_id={job.job_id}, document_id={document.document_id}"
+        with trace_publication_stage(trace, "revision_update"):
+            if document is None:
+                document = Document(
+                    document_id=document_id or f"doc_{uuid4().hex[:12]}",
+                    user_id=str(job.user_id),
+                    namespace=namespace,
+                    status="active",
+                    current_job_result_id=job_result_id,
+                    source_file_name=source_file_name,
+                    document_metadata=document_metadata,
+                    parse_track=parse_track,
                 )
-                return None
-            document.status = "active"
-            document.namespace = namespace
-            document.archived_at = None
-            document.current_job_result_id = job_result_id
-            document.source_file_name = source_file_name or document.source_file_name
-            if document_metadata:
-                document.document_metadata = document_metadata
-            document.parse_track = parse_track or document.parse_track
-            document.updated_at = utc_now_naive()
+                db.add(document)
+            else:
+                if self._is_stale_document_completion(
+                    db,
+                    document=document,
+                    job=job,
+                ):
+                    logger.warning(
+                        "Skipping stale document publication: "
+                        f"job_id={job.job_id}, document_id={document.document_id}"
+                    )
+                    return None, previous_namespace
+                document.status = "active"
+                document.namespace = namespace
+                document.archived_at = None
+                document.current_job_result_id = job_result_id
+                document.source_file_name = (
+                    source_file_name or document.source_file_name
+                )
+                if document_metadata:
+                    document.document_metadata = document_metadata
+                document.parse_track = parse_track or document.parse_track
+                document.updated_at = utc_now_naive()
 
-        db.flush()
-        return document
+            db.flush()
+            return document, previous_namespace
 
     def _bind_job_result_document(
         self,
@@ -295,10 +358,11 @@ class RetrievalPublicationService:
         job_result_id: str,
         document_id: str,
     ) -> None:
-        result = db.execute(select(JobResult).where(JobResult.id == job_result_id))
-        job_result = result.scalar_one_or_none()
-        if job_result:
-            job_result.document_id = document_id
+        db.execute(
+            update(JobResult)
+            .where(JobResult.id == job_result_id)
+            .values(document_id=document_id)
+        )
 
     def publish_document_graph(
         self,
@@ -307,6 +371,7 @@ class RetrievalPublicationService:
         job_id: str,
         job_result_id: str,
         top_summary: str | None = None,
+        trace: PublicationTrace | None = None,
     ) -> None:
         job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
         if not job:
@@ -317,6 +382,7 @@ class RetrievalPublicationService:
             job=job,
             job_result_id=job_result_id,
             top_summary=top_summary,
+            trace=trace,
         )
 
     def _publish_document_graph_for_job(
@@ -326,6 +392,7 @@ class RetrievalPublicationService:
         job: Job,
         job_result_id: str,
         top_summary: str | None = None,
+        trace: PublicationTrace | None = None,
     ) -> None:
 
         metadata = job.job_metadata or {}
@@ -348,6 +415,7 @@ class RetrievalPublicationService:
             document_id=document_id,
             job_result_id=job_result_id,
             top_summary=top_summary,
+            trace=trace,
         )
 
     def remove_document_graph(

@@ -58,7 +58,7 @@ def perceptual_hash(data: bytes) -> str:
 
 def _get_vision_client() -> OpenAICompatibleClientSync:
     """Create OpenAI-compatible client for vision models, auto-routing by IMAGE_MODEL name."""
-    image_model = settings.IMAGE_MODEL or "qwen3.6-flash"
+    image_model = settings.IMAGE_MODEL or "deepseek-flash"
     client, _ = get_vision_client(requested_model=image_model)
     return client
 
@@ -144,10 +144,7 @@ def ask_image(
 
     urls_ = process_img_path4read(valid_paths, image_root_dir, size_cut)
 
-    if task in ("summary-images", "atlas-page-info"):
-        image_model = settings.IMAGE_MODEL or "qwen3.6-flash"
-    else:  # OCR and image type classification use higher-capability models
-        image_model = settings.IMAGE_MODEL_MAX or "qwen3.6-flash"
+    image_model = settings.IMAGE_MODEL or "deepseek-flash"
 
     if len(urls_) > 0:
         client, image_model = get_vision_client(requested_model=image_model)

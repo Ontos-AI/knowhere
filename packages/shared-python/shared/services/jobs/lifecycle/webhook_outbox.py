@@ -28,15 +28,17 @@ class SyncJobWebhookOutbox:
         event_type: str,
         extra_payload: dict[str, Any] | None = None,
     ) -> WebhookOutboxEvent | None:
-        result = db.execute(select(Job).where(Job.job_id == job_id))
-        job = result.scalar_one_or_none()
+        job_row = db.execute(
+            select(Job.webhook_url, Job.webhook_enabled)
+            .where(Job.job_id == job_id)
+        ).one_or_none()
 
-        if not job:
+        if job_row is None:
             logger.warning(f"Job not found for webhook check: {job_id}")
             return None
 
-        webhook_url = getattr(job, "webhook_url", None)
-        if not job.webhook_enabled or not webhook_url:
+        webhook_url, webhook_enabled = job_row
+        if not webhook_enabled or not webhook_url:
             return None
 
         status = "completed" if event_type == "job.completed" else "failed"

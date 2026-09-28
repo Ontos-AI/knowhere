@@ -19,7 +19,7 @@ class AIConfig(BaseModel):
     # Default behavior: text/table summaries use deepseek-v4-flash. Hierarchy parsing
     # can be overridden independently with HIERARCHY_LLM_MODEL. Existing
     # environment overrides for NORMOL_MODEL / HIERARCHY_LLM_MODEL /
-    # IMAGE_MODEL / IMAGE_MODEL_MAX remain supported.
+    # IMAGE_MODEL / ASSET_MODEL remain supported.
     NORMOL_MODEL: str = Field(
         default="deepseek-v4-flash",
         description="Default text model for summaries and general text LLM calls",
@@ -29,19 +29,19 @@ class AIConfig(BaseModel):
         description="Heading and outline recognition model; falls back to NORMOL_MODEL when empty",
     )
     IMAGE_MODEL: str = Field(
-        default="qwen3.6-flash",
+        default="deepseek-flash",
         description=(
-            "Default VLM for page tagging, OCR, atlas, and chart/table bbox "
-            "probes. Alternate: qwen3-vl-32b-instruct (open-weights, "
-            "self-hostable via vLLM/SGLang)."
+            "Default VLM for page tagging, OCR, atlas, image classification, "
+            "and chart/table bbox probes unless ASSET_MODEL is set. Official "
+            "DeepSeek-V4.1-Flash id is deepseek-flash (native multimodal). "
+            "Legacy deepseek-v4-flash-vision-exp is retired and only routed."
         ),
     )
-
-    IMAGE_MODEL_MAX: str = Field(
-        default="qwen3.6-flash",
+    ASSET_MODEL: str = Field(
+        default="",
         description=(
-            "Higher-capability VLM for OCR and image classification. "
-            "Same alternates as IMAGE_MODEL (e.g. qwen3-vl-32b-instruct)."
+            "Optional VLM override for page-memory chart/table bbox detection. "
+            "Empty follows IMAGE_MODEL."
         ),
     )
 

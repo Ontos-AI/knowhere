@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Iterable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import blake2b
@@ -17,12 +18,18 @@ import logfire
 from app.services.demo.source_catalog import DemoSourceCatalog, DemoSourceDefinition
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import delete, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from shared.core.exceptions.domain_exceptions import ConflictException, ValidationException
 from shared.models.database.demo_materialization import DemoMaterialization
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
+from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
+from shared.services.jobs.lifecycle.publication_trace_sql import (
+    attach_publication_trace,
+    clear_publication_trace,
+    install_publication_trace_sql_instrumentation,
+)
 from shared.services.retrieval.cache_service import invalidate_retrieval_cache_namespaces
 from shared.services.retrieval.publication_service import RetrievalPublicationService
 from shared.services.retrieval.publication_models import DocumentPublicationScope
@@ -142,6 +149,13 @@ class DemoSourceMaterializer:
         job_id = f"job_demo_{uuid4().hex[:12]}"
         job_result_id = str(uuid4())
         timestamp = _utc_now()
+        if settings.KNOWHERE_PUBLICATION_TRACE_ENABLED:
+            bind = db.bind
+            if bind is None:
+                raise RuntimeError("Demo publication database session has no bind")
+            install_publication_trace_sql_instrumentation(
+                bind.engine if isinstance(bind, AsyncConnection) else bind
+            )
         stage_started_at = time.perf_counter()
         result_bundle = _upload_demo_result_bundle(
             job_id=job_id,
@@ -199,9 +213,47 @@ class DemoSourceMaterializer:
             demo_source_id=source.demo_source_id,
             wait_seconds=wait_seconds,
         )
+        trace: PublicationTrace | None = (
+            PublicationTrace.start(
+                attempt_ref=f"attempt_{uuid4().hex}",
+                owner="async",
+                job_id=job_id,
+                job_result_id=job_result_id,
+                document_id=document_id,
+                scope_fingerprint=_publication_scope_fingerprint(
+                    user_id=user_id,
+                    namespace=namespace,
+                ),
+                job_type="demo_materialization",
+                parse_track="chunk",
+            )
+            if settings.KNOWHERE_PUBLICATION_TRACE_ENABLED
+            else None
+        )
+        trace_connection: AsyncConnection | None = None
         try:
+            if trace is not None:
+                for chunk_type in ("text", "image", "table", "page"):
+                    trace.record_count(
+                        f"input_{chunk_type}_chunks",
+                        sum(
+                            1
+                            for chunk in chunks
+                            if str(chunk.get("type") or chunk.get("chunk_type") or "text")
+                            == chunk_type
+                        ),
+                    )
+                checkout_started_at = time.perf_counter()
+                trace_connection = await db.connection()
+                trace.record_stage(
+                    "pool_checkout_wait",
+                    (time.perf_counter() - checkout_started_at) * 1000,
+                )
+                attach_publication_trace(trace_connection, trace)
+
             base_rows_started_at = time.perf_counter()
-            await db.flush()
+            with trace.stage("result_binding") if trace is not None else nullcontext():
+                await db.flush()
             logfire.info(
                 "Demo materialization base rows completed",
                 demo_source_id=source.demo_source_id,
@@ -214,6 +266,7 @@ class DemoSourceMaterializer:
                     job_result_id=job_result_id,
                     chunks=[dict(chunk) for chunk in chunks],
                     update_namespace_snapshot=False,
+                    trace=trace,
                 )
             )
             await db.run_sync(
@@ -221,6 +274,7 @@ class DemoSourceMaterializer:
                     sync_db,
                     job_id=job_id,
                     job_result_id=job_result_id,
+                    trace=trace,
                 )
             )
             await db.flush()
@@ -248,6 +302,8 @@ class DemoSourceMaterializer:
                         source_file_name=source.title,
                     ),
                     manifest_payload=manifest_payload,
+                    previous_namespace=published_state.previous_namespace,
+                    trace=trace,
                 )
             )
             logfire.info(
@@ -255,22 +311,34 @@ class DemoSourceMaterializer:
                 demo_source_id=source.demo_source_id,
                 duration_seconds=time.perf_counter() - stage_started_at,
             )
+            claim.document_id = document_id
+            claim.status = "ready"
+            claim.claimed_at = None
+            claim.updated_at = _utc_now()
             commit_started_at = time.perf_counter()
-            await db.commit()
+            with trace.stage("commit") if trace is not None else nullcontext():
+                await db.commit()
             logfire.info(
                 "Demo materialization publication commit completed",
                 demo_source_id=source.demo_source_id,
                 duration_seconds=time.perf_counter() - commit_started_at,
             )
+        except Exception:
+            if trace is not None:
+                try:
+                    with trace.stage("rollback"):
+                        await db.rollback()
+                finally:
+                    trace.finish(outcome="rollback")
+            raise
+        else:
+            if trace is not None:
+                trace.finish(outcome="success")
         finally:
+            if trace_connection is not None:
+                clear_publication_trace(trace_connection)
             await semaphore.release()
 
-        claim.document_id = document_id
-        claim.status = "ready"
-        claim.claimed_at = None
-        claim.updated_at = timestamp
-        await db.flush()
-        await db.commit()
         return _materialized_source_payload(
             source=source,
             document_id=document_id,
@@ -386,6 +454,11 @@ def _materialization_lock_id(
     return int.from_bytes(digest, byteorder="big", signed=True)
 
 
+def _publication_scope_fingerprint(*, user_id: str, namespace: str) -> str:
+    scope = f"{user_id}\0{namespace}".encode("utf-8")
+    return f"scope-{blake2b(scope, digest_size=16).hexdigest()}"
+
+
 def _materialization_conflict(
     materialization: DemoMaterialization,
     source: DemoSourceDefinition,
@@ -425,6 +498,7 @@ def _upload_demo_result_bundle(
     job_id: str,
     source_directory: Path,
 ) -> dict[str, int | str]:
+    storage = get_result_storage()
     with tempfile.TemporaryDirectory(prefix="knowhere-demo-result-") as temp_directory:
         zip_base_path = Path(temp_directory) / job_id
         zip_file_path = Path(
@@ -435,7 +509,7 @@ def _upload_demo_result_bundle(
             )
         )
         zip_size = zip_file_path.stat().st_size
-        bundle = get_result_storage().upload(
+        bundle = storage.upload(
             job_id=job_id,
             result_dir=str(source_directory),
             zip_file_path=str(zip_file_path),

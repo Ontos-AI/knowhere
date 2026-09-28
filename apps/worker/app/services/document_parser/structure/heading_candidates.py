@@ -114,7 +114,7 @@ def remove_by_conditions(text, *, include_punc: bool = False):
         ),
         r"^0\.\d+\S*",
         r"^\d*\.\d+$",
-        r"[。！；].+",
+        r"[。！；]",
         (
             r"^\d+\.?\d*\s{0,2}"
             r"(?:mm|cm|km|nm|μm|inch(?:es)?|ft|yd|mi"

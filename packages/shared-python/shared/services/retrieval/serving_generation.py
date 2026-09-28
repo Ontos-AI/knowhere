@@ -48,12 +48,11 @@ def advance_namespace_generation(
     *,
     user_id: str,
     namespace: str,
+    locked_generation: RetrievalNamespaceGeneration | None = None,
 ) -> int:
     """Increment a locked namespace generation and return its new value."""
-    generation = lock_namespace_generation(
-        db,
-        user_id=user_id,
-        namespace=namespace,
+    generation = locked_generation or lock_namespace_generation(
+        db, user_id=user_id, namespace=namespace
     )
     generation.generation += 1
     db.flush()

@@ -12,6 +12,7 @@ from .celery import CeleryConfig
 from .database import DatabaseConfig
 from .job import JobConfig
 from .mineru import MineruConfig
+from .publication import PublicationConfig
 from .qstash import QStashConfig
 from .redis import RedisConfig, RedisConfigManager, RedisPoolManager
 from .retrieval import RetrievalConfig
@@ -30,6 +31,7 @@ class AppConfig(
     BillingConfig,
     JobConfig,
     RetrievalConfig,
+    PublicationConfig,
 ):
     """Application configuration — all config components merged."""
 

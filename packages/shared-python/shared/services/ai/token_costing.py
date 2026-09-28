@@ -31,11 +31,30 @@ DEFAULT_TOKEN_PRICING_TABLE: dict[str, dict[str, Any]] = {
         ),
         "effective_date": "2026-08-17",
     },
+    "deepseek-flash": {
+        "currency": "USD",
+        "unit": "per_1m_tokens",
+        "input_per_1m": 0.15,
+        "cached_input_per_1m": 0.003,
+        "output_per_1m": 0.6,
+        "peak_input_per_1m": 0.3,
+        "peak_cached_input_per_1m": 0.006,
+        "peak_output_per_1m": 1.2,
+        "source": (
+            "DeepSeek official pricing for deepseek-flash "
+            "(https://api-docs.deepseek.com/quick_start/pricing); "
+            "defaults are off-peak cache-miss rates"
+        ),
+        "effective_date": "2026-09-10",
+    },
     "deepseek-chat": {
         "alias_of": "deepseek-v4-flash",
     },
     "deepseek-reasoner": {
         "alias_of": "deepseek-v4-flash",
+    },
+    "deepseek-v4-flash-vision-exp": {
+        "alias_of": "deepseek-flash",
     },
     # China mainland DashScope (ALI_URL=dashscope.aliyuncs.com), <=256K tier.
     # Official CNY is ¥1.2 / ¥7.2 per 1M; Bailian USD display is $0.165 / $0.99.

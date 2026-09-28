@@ -365,7 +365,6 @@ def _document_profile_from_dict(data: dict[str, Any] | None):
         category=str(raw.get("category") or "unknown"),
         routing_category=str(raw.get("routing_category") or "generic"),
         language=str(raw.get("language") or "unknown"),
-        rationale=str(raw.get("rationale") or ""),
         header_y=raw.get("header_y"),
         footer_y=raw.get("footer_y"),
     )
@@ -663,85 +662,86 @@ def write_debug_json(path: Path, value: Any) -> None:
     logger.info(f"   debug json → {path}")
 
 
-def toc_hierarchies_to_hierarchy_tree(
-    toc_hierarchies: list[dict[str, Any]] | None,
-) -> dict[str, Any]:
-    """Build Stage-1 human TOC dump in final ``HIERARCHY`` shape.
+def _count_hierarchy_keys(tree: dict[str, Any]) -> int:
+    total = 0
+    for children in (tree or {}).values():
+        total += 1
+        if isinstance(children, dict):
+            total += _count_hierarchy_keys(children)
+    return total
 
-    Uses original VLM headings (keeps numbering prefixes). Does **not** run
-    ``extract_toc_nodes`` / ``clean_toc_title`` — those are locate-time only.
-    Regions are concatenated in profile order so multi-TOC docs still form one
-    nested tree readable like ``hierarchy.json``.
-    """
+
+def _region_hierarchy_tree(region: dict[str, Any]) -> dict[str, Any]:
+    tree = region.get("toc_tree")
+    if isinstance(tree, dict) and tree:
+        return tree
     from app.services.document_agent.tools.vlm_toc_extractor import build_toc_tree
 
     flat_entries: list[dict[str, Any]] = []
-    for region in toc_hierarchies or []:
-        if not isinstance(region, dict):
+    for entry in region.get("toc_with_level") or []:
+        if not isinstance(entry, dict):
             continue
-        rows = region.get("toc_with_level") or []
-        if rows:
-            for entry in rows:
-                if not isinstance(entry, dict):
-                    continue
-                heading = str(entry.get("heading") or entry.get("title") or "").strip()
-                if not heading:
-                    continue
-                flat_entries.append(
-                    {
-                        "title": heading,
-                        "level": entry.get("level", 1),
-                        "page_number": entry.get("page_number"),
-                    }
-                )
+        heading = str(entry.get("heading") or entry.get("title") or "").strip()
+        if not heading:
             continue
-        # Fallback: region only stored ``toc_tree`` (already nested, original keys).
-        tree = region.get("toc_tree")
-        if isinstance(tree, dict) and tree:
-            flat_entries.extend(_flatten_hierarchy_tree_entries(tree))
+        flat_entries.append(
+            {
+                "title": heading,
+                "level": entry.get("level", 1),
+                "page_number": entry.get("page_number"),
+            }
+        )
     return build_toc_tree(flat_entries)
 
 
-def _flatten_hierarchy_tree_entries(
-    tree: dict[str, Any],
-    *,
-    level: int = 1,
-) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    for title, children in tree.items():
-        heading = str(title or "").strip()
-        if not heading:
+def toc_hierarchies_debug_payload(
+    toc_hierarchies: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Stage-1 debug dump: one block per extracted TOC region."""
+    regions: list[dict[str, Any]] = []
+    toc_entries = 0
+    hierarchy_key_count = 0
+    for region in toc_hierarchies or []:
+        if not isinstance(region, dict):
             continue
-        entries.append({"title": heading, "level": level})
-        if isinstance(children, dict) and children:
-            entries.extend(
-                _flatten_hierarchy_tree_entries(children, level=level + 1)
-            )
-    return entries
+        tree = _region_hierarchy_tree(region)
+        rows = [
+            entry
+            for entry in (region.get("toc_with_level") or [])
+            if isinstance(entry, dict)
+        ]
+        entry_count = len(rows) if rows else _count_hierarchy_keys(tree)
+        toc_entries += entry_count
+        hierarchy_key_count += _count_hierarchy_keys(tree)
+        item: dict[str, Any] = {
+            "toc_range": region.get("toc_range"),
+            "entry_count": entry_count,
+            "HIERARCHY": tree,
+        }
+        if region.get("toc_range_unit"):
+            item["toc_range_unit"] = region.get("toc_range_unit")
+        regions.append(item)
+    return {
+        "regions": regions,
+        "stats": {
+            "source": "toc_hierarchies_raw",
+            "region_count": len(regions),
+            "hierarchy_key_count": hierarchy_key_count,
+            "toc_entries": toc_entries,
+        },
+    }
 
 
 def write_toc_hierarchy_artifact(
     out_dir: Path,
     *,
-    hierarchy_tree: dict[str, Any],
-    stats: dict[str, Any] | None = None,
+    payload: dict[str, Any],
 ) -> Path:
-    """Write Stage-1 TOC as human-readable ``HIERARCHY`` at package root.
-
-    Debug-only for page_memory (not packaged into ZIP). Shape matches final
-    ``hierarchy.json`` / ``manifest.HIERARCHY``; titles keep TOC prefixes.
-    """
+    """Write Stage-1 TOC dump at package root. Debug-only, not in the ZIP."""
     path = out_dir / "toc_hierarchy.json"
-    # Legacy list dump from an earlier debug format.
     for legacy_name in ("toc_hierarchies.json",):
         (out_dir / legacy_name).unlink(missing_ok=True)
-    write_debug_json(
-        path,
-        {
-            "HIERARCHY": hierarchy_tree or {},
-            "stats": dict(stats or {}),
-        },
-    )
+    write_debug_json(path, payload)
     return path
 
 

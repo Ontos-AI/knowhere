@@ -164,6 +164,178 @@ Document Chunks, and document graph state.
 The Publication module that replaces a single Document revision's Document
 Sections and Document Chunks from parsed chunk rows.
 
+### Publication Stage Telemetry
+
+Measurement-only timing and row-count evidence for the shared Publication
+workflow. It identifies the active document revision and publication stage
+through opaque identifiers and scope fingerprints without recording raw user or
+namespace values, source file names, document content, token text, asset paths,
+or other business payloads. Adding or removing this telemetry must not change
+Publication transaction boundaries, persisted results, or Retrieval behavior.
+For serving-index, graph, and namespace-snapshot work, it distinguishes
+in-process preparation from database persistence so compute cost is not
+misclassified as write cost. Connection-pool checkout and publication lock
+waits are measured separately from persistence so contention is not
+misclassified as database write cost. Low-cardinality workload counters describe
+input types, persisted rows, SQL batches, namespace scale, graph size, and
+compressed serving-payload sizes without exposing their contents.
+
+### Publication Trace
+
+The explicit measurement record passed through one Publication transaction. It
+collects Publication Stage Telemetry across content publication, retrieval-
+serving index construction, graph publication, namespace snapshot publication,
+and separately timed commit or rollback. The transaction owner creates and
+completes the trace; nested Publication modules record stages without owning
+transaction completion.
+
+### Publication Duration
+
+The elapsed time from shared Publication receiving already parsed chunks until
+the transaction containing the complete document revision, retrieval-serving
+index, document graph, and namespace snapshot commits. It excludes parsing,
+artifact upload, publication-capacity waiting, and post-commit effects. Cold-run
+p95 Publication Duration is the performance target for Publication optimization.
+
+### Publication Benchmark Clone
+
+An isolated writable database cloned from the same immutable production-shaped
+dump for measuring one Publication implementation or configuration candidate.
+Benchmark clones begin from equivalent schema, indexes, row counts, and revision
+state. The source dump remains unchanged, and results from a clone modified for
+another candidate are not accepted as baseline evidence.
+
+### Publication Benchmark Baseline
+
+The frozen source revision, dependency state, database clone, PostgreSQL
+configuration, and publication input against which one Publication optimization
+candidate is compared. The baseline is captured from the current mainline before
+candidate changes are applied, with the same validated and frozen measurement
+layer used by every candidate. An uncommitted or previously optimized worktree
+is not baseline evidence.
+
+### Worst-Case Publication Corpus
+
+The production-shaped namespace frozen as the primary Publication performance
+corpus after cold-run calibration of the heaviest realistic candidates. The
+selected corpus is the one with the slower measured Publication Duration for
+the same publication input; document count alone does not determine selection.
+It is distinct from the multi-document Retrieval Semantic Parity corpus.
+
+### New Document Publication Benchmark
+
+The primary Publication performance scenario: publish one fixed, production-
+shaped parsed document as a new Document into the Worst-Case Publication
+Corpus. Each run begins from equivalent clone state. Publishing a new revision
+of an existing Document remains a required correctness and timing regression,
+but is not the initial cold-run p95 performance target.
+
+### Publication Benchmark Input
+
+The frozen parsed-document payload replayed by the New Document Publication
+Benchmark. It contains the exact chunks, metadata, ordering, section summaries,
+and document summary received by shared Publication, but not the referenced
+artifact files. Its source revision, schema counts, and content digest identify
+the payload for every baseline and candidate run.
+
+### Cold Publication Benchmark Run
+
+One Publication benchmark sample executed against an equivalent freshly
+restored database clone after restarting the benchmark database and application
+processes. It measures one publication and is not repeated against the mutated
+clone. Host operating-system cache state is not forcibly changed and is recorded
+as an environmental limitation. Cold and warm benchmark samples are reported
+separately.
+
+### Production-Configured Publication Benchmark
+
+The local Publication benchmark whose PostgreSQL configuration is aligned as
+closely as practical with the observed production database configuration. It is
+the local admission gate for the Publication Duration target, but it is not a
+claim about production latency until production Publication Stage Telemetry
+confirms the result. A separate conservative local configuration measures I/O
+sensitivity and is reported independently.
+
+### Publication Capacity
+
+The database-backed system's ability to sustain concurrent Publication work
+without unacceptable queueing, lock contention, resource saturation, timeouts,
+or errors. Publication Capacity is measured separately from one publication's
+Publication Duration because capacity waiting is not part of that duration. An
+optimization is admitted against the current mainline's capacity curve on an
+equivalent benchmark environment, not against an assumed fixed concurrency;
+capacity controls are introduced only when measured saturation requires them.
+
+### Concurrent Publication Convergence
+
+The requirement that successful concurrent Publications into one namespace
+converge on a generation containing every committed active revision in its
+serving snapshot and graph. Completion order must not lose a committed document,
+and Retrieval Semantic Parity must hold against the final generation.
+
+### Publication Lifecycle Parity
+
+The compatibility requirement that baseline and candidate leave the entire
+externally observable Publication lifecycle in the same normalized state, not
+only the retrieval-serving projection. It includes processing-result binding,
+job completion and audit state, caller-visible materialization state, durable
+post-commit intent, and cache visibility.
+
+### Publication Recovery Gate
+
+The requirement that interruption before, during, or after commit converges to
+one coherent Publication outcome after retry or reconciliation. Recovery must
+not create duplicate active revisions, graph relationships, snapshot entries,
+jobs, materializations, or externally visible completion effects.
+
+### Publication Strategy Compatibility
+
+The requirement that the baseline and candidate Publication strategies can read,
+replace, retrieve, and recover state produced by either strategy while both are
+deployable. A global strategy rollback must not require data repair or a reader
+rollback.
+
+### Publication Resource Envelope
+
+The measured database and process resource budget within which a Publication
+strategy is safe to operate. It covers write amplification, temporary storage,
+CPU, memory, connections, locks, checkpoints, replication pressure, and disk
+headroom in addition to elapsed time.
+
+### Publication Scope Isolation
+
+The requirement that Publication and Retrieval state remains confined to its
+own user and namespace under serial, concurrent, retry, and recovery paths.
+Neither derived serving data nor graph relationships may cross that scope.
+
+### Retrieval Interference Gate
+
+The requirement that read-only Retrieval probes remain semantically correct and
+available while concurrent Publications modify the same namespace. Publication
+capacity is not acceptable if it causes Retrieval errors, timeouts, incoherent
+revision pins, or unacceptable latency regression.
+
+### Publication State Parity
+
+The compatibility requirement that baseline and candidate Publication produce
+the same normalized persistent document revision, sections, chunks, map units,
+tokens, serving-index statistics, serving manifest, graph state, namespace
+snapshot, and generation transition. Comparison normalizes generated identities
+and timestamps but not business data, relationships, ordering, frequencies, or
+completeness. Publication State Parity is required before Retrieval Semantic
+Parity and performance evidence are evaluated.
+
+### Publication Atomicity Matrix
+
+The failure-injection contract that verifies a Publication rollback after each
+persisted stage and immediately before commit for both new-document and
+replacement-revision publication. A failed new-document publication leaves no
+publication state behind; a failed replacement preserves the complete prior
+state, including the active document revision and serving generation, so no
+partial replacement can become visible. Retrying the same payload immediately
+after each rollback must succeed and produce the same normalized state as a
+clean Publication run.
+
 ### Retrieval
 
 The query workflow that returns cited evidence from published documents.
@@ -232,6 +404,21 @@ as the legacy retrieval path for the same request. Every retrieval optimization
 must preserve this quality contract; a latency improvement without validated
 semantic parity is not shippable. Validation also compares source sections,
 evidence content, router, and stop reason for each pinned request.
+
+### Read-Only Retrieval Parity Snapshot
+
+A production-data snapshot opened without write access for comparing legacy and
+serving-index retrieval under fixed revision pins. The snapshot is used for
+retrieval evidence and performance validation; validation must avoid write-back
+side effects such as hit statistics or cache persistence.
+
+### Retrieval Parity Baseline Store
+
+The stable, repository-local, untracked store for frozen retrieval-parity
+requests, revision pins, normalized expected results, and performance evidence.
+Each baseline is tied to a source revision and a Read-Only Retrieval Parity
+Snapshot. Baselines are replaced only after an explicit decision to accept a
+retrieval behavior change.
 
 ### Retrieval Revision Pin
 

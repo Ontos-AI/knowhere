@@ -60,7 +60,6 @@
         {"name": "HIERARCHY_LLM_MODEL", "value": "deepseek-chat"},
         {"name": "NORMOL_MODEL", "value": "deepseek-chat"},
         {"name": "IMAGE_MODEL", "value": "qwen3.5-flash"},
-        {"name": "IMAGE_MODEL_MAX", "value": "qwen3.5-flash"},
         {"name": "ALL_DF_COLS", "value": "content,path,type,length,keywords,summary,know_id,tokens,connectto,addtime,page_nums"}
       ],
       "secrets": [

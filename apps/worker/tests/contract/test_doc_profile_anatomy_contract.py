@@ -628,7 +628,11 @@ def test_run_text_scan_native_uses_read_page_text_bands(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from app.services.document_agent.pdf_text import PageTextBands
+    from app.services.document_agent.pdf_text import (
+        LineDraft,
+        PageTextBands,
+        build_page_text_bands,
+    )
 
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "doc.pdf"),
@@ -643,6 +647,19 @@ def test_run_text_scan_native_uses_read_page_text_bands(
         header_y=0.06,
         footer_y=0.95,
     )
+    page_one = build_page_text_bands(
+        (
+            LineDraft(text="h1", region="header"),
+            LineDraft(text="a"),
+            LineDraft(text="f1", region="footer"),
+        )
+    )
+    page_two = build_page_text_bands(
+        (
+            LineDraft(text="b"),
+            LineDraft(text="f2", region="footer"),
+        )
+    )
 
     def fake_read(
         _pdf_path: str,
@@ -655,16 +672,13 @@ def test_run_text_scan_native_uses_read_page_text_bands(
         assert pages == [1, 2]
         assert header_y == 0.06
         assert footer_y == 0.95
-        return {
-            1: PageTextBands(content="a", header="h1", footer="f1"),
-            2: PageTextBands(content="b", header="", footer="f2"),
-        }
+        return {1: page_one, 2: page_two}
 
     monkeypatch.setattr(coordinator_module, "read_page_text_bands", fake_read)
     coordinator._run_text_scan()
     assert coordinator.blackboard.page_full_text_cache == {
-        1: PageTextBands(content="a", header="h1", footer="f1"),
-        2: PageTextBands(content="b", header="", footer="f2"),
+        1: page_one,
+        2: page_two,
     }
     assert coordinator.blackboard.page_text_search_view is None
 
@@ -691,16 +705,16 @@ def test_run_text_scan_scanned_dispatches_ocr_pages(
         assert name == "ocr.pages"
         assert args == {"pages": [1, 2]}
         ctx.blackboard.page_full_text_cache = {
-            1: PageTextBands(content="ocr-1"),
-            2: PageTextBands(content="ocr-2"),
+            1: PageTextBands.from_text("ocr-1"),
+            2: PageTextBands.from_text("ocr-2"),
         }
         return ToolResult(status="ok", payload={})
 
     monkeypatch.setattr(coordinator_module.REGISTRY, "dispatch", fake_dispatch)
     coordinator._run_text_scan()
     assert coordinator.blackboard.page_full_text_cache == {
-        1: PageTextBands(content="ocr-1"),
-        2: PageTextBands(content="ocr-2"),
+        1: PageTextBands.from_text("ocr-1"),
+        2: PageTextBands.from_text("ocr-2"),
     }
 
 

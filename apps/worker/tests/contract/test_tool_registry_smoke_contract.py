@@ -16,7 +16,11 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 import app.services.document_agent.tools as _tools  # noqa: F401
 from app.services.document_agent.manifest import ToolContext
-from app.services.document_agent.pdf_text import PageTextBands, strip_margin_text
+from app.services.document_agent.pdf_text import (
+    LineDraft,
+    build_page_text_bands,
+    strip_margin_text,
+)
 from app.services.document_agent.registry import REGISTRY
 from app.services.document_agent.state import ProfileBlackboard
 from app.services.document_agent.tools.grep_text import grep_text
@@ -28,12 +32,14 @@ from app.services.document_agent.tools.text_strip_margins import strip_footer
 def _rebind_live_tool_imports() -> Iterator[None]:
     """Rebind after contract fixtures that clear ``app.*`` from ``sys.modules``."""
     global REGISTRY, ToolContext, ProfileBlackboard
-    global PageTextBands, strip_margin_text, strip_footer, grep_text, inspect_pages
+    global LineDraft, build_page_text_bands
+    global strip_margin_text, strip_footer, grep_text, inspect_pages
 
     import app.services.document_agent.tools as _live_tools  # noqa: F401
     from app.services.document_agent.manifest import ToolContext as live_tool_context
-    from app.services.document_agent.pdf_text import PageTextBands as live_bands
     from app.services.document_agent.pdf_text import (
+        LineDraft as live_draft,
+        build_page_text_bands as live_build,
         strip_margin_text as live_strip_margin_text,
     )
     from app.services.document_agent.registry import REGISTRY as live_registry
@@ -49,7 +55,8 @@ def _rebind_live_tool_imports() -> Iterator[None]:
     REGISTRY = live_registry
     ToolContext = live_tool_context
     ProfileBlackboard = live_blackboard
-    PageTextBands = live_bands
+    LineDraft = live_draft
+    build_page_text_bands = live_build
     strip_margin_text = live_strip_margin_text
     strip_footer = live_strip_footer
     grep_text = live_grep_text
@@ -138,10 +145,11 @@ def test_grep_text_whole_line_rejects_body_substring_and_dedupes_pages() -> None
 def test_strip_footer_updates_search_view_for_grep() -> None:
     blackboard = ProfileBlackboard(page_count=1)
     blackboard.page_full_text_cache = {
-        1: PageTextBands(
-            content="Section Start\nPublic Domain Manual",
-            header="",
-            footer="Public Domain Manual",
+        1: build_page_text_bands(
+            (
+                LineDraft(text="Section Start"),
+                LineDraft(text="Public Domain Manual", region="footer"),
+            )
         )
     }
     ctx = ToolContext(

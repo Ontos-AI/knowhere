@@ -13,7 +13,11 @@ from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 from loguru import logger
 
 from app.services.document_agent.manifest import ToolContext, ToolResult
-from app.services.document_agent.pdf_text import PageTextBands
+from app.services.document_agent.pdf_text import (
+    LineDraft,
+    PageTextBands,
+    build_page_text_bands,
+)
 from app.services.document_agent.registry import has_page_features, register_tool
 from app.services.document_agent.visual import render_pages
 from shared.core.exceptions.domain_exceptions import PDFParsingException, TimeoutException
@@ -479,10 +483,10 @@ def ocr_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     for page in pages:
         lines = page_lines.get(page, [])
         page_lines[page] = lines
-        content = "\n".join(line["text"] for line in lines if line["text"])
-        page_texts[page] = content
-        # OCR has no reliable Y bands; content only, empty header/footer.
-        page_bands[page] = PageTextBands(content=content)
+        # OCR has no reliable Y bands; every OCR line is body.
+        bands = build_page_text_bands(LineDraft(text=line["text"]) for line in lines)
+        page_bands[page] = bands
+        page_texts[page] = bands.content
 
     cache = dict(ctx.blackboard.page_full_text_cache)
     cache.update(page_bands)

@@ -158,7 +158,6 @@ def _parse_profile(raw: str) -> DocumentProfile:
         category=category or "unknown document",
         routing_category=routing_category,
         language=str(data.get("language") or "unknown"),
-        rationale=str(data.get("rationale") or ""),
         header_y=header_y,
         footer_y=footer_y,
     )
@@ -200,7 +199,6 @@ class CoarseProfiler:
                 is_scanned=False,
                 category="unknown document",
                 routing_category=PdfRoutingCategory.GENERIC.value,
-                rationale="No VLM model configured.",
             )
             return profile, ToolResult(
                 status="ok",

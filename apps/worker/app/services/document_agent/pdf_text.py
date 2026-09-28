@@ -3,53 +3,154 @@
 from __future__ import annotations
 
 import gc
-from dataclasses import dataclass
+import re
+from collections.abc import Iterable
+from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
     worker,
 )
-from app.services.document_parser.structure.body_boundary import normalize_heading_label
+from app.services.document_parser.structure.body_boundary import (
+    normalize_heading_label,
+    normalize_match_text,
+)
+
+LineRegion = Literal["header", "footer", "body"]
+
+# Characters str.splitlines() treats as line boundaries; they must never appear
+# inside one line, or content.splitlines() indices drift from line_index.
+_SPLITLINES_BREAKS_RE = re.compile("[\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029]")
+
+# Height / font size are stored at this precision so float jitter from the same
+# PDF style yields equal values, and fingerprints can compare them directly.
+_GEOMETRY_DECIMALS = 2
+
+
+def sanitize_line_text(text: str) -> str:
+    return _SPLITLINES_BREAKS_RE.sub(" ", text or "")
+
+
+@dataclass(frozen=True)
+class PageTextLine:
+    text: str
+    region: LineRegion
+    line_index: int
+    height: float | None = None
+    font: str | None = None
+    font_size: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "PageTextLine":
+        return cls(
+            text=str(data["text"]),
+            region=data["region"],
+            line_index=int(data["line_index"]),
+            height=None if data.get("height") is None else float(data["height"]),
+            font=data.get("font") or None,
+            font_size=None if data.get("font_size") is None else float(data["font_size"]),
+        )
+
+
+@dataclass(frozen=True)
+class LineDraft:
+    """Extractor-side line before sanitizing and index assignment."""
+
+    text: str
+    region: LineRegion = "body"
+    height: float | None = None
+    font: str | None = None
+    font_size: float | None = None
 
 
 @dataclass(frozen=True)
 class PageTextBands:
-    """Per-page text from one span pass: full content plus edge-band extracts.
+    """Per-page ordered line records; content/header/footer are derived views."""
 
-    ``content`` is the full page text (includes header/footer span text).
-    ``header`` / ``footer`` are the same spans whose vertical centers fall in the
-    coarse ``header_y`` / ``footer_y`` bands. Strip tools remove those extracts
-    from a search view; they do not rewrite the stored ``content``.
-    """
+    lines: tuple[PageTextLine, ...] = ()
 
-    content: str
-    header: str = ""
-    footer: str = ""
+    def __post_init__(self) -> None:
+        for position, line in enumerate(self.lines):
+            if line.line_index != position:
+                raise ValueError(
+                    f"line_index {line.line_index} does not match position {position}"
+                )
+            if not line.text.strip() or _SPLITLINES_BREAKS_RE.search(line.text):
+                raise ValueError(f"invalid line text at line_index {position}")
 
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "content": self.content,
-            "header": self.header,
-            "footer": self.footer,
-        }
+    @property
+    def content(self) -> str:
+        return "\n".join(line.text for line in self.lines)
+
+    @property
+    def header(self) -> str:
+        return "\n".join(line.text for line in self.lines if line.region == "header")
+
+    @property
+    def footer(self) -> str:
+        return "\n".join(line.text for line in self.lines if line.region == "footer")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"lines": [line.to_dict() for line in self.lines]}
+
+    @classmethod
+    def from_text(cls, content: str) -> "PageTextBands":
+        return build_page_text_bands(
+            LineDraft(text=raw) for raw in content.splitlines()
+        )
 
     @classmethod
     def from_any(cls, value: Any) -> "PageTextBands":
         if isinstance(value, PageTextBands):
             return value
         if isinstance(value, str):
-            return cls(content=value)
-        if isinstance(value, dict):
-            content = value.get("content")
-            if content is None and "text" in value:
-                content = value.get("text")
+            return cls.from_text(value)
+        if isinstance(value, dict) and "lines" in value:
             return cls(
-                content=str(content or ""),
-                header=str(value.get("header") or ""),
-                footer=str(value.get("footer") or ""),
+                lines=tuple(PageTextLine.from_dict(item) for item in value["lines"])
             )
-        return cls(content=str(value or ""))
+        if isinstance(value, dict):
+            raise ValueError(
+                "legacy page_full_text_cache entry without 'lines'; re-run Stage 0"
+            )
+        return cls.from_text(str(value or ""))
+
+
+def build_page_text_bands(drafts: Iterable[LineDraft]) -> PageTextBands:
+    """Sanitize, drop blank lines, assign line_index in document order."""
+    lines: list[PageTextLine] = []
+    for draft in drafts:
+        text = sanitize_line_text(draft.text)
+        if not text.strip():
+            continue
+        lines.append(
+            PageTextLine(
+                text=text,
+                region=draft.region,
+                line_index=len(lines),
+                height=draft.height,
+                font=draft.font,
+                font_size=draft.font_size,
+            )
+        )
+    return PageTextBands(lines=tuple(lines))
+
+
+def line_fingerprint(line: PageTextLine) -> str:
+    """Text + render signature of one line; excludes line_index on purpose."""
+    return "|".join(
+        (
+            normalize_match_text(line.text),
+            line.region,
+            "" if line.height is None else str(line.height),
+            line.font or "",
+            "" if line.font_size is None else str(line.font_size),
+        )
+    )
 
 
 def page_content(value: Any) -> str:
@@ -122,14 +223,28 @@ def _band_for_center(
     page_h: float,
     header_y: float | None,
     footer_y: float | None,
-) -> str:
+) -> LineRegion:
     if page_h <= 0:
-        return "content"
+        return "body"
     if header_y is not None and cy < float(header_y) * page_h:
         return "header"
     if footer_y is not None and cy > float(footer_y) * page_h:
         return "footer"
-    return "content"
+    return "body"
+
+
+def _span_text(span: dict[str, Any]) -> str:
+    return str(span.get("text") or "")
+
+
+def _span_y(span: dict[str, Any]) -> tuple[float, float] | None:
+    bbox = span.get("bbox")
+    if not bbox:
+        return None
+    try:
+        return float(bbox[1]), float(bbox[3])
+    except (TypeError, ValueError, IndexError):
+        return None
 
 
 def _extract_page_bands_from_pymupdf_page(
@@ -138,51 +253,50 @@ def _extract_page_bands_from_pymupdf_page(
     header_y: float | None,
     footer_y: float | None,
 ) -> PageTextBands:
-    """Build content/header/footer from the same span walk (line-join with ``\\n``)."""
+    """Build ordered line records from one span walk."""
     page_h = float(getattr(page.rect, "height", 0) or 0)
     data = page.get_text("dict") or {}
-    content_lines: list[str] = []
-    header_chunks: list[str] = []
-    footer_chunks: list[str] = []
+    drafts: list[LineDraft] = []
 
     for block in data.get("blocks") or []:
         if int(block.get("type") or 0) != 0:
             continue
+        block_lines: list[tuple[str, float, float, dict[str, Any]]] = []
         for line in block.get("lines") or []:
-            line_content_parts: list[str] = []
-            line_header_parts: list[str] = []
-            line_footer_parts: list[str] = []
-            for span in line.get("spans") or []:
-                text = str(span.get("text") or "")
-                if not text:
-                    continue
-                bbox = span.get("bbox") or (0, 0, 0, 0)
-                try:
-                    y0 = float(bbox[1])
-                    y1 = float(bbox[3])
-                except (TypeError, ValueError, IndexError):
-                    y0, y1 = 0.0, 0.0
-                cy = (y0 + y1) / 2.0
-                band = _band_for_center(
-                    cy, page_h=page_h, header_y=header_y, footer_y=footer_y
+            spans = [span for span in line.get("spans") or [] if _span_text(span)]
+            text = sanitize_line_text("".join(_span_text(span) for span in spans))
+            if not text.strip():
+                continue
+            ys = [y for y in (_span_y(span) for span in spans) if y is not None]
+            y0 = min((y[0] for y in ys), default=0.0)
+            y1 = max((y[1] for y in ys), default=0.0)
+            main_span = max(spans, key=lambda span: len(_span_text(span)))
+            block_lines.append((text, y0, y1, main_span))
+        if not block_lines:
+            continue
+        block_height = round(
+            max(item[2] for item in block_lines) - min(item[1] for item in block_lines),
+            _GEOMETRY_DECIMALS,
+        )
+        for text, y0, y1, main_span in block_lines:
+            size = main_span.get("size")
+            drafts.append(
+                LineDraft(
+                    text=text,
+                    region=_band_for_center(
+                        (y0 + y1) / 2.0,
+                        page_h=page_h,
+                        header_y=header_y,
+                        footer_y=footer_y,
+                    ),
+                    height=block_height,
+                    font=str(main_span.get("font") or "") or None,
+                    font_size=None
+                    if size is None
+                    else round(float(size), _GEOMETRY_DECIMALS),
                 )
-                line_content_parts.append(text)
-                if band == "header":
-                    line_header_parts.append(text)
-                elif band == "footer":
-                    line_footer_parts.append(text)
-            if line_content_parts:
-                content_lines.append("".join(line_content_parts))
-            if line_header_parts:
-                header_chunks.append("".join(line_header_parts))
-            if line_footer_parts:
-                footer_chunks.append("".join(line_footer_parts))
-
-    return PageTextBands(
-        content="\n".join(content_lines),
-        header="\n".join(header_chunks),
-        footer="\n".join(footer_chunks),
-    )
+            )
+    return build_page_text_bands(drafts)
 
 
 @worker
@@ -217,7 +331,7 @@ def _read_page_text_bands_worker(
 ) -> None:
     import pymupdf  # type: ignore[import]
 
-    bands: dict[int, dict[str, str]] = {}
+    bands: dict[int, Any] = {}
     doc = None
     try:
         doc = pymupdf.open(pdf_path)
@@ -271,7 +385,7 @@ def read_page_text_bands(
     footer_y: float | None = None,
     timeout: int = 180,
 ) -> dict[int, PageTextBands]:
-    """Span-homogeneous content/header/footer for PROFILE text scan."""
+    """Ordered line records for PROFILE text scan."""
     if not pages:
         return {}
     result = run_in_child_process(

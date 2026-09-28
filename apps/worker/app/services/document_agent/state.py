@@ -42,7 +42,7 @@ class ProfileBlackboard:
     shard_plan: ShardPlan | None = None
     validation_report: dict[str, Any] | None = None
     verdict: ProfileVerdict | None = None
-    # Values are PageTextBands (or legacy plain str / {"content","header","footer"}).
+    # Values are PageTextBands (ordered line records) or plain str (legacy tests / resume paths).
     page_full_text_cache: dict[int, Any] = field(default_factory=dict)
     # Optional temporary grep view after text.strip_*; None means use each page's content.
     page_text_search_view: dict[int, str] | None = None

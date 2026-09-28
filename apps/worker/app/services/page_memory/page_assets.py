@@ -24,7 +24,6 @@ from shared.services.ai.prompt_service import build_prompt
 
 _GRID_SIZE = 1000
 _VALID_KINDS = {"table", "figure"}
-_DEFAULT_ASSET_MODEL = "qwen3.6-flash"
 _ASSET_ANNOTATE_DIR = "asset_annotate"
 
 
@@ -69,7 +68,9 @@ def get_asset_confidence_threshold() -> float:
 
 
 def get_asset_model() -> str | None:
-    return _DEFAULT_ASSET_MODEL
+    from shared.models.schemas.page_memory_config import resolve_asset_model
+
+    return resolve_asset_model() or None
 
 
 def get_asset_max_pages(page_count: int) -> int:

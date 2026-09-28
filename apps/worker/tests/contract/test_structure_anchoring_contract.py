@@ -336,9 +336,9 @@ def test_null_page_whole_line_grep_excludes_pages_outside_body() -> None:
     ctx.blackboard.page_count = 10
     # Page 1 is TOC-excluded; title only there would inflate hits without filter.
     ctx.blackboard.page_full_text_cache = {
-        1: PageTextBands(content="Appendix F Overview\nAppendix F Overview"),
-        2: PageTextBands(content="noise"),
-        5: PageTextBands(content="Appendix F Overview"),
+        1: PageTextBands.from_text("Appendix F Overview\nAppendix F Overview"),
+        2: PageTextBands.from_text("noise"),
+        5: PageTextBands.from_text("Appendix F Overview"),
     }
     status, needle, hit_pages, line_count = _whole_line_grep(
         ctx=ctx,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, cast
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
 from shared.models.database.job_result import JobChunk, JobResult
@@ -58,7 +58,7 @@ class SyncJobResultWriter:
             db.flush()
             return
 
-        chunk_models = []
+        chunk_rows: list[dict[str, Any]] = []
         for index, chunk in enumerate(chunks):
             safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
             chunk_identifier = safe_chunk.get("chunk_id") or str(uuid4())
@@ -69,16 +69,17 @@ class SyncJobResultWriter:
                 if isinstance(metadata, dict) and metadata.get("path")
                 else safe_chunk.get("path")
             )
-            chunk_models.append(
-                JobChunk(
-                    job_result_id=job_result_id,
-                    chunk_id=str(chunk_identifier),
-                    chunk_type=str(safe_chunk.get("type", "paragraph")),
-                    text=str(chunk_text) if chunk_text is not None else None,
-                    path=str(chunk_path) if chunk_path is not None else None,
-                    chunk_metadata=metadata,
-                    sort_order=safe_chunk.get("order", index),
-                )
+            chunk_rows.append(
+                {
+                    "id": str(uuid4()),
+                    "job_result_id": job_result_id,
+                    "chunk_id": str(chunk_identifier),
+                    "chunk_type": str(safe_chunk.get("type", "paragraph")),
+                    "text": str(chunk_text) if chunk_text is not None else None,
+                    "path": str(chunk_path) if chunk_path is not None else None,
+                    "chunk_metadata": metadata,
+                    "sort_order": safe_chunk.get("order", index),
+                }
             )
-        db.add_all(chunk_models)
+        db.execute(insert(JobChunk), chunk_rows)
         db.flush()

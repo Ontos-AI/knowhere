@@ -29,7 +29,6 @@ def test_parse_profile_reads_classification_fields() -> None:
             "category": "Feasibility Study Report",
             "routing_category": "generic",
             "language": "zh",
-            "rationale": "scanned PDF not atlas",
             "header_y": None,
             "footer_y": None,
         }
@@ -48,7 +47,6 @@ def test_parse_profile_rejects_invalid_header_footer_order() -> None:
             "category": "Report",
             "routing_category": "generic",
             "language": "en",
-            "rationale": "ok",
             "header_y": 0.8,
             "footer_y": 0.2,
         }
@@ -88,7 +86,6 @@ def _seed_pages(coordinator: ProfileCoordinator, page_count: int) -> None:
         is_scanned=True,
         category="Report",
         routing_category="generic",
-        rationale="fixture",
     )
 
 

@@ -17,6 +17,7 @@ class PublishedDocumentState:
     document_id: str | None
     skipped_all_duplicate: bool = False
     manifest_payload: dict[str, Any] | None = None
+    previous_namespace: str | None = None
 
 
 @dataclass(frozen=True)

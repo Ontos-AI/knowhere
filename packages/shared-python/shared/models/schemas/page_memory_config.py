@@ -6,6 +6,16 @@ from dataclasses import asdict, dataclass
 from typing import Self
 
 
+def resolve_asset_model() -> str:
+    """Return the asset-detect VLM: ``ASSET_MODEL`` if set, else ``IMAGE_MODEL``."""
+    from shared.core.config import settings
+
+    override = str(getattr(settings, "ASSET_MODEL", "") or "").strip()
+    if override:
+        return override
+    return str(getattr(settings, "IMAGE_MODEL", "") or "").strip()
+
+
 @dataclass(frozen=True)
 class PageMemoryConfig:
     """Resolved page-memory defaults used by worker execution."""
@@ -21,7 +31,7 @@ class PageMemoryConfig:
     max_heading_depth: int = 6
     asset_extraction_enabled: bool = True
     asset_summary_enabled: bool = False
-    asset_model: str = "qwen3.6-flash"
+    asset_model: str = ""
     asset_max_pages: int | None = None
     asset_confidence_threshold: float = 0.3
     asset_summary_concurrency: int = 4

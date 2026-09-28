@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from sqlalchemy import delete
@@ -14,6 +14,8 @@ from shared.models.database.document import (
 )
 from shared.services.retrieval.map_unit_index import replace_document_map_units
 from shared.services.retrieval.publication_models import DocumentPublicationScope
+from shared.services.retrieval.publication_strategy import resolve_publication_strategy
+from shared.services.retrieval.publication_trace_stage import trace_publication_stage
 from shared.services.retrieval.serving_manifest import persist_revision_serving_state
 from shared.services.retrieval.search.lexical_text import (
     build_content_lexical_text,
@@ -24,6 +26,9 @@ from shared.services.retrieval.search.lexical_text import (
     section_path_from_chunk_path,
 )
 from shared.utils.json_utils import remove_nul_characters
+
+if TYPE_CHECKING:
+    from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
 
 
 def deduplicate_chunks_by_source_path(
@@ -60,44 +65,71 @@ def replace_document_revision_content(
     scope: DocumentPublicationScope,
     chunks: list[dict[str, Any]],
     section_summaries: dict[str, str] | None = None,
+    trace: PublicationTrace | None = None,
 ) -> dict[str, Any]:
     """Replace retrieval sections and chunks for one published document revision."""
-    _delete_existing_revision_content(db, scope=scope)
+    _delete_existing_revision_content(db, scope=scope, trace=trace)
     section_publisher = DocumentSectionPublisher(
         db=db,
         scope=scope,
         section_summaries=section_summaries,
     )
-    prepared_chunks: list[tuple[int, dict[str, Any], dict[str, Any], str | None, DocumentSection]] = []
-    for index, chunk in enumerate(chunks):
-        safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
-        chunk_metadata = _get_chunk_metadata(safe_chunk)
-        source_path = _get_source_path(
-            chunk=safe_chunk,
-            chunk_metadata=chunk_metadata,
-        )
-        section_path = section_path_from_chunk_path(
-            source_path,
-            source_file_name=scope.source_file_name,
-        )
-        section = section_publisher.ensure_section(section_path)
-        prepared_chunks.append((index, safe_chunk, chunk_metadata, source_path, section))
-    db.flush()
-    for index, safe_chunk, chunk_metadata, source_path, section in prepared_chunks:
-        db.add(
-            _build_document_chunk(
+    prepared_chunks: list[
+        tuple[int, dict[str, Any], dict[str, Any], str | None, DocumentSection]
+    ] = []
+    with trace_publication_stage(trace, "sections_prepare"):
+        for index, chunk in enumerate(chunks):
+            safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
+            chunk_metadata = _get_chunk_metadata(safe_chunk)
+            source_path = _get_source_path(
                 chunk=safe_chunk,
                 chunk_metadata=chunk_metadata,
-                source_path=source_path,
-                section=section,
-                scope=scope,
-                fallback_sort_order=index,
             )
-        )
-    db.flush()
-    replace_document_map_units(db, scope=scope)
-    db.flush()
-    manifest_payload = persist_revision_serving_state(db, scope=scope)
+            section_path = section_path_from_chunk_path(
+                source_path,
+                source_file_name=scope.source_file_name,
+            )
+            section = section_publisher.ensure_section(section_path)
+            prepared_chunks.append(
+                (index, safe_chunk, chunk_metadata, source_path, section)
+            )
+    if trace is not None:
+        trace.record_count("sections", len(section_publisher._sections_by_path))
+    with trace_publication_stage(trace, "sections_persist"):
+        db.flush()
+    chunk_rows: list[DocumentChunk] = []
+    with trace_publication_stage(trace, "chunks_prepare"):
+        for index, safe_chunk, chunk_metadata, source_path, section in prepared_chunks:
+            chunk_rows.append(
+                _build_document_chunk(
+                    chunk=safe_chunk,
+                    chunk_metadata=chunk_metadata,
+                    source_path=source_path,
+                    section=section,
+                    scope=scope,
+                    fallback_sort_order=index,
+                )
+            )
+    with trace_publication_stage(trace, "chunks_persist"):
+        if resolve_publication_strategy() == "candidate":
+            from shared.services.retrieval.publication_chunk_copy import (
+                insert_chunks_with_copy,
+            )
+
+            insert_chunks_with_copy(db, chunk_rows)
+        else:
+            db.add_all(chunk_rows)
+            db.flush()
+    # The revision cleanup above already removed any derived rows for this
+    # immutable job result. Skip the constructor's defensive DELETE pass on
+    # the hot publication path; standalone backfills retain the default.
+    replace_document_map_units(
+        db,
+        scope=scope,
+        trace=trace,
+        clear_existing=False,
+    )
+    manifest_payload = persist_revision_serving_state(db, scope=scope, trace=trace)
     return manifest_payload
 
 
@@ -163,27 +195,32 @@ def _delete_existing_revision_content(
     db: Session,
     *,
     scope: DocumentPublicationScope,
+    trace: PublicationTrace | None = None,
 ) -> None:
-    db.execute(
-        delete(DocumentMapUnitIndex)
-        .where(DocumentMapUnitIndex.document_id == scope.document_id)
-        .where(DocumentMapUnitIndex.job_result_id == scope.job_result_id)
-    )
-    db.execute(
-        delete(DocumentMapUnit)
-        .where(DocumentMapUnit.document_id == scope.document_id)
-        .where(DocumentMapUnit.job_result_id == scope.job_result_id)
-    )
-    db.execute(
-        delete(DocumentChunk)
-        .where(DocumentChunk.document_id == scope.document_id)
-        .where(DocumentChunk.job_result_id == scope.job_result_id)
-    )
-    db.execute(
-        delete(DocumentSection)
-        .where(DocumentSection.document_id == scope.document_id)
-        .where(DocumentSection.job_result_id == scope.job_result_id)
-    )
+    with trace_publication_stage(trace, "statistics_persist"):
+        db.execute(
+            delete(DocumentMapUnitIndex)
+            .where(DocumentMapUnitIndex.document_id == scope.document_id)
+            .where(DocumentMapUnitIndex.job_result_id == scope.job_result_id)
+        )
+    with trace_publication_stage(trace, "map_units_persist"):
+        db.execute(
+            delete(DocumentMapUnit)
+            .where(DocumentMapUnit.document_id == scope.document_id)
+            .where(DocumentMapUnit.job_result_id == scope.job_result_id)
+        )
+    with trace_publication_stage(trace, "chunks_persist"):
+        db.execute(
+            delete(DocumentChunk)
+            .where(DocumentChunk.document_id == scope.document_id)
+            .where(DocumentChunk.job_result_id == scope.job_result_id)
+        )
+    with trace_publication_stage(trace, "sections_persist"):
+        db.execute(
+            delete(DocumentSection)
+            .where(DocumentSection.document_id == scope.document_id)
+            .where(DocumentSection.job_result_id == scope.job_result_id)
+        )
 
 
 def _build_document_chunk(

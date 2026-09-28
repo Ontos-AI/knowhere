@@ -35,7 +35,7 @@ from app.services.page_memory._serialization import (
 from loguru import logger
 
 from shared.core.exceptions.domain_exceptions import ValidationException
-from shared.models.schemas.page_memory_config import PageMemoryConfig
+from shared.models.schemas.page_memory_config import PageMemoryConfig, resolve_asset_model
 
 
 @dataclass(frozen=True)
@@ -760,7 +760,7 @@ def _run_hierarchy_scope(
                 pdf_path=pdf_path,
                 rendered_pages=asset_rendered,
                 output_dir=output_dir,
-                model_name=page_memory_config.asset_model,
+                model_name=page_memory_config.asset_model or resolve_asset_model(),
                 max_pages=asset_max_pages,
                 confidence_threshold=page_memory_config.asset_confidence_threshold,
                 summary_enabled=page_memory_config.asset_summary_enabled,

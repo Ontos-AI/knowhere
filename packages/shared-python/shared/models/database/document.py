@@ -17,6 +17,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -285,7 +286,12 @@ class DocumentMapUnitToken(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     map_unit_id: Mapped[str] = mapped_column(
         String(160),
-        ForeignKey("document_map_units.id", ondelete="CASCADE"),
+        ForeignKey(
+            "document_map_units.id",
+            ondelete="CASCADE",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
         nullable=False,
     )
     channel: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -295,24 +301,10 @@ class DocumentMapUnitToken(Base):
 
     __table_args__ = (
         Index(
-            "idx_document_map_unit_tokens_lookup",
+            "idx_document_map_unit_tokens_token_lookup_binary",
             "channel",
-            "token_hash",
-            "map_unit_id",
-        ),
-        Index(
-            "idx_document_map_unit_tokens_token_lookup",
-            "channel",
-            "token_hash",
-            "map_unit_id",
-            postgresql_include=["token", "frequency"],
-        ),
-        Index(
-            "idx_document_map_unit_tokens_unit_lookup",
-            "map_unit_id",
-            "channel",
-            "token_hash",
-            postgresql_include=["token", "frequency"],
+            text("decode(token_hash, 'hex'::text)"),
+            postgresql_include=["map_unit_id", "token", "frequency"],
         ),
         Index("idx_document_map_unit_tokens_unit", "map_unit_id", "channel"),
     )
@@ -501,6 +493,16 @@ class GraphNode(Base):
         Index("idx_graph_nodes_owner_revision", "owner_document_id", "job_result_id"),
         Index("idx_graph_nodes_ref_document", "ref_document_id"),
         Index("idx_graph_nodes_ref_section", "ref_section_id"),
+        Index(
+            "idx_graph_nodes_top_keywords_gin",
+            text("(properties::jsonb -> 'top_keywords')"),
+            postgresql_using="gin",
+        ),
+        Index(
+            "idx_graph_nodes_top_entities_gin",
+            text("(properties::jsonb -> 'top_entities')"),
+            postgresql_using="gin",
+        ),
     )
 
 

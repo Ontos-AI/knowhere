@@ -214,7 +214,7 @@ def main() -> int:
 
     asset_model = (
         getattr(args, "vlm_model", None)
-        or os.environ.get("PAGE_MEMORY_ASSET_MODEL")
+        or os.environ.get("ASSET_MODEL")
         or os.environ.get("IMAGE_MODEL")
     )
     pm_config = PageMemoryConfig.default()

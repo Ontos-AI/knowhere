@@ -5,11 +5,16 @@ from __future__ import annotations
 import gc
 import os
 import time
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from app.services.document_agent.manifest import TocAnchorPage, ToolContext, ToolResult
-from app.services.document_agent.pdf_text import page_content_map
+from app.services.document_agent.pdf_text import (
+    PageTextBands,
+    line_fingerprint,
+    page_bands_map,
+)
 from app.services.document_agent.registry import has_page_full_text, has_page_labels, register_tool
 from app.services.document_parser.structure.body_boundary import normalize_match_text
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
@@ -21,14 +26,10 @@ from loguru import logger
 # CJK and English TOC keywords used for first-pass anchor detection.
 TOC_KEYWORDS = frozenset({"目录", "目次", "contents", "table of contents"})
 
-# If a TOC keyword fingerprint appears on more than this fraction of total
-# pages, it is treated as a recurring navigation element (header/footer link)
-# rather than real TOC content.
-RECURRING_ELEMENT_THRESHOLD = 0.30
-
-# Hard cap on the number of candidate anchor pages sent to VLM.  A real
-# document never has more than ~30 TOC start pages.
-MAX_ANCHOR_CANDIDATES = 30
+MAX_ANCHOR_CANDIDATES = 20
+# English keywords must sit at a line edge once candidates overflow; CJK 目录/目次 are exempt.
+EDGE_ANCHORED_KEYWORDS = frozenset({"contents", "table of contents"})
+MIN_CONSECUTIVE_DUPLICATE_RUN = 2
 
 # Upper bound on consecutive lines joined when repairing a keyword split by
 # newlines (e.g. 目\\n录). Derived from the longest keyword character length.
@@ -48,10 +49,6 @@ def _match_toc_keyword_parts(parts: list[str]) -> str | None:
         if not candidates:
             return None
     return next((candidate for candidate in candidates if candidate in TOC_KEYWORDS), None)
-
-
-def _meaningful_text_lines(text: str) -> list[str]:
-    return [" ".join(line.split()) for line in text.splitlines() if line.split()]
 
 
 def _merge_keyword_split_lines(
@@ -119,18 +116,116 @@ def _find_toc_text_matches(lines: list[str]) -> list[dict[str, Any]]:
     return matches
 
 
-def _scan_toc_from_page_texts(
-    page_texts: dict[int, str],
+def _scan_toc_matches(
+    bands_by_page: dict[int, PageTextBands],
     *,
     page_count: int,
 ) -> list[dict[str, Any]]:
     matches: list[dict[str, Any]] = []
-    for page_num in range(1, page_count + 1):
-        text = page_texts.get(page_num, "")
-        lines = _meaningful_text_lines(text)
-        for match in _find_toc_text_matches(lines):
-            matches.append({"page": page_num, **match})
+    for page in range(1, page_count + 1):
+        bands = bands_by_page.get(page)
+        if bands is None:
+            continue
+        texts = [" ".join(line.text.split()) for line in bands.lines]
+        for match in _find_toc_text_matches(texts):
+            covered = bands.lines[match["line_index"] : match["line_end_index"] + 1]
+            matches.append(
+                {
+                    "page": page,
+                    **match,
+                    "region": covered[0].region,
+                    "fingerprint": "\n".join(
+                        line_fingerprint(line) for line in covered
+                    ),
+                }
+            )
     return matches
+
+
+def _match_pages(matches: list[dict[str, Any]]) -> set[int]:
+    return {int(match["page"]) for match in matches}
+
+
+def _consecutive_runs(pages: list[int]) -> list[list[int]]:
+    runs: list[list[int]] = []
+    for page in pages:
+        if runs and page == runs[-1][-1] + 1:
+            runs[-1].append(page)
+        else:
+            runs.append([page])
+    return runs
+
+
+def _drop_consecutive_duplicate_pages(
+    matches: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Drop pages whose hit signature repeats on consecutive page numbers.
+
+    A TOC start page is followed by TOC continuation or body pages, neither of
+    which repeats the same heading line with the same region, paragraph height
+    and font. Identical signatures on adjacent pages are running headers or
+    footers (e.g. a "Table of Contents" link printed on every page).
+    """
+    fingerprints_by_page: dict[int, list[str]] = defaultdict(list)
+    for match in matches:
+        fingerprints_by_page[int(match["page"])].append(str(match["fingerprint"]))
+
+    pages_by_signature: dict[tuple[str, ...], list[int]] = defaultdict(list)
+    for page, fingerprints in fingerprints_by_page.items():
+        pages_by_signature[tuple(sorted(fingerprints))].append(page)
+
+    dropped: set[int] = set()
+    for signature, pages in pages_by_signature.items():
+        for run in _consecutive_runs(sorted(pages)):
+            if len(run) >= MIN_CONSECUTIVE_DUPLICATE_RUN:
+                dropped.update(run)
+                logger.info(
+                    "[find.toc_anchor_pages] consecutive duplicate signature "
+                    "{!r} on pages {}-{} dropped",
+                    signature[0],
+                    run[0],
+                    run[-1],
+                )
+    return [match for match in matches if int(match["page"]) not in dropped]
+
+
+def _keyword_at_line_edge(raw_line: str, keyword: str) -> bool:
+    normalized = normalize_match_text(raw_line)
+    return normalized.startswith(keyword) or normalized.endswith(keyword)
+
+
+def _filter_edge_anchored(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    kept: list[dict[str, Any]] = []
+    for match in matches:
+        keyword = str(match["match_kind"]).removeprefix("keyword:")
+        if keyword not in EDGE_ANCHORED_KEYWORDS or _keyword_at_line_edge(
+            str(match["raw_line"]), keyword
+        ):
+            kept.append(match)
+    return kept
+
+
+def _filter_body_region(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [match for match in matches if match["region"] == "body"]
+
+
+def _select_anchor_pages(
+    matches: list[dict[str, Any]],
+) -> tuple[set[int], dict[str, Any]]:
+    """Dedup unconditionally; narrow only while over the cap; never truncate."""
+    narrowing: dict[str, Any] = {"raw": len(_match_pages(matches))}
+    matches = _drop_consecutive_duplicate_pages(matches)
+    narrowing["after_dedup"] = len(_match_pages(matches))
+    if len(_match_pages(matches)) > MAX_ANCHOR_CANDIDATES:
+        matches = _filter_edge_anchored(matches)
+        narrowing["after_edge"] = len(_match_pages(matches))
+    if len(_match_pages(matches)) > MAX_ANCHOR_CANDIDATES:
+        matches = _filter_body_region(matches)
+        narrowing["after_body"] = len(_match_pages(matches))
+    if len(_match_pages(matches)) > MAX_ANCHOR_CANDIDATES:
+        narrowing["gave_up"] = True
+        return set(), narrowing
+    return _match_pages(matches), narrowing
 
 
 @worker
@@ -161,71 +256,12 @@ def _render_pages_worker(
     queue.put({"ok": True, "results": results})
 
 
-def _filter_recurring_elements(
-    matches: list[dict[str, Any]],
-    total_pages: int,
-) -> set[int]:
-    """Remove pages whose TOC keyword pattern is a recurring navigation element.
-
-    Each match contains ``page``, ``raw_line``, ``line_index``, and optionally
-    ``line_end_index``.  We build a **composite
-    fingerprint** per page by joining all its matches as
-    ``"raw_line@line_idx-line_end\\n..."``.  If the same composite fingerprint appears
-    on more than ``RECURRING_ELEMENT_THRESHOLD`` of all pages, those pages are
-    header/footer false-positives.
-
-    Example (SpaceX S-1):
-      - page 17 → ``"Table of Contents@0\\nTABLE OF CONTENTS@1"`` (unique → keeps)
-      - page 18 → ``"Table of Contents@1"`` (376 pages → recurring → filtered)
-      - page 401 → ``"Table of Contents@0"`` (~31 pages → VLM decides)
-    """
-    # Collect all matches per page
-    page_matches: dict[int, list[tuple[str, int, int]]] = {}
-    for match in matches:
-        page = int(match["page"])
-        raw_line = str(match.get("raw_line") or "").strip()
-        line_idx = int(match.get("line_index") or 0)
-        line_end_idx = int(match.get("line_end_index") or line_idx)
-        page_matches.setdefault(page, []).append((raw_line, line_idx, line_end_idx))
-
-    # Build composite fingerprint per page (sorted by line_idx for stability)
-    page_fingerprints: dict[int, str] = {}
-    for page, hits in page_matches.items():
-        hits_sorted = sorted(hits, key=lambda h: h[1])
-        page_fingerprints[page] = "\n".join(
-            f"{raw}@{start_idx}-{end_idx}"
-            for raw, start_idx, end_idx in hits_sorted
-        )
-
-    # Group pages by composite fingerprint
-    fp_groups: dict[str, list[int]] = {}
-    for page, fp in page_fingerprints.items():
-        fp_groups.setdefault(fp, []).append(page)
-
-    threshold = max(int(total_pages * RECURRING_ELEMENT_THRESHOLD), 1)
-
-    surviving: set[int] = set()
-    for fp, pages in fp_groups.items():
-        if len(pages) > threshold:
-            logger.info(
-                "[find.toc_anchor_pages] recurring pattern filtered: "
-                "{!r} appears on {}/{} pages",
-                fp[:60],
-                len(pages),
-                total_pages,
-            )
-        else:
-            surviving.update(pages)
-
-    return surviving
-
-
 @register_tool(
     name="find.toc_anchor_pages",
     description=(
-        "Scan full PDF page text for line-level TOC keywords (containment after "
-        "keyword-split repair), filter recurring navigation elements, then "
-        "render candidate PNGs for VLM confirmation."
+        "Scan Stage-0 line records for TOC keywords, drop consecutive-page "
+        "duplicate signatures, narrow by edge anchoring and body region only "
+        "when over the cap, then render candidate PNGs for VLM confirmation."
     ),
     preconditions=(has_page_labels, has_page_full_text),
 )
@@ -233,42 +269,26 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
     start = time.monotonic()
     total_pages = ctx.blackboard.page_count
 
-    keyword_matches = _scan_toc_from_page_texts(
-        page_content_map(ctx.blackboard.page_full_text_cache),
+    keyword_matches = _scan_toc_matches(
+        page_bands_map(ctx.blackboard.page_full_text_cache),
         page_count=total_pages,
     )
-    raw_hit_pages = {int(match["page"]) for match in keyword_matches}
-
-    # Apply recurring element fingerprint filter
-    if keyword_matches:
-        anchor_pages = _filter_recurring_elements(keyword_matches, total_pages)
-    else:
-        anchor_pages = set()
-
-    logger.info(
-        "[find.toc_anchor_pages] keyword scan: {} raw hits → {} after "
-        "fingerprint filter",
-        len(raw_hit_pages),
-        len(anchor_pages),
-    )
-
-    # Hard cap: a document never has more than ~30 real TOC start candidates.
-    if len(anchor_pages) > MAX_ANCHOR_CANDIDATES:
+    anchor_pages, narrowing = _select_anchor_pages(keyword_matches)
+    logger.info("[find.toc_anchor_pages] candidate narrowing: {}", narrowing)
+    if narrowing.get("gave_up"):
         logger.warning(
-            "[find.toc_anchor_pages] {} candidates exceed cap of {}, truncating",
-            len(anchor_pages),
+            "[find.toc_anchor_pages] still > {} candidates after all narrowing; "
+            "treating document as having no TOC",
             MAX_ANCHOR_CANDIDATES,
         )
-        anchor_pages = set(sorted(anchor_pages)[:MAX_ANCHOR_CANDIDATES])
 
     if not anchor_pages:
-        logger.info("[find.toc_anchor_pages] no TOC keyword pages found")
         ctx.blackboard.toc_anchor_pages = []
         return ToolResult(
             status="ok",
             payload={"anchor_count": 0},
             latency_ms=int((time.monotonic() - start) * 1000),
-            output_summary={"anchor_count": 0, "pages": []},
+            output_summary={"anchor_count": 0, "pages": [], "narrowing": narrowing},
         )
 
     # Render candidate pages as PNGs for downstream VLM confirmation
@@ -305,5 +325,6 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
         output_summary={
             "anchor_count": len(anchors),
             "pages": [a.to_dict() for a in anchors],
+            "narrowing": narrowing,
         },
     )

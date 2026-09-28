@@ -6,7 +6,7 @@ import hashlib
 import json
 import time
 import zlib
-from typing import Any, MutableMapping
+from typing import TYPE_CHECKING, Any, MutableMapping
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -19,6 +19,10 @@ from shared.models.database.document import (
 )
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.publication_models import DocumentPublicationScope
+from shared.services.retrieval.publication_trace_stage import trace_publication_stage
+
+if TYPE_CHECKING:
+    from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
 
 SERVING_MANIFEST_FORMAT_VERSION = 1
 NAMESPACE_MAP_SNAPSHOT_FORMAT_VERSION = 2
@@ -34,12 +38,12 @@ def build_revision_serving_payload(
     scope: DocumentPublicationScope,
 ) -> dict[str, Any]:
     """Build ordered metadata for one published document revision."""
-    document = db.execute(
-        select(Document).where(Document.document_id == scope.document_id)
-    ).scalar_one()
-    job_result = db.execute(
-        select(JobResult).where(JobResult.id == scope.job_result_id)
-    ).scalar_one()
+    document_source_file_name, job_id = db.execute(
+        select(Document.source_file_name, JobResult.job_id)
+        .select_from(Document)
+        .join(JobResult, JobResult.id == scope.job_result_id)
+        .where(Document.document_id == scope.document_id)
+    ).one()
     sections = list(
         db.scalars(
             select(DocumentSection)
@@ -89,9 +93,9 @@ def build_revision_serving_payload(
     return {
         "document_id": scope.document_id,
         "job_result_id": scope.job_result_id,
-        "job_id": str(job_result.job_id),
+        "job_id": str(job_id),
         "source_file_name": str(
-            document.source_file_name or scope.source_file_name or ""
+            document_source_file_name or scope.source_file_name or ""
         ),
         "sections": [
             {
@@ -124,32 +128,42 @@ def persist_revision_serving_state(
     db: Session,
     *,
     scope: DocumentPublicationScope,
+    trace: PublicationTrace | None = None,
 ) -> dict[str, Any]:
     """Replace the serving manifest row for one revision atomically.
 
     Returns the manifest payload so callers can patch the namespace-level MAP
     snapshot without rebuilding it.
     """
-    manifest_payload = build_revision_serving_payload(db, scope=scope)
-    manifest_bytes, manifest_checksum, manifest_version = encode_serving_manifest(
-        manifest_payload
-    )
-    db.execute(
-        delete(RetrievalServingRevisionManifest)
-        .where(RetrievalServingRevisionManifest.document_id == scope.document_id)
-        .where(RetrievalServingRevisionManifest.job_result_id == scope.job_result_id)
-    )
-    db.add(
-        RetrievalServingRevisionManifest(
-            user_id=scope.user_id,
-            namespace=scope.namespace,
-            document_id=scope.document_id,
-            job_result_id=scope.job_result_id,
-            format_version=manifest_version,
-            payload_zlib=manifest_bytes,
-            checksum=manifest_checksum,
+    byte_counts: dict[str, int] | None = {} if trace is not None else None
+    with trace_publication_stage(trace, "serving_manifest_prepare"):
+        manifest_payload = build_revision_serving_payload(db, scope=scope)
+        manifest_bytes, manifest_checksum, manifest_version = encode_serving_manifest(
+            manifest_payload, byte_counts=byte_counts
         )
-    )
+    if trace is not None and byte_counts is not None:
+        trace.record_count("manifest_compressed_bytes", byte_counts["compressed"])
+        trace.record_count("manifest_uncompressed_bytes", byte_counts["uncompressed"])
+    with trace_publication_stage(trace, "serving_manifest_persist"):
+        db.execute(
+            delete(RetrievalServingRevisionManifest)
+            .where(RetrievalServingRevisionManifest.document_id == scope.document_id)
+            .where(
+                RetrievalServingRevisionManifest.job_result_id == scope.job_result_id
+            )
+        )
+        db.add(
+            RetrievalServingRevisionManifest(
+                user_id=scope.user_id,
+                namespace=scope.namespace,
+                document_id=scope.document_id,
+                job_result_id=scope.job_result_id,
+                format_version=manifest_version,
+                payload_zlib=manifest_bytes,
+                checksum=manifest_checksum,
+            )
+        )
+        db.flush()
     return manifest_payload
 
 
@@ -168,7 +182,11 @@ def _connection_target_ids(metadata: Any) -> list[str]:
     ]
 
 
-def encode_serving_manifest(payload: dict[str, Any]) -> tuple[bytes, str, int]:
+def encode_serving_manifest(
+    payload: dict[str, Any],
+    *,
+    byte_counts: MutableMapping[str, int] | None = None,
+) -> tuple[bytes, str, int]:
     """Return compressed canonical JSON, checksum, and format version."""
     canonical_payload = json.dumps(
         payload,
@@ -177,11 +195,11 @@ def encode_serving_manifest(payload: dict[str, Any]) -> tuple[bytes, str, int]:
         sort_keys=True,
     ).encode("utf-8")
     checksum = hashlib.sha256(canonical_payload).hexdigest()
-    return (
-        zlib.compress(canonical_payload),
-        checksum,
-        SERVING_MANIFEST_FORMAT_VERSION,
-    )
+    compressed = zlib.compress(canonical_payload)
+    if byte_counts is not None:
+        byte_counts["compressed"] = len(compressed)
+        byte_counts["uncompressed"] = len(canonical_payload)
+    return compressed, checksum, SERVING_MANIFEST_FORMAT_VERSION
 
 
 def decode_serving_manifest(
@@ -250,29 +268,58 @@ def _decode_compressed_json(
 
 def encode_namespace_map_snapshot(
     payload: dict[str, Any],
+    *,
+    byte_counts: MutableMapping[str, int] | None = None,
+    assume_canonical: bool = False,
 ) -> tuple[bytes, str, int]:
-    """Encode the routing-only namespace snapshot using its own format version."""
+    """Encode the routing-only namespace snapshot using its own format version.
+
+    Publication patches decode an already validated snapshot, replace one
+    document, and encode it again. ``assume_canonical`` skips rebuilding every
+    unchanged section and chunk dict in that hot path while retaining the
+    validating normalization path for external callers.
+    """
     documents = payload.get("documents")
     if not isinstance(documents, dict):
         raise ValueError("namespace snapshot documents must be an object")
+    if assume_canonical:
+        routing_documents = {
+            str(document_id): raw_document
+            for document_id, raw_document in documents.items()
+        }
+        compressed, checksum, _ = encode_serving_manifest(
+            {"documents": routing_documents}, byte_counts=byte_counts
+        )
+        return compressed, checksum, NAMESPACE_MAP_SNAPSHOT_FORMAT_VERSION
     routing_documents: dict[str, dict[str, object]] = {}
     for document_id, raw_document in documents.items():
         if not isinstance(raw_document, dict):
-            raise ValueError(f"namespace snapshot document is not an object: {document_id}")
+            raise ValueError(
+                f"namespace snapshot document is not an object: {document_id}"
+            )
         raw_sections = raw_document.get("sections")
         raw_chunks = raw_document.get("chunks")
         if not isinstance(raw_sections, list) or not isinstance(raw_chunks, list):
             raise ValueError(f"namespace snapshot records are invalid: {document_id}")
         sections: list[dict[str, object]] = []
         for section in raw_sections:
-            if not isinstance(section, dict) or not str(section.get("section_id") or ""):
-                raise ValueError(f"namespace snapshot section is invalid: {document_id}")
+            if not isinstance(section, dict) or not str(
+                section.get("section_id") or ""
+            ):
+                raise ValueError(
+                    f"namespace snapshot section is invalid: {document_id}"
+                )
             sections.append(
                 {
                     key: section[key]
                     for key in (
-                        "section_id", "parent_section_id", "section_path",
-                        "section_title", "section_level", "summary", "sort_order",
+                        "section_id",
+                        "parent_section_id",
+                        "section_path",
+                        "section_title",
+                        "section_level",
+                        "summary",
+                        "sort_order",
                     )
                     if key in section
                 }
@@ -284,7 +331,13 @@ def encode_namespace_map_snapshot(
             chunks.append(
                 {
                     key: chunk[key]
-                    for key in ("chunk_id", "section_id", "chunk_type", "sort_order", "connect_to")
+                    for key in (
+                        "chunk_id",
+                        "section_id",
+                        "chunk_type",
+                        "sort_order",
+                        "connect_to",
+                    )
                     if key in chunk
                 }
             )
@@ -299,7 +352,9 @@ def encode_namespace_map_snapshot(
             )
             or {},
         }
-    compressed, checksum, _ = encode_serving_manifest({"documents": routing_documents})
+    compressed, checksum, _ = encode_serving_manifest(
+        {"documents": routing_documents}, byte_counts=byte_counts
+    )
     return compressed, checksum, NAMESPACE_MAP_SNAPSHOT_FORMAT_VERSION
 
 

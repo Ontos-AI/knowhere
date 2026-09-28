@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import ARRAY, Text, cast, delete, false, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import (
@@ -13,6 +15,10 @@ from shared.models.database.document import (
     GraphEdge,
     GraphNode,
 )
+from shared.services.retrieval.publication_trace_stage import trace_publication_stage
+
+if TYPE_CHECKING:
+    from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
 from shared.services.retrieval.graph.keywords import (
     KEYWORD_SCORE_WEIGHT,
     MIN_ENTITY_OVERLAP,
@@ -76,125 +82,161 @@ class DocumentGraphService:
         document_id: str,
         job_result_id: str,
         top_summary: str | None = None,
+        trace: PublicationTrace | None = None,
     ) -> None:
-        document = db.execute(
-            select(Document).where(Document.document_id == document_id)
-        ).scalar_one_or_none()
-        if document is None:
-            return
+        with trace_publication_stage(trace, "graph_prepare"):
+            document = db.execute(
+                select(Document).where(Document.document_id == document_id)
+            ).scalar_one_or_none()
+            if document is None:
+                return
+            if document.user_id != user_id or document.namespace != namespace:
+                raise ValueError(
+                    "Graph publication scope does not match the document owner"
+                )
 
-        # ── Gather chunk metadata for keyword extraction ──
-        chunk_meta_rows = list(
-            db.execute(
-                select(DocumentChunk.chunk_type, DocumentChunk.chunk_metadata)
-                .where(DocumentChunk.document_id == document_id)
-                .where(DocumentChunk.job_result_id == job_result_id)
-            ).all()
-        )
+            chunk_meta_rows = list(
+                db.execute(
+                    select(DocumentChunk.chunk_type, DocumentChunk.chunk_metadata)
+                    .where(DocumentChunk.document_id == document_id)
+                    .where(DocumentChunk.job_result_id == job_result_id)
+                ).all()
+            )
         chunk_metadata_list = [row[1] or {} for row in chunk_meta_rows]
 
         # Compute document-level metadata (aligned with KB knowledge_graph.json files dict)
-        top_keywords = compute_tfidf_keywords(chunk_metadata_list)
-        new_doc_kws = get_normalized_keyword_set(chunk_metadata_list)
-        # Typed entities (§4.4) — higher-precision cross-document link signal.
-        new_doc_entities = get_normalized_entity_set(chunk_metadata_list)
+        with trace_publication_stage(trace, "graph_prepare"):
+            top_keywords = compute_tfidf_keywords(chunk_metadata_list)
+            new_doc_kws = get_normalized_keyword_set(chunk_metadata_list)
+            # Typed entities (§4.4) — higher-precision cross-document link signal.
+            new_doc_entities = get_normalized_entity_set(chunk_metadata_list)
 
-        types_breakdown: dict[str, int] = defaultdict(int)
-        for chunk_type, _ in chunk_meta_rows:
-            types_breakdown[chunk_type or 'text'] += 1
-        chunks_count = len(chunk_meta_rows)
+            types_breakdown: dict[str, int] = defaultdict(int)
+            for chunk_type, _ in chunk_meta_rows:
+                types_breakdown[chunk_type or "text"] += 1
+            chunks_count = len(chunk_meta_rows)
 
-        resolved_top_summary = str(top_summary or "").strip()
-        if not resolved_top_summary:
-            # Backward compatible fallback for older chunks that still carry
-            # per-chunk document_top_summary copies.
-            resolved_top_summary = extract_document_top_summary(chunk_metadata_list)
+            resolved_top_summary = str(top_summary or "").strip()
+            if not resolved_top_summary:
+                resolved_top_summary = extract_document_top_summary(chunk_metadata_list)
 
         # ── Clean up old graph data for this document ──
-        self.remove_document_graph(
-            db,
-            scope=GraphScope(user_id=user_id, namespace=namespace),
-            document_id=document_id,
-        )
+        with trace_publication_stage(trace, "graph_persist"):
+            self.remove_document_graph(
+                db,
+                # Node IDs are global to a document. A namespace move must
+                # remove the node and its old edges before recreating it.
+                scope=None,
+                document_id=document_id,
+            )
 
         # Serialize typed entities as ["type:text", ...] for storage in node props
         # so peers can reconstruct the set without a separate schema.
-        top_entities = sorted(
-            f"{etype}:{etext}" if etype else etext
-            for etype, etext in new_doc_entities
-        )
+        with trace_publication_stage(trace, "graph_prepare"):
+            top_entities = sorted(
+                f"{etype}:{etext}" if etype else etext
+                for etype, etext in new_doc_entities
+            )
 
         # ── Create document-level node (no section nodes — aligned with KB KG) ──
         document_node_id = f"doc:{document_id}"
-        db.add(
-            GraphNode(
-                node_id=document_node_id,
-                user_id=user_id,
-                namespace=namespace,
-                node_kind='document',
-                owner_document_id=document_id,
-                job_result_id=job_result_id,
-                ref_document_id=document_id,
-                ref_section_id=None,
-                properties={
-                    'source_file_name': document.source_file_name,
-                    'top_keywords': top_keywords,
-                    'top_entities': top_entities,
-                    'chunks_count': chunks_count,
-                    'types': dict(types_breakdown),
-                    'top_summary': resolved_top_summary,
-                },
-            )
-        )
-        db.flush()
-
-        # ── Keyword-overlap-based cross-document edges ──
-        # Only create edges where keyword overlap score >= threshold.
-        other_doc_nodes = list(
-            db.execute(
-                select(GraphNode)
-                .where(GraphNode.user_id == user_id)
-                .where(GraphNode.namespace == namespace)
-                .where(GraphNode.node_kind == 'document')
-                .where(GraphNode.owner_document_id != document_id)
-            ).scalars()
-        )
-
-        for peer_node in other_doc_nodes:
-            peer_props = peer_node.properties or {}
-
-            edge_props = self._build_edge_properties(
-                new_doc_entities=new_doc_entities,
-                new_doc_kws=new_doc_kws,
-                peer_entities=_parse_stored_entities(
-                    peer_props.get('top_entities', [])
-                ),
-                peer_keywords=peer_props.get('top_keywords', []),
-            )
-            if edge_props is None:
-                continue
-            score = edge_props.pop('_score')
-
-            # Create edge with meaningful weight and metadata
-            peer_doc_id = peer_node.owner_document_id
-            edge_pair = tuple(sorted([document_id, peer_doc_id]))
+        with trace_publication_stage(trace, "graph_persist"):
             db.add(
-                GraphEdge(
-                    edge_id=f"related:{edge_pair[0]}<->{edge_pair[1]}",
+                GraphNode(
+                    node_id=document_node_id,
                     user_id=user_id,
                     namespace=namespace,
-                    edge_kind='related',
-                    source_node_id=document_node_id,
-                    target_node_id=peer_node.node_id,
+                    node_kind="document",
                     owner_document_id=document_id,
                     job_result_id=job_result_id,
-                    is_directed=False,
-                    weight=round(score, 4),
-                    properties=edge_props,
+                    ref_document_id=document_id,
+                    ref_section_id=None,
+                    properties={
+                        "source_file_name": document.source_file_name,
+                        "top_keywords": top_keywords,
+                        "top_entities": top_entities,
+                        "chunks_count": chunks_count,
+                        "types": dict(types_breakdown),
+                        "top_summary": resolved_top_summary,
+                    },
                 )
             )
 
-        db.flush()
+        # ── Keyword-overlap-based cross-document edges ──
+        # Only create edges where keyword overlap score >= threshold.
+        candidate_terms = sorted(
+            new_doc_kws
+            | {
+                f"{entity_type}:{entity_text}" if entity_type else entity_text
+                for entity_type, entity_text in new_doc_entities
+            }
+        )
+        with trace_publication_stage(trace, "graph_prepare"):
+            peer_statement = (
+                select(
+                    GraphNode.node_id,
+                    GraphNode.owner_document_id,
+                    GraphNode.properties,
+                )
+                .where(GraphNode.user_id == user_id)
+                .where(GraphNode.namespace == namespace)
+                .where(GraphNode.node_kind == "document")
+                .where(GraphNode.owner_document_id != document_id)
+            )
+            if candidate_terms:
+                term_array = cast(candidate_terms, ARRAY(Text))
+                properties_json = cast(GraphNode.properties, JSONB)
+                peer_statement = peer_statement.where(
+                    or_(
+                        properties_json.op("->")("top_keywords")
+                        .op("?|")(term_array),
+                        properties_json.op("->")("top_entities")
+                        .op("?|")(term_array),
+                    )
+                )
+            else:
+                peer_statement = peer_statement.where(false())
+            other_doc_nodes = list(db.execute(peer_statement).all())
+
+        graph_edge_count = 0
+        with trace_publication_stage(trace, "graph_prepare"):
+            for peer_node_id, peer_document_id, peer_properties in other_doc_nodes:
+                peer_props = peer_properties or {}
+
+                edge_props = self._build_edge_properties(
+                    new_doc_entities=new_doc_entities,
+                    new_doc_kws=new_doc_kws,
+                    peer_entities=_parse_stored_entities(
+                        peer_props.get("top_entities", [])
+                    ),
+                    peer_keywords=peer_props.get("top_keywords", []),
+                )
+                if edge_props is None:
+                    continue
+                score = edge_props.pop("_score")
+
+                edge_pair = tuple(sorted([document_id, peer_document_id]))
+                db.add(
+                    GraphEdge(
+                        edge_id=f"related:{edge_pair[0]}<->{edge_pair[1]}",
+                        user_id=user_id,
+                        namespace=namespace,
+                        edge_kind="related",
+                        source_node_id=document_node_id,
+                        target_node_id=peer_node_id,
+                        owner_document_id=document_id,
+                        job_result_id=job_result_id,
+                        is_directed=False,
+                        weight=round(score, 4),
+                        properties=edge_props,
+                    )
+                )
+                graph_edge_count += 1
+
+        if trace is not None:
+            trace.record_count("graph_edges", graph_edge_count)
+        with trace_publication_stage(trace, "graph_persist"):
+            db.flush()
         logger.info(
             f"publish_document_graph: doc={document_id} "
             f"keywords={len(top_keywords)} entities={len(top_entities)} "
@@ -228,13 +270,13 @@ class DocumentGraphService:
                 )
                 if score >= MIN_SCORE_THRESHOLD:
                     return {
-                        '_score': score,
-                        'edge_basis': 'entities',
-                        'shared_entities': sorted(
+                        "_score": score,
+                        "edge_basis": "entities",
+                        "shared_entities": sorted(
                             f"{etype}:{etext}" if etype else etext
                             for etype, etext in shared_entities
                         ),
-                        'connection_count': len(shared_entities),
+                        "connection_count": len(shared_entities),
                     }
 
         # ── Fallback: free-form keyword overlap ──
@@ -263,10 +305,10 @@ class DocumentGraphService:
         if score < MIN_SCORE_THRESHOLD:
             return None
         return {
-            '_score': score,
-            'edge_basis': 'keywords',
-            'shared_keywords': sorted(shared_kws),
-            'connection_count': len(shared_kws),
+            "_score": score,
+            "edge_basis": "keywords",
+            "shared_keywords": sorted(shared_kws),
+            "connection_count": len(shared_kws),
         }
 
     def remove_document_graph(
@@ -280,7 +322,9 @@ class DocumentGraphService:
                 GraphEdge.target_node_id == document_node_id,
             )
         )
-        node_delete = delete(GraphNode).where(GraphNode.owner_document_id == document_id)
+        node_delete = delete(GraphNode).where(
+            GraphNode.owner_document_id == document_id
+        )
         if scope is not None:
             edge_delete = edge_delete.where(
                 GraphEdge.user_id == scope.user_id,

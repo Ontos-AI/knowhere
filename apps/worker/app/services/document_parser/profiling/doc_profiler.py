@@ -83,7 +83,6 @@ def profile_document(
         file_type=ext.lstrip("."),
         category=f"{ext.lstrip('.') or 'unknown'} document",
         routing_category=PdfRoutingCategory.GENERIC,
-        reasoning=f"Non-PDF format ({ext}), using default route",
     )
 
 
@@ -151,7 +150,6 @@ def _profile_pdf_with_db(
         is_scanned=agent_profile.is_scanned,
         page_count=coordinator.blackboard.page_count,
         language=agent_profile.language,
-        reasoning=agent_profile.rationale,
         metrics={
             "doc_stats": coordinator.blackboard.doc_stats,
             "doc_shape": coordinator.blackboard.global_signals.get("doc_shape", {}),

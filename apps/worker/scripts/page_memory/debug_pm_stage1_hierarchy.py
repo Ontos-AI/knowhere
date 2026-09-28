@@ -38,18 +38,9 @@ from _debug_pm_shared import (
     run_stage1_toc,
     stage0_state_path,
     stop_with_trace,
-    toc_hierarchies_to_hierarchy_tree,
+    toc_hierarchies_debug_payload,
     write_toc_hierarchy_artifact,
 )
-
-
-def _count_hierarchy_keys(tree: dict) -> int:
-    total = 0
-    for children in (tree or {}).values():
-        total += 1
-        if isinstance(children, dict):
-            total += _count_hierarchy_keys(children)
-    return total
 
 
 def _count_toc_entries(toc_hierarchies: list | None) -> int:
@@ -123,17 +114,8 @@ def main() -> int:
     logger.info("=" * 70)
     logger.info("   TOC entries: {}", total)
 
-    hierarchy_tree = toc_hierarchies_to_hierarchy_tree(anatomy.toc_hierarchies)
-    toc_path = write_toc_hierarchy_artifact(
-        out_dir,
-        hierarchy_tree=hierarchy_tree,
-        stats={
-            "source": "toc_hierarchies_raw",
-            "region_count": len(list(anatomy.toc_hierarchies or [])),
-            "hierarchy_key_count": _count_hierarchy_keys(hierarchy_tree),
-            "toc_entries": total,
-        },
-    )
+    payload = toc_hierarchies_debug_payload(anatomy.toc_hierarchies)
+    toc_path = write_toc_hierarchy_artifact(out_dir, payload=payload)
     logger.info(f"   toc_hierarchy → {toc_path}")
 
     record_stage(
@@ -141,8 +123,8 @@ def main() -> int:
         "C2.toc_hierarchy_dump",
         variables={
             "toc_hierarchy_path": str(toc_path),
-            "region_count": len(list(anatomy.toc_hierarchies or [])),
-            "hierarchy_key_count": _count_hierarchy_keys(hierarchy_tree),
+            "region_count": payload["stats"]["region_count"],
+            "hierarchy_key_count": payload["stats"]["hierarchy_key_count"],
         },
     )
 

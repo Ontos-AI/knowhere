@@ -38,7 +38,6 @@ class ParserDocumentProfile:
     is_scanned: bool = False
     page_count: int = 0
     language: str = "unknown"
-    reasoning: str = ""
     toc: ParserTocProfile = field(default_factory=ParserTocProfile)
     anatomy: Any | None = None
     metrics: dict[str, Any] = field(default_factory=dict)

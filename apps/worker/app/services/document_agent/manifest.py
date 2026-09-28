@@ -52,7 +52,6 @@ class DocumentProfile:
     category: str
     routing_category: str = "generic"
     language: str = "unknown"
-    rationale: str = ""
     # Content-band margins as fractions of page height (top origin, y down).
     # header_y: lowest header line among sample pages; footer_y: highest footer.
     header_y: float | None = None

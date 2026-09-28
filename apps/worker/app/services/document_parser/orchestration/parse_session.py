@@ -91,7 +91,6 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
             output_dir=full_output_dir,
         )
     logger.info(f"📋 DOC_PROFILE: {profile.summary()}")
-    logger.debug(f"📋 Reasoning: {profile.reasoning}")
 
     return ParseSession.from_input(
         parse_input=parse_input,

@@ -28,6 +28,12 @@ async def lifespan(app: FastAPI):
     """
     Application lifecycle management
     """
+    from shared.services.retrieval.publication_strategy import (
+        announce_publication_strategy,
+    )
+
+    announce_publication_strategy("knowhere-api")
+
     from shared.core.database import prewarm_connection_pool
 
     await prewarm_connection_pool()

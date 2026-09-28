@@ -104,3 +104,39 @@ def test_namespace_snapshot_uses_routing_only_v2_and_reads_legacy_v1() -> None:
         checksum=legacy_checksum,
         format_version=legacy_version,
     ) == payload
+
+
+def test_namespace_snapshot_canonical_encoding_preserves_payload() -> None:
+    payload = {
+        "documents": {
+            "doc_1": {
+                "job_result_id": "result_1",
+                "job_id": "job_1",
+                "sections": [
+                    {
+                        "section_id": "sec_1",
+                        "section_path": "Root",
+                        "section_title": "Root",
+                        "section_level": 0,
+                        "summary": "summary",
+                        "sort_order": 0,
+                    }
+                ],
+                "chunks": [
+                    {
+                        "chunk_id": "chunk_1",
+                        "section_id": "sec_1",
+                        "chunk_type": "text",
+                        "sort_order": 0,
+                        "connect_to": [],
+                    }
+                ],
+                "root_asset_ids": [],
+                "remounted_assets_by_section": {},
+            }
+        }
+    }
+
+    assert encode_namespace_map_snapshot(payload, assume_canonical=True) == (
+        encode_namespace_map_snapshot(payload)
+    )

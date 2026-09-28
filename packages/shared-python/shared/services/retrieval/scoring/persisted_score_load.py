@@ -19,12 +19,12 @@ def average_idf_from_unit_dfs(
         return 0.0
     idfs = [
         math.log(unit_count - frequency + 0.5) - math.log(frequency + 0.5)
-        for frequency in token_document_frequency.values()
+        for token, frequency in sorted(token_document_frequency.items())
         if frequency > 0
     ]
     if not idfs:
         return 0.0
-    return sum(idfs) / len(idfs)
+    return math.fsum(idfs) / len(idfs)
 
 
 def combine_average_idf(parts: Sequence[tuple[float, int]]) -> float:

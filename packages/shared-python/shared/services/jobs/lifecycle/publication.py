@@ -13,6 +13,7 @@ from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
 from shared.services.redis.publication_semaphore import SyncRedisPublicationSemaphore
+from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
 from shared.core.config import settings
 from shared.services.retrieval.publication_service import RetrievalPublicationService
 from shared.services.retrieval.publication_models import (
@@ -55,6 +56,7 @@ class SyncJobPublicationFinalizer:
         chunks: list[dict[str, Any]],
         section_summaries: dict[str, str] | None,
         document_top_summary: str | None = None,
+        trace: PublicationTrace | None = None,
     ) -> JobPublicationOutcome:
         semaphore = SyncRedisPublicationSemaphore(
             SyncRedisServiceFactory.get_service(),
@@ -65,6 +67,8 @@ class SyncJobPublicationFinalizer:
         job_type = db.execute(
             select(Job.job_type).where(Job.job_id == job_id)
         ).scalar_one_or_none()
+        if trace is not None and job_type in ("document_ingestion", "demo_materialization"):
+            trace.bind_job_type(str(job_type))
         publication_context = (
             semaphore if job_type == "demo_materialization" else nullcontext()
         )
@@ -72,6 +76,7 @@ class SyncJobPublicationFinalizer:
             previous_document_scope = self._retrieval_publication.get_existing_document_scope(
                 db,
                 job_id=job_id,
+                trace=trace,
             )
             published_document_state = self._retrieval_publication.publish_document_state(
                 db,
@@ -79,7 +84,15 @@ class SyncJobPublicationFinalizer:
                 job_result_id=job_result_id,
                 chunks=chunks,
                 section_summaries=section_summaries,
+                trace=trace,
             )
+            if trace is not None and published_document_state is not None:
+                if published_document_state.document_id is not None:
+                    trace.bind_document_id(published_document_state.document_id)
+                trace.bind_scope(
+                    user_id=published_document_state.user_id,
+                    namespace=published_document_state.namespace,
+                )
             if _should_publish_document_graph(published_document_state):
                 assert published_document_state is not None
                 self._retrieval_publication.publish_document_graph(
@@ -87,6 +100,7 @@ class SyncJobPublicationFinalizer:
                     job_id=job_id,
                     job_result_id=job_result_id,
                     top_summary=document_top_summary,
+                    trace=trace,
                 )
 
         cache_invalidation = self._build_cache_invalidation(
@@ -94,6 +108,7 @@ class SyncJobPublicationFinalizer:
             job_id=job_id,
             published_document_state=published_document_state,
             previous_document_scope=previous_document_scope,
+            trace=trace,
         )
         return JobPublicationOutcome(
             published_document_state=published_document_state,
@@ -130,12 +145,23 @@ class SyncJobPublicationFinalizer:
         job_id: str,
         published_document_state: PublishedDocumentState | None,
         previous_document_scope: ExistingDocumentScope | None,
+        trace: PublicationTrace | None = None,
     ) -> RetrievalCacheInvalidation | None:
-        job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
-        if not job:
+        job_row = db.execute(
+            select(Job.user_id, Job.job_metadata)
+            .where(Job.job_id == job_id)
+        ).one_or_none()
+        if job_row is None:
             return None
 
-        metadata = job.job_metadata or {}
+        user_id, raw_metadata = job_row
+        metadata = raw_metadata or {}
+        if trace is not None:
+            parse_track = JobMetadataHelper.get_parse_track(metadata)
+            if parse_track in ("chunk", "page_memory"):
+                trace.bind_parse_track(parse_track)
+        if published_document_state is None or published_document_state.document_id is None:
+            return None
         namespaces: list[str] = [
             JobMetadataHelper.get_namespace(metadata, "default") or "default",
         ]
@@ -145,7 +171,7 @@ class SyncJobPublicationFinalizer:
             namespaces.append(published_document_state.namespace)
 
         return RetrievalCacheInvalidation(
-            user_id=str(job.user_id),
+            user_id=str(user_id),
             namespaces=tuple(namespaces),
             job_id=job_id,
         )

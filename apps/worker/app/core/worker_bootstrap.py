@@ -10,6 +10,9 @@ from loguru import logger
 
 from shared.core.celery_app import celery_app
 from shared.core.logging import setup_logging
+from shared.services.retrieval.publication_strategy import (
+    announce_publication_strategy,
+)
 from shared.services.worker_health import start_worker_heartbeat, stop_worker_heartbeat
 
 _CHILD_PROCESS_TERM_TIMEOUT_SECONDS: float = 5
@@ -44,6 +47,7 @@ def _stop_child_process(
 def init_worker(**kwargs: object) -> None:
     """Initialize structured logging and sync Redis when worker process starts."""
     setup_logging(service_name="knowhere-worker")
+    announce_publication_strategy("knowhere-worker")
     start_worker_heartbeat()
 
     # Do not cancel gevent tasks from Celery's reconnect or shutdown lifecycle.

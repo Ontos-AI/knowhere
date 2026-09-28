@@ -53,6 +53,8 @@ class LogEvent(Enum):
     LOGGING_CONFIGURED = "logging.configured"
     APP_LOG = "app.log"
 
+    PUBLICATION_TRACE_TERMINAL = "publication.trace.terminal"
+
     S3_WEBHOOK_EVENT = "s3.webhook"
 
     # iLoveAPI document conversion events

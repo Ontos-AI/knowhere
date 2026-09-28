@@ -11,18 +11,27 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any, Dict, List, Optional, TypeVar
+from uuid import uuid4
 
 from loguru import logger
+from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
 from shared.core.database_sync import get_sync_db_context
+from shared.core.config import settings
 from shared.services.jobs.lifecycle.failure_finalizer import SyncJobFailureFinalizer
 from shared.services.jobs.lifecycle.post_commit_effects import (
     PostCommitEffectPlan,
     SyncJobPostCommitEffectRunner,
 )
 from shared.services.jobs.lifecycle.success_finalizer import SyncJobSuccessFinalizer
+from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
+from shared.services.jobs.lifecycle.publication_trace_sql import (
+    install_publication_trace_sql_instrumentation,
+    publication_trace_connection,
+)
 from shared.services.redis.redis_sync_service import (
     SyncRedisServiceFactory,
 )
@@ -69,8 +78,10 @@ class SyncJobLifecycleService:
         return _run_lifecycle_transaction(
             job_id=job_id,
             label="success",
-            finalize=lambda db: self._success_finalizer.finalize(
-                db,
+            trace_publication=True,
+            finalize=lambda db, trace: self._finalize_success_with_trace(
+                db=db,
+                trace=trace,
                 job_id=job_id,
                 result_s3_key=result_s3_key,
                 checksum=checksum,
@@ -109,7 +120,7 @@ class SyncJobLifecycleService:
         return _run_lifecycle_transaction(
             job_id=job_id,
             label="failure",
-            finalize=lambda db: self._failure_finalizer.finalize(
+            finalize=lambda db, _trace: self._failure_finalizer.finalize(
                 db,
                 job_id=job_id,
                 error_message=error_message,
@@ -121,6 +132,52 @@ class SyncJobLifecycleService:
             build_response=lambda finalization: finalization.succeeded,
             build_effect_plan=lambda finalization: finalization.post_commit_effects,
             run_after_commit_effects=self._post_commit_effect_runner.run,
+        )
+
+    def _finalize_success_with_trace(
+        self,
+        *,
+        db: Session,
+        trace: PublicationTrace | None,
+        job_id: str,
+        result_s3_key: str,
+        checksum: str,
+        zip_size: int,
+        chunks: list[dict[str, Any]],
+        stored_count: int,
+        delivery_mode: str,
+        section_summaries: dict[str, str] | None,
+        document_top_summary: str | None,
+    ) -> Any:
+        if trace is not None:
+            counter_names = {
+                "text": "input_text_chunks",
+                "image": "input_image_chunks",
+                "table": "input_table_chunks",
+                "page": "input_page_chunks",
+            }
+            for chunk_type, counter_name in counter_names.items():
+                trace.record_count(
+                    counter_name,
+                    sum(
+                        1
+                        for chunk in chunks
+                        if str(chunk.get("type") or chunk.get("chunk_type") or "text")
+                        == chunk_type
+                    ),
+                )
+        return self._success_finalizer.finalize(
+            db,
+            job_id=job_id,
+            result_s3_key=result_s3_key,
+            checksum=checksum,
+            zip_size=zip_size,
+            chunks=chunks,
+            stored_count=stored_count,
+            delivery_mode=delivery_mode,
+            section_summaries=section_summaries,
+            document_top_summary=document_top_summary,
+            trace=trace,
         )
 
     def update_progress(
@@ -176,26 +233,74 @@ def _run_lifecycle_transaction(
     *,
     job_id: str,
     label: str,
-    finalize: Callable[[Session], _FinalizationT],
+    finalize: Callable[[Session, PublicationTrace | None], _FinalizationT],
     should_commit: Callable[[_FinalizationT], bool],
     build_response: Callable[[_FinalizationT], _ResponseT],
     build_effect_plan: Callable[[_FinalizationT], PostCommitEffectPlan],
     run_after_commit_effects: Callable[[PostCommitEffectPlan], None],
+    trace_publication: bool = False,
 ) -> _ResponseT:
+    trace = (
+        PublicationTrace.start(
+            attempt_ref=f"publication_{uuid4().hex}",
+            owner="sync",
+            job_id=job_id,
+        )
+        if trace_publication and settings.KNOWHERE_PUBLICATION_TRACE_ENABLED
+        else None
+    )
     with get_sync_db_context() as db:
         try:
-            finalization = finalize(db)
-            if not should_commit(finalization):
-                db.rollback()
-                return build_response(finalization)
+            connection = None
+            if trace is not None:
+                bind = db.get_bind()
+                install_publication_trace_sql_instrumentation(
+                    bind.engine if isinstance(bind, Connection) else bind
+                )
+                with trace.stage("pool_checkout_wait"):
+                    connection = db.connection()
+            connection_scope = (
+                publication_trace_connection(connection, trace)
+                if connection is not None and trace is not None
+                else nullcontext()
+            )
+            with connection_scope:
+                finalization = finalize(db, trace)
+                if not should_commit(finalization):
+                    if trace is not None:
+                        try:
+                            with trace.stage("rollback"):
+                                db.rollback()
+                        finally:
+                            trace.finish(outcome="rollback")
+                    else:
+                        db.rollback()
+                    response = build_response(finalization)
+                    return response
 
-            db.commit()
+                response = build_response(finalization)
+                effect_plan = build_effect_plan(finalization)
+                if trace is not None:
+                    with trace.stage("commit"):
+                        db.commit()
+                else:
+                    db.commit()
+            if trace is not None:
+                trace.finish(outcome="success")
             logger.info(f"Job {job_id} {label} transaction committed")
 
-            run_after_commit_effects(build_effect_plan(finalization))
-            return build_response(finalization)
+            run_after_commit_effects(effect_plan)
+            return response
 
         except Exception as exc:
             logger.error(f"Failed to finalize job {label} {job_id}: {exc}")
-            db.rollback()
+            if trace is None or not trace.is_finished:
+                if trace is not None:
+                    try:
+                        with trace.stage("rollback"):
+                            db.rollback()
+                    finally:
+                        trace.finish(outcome="rollback")
+                else:
+                    db.rollback()
             raise

@@ -4,7 +4,7 @@ COARSE_PROFILE_INSTRUCTIONS = (
     "You are a document profile classifier. Use page-feature statistics "
     "and the provided page screenshots to classify the PDF. "
     "Return strict JSON only with keys: is_scanned, category, routing_category, "
-    "language, rationale, header_y, footer_y. "
+    "language, header_y, footer_y. "
     "category is a concise semantic document type in at most 5 English words. "
     "routing_category must be one of atlas, scanned, slides, generic. "
     "Set routing_category=atlas only when pages are primarily drawing/detail "

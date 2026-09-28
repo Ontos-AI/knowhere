@@ -54,6 +54,16 @@ def _upgrade_to_channel_statistics(*, engine: Engine) -> None:
     command.upgrade(config, "b1c2d3e4f5a6")
 
 
+def _upgrade_to_token_index_repair(*, engine: Engine, external: bool = False) -> None:
+    config = _build_alembic_command_config(engine=engine)
+    if external:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "c2d3e4f5a6b7")
+        return
+    command.upgrade(config, "c2d3e4f5a6b7")
+
+
 def _insert_job(
     connection: Connection,
     *,
@@ -289,22 +299,155 @@ def test_should_create_token_leading_map_unit_covering_index(
                 """
                 SELECT pg_get_indexdef(indexes.indexrelid),
                        indexes.indisvalid,
-                       indexes.indisready
+                       indexes.indisready,
+                       indexes.indnkeyatts,
+                       indexes.indnatts
                 FROM pg_index AS indexes
                 JOIN pg_class AS classes ON classes.oid = indexes.indexrelid
                 JOIN pg_namespace AS namespaces
                   ON namespaces.oid = classes.relnamespace
                 WHERE namespaces.nspname = current_schema()
-                  AND classes.relname = 'idx_document_map_unit_tokens_token_lookup'
+                  AND classes.relname = 'idx_document_map_unit_tokens_token_lookup_binary'
                 """
             )
         ).one()
 
     definition = str(index_row[0])
-    assert "(channel, token_hash, map_unit_id)" in definition
-    assert "INCLUDE (token, frequency)" in definition
+    assert "decode((token_hash)::text, 'hex'::text)" in definition
+    assert "INCLUDE (map_unit_id, token, frequency)" in definition
     assert index_row[1] is True
     assert index_row[2] is True
+    assert index_row[3] == 2
+    assert index_row[4] == 5
+
+
+def test_should_retire_superseded_token_lookup_indexes_after_binary_candidate(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        names = {
+            str(row[0])
+            for row in connection.execute(
+                text(
+                    "SELECT indexname FROM pg_indexes "
+                    "WHERE schemaname = current_schema() "
+                    "AND tablename = 'document_map_unit_tokens'"
+                )
+            ).all()
+        }
+
+    assert names == {
+        "document_map_unit_tokens_pkey",
+        "idx_document_map_unit_tokens_lookup",
+        "idx_document_map_unit_tokens_unit",
+        "idx_document_map_unit_tokens_token_lookup_binary",
+        "idx_document_map_unit_tokens_unit_lookup",
+    }
+
+
+def test_should_defer_token_map_unit_foreign_key(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        is_deferrable, is_initially_deferred = connection.execute(
+            text(
+                "SELECT condeferrable, condeferred FROM pg_constraint "
+                "WHERE conrelid = 'document_map_unit_tokens'::regclass "
+                "AND conname = 'document_map_unit_tokens_map_unit_id_fkey'"
+            )
+        ).one()
+
+    assert is_deferrable is True
+    assert is_initially_deferred is True
+
+
+def test_should_create_graph_term_candidate_indexes(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        definitions = {
+            str(row[0]): str(row[1])
+            for row in connection.execute(
+                text(
+                    "SELECT indexname, indexdef FROM pg_indexes "
+                    "WHERE schemaname = current_schema() "
+                    "AND tablename = 'graph_nodes' "
+                    "AND indexname IN ("
+                    "'idx_graph_nodes_top_keywords_gin', "
+                    "'idx_graph_nodes_top_entities_gin')"
+                )
+            ).all()
+        }
+
+    assert set(definitions) == {
+        "idx_graph_nodes_top_keywords_gin",
+        "idx_graph_nodes_top_entities_gin",
+    }
+    assert all(
+        "jsonb" in definition.lower()
+        and ("top_keywords" in definition or "top_entities" in definition)
+        for definition in definitions.values()
+    )
+
+
+@pytest.mark.parametrize("external_connection", (False, True))
+def test_should_restore_and_reapply_compact_token_indexes(
+    alembic_engine: Engine,
+    external_connection: bool,
+) -> None:
+    config = _build_alembic_command_config(engine=alembic_engine)
+    _upgrade_to_heads(engine=alembic_engine)
+
+    if external_connection:
+        with alembic_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, "1a2b3c4d5e6f")
+    else:
+        command.downgrade(config, "1a2b3c4d5e6f")
+
+    with alembic_engine.begin() as connection:
+        old_names = {
+            str(row[0])
+            for row in connection.execute(
+                text(
+                    "SELECT indexname FROM pg_indexes "
+                    "WHERE schemaname = current_schema() "
+                    "AND tablename = 'document_map_unit_tokens'"
+                )
+            ).all()
+        }
+    assert old_names == {
+        "document_map_unit_tokens_pkey",
+        "idx_document_map_unit_tokens_lookup",
+        "idx_document_map_unit_tokens_token_lookup",
+        "idx_document_map_unit_tokens_unit_lookup",
+        "idx_document_map_unit_tokens_unit",
+    }
+
+    if external_connection:
+        with alembic_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "heads")
+    else:
+        command.upgrade(config, "heads")
+    with alembic_engine.begin() as connection:
+        compact_names = {
+            str(row[0])
+            for row in connection.execute(
+                text(
+                    "SELECT indexname FROM pg_indexes "
+                    "WHERE schemaname = current_schema() "
+                    "AND tablename = 'document_map_unit_tokens'"
+                )
+            ).all()
+        }
+    assert compact_names == {
+        "document_map_unit_tokens_pkey",
+        "idx_document_map_unit_tokens_lookup",
+        "idx_document_map_unit_tokens_unit",
+        "idx_document_map_unit_tokens_token_lookup_binary",
+        "idx_document_map_unit_tokens_unit_lookup",
+    }
 
 
 def test_should_repair_a_missing_token_leading_map_unit_covering_index(
@@ -316,7 +459,7 @@ def test_should_repair_a_missing_token_leading_map_unit_covering_index(
             text("DROP INDEX idx_document_map_unit_tokens_token_lookup")
         )
 
-    _upgrade_to_heads(engine=alembic_engine)
+    _upgrade_to_token_index_repair(engine=alembic_engine)
 
     with alembic_engine.begin() as connection:
         index_state = connection.execute(
@@ -346,7 +489,7 @@ def test_should_repair_a_missing_covering_index_with_a_caller_owned_connection(
             text("DROP INDEX idx_document_map_unit_tokens_token_lookup")
         )
 
-    _upgrade_to_heads_with_external_connection(engine=alembic_engine)
+    _upgrade_to_token_index_repair(engine=alembic_engine, external=True)
 
     with alembic_engine.begin() as connection:
         index_state = connection.execute(
@@ -384,7 +527,7 @@ def test_should_repair_an_invalid_token_leading_map_unit_covering_index(
             )
         )
 
-    _upgrade_to_heads(engine=alembic_engine)
+    _upgrade_to_token_index_repair(engine=alembic_engine)
 
     with alembic_engine.begin() as connection:
         index_state = connection.execute(

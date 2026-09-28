@@ -173,7 +173,7 @@ async def test_classic_route_uses_token_hash_lookup_for_frequency_query(
 
     assert response.status_code == 200
     assert statements
-    assert "token_hash = ANY" in statements[-1]
+    assert "decode(token_hash, 'hex') = ANY" in statements[-1]
     assert "token = ANY" not in statements[-1]
     assert "matching_tokens AS MATERIALIZED" in statements[-1]
     assert "FROM matching_tokens" in statements[-1]
