@@ -18,6 +18,7 @@
       "essential": true,
       "stopTimeout": 120,
       "environment": [
+        {"name": "KNOWHERE_PUBLICATION_STRATEGY", "value": "baseline"},
         {"name": "ENVIRONMENT", "value": "${RUNTIME_ENVIRONMENT}"},
         {"name": "APP_ENV", "value": "${APP_ENV}"},
         {"name": "DB_SSL_MODE", "value": "${DB_SSL_MODE}"},
