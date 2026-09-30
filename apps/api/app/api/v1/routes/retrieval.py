@@ -121,11 +121,20 @@ class RetrievalQueryResponse(BaseModel):
     router_used: str
     evidence: list[dict] = Field(
         default_factory=list,
-        description="Composed evidence parts (text and inline images) for downstream agents.",
+        description=(
+            "Grouped evidence blocks. Each group starts with "
+            "[E1] [§ source_file_name / parent_path]. Text and table HTML "
+            "stay as text parts; images stay as image parts at their "
+            "placeholder positions."
+        ),
     )
     evidence_text: str = Field(
         default="",
-        description="Text projection of evidence. Tables stay as HTML; images are data URLs.",
+        description=(
+            "Text projection of the grouped evidence blocks. Tables stay as "
+            "HTML. Images stay on evidence as image parts and are marked "
+            "here as [image: see evidence]."
+        ),
     )
     answer_text: str = Field(
         default="",

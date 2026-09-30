@@ -305,13 +305,17 @@ def test_compose_pool_evidence_keeps_pick_order_and_outline_fragment() -> None:
     assembled = [
         {
             "chunk_id": "c1",
+            "sort_order": 4,
             "composed": [{"type": "text", "text": "treatment body"}],
         }
     ]
     evidence = compose_pool_evidence(entries, assembled)
     assert evidence == [
-        {"type": "text", "text": "  [O1] guide.pdf\n  1 Overview"},
-        {"type": "text", "text": "treatment body"},
+        {"type": "text", "text": "[E1] [§ guide.pdf]"},
+        {"type": "text", "text": "    [O1] guide.pdf\n    1 Overview"},
+        {"type": "text", "text": "\n"},
+        {"type": "text", "text": "[E2] [§ guide.pdf / 2 Treatment]"},
+        {"type": "text", "text": "  treatment body"},
     ]
 
 

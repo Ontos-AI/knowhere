@@ -9,6 +9,10 @@ from typing import Any, Literal
 
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
 from shared.services.retrieval.agent_tools import ToolResult
+from shared.services.retrieval.hydration.evidence_compose import (
+    _sort_order_value,
+    group_evidence_units,
+)
 from shared.services.retrieval.hydration.row_utils import normalize_chunk_type
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 
@@ -221,19 +225,48 @@ def compose_pool_evidence(
         for row in assembled_rows
         if row.get("chunk_id")
     }
-    parts: list[dict[str, Any]] = []
+    units: list[dict[str, Any]] = []
     for candidate in entries:
         if candidate.kind == "outline":
             text = "\n".join(candidate.outline_lines)
-            if text:
-                parts.append({"type": "text", "text": text})
+            if not text:
+                continue
+            units.append(
+                {
+                    "document_id": candidate.document_id,
+                    "source_file_name": candidate.source_file_name,
+                    "section_path": "",
+                    "sort_order": None,
+                    "parts": [{"type": "text", "text": text}],
+                    "kind": "outline",
+                }
+            )
             continue
-        for chunk_id in candidate.chunk_ids:
+        chunk_rows: list[tuple[int | float, int, dict[str, Any]]] = []
+        for index, chunk_id in enumerate(candidate.chunk_ids):
             row = rows_by_id.get(chunk_id)
-            composed = row.get("composed") if row else None
+            if row is None:
+                continue
+            chunk_rows.append((_sort_order_value(row.get("sort_order"), index), index, row))
+        chunk_rows.sort(key=lambda item: (item[0], item[1]))
+        parts: list[dict[str, Any]] = []
+        for _order, _index, row in chunk_rows:
+            composed = row.get("composed")
             if isinstance(composed, list):
                 parts.extend(item for item in composed if isinstance(item, dict))
-    return parts
+        if not parts:
+            continue
+        units.append(
+            {
+                "document_id": candidate.document_id,
+                "source_file_name": candidate.source_file_name,
+                "section_path": candidate.section_path or "",
+                "sort_order": chunk_rows[0][0],
+                "parts": parts,
+                "kind": "read",
+            }
+        )
+    return group_evidence_units(units)
 
 
 def pool_trace_records(entries: list[Candidate]) -> list[dict[str, Any]]:

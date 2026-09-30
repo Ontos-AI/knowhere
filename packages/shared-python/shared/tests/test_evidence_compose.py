@@ -7,11 +7,12 @@ import pytest
 from shared.services.retrieval.hydration.evidence_compose import (
     compose_evidence_parts,
     flatten_parts,
+    group_evidence_units,
 )
 from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
 
 
-def test_flatten_parts_keeps_html_and_encodes_images() -> None:
+def test_flatten_parts_keeps_html_and_points_images_at_evidence() -> None:
     text = flatten_parts(
         [
             {"type": "text", "text": "before"},
@@ -19,7 +20,7 @@ def test_flatten_parts_keeps_html_and_encodes_images() -> None:
             {"type": "text", "text": "after"},
         ]
     )
-    assert text == "beforedata:image/png;base64,abcafter"
+    assert text == "before[image: see evidence]after"
 
 
 def test_page_parts_are_summary_then_page_image(monkeypatch) -> None:
@@ -355,4 +356,161 @@ def test_page_image_missing_page_number_does_not_use_first_asset(monkeypatch) ->
             "type": "text",
             "text": "Page image unavailable: missing page number",
         },
+    ]
+
+
+def test_group_merges_same_parent_and_splits_different_parents() -> None:
+    image = {"type": "image", "media_type": "image/jpeg", "data": "abc"}
+    evidence = group_evidence_units(
+        [
+            {
+                "document_id": "doc_a",
+                "source_file_name": "心衰指南.pdf",
+                "section_path": "3 诊断 / 3.1",
+                "sort_order": 10,
+                "parts": [
+                    {"type": "text", "text": "...3.1 body..."},
+                    image,
+                ],
+            },
+            {
+                "document_id": "doc_a",
+                "source_file_name": "心衰指南.pdf",
+                "section_path": "3 诊断 / 3.2",
+                "sort_order": 20,
+                "parts": [{"type": "text", "text": "...3.2 body..."}],
+            },
+            {
+                "document_id": "doc_a",
+                "source_file_name": "心衰指南.pdf",
+                "section_path": "5 治疗 / 5.1",
+                "sort_order": 30,
+                "parts": [{"type": "text", "text": "...5.1 body..."}],
+            },
+        ]
+    )
+    assert evidence == [
+        {"type": "text", "text": "[E1] [§ 心衰指南.pdf / 3 诊断]"},
+        {"type": "text", "text": "  ...3.1 body..."},
+        image,
+        {"type": "text", "text": "  ...3.2 body..."},
+        {"type": "text", "text": "\n"},
+        {"type": "text", "text": "[E2] [§ 心衰指南.pdf / 5 治疗]"},
+        {"type": "text", "text": "  ...5.1 body..."},
+    ]
+    assert flatten_parts(evidence) == (
+        "[E1] [§ 心衰指南.pdf / 3 诊断]  ...3.1 body..."
+        "[image: see evidence]  ...3.2 body..."
+        "\n[E2] [§ 心衰指南.pdf / 5 治疗]  ...5.1 body..."
+    )
+
+
+def test_group_keeps_single_segment_path() -> None:
+    evidence = group_evidence_units(
+        [
+            {
+                "document_id": "doc_a",
+                "source_file_name": "guide.pdf",
+                "section_path": "3 诊断",
+                "sort_order": 1,
+                "parts": [{"type": "text", "text": "body"}],
+            }
+        ]
+    )
+    assert evidence[0] == {"type": "text", "text": "[E1] [§ guide.pdf / 3 诊断]"}
+    assert evidence[1] == {"type": "text", "text": "  body"}
+
+
+def test_group_orders_by_sort_order_not_input_order() -> None:
+    evidence = group_evidence_units(
+        [
+            {
+                "document_id": "doc_a",
+                "source_file_name": "guide.pdf",
+                "section_path": "5 治疗 / 5.1",
+                "sort_order": 30,
+                "parts": [{"type": "text", "text": "later"}],
+            },
+            {
+                "document_id": "doc_a",
+                "source_file_name": "guide.pdf",
+                "section_path": "3 诊断 / 3.1",
+                "sort_order": 10,
+                "parts": [{"type": "text", "text": "earlier"}],
+            },
+        ]
+    )
+    assert [part["text"] for part in evidence if part["type"] == "text"] == [
+        "[E1] [§ guide.pdf / 3 诊断]",
+        "  earlier",
+        "\n",
+        "[E2] [§ guide.pdf / 5 治疗]",
+        "  later",
+    ]
+
+
+def test_group_merges_page_chunks_under_root() -> None:
+    evidence = group_evidence_units(
+        [
+            {
+                "document_id": "doc_a",
+                "source_file_name": "slides.pptx",
+                "section_path": "Root / Overview (2 of 3)",
+                "sort_order": 2,
+                "parts": [{"type": "text", "text": "page 2"}],
+            },
+            {
+                "document_id": "doc_a",
+                "source_file_name": "slides.pptx",
+                "section_path": "Root / Overview (1 of 3)",
+                "sort_order": 1,
+                "parts": [{"type": "text", "text": "page 1"}],
+            },
+        ]
+    )
+    assert evidence == [
+        {"type": "text", "text": "[E1] [§ slides.pptx / Root]"},
+        {"type": "text", "text": "  page 1"},
+        {"type": "text", "text": "  page 2"},
+    ]
+
+
+def test_group_places_outline_before_document_groups() -> None:
+    evidence = group_evidence_units(
+        [
+            {
+                "document_id": "doc_b",
+                "source_file_name": "other.pdf",
+                "section_path": "1 Start / body",
+                "sort_order": 1,
+                "parts": [{"type": "text", "text": "other body"}],
+                "kind": "read",
+            },
+            {
+                "document_id": "doc_a",
+                "source_file_name": "guide.pdf",
+                "section_path": "",
+                "sort_order": None,
+                "parts": [{"type": "text", "text": "  [O1] guide.pdf\n  1 Overview"}],
+                "kind": "outline",
+            },
+            {
+                "document_id": "doc_a",
+                "source_file_name": "guide.pdf",
+                "section_path": "2 Treatment",
+                "sort_order": 4,
+                "parts": [{"type": "text", "text": "treatment body"}],
+                "kind": "read",
+            },
+        ]
+    )
+    assert evidence == [
+        {"type": "text", "text": "[E1] [§ other.pdf / 1 Start]"},
+        {"type": "text", "text": "  other body"},
+        {"type": "text", "text": "\n"},
+        {"type": "text", "text": "[E2] [§ guide.pdf]"},
+        {"type": "text", "text": "    [O1] guide.pdf\n    1 Overview"},
+        {"type": "text", "text": "\n"},
+        {"type": "text", "text": "[E3] [§ guide.pdf / 2 Treatment]"},
+        {"type": "text", "text": "  treatment body"},
     ]

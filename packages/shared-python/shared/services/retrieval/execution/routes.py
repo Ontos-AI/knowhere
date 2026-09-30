@@ -14,8 +14,8 @@ from shared.services.retrieval.execution.route_types import (
     RetrievalRouteOutcome,
 )
 from shared.services.retrieval.hydration.evidence_compose import (
-    collect_evidence,
     flatten_parts,
+    group_evidence_units,
 )
 from shared.services.retrieval.hydration.result_assembly import (
     assemble_retrieval_results,
@@ -51,8 +51,25 @@ def open_agent_explore_database_context() -> AbstractAsyncContextManager[AsyncSe
 
 def _evidence_fields(rows: list[dict]) -> dict:
     # TODO: 后面用 TypeSafe JEV 补结果重排/筛选。现在没有这一步。
-    # 无论怎么做，发出去的 evidence 和 results 都是已经筛过或重排过的完整列表，不在 Knowhere 外面做。
-    evidence = collect_evidence(rows)
+    units: list[dict] = []
+    for row in rows:
+        composed = row.get("composed")
+        if not isinstance(composed, list):
+            continue
+        parts = [item for item in composed if isinstance(item, dict)]
+        if not parts:
+            continue
+        units.append(
+            {
+                "document_id": str(row.get("document_id") or ""),
+                "source_file_name": str(row.get("source_file_name") or ""),
+                "section_path": str(row.get("section_path") or ""),
+                "sort_order": row.get("sort_order"),
+                "parts": parts,
+                "kind": "read",
+            }
+        )
+    evidence = group_evidence_units(units)
     return {
         "evidence": evidence,
         "evidence_text": flatten_parts(evidence),

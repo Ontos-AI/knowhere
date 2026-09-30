@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any, AsyncContextManager, Callable
 
 from app.services.auth.current_user_authentication_service import (
@@ -7,6 +8,7 @@ from app.services.auth.current_user_authentication_service import (
 )
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import ImageContent, TextContent
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,26 +55,50 @@ def resolve_mcp_namespace(*, ctx: Context | None) -> str:
     return normalize_retrieval_namespace(namespace)
 
 
-def to_mcp_query_response(response: dict[str, Any]) -> dict[str, Any]:
-    """Project the public retrieval response to the MCP agent contract.
+def to_mcp_query_response(response: dict[str, Any]) -> list[TextContent | ImageContent]:
+    """Project the public retrieval response to MCP content blocks.
 
-    MCP returns the same Knowhere package the HTTP query emits:
-    - evidence: composed parts (text/HTML and inline images)
-    - evidence_text: text projection of those parts
-    - results: raw path chunks for debug
-    - referenced_chunks: structured chunk references for citation / follow-up
-    - decision_trace: navigation decisions including terminal stop/failure
+    Each evidence part becomes ``TextContent`` or ``ImageContent``. A final
+    text block is JSON for query, router_used, failure_reason,
+    referenced_chunks, decision_trace, and results. That JSON does not
+    repeat evidence or evidence_text.
     """
-    return {
-        "query": response.get("query"),
-        "router_used": response.get("router_used"),
-        "failure_reason": response.get("failure_reason"),
-        "evidence": response.get("evidence") or [],
-        "evidence_text": response.get("evidence_text") or "",
-        "results": response.get("results") or [],
-        "referenced_chunks": response.get("referenced_chunks") or [],
-        "decision_trace": response.get("decision_trace") or [],
-    }
+    blocks: list[TextContent | ImageContent] = []
+    for part in response.get("evidence") or []:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text":
+            text = part.get("text")
+            if text is None:
+                continue
+            blocks.append(TextContent(type="text", text=str(text)))
+            continue
+        if part.get("type") != "image":
+            continue
+        data = part.get("data")
+        media_type = part.get("media_type")
+        if data is None or media_type is None:
+            continue
+        blocks.append(
+            ImageContent(type="image", data=str(data), mimeType=str(media_type))
+        )
+    blocks.append(
+        TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "query": response.get("query"),
+                    "router_used": response.get("router_used"),
+                    "failure_reason": response.get("failure_reason"),
+                    "referenced_chunks": response.get("referenced_chunks") or [],
+                    "decision_trace": response.get("decision_trace") or [],
+                    "results": response.get("results") or [],
+                },
+                ensure_ascii=False,
+            ),
+        )
+    )
+    return blocks
 
 
 async def resolve_mcp_user_id(*, ctx: Context | None, db: AsyncSession) -> str:
@@ -108,14 +134,14 @@ def create_retrieval_mcp_server(
         name="retrieval.query",
         description=(
             "Search published documents. Compose already happened in Knowhere. "
-            "Returns evidence (composed parts for LLM consumption), "
-            "results (raw path chunks for debug), "
-            "evidence_text (text projection of evidence), "
-            "referenced_chunks (cited chunk metadata for follow-up queries), "
-            "and decision_trace (navigation decisions including stop/failure reasons). "
-            "Include navigation intent directly in your query text — the "
-            "engine will automatically locate the right documents and sections."
+            "Returns grouped evidence as text and image content blocks, then "
+            "a JSON text block with query, router_used, failure_reason, "
+            "referenced_chunks, decision_trace, and results (raw path chunks "
+            "for debug). Include navigation intent directly in your query "
+            "text — the engine will automatically locate the right documents "
+            "and sections."
         ),
+        structured_output=False,
     )
     async def query_documents(
         query: Annotated[
@@ -149,7 +175,7 @@ def create_retrieval_mcp_server(
             )),
         ] = [],
         ctx: Context | None = None,
-    ) -> dict:
+    ) -> list[TextContent | ImageContent]:
         # TODO(intent-step): When the Intent Understanding step is
         # implemented, it will parse `query` here to extract structured
         # hints (document_hint, scope_hint, content_type_hint) and set
