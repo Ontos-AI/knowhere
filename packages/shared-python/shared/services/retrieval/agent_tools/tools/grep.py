@@ -306,6 +306,7 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             snippet=r["snippet"],
             hosted=hosted if is_asset else None,
         )
+        row["mounted_chunk_ids"] = r["mounted_chunk_ids"]
         rows.append(row)
         lines.append(format_row(row))
         rendered = str(r.get("rendered") or "").strip()

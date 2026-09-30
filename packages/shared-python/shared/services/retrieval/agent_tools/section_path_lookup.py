@@ -14,7 +14,29 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import DocumentSection
-from shared.services.retrieval.search.lexical_text import normalize_section_path
+from shared.services.retrieval.agent_tools.registry import ReadableAddresses
+from shared.services.retrieval.search.lexical_text import (
+    normalize_section_path,
+    split_section_path,
+)
+
+
+def section_path_received(
+    readable: ReadableAddresses, document_id: str, section_path: str
+) -> bool:
+    """Whether ``section_path`` runs contiguously inside a received path of the document.
+
+    Ancestor and suffix refs pass, matching how ``corpus.read`` resolves paths.
+    """
+    wanted = split_section_path(section_path)
+    size = len(wanted)
+    for seen_document_id, seen_path in readable:
+        if seen_document_id != document_id:
+            continue
+        parts = split_section_path(seen_path)
+        if any(parts[i : i + size] == wanted for i in range(len(parts) - size + 1)):
+            return True
+    return False
 
 
 def paths_matching_section_ref(normalized: str, candidate_paths: list[str]) -> list[str]:

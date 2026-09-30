@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
-from shared.services.retrieval.agent_tools.registry import ToolContext
+from shared.services.retrieval.agent_tools.registry import Decision, ToolContext
 from shared.services.retrieval.agent_tools.tools.read import _LOCATE_HINT, read
 
 USER_ID = "user_read"
@@ -581,3 +581,95 @@ async def test_read_duplicate_section_refs_emit_twice(read_ctx: ToolContext) -> 
         ],
         executes=6,
     )
+
+
+@pytest.mark.asyncio
+async def test_read_without_gates_reads_any_address(read_ctx: ToolContext) -> None:
+    assert read_ctx.readable is None and read_ctx.decided is None
+    result = await read(
+        read_ctx, _read_kwargs([{"document_id": DOC_B, "chunk_id": CHUNK_UNIQUE}])
+    )
+    assert result.error is None
+    assert result.payload["refs"][0]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_read_rejects_address_not_in_earlier_results(read_ctx: ToolContext) -> None:
+    read_ctx.readable = frozenset({(DOC_A, PATH_TREATMENT), (DOC_B, CHUNK_INTRO)})
+    result = await read(
+        read_ctx,
+        _read_kwargs(
+            [
+                {"document_id": DOC_A, "section_path": "2 Treatment"},
+                {"document_id": DOC_A, "section_path": PATH_OVERVIEW},
+                {"document_id": DOC_B, "chunk_id": CHUNK_INTRO},
+                {"document_id": DOC_B, "chunk_id": CHUNK_UNIQUE},
+            ]
+        ),
+    )
+    reason = (
+        "not in any earlier result you have received; results from calls in "
+        "this same turn are not available yet"
+    )
+    assert [entry["status"] for entry in result.payload["refs"]] == [
+        "ok",
+        "failed",
+        "ok",
+        "failed",
+    ]
+    assert result.payload["refs"][1]["reason"] == reason
+    assert result.payload["refs"][3]["reason"] == reason
+    assert [row["chunk_id"] for row in result.payload["chunks"]] == [
+        CHUNK_TREATMENT,
+        CHUNK_INTRO,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_read_fails_when_every_chunk_was_already_decided(
+    read_ctx: ToolContext,
+) -> None:
+    read_ctx.decided = {
+        (DOC_A, CHUNK_TREATMENT): Decision(read_round=2, picked_handle="R2.1", handle="R2.1"),
+        (DOC_B, CHUNK_INTRO): Decision(read_round=3, picked_handle=None, handle="R3.1"),
+    }
+    result = await read(
+        read_ctx,
+        _read_kwargs(
+            [
+                {"document_id": DOC_A, "section_path": PATH_TREATMENT},
+                {"document_id": DOC_B, "chunk_id": CHUNK_INTRO},
+            ]
+        ),
+    )
+    assert result.error is not None
+    assert result.error.startswith("read: every ref failed")
+    statuses = result.payload["refs"]
+    assert statuses[0]["reason"] == (
+        "already read in round 2 (picked as R2.1); cannot read again"
+    )
+    assert statuses[1]["reason"] == "already read in round 3 (not picked); cannot read again"
+
+
+@pytest.mark.asyncio
+async def test_read_omits_already_decided_chunks_on_partial_overlap(
+    read_ctx: ToolContext,
+) -> None:
+    read_ctx.decided = {
+        (DOC_A, CHUNK_FINDINGS): Decision(read_round=1, picked_handle=None, handle="R1.1"),
+    }
+    result = await read(
+        read_ctx,
+        _read_kwargs(
+            [{"document_id": DOC_A, "section_path": PATH_OVERVIEW}],
+            mode="descendants",
+        ),
+    )
+    assert result.error is None
+    entry = result.payload["refs"][0]
+    assert entry["status"] == "ok"
+    assert entry["chunk_ids"] == [CHUNK_OVERVIEW]
+    assert entry["omitted_chunk_ids"] == [CHUNK_FINDINGS]
+    assert f"[ok, 1 already-read chunks omitted] document_id={DOC_A}" in result.text
+    assert "findings body" not in result.text
+    assert [row["chunk_id"] for row in result.payload["chunks"]] == [CHUNK_OVERVIEW]

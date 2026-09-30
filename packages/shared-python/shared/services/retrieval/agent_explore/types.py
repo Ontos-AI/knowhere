@@ -18,13 +18,12 @@ class AgentStep:
     observation_text: str
     error: str | None
     elapsed_ms: int
-    tokens_used_delta: int
-    tokens_used_total: int
+    round_index: int
     # corpus.read only: one {ref, status, reason?} entry per requested ref,
     # kept whole in the trace (observation_text is capped there).
     ref_status: list[dict[str, Any]] | None = None
     candidates: list[str] | None = None
-    pick_requested: list[str] | None = None
+    # corpus.pick only.
     picked: list[str] | None = None
     pick_rejected: list[dict[str, str]] | None = None
 

@@ -175,6 +175,7 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             score=float(raw_score) if raw_score is not None else None,
             hosted=hosted if is_asset else None,
         )
+        row["mounted_chunk_ids"] = hit["mounted_chunk_ids"]
         payload_rows.append(row)
         lines.append(format_row(row))
         rendered = str(hit.get("rendered") or "").strip()

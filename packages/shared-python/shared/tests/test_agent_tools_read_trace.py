@@ -150,8 +150,7 @@ async def test_read_partial_failure_status_is_in_payload_and_trace(
                 observation_text=observation,
                 error=result.error,
                 elapsed_ms=1,
-                tokens_used_delta=0,
-                tokens_used_total=0,
+                round_index=1,
                 ref_status=result.payload["refs"],
             )
         ]

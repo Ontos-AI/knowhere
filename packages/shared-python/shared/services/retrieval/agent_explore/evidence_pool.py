@@ -1,16 +1,24 @@
-"""Per-step pick ids and the episode evidence pool."""
+"""Per-round addresses, pick ids, and the episode evidence pool.
+
+Results of one round become usable only when the next round begins: their
+addresses become readable, and their pick ids open a pick phase.
+"""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Literal
 
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
-from shared.services.retrieval.agent_tools import ToolResult
+from shared.services.retrieval.agent_tools import Decision, ReadableAddresses, ToolResult
 from shared.services.retrieval.hydration.evidence_compose import group_evidence_units
-from shared.services.retrieval.hydration.row_utils import normalize_chunk_type
+from shared.services.retrieval.hydration.row_utils import (
+    iter_connected_target_ids,
+    normalize_chunk_type,
+)
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 
 
@@ -37,39 +45,48 @@ class PickOutcome:
 class EvidencePool:
     def __init__(self) -> None:
         self.entries: list[Candidate] = []
-        self._pending: dict[str, Candidate] = {}
+        self.round_index = 0
+        self.pick_phase = False
         self._read_calls = 0
         self._outline_calls = 0
         self._chunk_keys: set[tuple[str, str]] = set()
+        self._seen_active: set[tuple[str, str]] = set()
+        self._seen_staged: set[tuple[str, str]] = set()
+        self._batch: dict[str, Candidate] = {}
+        self._batch_staged: dict[str, Candidate] = {}
+        self._batch_round = 0
+        self._decided: dict[tuple[str, str], Decision] = {}
+
+    def begin_round(self) -> None:
+        self.round_index += 1
+        self._seen_active |= self._seen_staged
+        self._seen_staged = set()
+        if self._batch_staged:
+            self._batch.update(self._batch_staged)
+            self._batch_staged = {}
+            self._batch_round = self.round_index - 1
+        self.pick_phase = bool(self._batch)
 
     def issue(self, tool_name: str, result: ToolResult) -> list[Candidate]:
         if result.error:
             return []
+        self._collect_seen(result)
         if tool_name == "corpus.read":
             return self._issue_read(result)
         if tool_name == "corpus.outline":
             return self._issue_outline(result)
         return []
 
-    def take_pending(self) -> dict[str, Candidate]:
-        pending = self._pending
-        self._pending = {}
-        return pending
-
-    def apply_pick(
-        self, handles: list[str], pending: Mapping[str, Candidate]
-    ) -> PickOutcome:
+    def apply_pick(self, handles: list[str]) -> PickOutcome:
         outcome = PickOutcome()
         seen: set[str] = set()
         for handle in handles:
             if handle in seen:
                 continue
             seen.add(handle)
-            candidate = pending.get(handle)
+            candidate = self._batch.get(handle)
             if candidate is None:
-                outcome.rejected.append(
-                    {"handle": handle, "reason": "expired or unknown"}
-                )
+                outcome.rejected.append({"handle": handle, "reason": "unknown id"})
                 continue
             if candidate.kind == "read" and self._all_chunks_in_pool(candidate):
                 outcome.rejected.append({"handle": handle, "reason": "already in pool"})
@@ -78,7 +95,30 @@ class EvidencePool:
             for chunk_id in candidate.chunk_ids:
                 self._chunk_keys.add((candidate.document_id, chunk_id))
             outcome.added.append(handle)
+        picked = set(outcome.added)
+        for candidate in self._batch.values():
+            if candidate.kind != "read":
+                continue
+            picked_handle = candidate.handle if candidate.handle in picked else None
+            for chunk_id in candidate.chunk_ids:
+                key = (candidate.document_id, chunk_id)
+                existing = self._decided.get(key)
+                if existing is not None and existing.picked_handle is not None:
+                    continue
+                self._decided[key] = Decision(
+                    read_round=self._batch_round,
+                    picked_handle=picked_handle,
+                    handle=candidate.handle,
+                )
+        self._batch = {}
+        self.pick_phase = False
         return outcome
+
+    def readable(self) -> ReadableAddresses:
+        return frozenset(self._seen_active)
+
+    def decided(self) -> Mapping[tuple[str, str], Decision]:
+        return MappingProxyType(dict(self._decided))
 
     def render_candidates(self, candidates: list[Candidate]) -> str:
         if not candidates:
@@ -119,6 +159,29 @@ class EvidencePool:
             for chunk_id in candidate.chunk_ids
         )
 
+    def _collect_seen(self, result: ToolResult) -> None:
+        for key in ("rows", "chunks"):
+            rows = result.payload.get(key)
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                document_id = str(row.get("document_id") or "")
+                if not document_id:
+                    continue
+                section_path = str(row.get("section_path") or "").strip()
+                if section_path:
+                    self._seen_staged.add((document_id, section_path))
+                chunk_ids = [
+                    row.get("chunk_id"),
+                    *(row.get("mounted_chunk_ids") or []),
+                    *iter_connected_target_ids(row),
+                ]
+                for chunk_id in chunk_ids:
+                    if chunk_id:
+                        self._seen_staged.add((document_id, str(chunk_id)))
+
     def _issue_read(self, result: ToolResult) -> list[Candidate]:
         self._read_calls += 1
         statuses = result.payload.get("refs")
@@ -157,7 +220,7 @@ class EvidencePool:
                 extra_sections=max(len(chunk_ids) - 1, 0),
             )
             issued.append(candidate)
-            self._pending[candidate.handle] = candidate
+            self._batch_staged[candidate.handle] = candidate
         return issued
 
     def _issue_outline(self, result: ToolResult) -> list[Candidate]:
@@ -180,27 +243,32 @@ class EvidencePool:
             source_file_name=source_file_name,
             outline_lines=tuple(lines),
         )
-        self._pending[candidate.handle] = candidate
+        self._batch_staged[candidate.handle] = candidate
         return [candidate]
 
 
 def render_budget(budget: EpisodeBudget) -> str:
-    snap = budget.snapshot()
-    return (
-        f"budget: steps {snap['steps_used']}/{snap['max_steps']}, "
-        f"tokens {snap['tokens_used']}/{snap['token_limit']}, "
-        f"elapsed {snap['elapsed_seconds']:.0f}s/{snap['wall_clock_seconds']:.0f}s"
-    )
+    return f"budget: steps {budget.steps_used}/{budget.max_steps}"
+
+
+def render_pick_outcome(outcome: PickOutcome) -> str:
+    text = f"picked: {', '.join(outcome.added) or 'none'}"
+    if outcome.rejected:
+        rejected = ", ".join(
+            f"{item['handle']} ({item['reason']})" for item in outcome.rejected
+        )
+        text += f"; rejected: {rejected}"
+    return text
 
 
 def render_trace_line(
     index: int,
     wire_name: str,
     args: dict[str, Any],
-    result: ToolResult,
+    status: str,
 ) -> str:
     encoded = json.dumps(args, ensure_ascii=False, default=str)
-    return f"{index}. {wire_name} {encoded} -> {_trace_status(result)}"
+    return f"{index}. {wire_name} {encoded} -> {status}"
 
 
 def pool_chunk_refs(entries: list[Candidate]) -> list[dict[str, str]]:
@@ -274,7 +342,7 @@ def pool_trace_records(entries: list[Candidate]) -> list[dict[str, Any]]:
     return records
 
 
-def _trace_status(result: ToolResult) -> str:
+def trace_status(result: ToolResult) -> str:
     if result.error:
         return f"failed: {result.error}"
     statuses = result.payload.get("refs")

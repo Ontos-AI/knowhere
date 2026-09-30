@@ -7,11 +7,15 @@ returns ``.content`` and silently drops ``message.tool_calls``. Verified live
 (2026-09-08) against ``deepseek-v4-flash`` via this codebase's client:
 single tool call, parallel tool calls in one turn, tool-result feedback +
 final synthesis, and forced ``tool_choice`` (used for the budget-exhaustion
-cutoff below) all work.
+cutoff and the pick phase below) all work.
 
-Each turn sends only a system message plus one rebuilt user message
-(query, one-line call trace, latest-turn results with pick ids, evidence
-pool, budget). Native tool-call history is not kept.
+Each turn is one round and sends only a system message plus one rebuilt
+user message (query, one-line call trace, latest-turn results with pick ids,
+evidence pool, steps). Native tool-call history is not kept.
+
+A turn after a successful read or outline is a pick phase: only
+``corpus_pick`` is offered and forced, and the turn does not count as a
+step. Tokens are only summed for the episode total.
 
 Tool calls within one turn are dispatched sequentially through
 ``dispatch.dispatch_tool_call`` (fresh DB session per call). No import from
@@ -34,29 +38,38 @@ from shared.services.retrieval.agent_explore.config import (
     FINISH_TOOL_DESCRIPTION,
     FINISH_TOOL_NAME,
     FINISH_TOOL_SCHEMA,
+    PICK_TOOL_DESCRIPTION,
+    PICK_TOOL_NAME,
+    PICK_TOOL_SCHEMA,
 )
 from shared.services.retrieval.agent_explore.dispatch import DbFactory, dispatch_tool_call
 from shared.services.retrieval.agent_explore.evidence_pool import (
     EvidencePool,
-    PickOutcome,
     render_budget,
+    render_pick_outcome,
     render_trace_line,
+    trace_status,
 )
-from shared.services.retrieval.agent_explore.prompt import (
-    AGENT_SYSTEM_PROMPT,
-    split_pick,
-    with_pick_field,
-)
+from shared.services.retrieval.agent_explore.prompt import AGENT_SYSTEM_PROMPT
 from shared.services.retrieval.agent_explore.shared import (
     build_wire_tool_name_map,
     invalid_finish_message,
+    invalid_pick_message,
     read_ref_status,
     tool_message_content,
     validate_finish_args,
+    validate_pick_args,
     wire_safe_tool_name,
 )
 from shared.services.retrieval.agent_explore.types import AgentStep, EpisodeResult
 from shared.services.retrieval.agent_tools import REGISTRY, ToolBudget, ToolResult
+
+_PICK_WIRE_NAME = wire_safe_tool_name(PICK_TOOL_NAME)
+
+_PICK_PHASE_INSTRUCTION = (
+    "Pick phase: you can only call corpus_pick now. Pick the ids worth "
+    "keeping, or pass an empty list."
+)
 
 
 def _resolve_client_and_model() -> tuple[Any, str]:
@@ -84,7 +97,7 @@ def _build_openai_tools() -> tuple[list[dict[str, Any]], dict[str, str]]:
             "function": {
                 "name": wire_safe_tool_name(spec.name),
                 "description": spec.description,
-                "parameters": with_pick_field(spec.json_schema),
+                "parameters": spec.json_schema,
             },
         }
         for spec in specs
@@ -100,6 +113,17 @@ def _build_openai_tools() -> tuple[list[dict[str, Any]], dict[str, str]]:
         }
     )
     return tools, name_map
+
+
+def _build_pick_tool() -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": _PICK_WIRE_NAME,
+            "description": PICK_TOOL_DESCRIPTION,
+            "parameters": PICK_TOOL_SCHEMA,
+        },
+    }
 
 
 def _parse_tool_arguments(raw: str | None) -> tuple[dict[str, Any], str | None]:
@@ -126,29 +150,22 @@ def _compose_user_content(
     query: str,
     trace_lines: list[str],
     latest_results: list[str],
+    latest_turn: int,
     pool: EvidencePool,
     budget: EpisodeBudget,
-    previous_turn: int,
+    instruction: str,
 ) -> str:
     parts = [f"User query: {query}"]
     if trace_lines:
         parts.append("trace:\n" + "\n".join(f"  {line}" for line in trace_lines))
     if latest_results:
         parts.append(
-            f"latest results (turn {previous_turn}):\n" + "\n\n".join(latest_results)
+            f"latest results (turn {latest_turn}):\n" + "\n\n".join(latest_results)
         )
     parts.append(pool.render_pool())
     parts.append(render_budget(budget))
+    parts.append(instruction)
     return "\n\n".join(part for part in parts if part)
-
-
-def _attach_pick(
-    step: AgentStep, requested: list[str], outcome: PickOutcome
-) -> AgentStep:
-    step.pick_requested = requested
-    step.picked = outcome.added
-    step.pick_rejected = outcome.rejected
-    return step
 
 
 class OpenAIHarness:
@@ -167,9 +184,11 @@ class OpenAIHarness:
         tool_budget = ToolBudget()
         client, model = _resolve_client_and_model()
         openai_tools, tool_name_map = _build_openai_tools()
+        pick_tool = _build_pick_tool()
         pool = EvidencePool()
         trace_lines: list[str] = []
         latest_results: list[str] = []
+        latest_turn = 0
         steps: list[AgentStep] = []
         result_notes = ""
         turn_index = 0
@@ -177,6 +196,17 @@ class OpenAIHarness:
 
         while True:
             turn_index += 1
+            pool.begin_round()
+            pick_turn = pool.pick_phase and budget.remaining_seconds() > 0
+            forced_reason = None if pick_turn else budget.exhausted()
+            if pick_turn:
+                tools = [pick_tool]
+                tool_choice: Any = {"type": "function", "function": {"name": _PICK_WIRE_NAME}}
+            else:
+                tools = openai_tools
+                tool_choice = "auto"
+                if forced_reason is not None:
+                    tool_choice = {"type": "function", "function": {"name": FINISH_TOOL_NAME}}
             messages = [
                 {"role": "system", "content": AGENT_SYSTEM_PROMPT},
                 {
@@ -185,17 +215,13 @@ class OpenAIHarness:
                         query=query,
                         trace_lines=trace_lines,
                         latest_results=latest_results,
+                        latest_turn=latest_turn,
                         pool=pool,
                         budget=budget,
-                        previous_turn=turn_index - 1,
+                        instruction=_PICK_PHASE_INSTRUCTION if pick_turn else "",
                     ),
                 },
             ]
-
-            forced_reason = budget.exhausted()
-            tool_choice: Any = "auto"
-            if forced_reason is not None:
-                tool_choice = {"type": "function", "function": {"name": FINISH_TOOL_NAME}}
 
             turn_started = time.perf_counter()
             response, usage = await asyncio.to_thread(
@@ -204,13 +230,13 @@ class OpenAIHarness:
                 model=model,
                 temperature=0.0,
                 max_tokens=AGENT_EXPLORE_MAX_COMPLETION_TOKENS,
-                tools=openai_tools,
+                tools=tools,
                 tool_choice=tool_choice,
             )
             budget.record_usage(usage)
-            budget.record_step()
+            if not pick_turn:
+                budget.record_step()
             turn_elapsed_ms = int((time.perf_counter() - turn_started) * 1000)
-            turn_tokens = int((usage or {}).get("total_tokens", 0) or 0)
 
             message = response.choices[0].message
             tool_calls = list(message.tool_calls or [])
@@ -226,49 +252,61 @@ class OpenAIHarness:
                         observation_text=result_notes,
                         error=None,
                         elapsed_ms=turn_elapsed_ms,
-                        tokens_used_delta=turn_tokens,
-                        tokens_used_total=budget.tokens_used,
+                        round_index=pool.round_index,
                     )
                 )
                 break
 
-            parsed_calls: list[
-                tuple[Any, str, dict[str, Any], list[str], dict[str, Any], str | None]
-            ] = []
-            all_handles: list[str] = []
-            for tool_call in tool_calls:
-                args, parse_error = _parse_tool_arguments(tool_call.function.arguments)
-                handles, call_args = split_pick(args)
-                all_handles.extend(handles)
-                parsed_calls.append(
-                    (
-                        tool_call,
-                        str(tool_call.function.name or ""),
-                        args,
-                        handles,
-                        call_args,
-                        parse_error,
+            if pick_turn:
+                for call_index, tool_call in enumerate(tool_calls):
+                    args, parse_error = _parse_tool_arguments(tool_call.function.arguments)
+                    outcome = pool.apply_pick(pick_handles(args))
+                    observation = render_pick_outcome(outcome)
+                    trace_lines.append(
+                        render_trace_line(
+                            len(trace_lines) + 1,
+                            _PICK_WIRE_NAME,
+                            args,
+                            trace_status(ToolResult(text="", error=parse_error))
+                            if parse_error is not None
+                            else observation,
+                        )
                     )
-                )
+                    steps.append(
+                        AgentStep(
+                            step_index=len(steps),
+                            tool_name=PICK_TOOL_NAME,
+                            tool_args=args,
+                            observation_text=observation,
+                            error=parse_error,
+                            elapsed_ms=turn_elapsed_ms if call_index == 0 else 0,
+                            round_index=pool.round_index,
+                            picked=outcome.added,
+                            pick_rejected=outcome.rejected,
+                        )
+                    )
+                continue
 
-            decision = pool.take_pending()
-            outcome = pool.apply_pick(all_handles, decision)
-            pick_recorded = False
+            parsed_calls: list[tuple[str, dict[str, Any], str | None]] = [
+                (
+                    str(tool_call.function.name or ""),
+                    *_parse_tool_arguments(tool_call.function.arguments),
+                )
+                for tool_call in tool_calls
+            ]
 
             finish_entry = next(
-                (item for item in parsed_calls if item[1] == FINISH_TOOL_NAME),
+                (item for item in parsed_calls if item[0] == FINISH_TOOL_NAME),
                 None,
             )
             finish_error: str | None = None
             finish_args: dict[str, Any] = {}
             finish_parse_error: str | None = None
             if finish_entry is not None:
-                _tc, _name, raw_finish_args, _handles, finish_args, finish_parse_error = (
-                    finish_entry
-                )
+                _name, finish_args, finish_parse_error = finish_entry
                 parse_error = finish_parse_error
                 if parse_error is None:
-                    parse_error = validate_finish_args(raw_finish_args)
+                    parse_error = validate_finish_args(finish_args)
                 if parse_error is not None and forced_reason is None:
                     finish_error = parse_error
             if finish_entry is not None and finish_error is None:
@@ -279,21 +317,14 @@ class OpenAIHarness:
                 )
                 stop_reason = f"budget_{forced_reason}" if forced_reason else "finished"
                 steps.append(
-                    _attach_pick(
-                        AgentStep(
-                            step_index=len(steps),
-                            tool_name=FINISH_TOOL_NAME,
-                            tool_args=finish_args,
-                            observation_text=(
-                                f"pool={len(pool.entries)} notes={result_notes!r}"
-                            ),
-                            error=finish_parse_error,
-                            elapsed_ms=turn_elapsed_ms,
-                            tokens_used_delta=turn_tokens,
-                            tokens_used_total=budget.tokens_used,
-                        ),
-                        all_handles,
-                        outcome,
+                    AgentStep(
+                        step_index=len(steps),
+                        tool_name=FINISH_TOOL_NAME,
+                        tool_args=finish_args,
+                        observation_text=f"pool={len(pool.entries)} notes={result_notes!r}",
+                        error=finish_parse_error,
+                        elapsed_ms=turn_elapsed_ms,
+                        round_index=pool.round_index,
                     )
                 )
                 break
@@ -304,33 +335,23 @@ class OpenAIHarness:
                     "budget exhausted; provider did not return finish"
                 )
                 steps.append(
-                    _attach_pick(
-                        AgentStep(
-                            step_index=len(steps),
-                            tool_name="",
-                            tool_args={},
-                            observation_text=result_notes,
-                            error="forced_finish_not_honored",
-                            elapsed_ms=turn_elapsed_ms,
-                            tokens_used_delta=turn_tokens,
-                            tokens_used_total=budget.tokens_used,
-                        ),
-                        all_handles,
-                        outcome,
+                    AgentStep(
+                        step_index=len(steps),
+                        tool_name="",
+                        tool_args={},
+                        observation_text=result_notes,
+                        error="forced_finish_not_honored",
+                        elapsed_ms=turn_elapsed_ms,
+                        round_index=pool.round_index,
                     )
                 )
                 break
 
-            first_tool_tokens_recorded = False
+            readable = pool.readable()
+            decided = pool.decided()
+            first_step_recorded = False
             turn_results: list[str] = []
-            for (
-                _tool_call,
-                requested_name,
-                _raw_args,
-                _handles,
-                call_args,
-                parse_error,
-            ) in parsed_calls:
+            for requested_name, call_args, parse_error in parsed_calls:
                 tool_started = time.perf_counter()
                 canonical_name = tool_name_map.get(requested_name, requested_name)
                 if requested_name == FINISH_TOOL_NAME:
@@ -351,6 +372,8 @@ class OpenAIHarness:
                         document_scope=document_scope,
                         budget=tool_budget,
                         query=query,
+                        readable=readable,
+                        decided=decided,
                     )
                     trace_result = tool_result
                 tool_elapsed_ms = int((time.perf_counter() - tool_started) * 1000)
@@ -368,32 +391,30 @@ class OpenAIHarness:
                         len(trace_lines) + 1,
                         requested_name,
                         call_args,
-                        trace_result,
+                        trace_status(trace_result),
                     )
                 )
-                step = AgentStep(
-                    step_index=len(steps),
-                    tool_name=canonical_name,
-                    tool_args=call_args,
-                    observation_text=content,
-                    error=tool_result.error,
-                    elapsed_ms=(
-                        tool_elapsed_ms
-                        if first_tool_tokens_recorded
-                        else turn_elapsed_ms + tool_elapsed_ms
-                    ),
-                    tokens_used_delta=0 if first_tool_tokens_recorded else turn_tokens,
-                    tokens_used_total=budget.tokens_used,
-                    ref_status=read_ref_status(canonical_name, tool_result),
-                    candidates=[item.handle for item in candidates] or None,
+                steps.append(
+                    AgentStep(
+                        step_index=len(steps),
+                        tool_name=canonical_name,
+                        tool_args=call_args,
+                        observation_text=content,
+                        error=tool_result.error,
+                        elapsed_ms=(
+                            tool_elapsed_ms
+                            if first_step_recorded
+                            else turn_elapsed_ms + tool_elapsed_ms
+                        ),
+                        round_index=pool.round_index,
+                        ref_status=read_ref_status(canonical_name, tool_result),
+                        candidates=[item.handle for item in candidates] or None,
+                    )
                 )
-                if not pick_recorded:
-                    _attach_pick(step, all_handles, outcome)
-                    pick_recorded = True
-                steps.append(step)
-                first_tool_tokens_recorded = True
+                first_step_recorded = True
 
             latest_results = turn_results
+            latest_turn = turn_index
 
         return EpisodeResult(
             pool=list(pool.entries),

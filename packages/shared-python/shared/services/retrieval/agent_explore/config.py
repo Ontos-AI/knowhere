@@ -8,8 +8,6 @@ codebase's OpenAI-compatible client.
 
 from __future__ import annotations
 
-from shared.services.retrieval.agent_explore.prompt import PICK_FIELD_SCHEMA
-
 AGENT_EXPLORE_MODEL = "deepseek-v4-flash"
 
 # Model for AGENT_EXPLORE_HARNESS=cursor_sdk (harness/cursor_harness.py) —
@@ -26,7 +24,7 @@ AGENT_EXPLORE_CURSOR_MODEL = "composer-2.5"
 AGENT_EXPLORE_MAX_STEPS = 12
 
 # Wall-clock ceiling for the whole episode (LLM round-trips + tool
-# dispatch), independent of the token budget. New constant, not tuned yet.
+# dispatch). A service-level guard, never shown to the model.
 AGENT_EXPLORE_WALL_CLOCK_SECONDS = 180.0
 
 # Max tokens requested per LLM completion turn (thinking disabled — see
@@ -38,7 +36,6 @@ FINISH_TOOL_NAME = "finish"
 FINISH_TOOL_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
-        "pick": PICK_FIELD_SCHEMA,
         "notes": {
             "type": "string",
             "description": (
@@ -52,6 +49,30 @@ FINISH_TOOL_SCHEMA: dict[str, object] = {
 }
 
 FINISH_TOOL_DESCRIPTION = (
-    "End the exploration now. The evidence pool becomes the final evidence. "
-    "Use pick to add ids from the previous result before ending."
+    "End the exploration now. The evidence pool becomes the final evidence."
+)
+
+# Harness-level tool, not in agent_tools.REGISTRY, so MCP never exposes it.
+PICK_TOOL_NAME = "corpus.pick"
+
+PICK_TOOL_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "pick": {
+            "type": "array",
+            "items": {"type": "string", "pattern": r"^(R\d+\.\d+|O\d+)$"},
+            "uniqueItems": True,
+            "description": (
+                "Ids from your latest corpus.read / corpus.outline results to "
+                "keep. Pass an empty list to keep none."
+            ),
+        },
+    },
+    "required": ["pick"],
+    "additionalProperties": False,
+}
+
+PICK_TOOL_DESCRIPTION = (
+    "Pick which of your latest corpus.read / corpus.outline results join the "
+    "evidence pool. Body text you read but do not pick cannot be read again."
 )

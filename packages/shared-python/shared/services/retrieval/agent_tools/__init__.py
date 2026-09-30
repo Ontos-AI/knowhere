@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from shared.services.retrieval.agent_tools.registry import (
     REGISTRY,
+    Decision,
+    ReadableAddresses,
     ToolBudget,
     ToolContext,
     ToolRegistry,
@@ -40,6 +42,8 @@ from shared.services.retrieval.agent_tools import tools as _tools
 __all__ = [
     "_tools",
     "REGISTRY",
+    "Decision",
+    "ReadableAddresses",
     "ToolBudget",
     "ToolContext",
     "ToolRegistry",

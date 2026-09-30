@@ -16,21 +16,31 @@ start if ``cursor-sdk`` isn't installed.
 
 This harness does not control the LLM turn loop. ``agent.send(...)`` +
 ``await run.wait()`` hands the multi-turn tool-calling loop to the Cursor
-SDK. The host process only sees ``execute`` callbacks and the terminal
-``RunResult``. There is no per-turn hook to rebuild the decision context
-the way ``openai_harness.py`` does; each callback returns pick ids for
-this result, the evidence pool, and the remaining budget.
+SDK. The host process only sees ``execute`` callbacks, ``on_delta`` updates
+(driven by ``run.wait()``), and the terminal ``RunResult``.
+
+Rounds: calls the model issues in one turn share one ``model_call_id``,
+carried by the ``tool-call-started`` update. That update and the tool
+callback arrive almost together, so each callback first waits for its own
+tag (at most the remaining wall clock; without it the call fails with
+``round tag missing``, unexecuted and uncounted). A new ``model_call_id``
+begins a new pool round.
+
+Pick phase: the Cursor tool list is fixed when the agent is created, so a
+round after a successful read or outline accepts only ``corpus_pick``; every
+other call (including ``finish``) is rejected at once, unexecuted and
+uncounted. ``corpus_pick`` itself never counts as a step.
 
 Budget dimensions:
 
 - **``max_steps``**: checked in ``_dispatch_sync`` before dispatch. Once
   ``budget.steps_used`` reaches ``budget.max_steps``, further ``corpus.*``
-  calls are not forwarded; the callback still applies ``pick`` and returns
-  a fixed exhausted message plus pool and budget.
+  calls are not forwarded; the callback returns a fixed exhausted message
+  plus pool and budget.
 - **``wall_clock``**: ``asyncio.wait_for(run.wait(), timeout=budget.wall_clock_seconds)``.
   On timeout, best-effort ``await run.cancel()``.
-- **``token_limit``**: not actively enforced mid-run; ``budget.tokens_used``
-  is populated post-hoc from the terminal ``RunResult.usage``.
+- **tokens**: not limited; ``budget.tokens_used`` is only the episode total
+  from the terminal ``RunResult.usage``.
 """
 
 from __future__ import annotations
@@ -51,24 +61,25 @@ from shared.services.retrieval.agent_explore.config import (
     FINISH_TOOL_DESCRIPTION,
     FINISH_TOOL_NAME,
     FINISH_TOOL_SCHEMA,
+    PICK_TOOL_DESCRIPTION,
+    PICK_TOOL_NAME,
+    PICK_TOOL_SCHEMA,
 )
 from shared.services.retrieval.agent_explore.dispatch import DbFactory, dispatch_tool_call
 from shared.services.retrieval.agent_explore.evidence_pool import (
     EvidencePool,
-    PickOutcome,
     render_budget,
+    render_pick_outcome,
 )
-from shared.services.retrieval.agent_explore.prompt import (
-    AGENT_SYSTEM_PROMPT,
-    split_pick,
-    with_pick_field,
-)
+from shared.services.retrieval.agent_explore.prompt import AGENT_SYSTEM_PROMPT
 from shared.services.retrieval.agent_explore.shared import (
     cursor_execute_content,
     invalid_finish_message,
+    invalid_pick_message,
     read_ref_status,
     tool_message_content,
     validate_finish_args,
+    validate_pick_args,
     wire_safe_tool_name,
 )
 from shared.services.retrieval.agent_explore.types import AgentStep, EpisodeResult
@@ -84,6 +95,15 @@ _BUDGET_EXHAUSTED_MESSAGE = (
     "corpus.* tools; call finish now."
 )
 
+_PICK_PHASE_REJECTION = (
+    "Pick phase: only corpus_pick is accepted now. Pick from R/O ids above, "
+    "or pass an empty list."
+)
+
+_NEXT_TURN_PICK_INSTRUCTION = "Next turn is a pick phase: call only corpus_pick."
+
+_ROUND_TAG_MISSING = "round tag missing"
+
 
 def _require_cursor_sdk() -> Any:
     try:
@@ -96,15 +116,6 @@ def _require_cursor_sdk() -> Any:
             "(apps/api). Worker debug scripts: uv sync --extra cursor-harness."
         ) from exc
     return cursor_sdk
-
-
-def _attach_pick(
-    step: AgentStep, requested: list[str], outcome: PickOutcome
-) -> AgentStep:
-    step.pick_requested = requested
-    step.picked = outcome.added
-    step.pick_rejected = outcome.rejected
-    return step
 
 
 def _state_tail(pool: EvidencePool, budget: EpisodeBudget) -> str:
@@ -138,53 +149,92 @@ class CursorHarness:
 
         tool_budget = ToolBudget()
         loop = asyncio.get_running_loop()
-        budget_lock = threading.Lock()
+        state = threading.Condition()
         pool = EvidencePool()
+        round_of: dict[str, str] = {}
+        current_round: dict[str, Any] = {"id": None, "pick_phase": False}
 
         steps: list[AgentStep] = []
         finish_state: dict[str, Any] = {"notes": ""}
         stop_reason = "finished"
 
+        def _on_delta(update: Any) -> None:
+            if getattr(update, "type", None) != "tool-call-started":
+                return
+            with state:
+                round_of[update.call_id] = update.model_call_id
+                state.notify_all()
+
+        def _enter_round(ctx: Any) -> bool | None:
+            """Wait for this call's round tag (caller holds ``state``).
+
+            Returns whether the call's round is a pick phase, or ``None`` when
+            the tag never arrived.
+            """
+            call_id = ctx.tool_call_id
+            if not state.wait_for(
+                lambda: call_id in round_of, timeout=budget.remaining_seconds()
+            ):
+                return None
+            model_call_id = round_of[call_id]
+            if model_call_id != current_round["id"]:
+                pool.begin_round()
+                current_round["id"] = model_call_id
+                current_round["pick_phase"] = pool.pick_phase
+            return current_round["pick_phase"]
+
+        def _append_step(**fields: Any) -> None:
+            steps.append(AgentStep(step_index=len(steps), **fields))
+
+        def _reject(tool_name: str, args: dict[str, Any], message: str) -> None:
+            _append_step(
+                tool_name=tool_name,
+                tool_args=args,
+                observation_text=message,
+                error=message,
+                elapsed_ms=0,
+                round_index=pool.round_index,
+            )
+
         def _dispatch_sync(
-            tool_name: str, args: dict[str, Any]
+            tool_name: str, args: dict[str, Any], ctx: Any
         ) -> str | list[dict[str, Any]]:
-            handles, call_args = split_pick(args)
-            with budget_lock:
-                outcome = pool.apply_pick(handles, pool.take_pending())
-                exhausted = budget.steps_used >= budget.max_steps
-                if not exhausted:
-                    budget.record_step()
-            if exhausted:
-                observation = _BUDGET_EXHAUSTED_MESSAGE + "\n" + _state_tail(pool, budget)
-                with budget_lock:
-                    steps.append(
-                        _attach_pick(
-                            AgentStep(
-                                step_index=len(steps),
-                                tool_name=tool_name,
-                                tool_args=call_args,
-                                observation_text=observation,
-                                error="budget_max_steps",
-                                elapsed_ms=0,
-                                tokens_used_delta=0,
-                                tokens_used_total=budget.tokens_used,
-                            ),
-                            handles,
-                            outcome,
-                        )
+            with state:
+                pick_round = _enter_round(ctx)
+                round_index = pool.round_index
+                if pick_round is None:
+                    _reject(tool_name, args, _ROUND_TAG_MISSING)
+                    return f"error: {_ROUND_TAG_MISSING}"
+                if pick_round:
+                    _reject(tool_name, args, _PICK_PHASE_REJECTION)
+                    return _PICK_PHASE_REJECTION
+                if budget.steps_used >= budget.max_steps:
+                    observation = _BUDGET_EXHAUSTED_MESSAGE + "\n" + _state_tail(pool, budget)
+                    _append_step(
+                        tool_name=tool_name,
+                        tool_args=args,
+                        observation_text=observation,
+                        error="budget_max_steps",
+                        elapsed_ms=0,
+                        round_index=round_index,
                     )
-                return observation
+                    return observation
+                budget.record_step()
+                readable = pool.readable()
+                decided = pool.decided()
             tool_started = time.perf_counter()
             future = asyncio.run_coroutine_threadsafe(
                 dispatch_tool_call(
                     tool_name,
-                    call_args,
+                    args,
                     db_factory=db_factory,
                     user_id=user_id,
                     namespace=namespace,
                     document_scope=document_scope,
                     budget=tool_budget,
                     query=query,
+                    readable=readable,
+                    decided=decided,
                 ),
                 loop,
             )
@@ -198,33 +248,27 @@ class CursorHarness:
                 tool_name=tool_name,
                 max_chars=tool_budget.max_chars,
             )
-            with budget_lock:
+            with state:
                 candidates = pool.issue(tool_name, tool_result)
                 tail = _state_tail(pool, budget)
-            candidate_line = pool.render_candidates(candidates)
             text = content
-            if candidate_line:
-                text = content + "\n" + candidate_line
+            if candidates:
+                text = (
+                    f"{content}\n{pool.render_candidates(candidates)}\n"
+                    f"{_NEXT_TURN_PICK_INSTRUCTION}"
+                )
             text = text + "\n\n" + tail
             observation = cursor_execute_content(tool_result, text=text)
-            with budget_lock:
-                steps.append(
-                    _attach_pick(
-                        AgentStep(
-                            step_index=len(steps),
-                            tool_name=tool_name,
-                            tool_args=call_args,
-                            observation_text=text,
-                            error=tool_result.error,
-                            elapsed_ms=elapsed_ms,
-                            tokens_used_delta=0,
-                            tokens_used_total=budget.tokens_used,
-                            ref_status=read_ref_status(tool_name, tool_result),
-                            candidates=[item.handle for item in candidates] or None,
-                        ),
-                        handles,
-                        outcome,
-                    )
+            with state:
+                _append_step(
+                    tool_name=tool_name,
+                    tool_args=args,
+                    observation_text=text,
+                    error=tool_result.error,
+                    elapsed_ms=elapsed_ms,
+                    round_index=round_index,
+                    ref_status=read_ref_status(tool_name, tool_result),
+                    candidates=[item.handle for item in candidates] or None,
                 )
             return observation
 
@@ -234,64 +278,75 @@ class CursorHarness:
 
             def _make_execute(resolved_name: str):
                 def execute(
-                    args: dict[str, Any], _ctx: Any
+                    args: dict[str, Any], ctx: Any
                 ) -> str | list[dict[str, Any]]:
-                    return _dispatch_sync(resolved_name, dict(args or {}))
+                    return _dispatch_sync(resolved_name, dict(args or {}), ctx)
 
                 return execute
 
             custom_tools[wire_name] = cursor_sdk.CustomTool(
                 execute=_make_execute(spec.name),
                 description=f"{spec.description} (canonical name: {spec.name})",
-                input_schema=with_pick_field(spec.json_schema),
+                input_schema=spec.json_schema,
             )
 
-        def finish_execute(args: dict[str, Any], _ctx: Any) -> str:
+        def pick_execute(args: dict[str, Any], ctx: Any) -> str:
             args = dict(args or {})
-            handles, call_args = split_pick(args)
-            validation_error = validate_finish_args(args)
-            with budget_lock:
-                outcome = pool.apply_pick(handles, pool.take_pending())
+            with state:
+                if _enter_round(ctx) is None:
+                    _reject(PICK_TOOL_NAME, args, _ROUND_TAG_MISSING)
+                    return f"error: {_ROUND_TAG_MISSING}"
+                validation_error = validate_pick_args(args)
                 if validation_error is not None:
-                    steps.append(
-                        _attach_pick(
-                            AgentStep(
-                                step_index=len(steps),
-                                tool_name=FINISH_TOOL_NAME,
-                                tool_args=call_args,
-                                observation_text=validation_error,
-                                error=validation_error,
-                                elapsed_ms=0,
-                                tokens_used_delta=0,
-                                tokens_used_total=budget.tokens_used,
-                            ),
-                            handles,
-                            outcome,
-                        )
-                    )
+                    message = invalid_pick_message(validation_error)
+                    _reject(PICK_TOOL_NAME, args, message)
+                    return f"error: {message}"
+                outcome = pool.apply_pick(list(args["pick"]))
+                observation = render_pick_outcome(outcome)
+                _append_step(
+                    tool_name=PICK_TOOL_NAME,
+                    tool_args=args,
+                    observation_text=observation,
+                    error=None,
+                    elapsed_ms=0,
+                    round_index=pool.round_index,
+                    picked=outcome.added,
+                    pick_rejected=outcome.rejected,
+                )
+                return observation + "\n\n" + _state_tail(pool, budget)
+
+        custom_tools[wire_safe_tool_name(PICK_TOOL_NAME)] = cursor_sdk.CustomTool(
+            execute=pick_execute,
+            description=PICK_TOOL_DESCRIPTION,
+            input_schema=PICK_TOOL_SCHEMA,
+        )
+
+        def finish_execute(args: dict[str, Any], ctx: Any) -> str:
+            args = dict(args or {})
+            with state:
+                pick_round = _enter_round(ctx)
+                if pick_round is None or pick_round:
+                    message = _ROUND_TAG_MISSING if pick_round is None else _PICK_PHASE_REJECTION
+                    _reject(FINISH_TOOL_NAME, args, message)
+                    return json.dumps({"status": "error", "error": message})
+                validation_error = validate_finish_args(args)
+                if validation_error is not None:
+                    _reject(FINISH_TOOL_NAME, args, validation_error)
                     return json.dumps(
                         {
                             "status": "error",
                             "error": invalid_finish_message(validation_error),
                         }
                     )
-                notes = str(call_args.get("notes") or "")
+                notes = str(args.get("notes") or "")
                 finish_state["notes"] = notes
-                steps.append(
-                    _attach_pick(
-                        AgentStep(
-                            step_index=len(steps),
-                            tool_name=FINISH_TOOL_NAME,
-                            tool_args=call_args,
-                            observation_text=f"pool={len(pool.entries)} notes={notes!r}",
-                            error=None,
-                            elapsed_ms=0,
-                            tokens_used_delta=0,
-                            tokens_used_total=budget.tokens_used,
-                        ),
-                        handles,
-                        outcome,
-                    )
+                _append_step(
+                    tool_name=FINISH_TOOL_NAME,
+                    tool_args=args,
+                    observation_text=f"pool={len(pool.entries)} notes={notes!r}",
+                    error=None,
+                    elapsed_ms=0,
+                    round_index=pool.round_index,
                 )
             return json.dumps({"status": "finished", "pool": len(pool.entries)})
 
@@ -317,7 +372,9 @@ class CursorHarness:
                     ),
                 )
             ) as agent:
-                run = await agent.send(user_prompt)
+                run = await agent.send(
+                    user_prompt, cursor_sdk.SendOptions(on_delta=_on_delta)
+                )
                 try:
                     result = await asyncio.wait_for(
                         run.wait(), timeout=budget.wall_clock_seconds

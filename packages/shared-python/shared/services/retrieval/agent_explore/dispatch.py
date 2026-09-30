@@ -20,13 +20,20 @@ from __future__ import annotations
 
 from shared.services.retrieval.document_scope import DocumentScope
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agent_tools import REGISTRY, ToolBudget, ToolContext, ToolResult
+from shared.services.retrieval.agent_tools import (
+    REGISTRY,
+    Decision,
+    ReadableAddresses,
+    ToolBudget,
+    ToolContext,
+    ToolResult,
+)
 
 DbFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
@@ -41,6 +48,8 @@ async def dispatch_tool_call(
     document_scope: DocumentScope = DocumentScope(),
     budget: ToolBudget | None = None,
     query: str = "",
+    readable: ReadableAddresses | None = None,
+    decided: Mapping[tuple[str, str], Decision] | None = None,
 ) -> ToolResult:
     """Run one ``REGISTRY`` tool call against a fresh, call-scoped DB session.
 
@@ -51,7 +60,8 @@ async def dispatch_tool_call(
     into the (call-scoped, already-closed) ``ToolContext``. ``query`` is the
     end user's original query for this episode (see ``ToolContext.query``'s
     docstring) — both harnesses' ``run_episode`` already receive it, so this
-    is a pass-through, not a new source of truth.
+    is a pass-through, not a new source of truth. ``readable``/``decided`` are
+    the episode's ``corpus.read`` gates, passed through unchanged.
     """
     try:
         async with db_factory() as db:
@@ -63,6 +73,8 @@ async def dispatch_tool_call(
                 budget=budget or ToolBudget(),
                 document_scope=document_scope,
                 query=query,
+                readable=readable,
+                decided=decided,
             )
             return await REGISTRY.dispatch(name, tool_ctx, args)
     except Exception as exc:  # noqa: BLE001 - one broken tool must not kill the episode

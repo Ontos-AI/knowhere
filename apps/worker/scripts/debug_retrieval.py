@@ -492,11 +492,26 @@ def _asset_url_values(item: dict[str, Any]) -> list[str]:
     return []
 
 
+def _evidence_preview(result: dict[str, Any]) -> str:
+    texts: list[str] = []
+    for part in result.get('evidence') or []:
+        if not isinstance(part, dict):
+            continue
+        if part.get('type') == 'text':
+            text = str(part.get('text') or '')
+            if text:
+                texts.append(text)
+            continue
+        if part.get('type') == 'image':
+            texts.append('[image]')
+    return ''.join(texts)
+
+
 def _render_single_query_report(report: dict[str, Any]) -> str:
     result = report.get('result') or {}
     refs = result.get('referenced_chunks') or []
     rows = result.get('results') or []
-    evidence = result.get('evidence_text') or ''
+    evidence = _evidence_preview(result)
     md = [
         '# Retrieval Debug Trace\n',
         f"Query: `{report.get('query', '')}`\n",
@@ -538,7 +553,7 @@ def _render_single_query_report(report: dict[str, Any]) -> str:
     else:
         md.append('No result rows.\n')
 
-    md.append(f"\n## Evidence Text\n\n```text\n{evidence}\n```\n")
+    md.append(f"\n## Evidence\n\n```text\n{evidence}\n```\n")
     return ''.join(md)
 
 
@@ -927,12 +942,12 @@ def _render_md_report(all_reports: list[dict[str, Any]]) -> str:
             md.append('\n')
 
         md.append('### Answer Contract\n')
-        md.append('`answer_text` is intentionally empty. Downstream agents synthesize answers from `evidence_text`.\n\n')
+        md.append('`answer_text` is intentionally empty. Downstream agents synthesize answers from `evidence`.\n\n')
 
         evidence_text = r.get('evidence_text', '')
         md.append('### Rendered Evidence\n')
         if evidence_text:
-            md.append(f'<details><summary>Full evidence_text ({len(evidence_text)} chars)</summary>\n\n')
+            md.append(f'<details><summary>Full evidence preview ({len(evidence_text)} chars)</summary>\n\n')
             md.append(_fence(evidence_text))
             md.append('\n</details>\n\n')
         else:
@@ -1233,7 +1248,7 @@ async def main() -> None:
     parser.add_argument(
         '--print-evidence',
         action='store_true',
-        help='Print full evidence_text to stdout in --query mode.',
+        help='Print the evidence preview to stdout in --query mode.',
     )
     # Also accept a positional arg for backward compat: `python debug_retrieval.py T6`
     parser.add_argument('positional_filter', nargs='?', default=None)
@@ -1276,7 +1291,7 @@ async def main() -> None:
             f.write(_render_single_query_report(report))
 
         result = report.get('result') or {}
-        evidence = result.get('evidence_text') or ''
+        evidence = _evidence_preview(result)
         refs = result.get('referenced_chunks') or []
         rows = result.get('results') or []
         print('=' * 90)
@@ -1286,11 +1301,11 @@ async def main() -> None:
             f"stop={result.get('stop_reason', '')} "
             f"data_type={data_type} scope={args.chunk_scope}"
         )
-        print(f"evidence_text chars: {len(evidence)}")
+        print(f"evidence parts: {len(result.get('evidence') or [])}  preview chars: {len(evidence)}")
         print(f"referenced_chunks: {len(refs)}  results: {len(rows)}")
         print(f"TRACE: {output_dir}")
         if args.print_evidence:
-            print("\n----- EVIDENCE TEXT -----\n")
+            print("\n----- EVIDENCE -----\n")
             print(evidence)
         return
 

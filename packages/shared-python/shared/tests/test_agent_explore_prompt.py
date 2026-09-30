@@ -1,4 +1,4 @@
-"""Pick-field wrapper and model-visible jargon scan."""
+"""Loop rules and model-visible jargon scan."""
 
 from __future__ import annotations
 
@@ -11,12 +11,14 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from shared.services.retrieval.agent_explore.prompt import (
-    AGENT_SYSTEM_PROMPT,
-    PICK_FIELD_SCHEMA,
-    split_pick,
-    with_pick_field,
+from shared.services.retrieval.agent_explore.config import (
+    FINISH_TOOL_DESCRIPTION,
+    FINISH_TOOL_SCHEMA,
+    PICK_TOOL_DESCRIPTION,
+    PICK_TOOL_NAME,
+    PICK_TOOL_SCHEMA,
 )
+from shared.services.retrieval.agent_explore.prompt import AGENT_SYSTEM_PROMPT, LOOP_RULES
 from shared.services.retrieval.agent_tools import REGISTRY
 
 _BANNED = (
@@ -31,32 +33,24 @@ _BANNED = (
 )
 
 
-def test_with_pick_field_does_not_mutate_original_schema() -> None:
-    original = {
-        "type": "object",
-        "properties": {"query": {"type": "string", "description": "q"}},
-        "required": ["query"],
-        "additionalProperties": False,
-    }
-    snapshot = {
-        "type": "object",
-        "properties": {"query": {"type": "string", "description": "q"}},
-        "required": ["query"],
-        "additionalProperties": False,
-    }
-    wrapped = with_pick_field(original)
-    assert original == snapshot
-    assert wrapped["properties"]["query"] == original["properties"]["query"]
-    assert wrapped["properties"]["pick"] == PICK_FIELD_SCHEMA
-    assert "pick" not in original["properties"]
+def test_loop_rules_state_round_read_and_pick_contract() -> None:
+    assert "On your first\n  turn you have no results yet, so do not call corpus.read." in LOOP_RULES
+    assert "Calls in the same turn cannot use each other's results." in LOOP_RULES
+    assert "the next turn is\n  a pick phase: you can only call corpus.pick." in LOOP_RULES
+    assert "Body text you read but did not pick cannot be read again." in LOOP_RULES
+    assert "the steps used so far" in LOOP_RULES
+    for removed in ("expire", "to pick later", '"pick" field', "remaining budget"):
+        assert removed not in LOOP_RULES, removed
 
 
-def test_split_pick_strips_and_ignores_non_list() -> None:
-    handles, rest = split_pick({"pick": [" R1.1 ", "", "O2"], "refs": [1]})
-    assert handles == ["R1.1", "O2"]
-    assert rest == {"refs": [1]}
-    assert split_pick({"notes": "x"}) == ([], {"notes": "x"})
-    assert split_pick({"pick": "R1.1"}) == ([], {})
+def test_pick_is_its_own_tool_and_absent_from_finish_and_registry() -> None:
+    assert REGISTRY.get(PICK_TOOL_NAME) is None
+    assert "pick" not in FINISH_TOOL_SCHEMA["properties"]  # type: ignore[operator]
+    assert "pick" not in FINISH_TOOL_DESCRIPTION
+    assert PICK_TOOL_SCHEMA["required"] == ["pick"]
+    assert "cannot be read again" in PICK_TOOL_DESCRIPTION
+    for spec in REGISTRY.all():
+        assert "pick" not in (spec.json_schema.get("properties") or {}), spec.name
 
 
 def _schema_descriptions(schema: object) -> list[str]:
@@ -77,7 +71,8 @@ def _schema_descriptions(schema: object) -> list[str]:
 
 
 def test_model_visible_text_has_no_internal_jargon() -> None:
-    surfaces = [AGENT_SYSTEM_PROMPT]
+    surfaces = [AGENT_SYSTEM_PROMPT, PICK_TOOL_DESCRIPTION]
+    surfaces.extend(_schema_descriptions(PICK_TOOL_SCHEMA))
     for spec in REGISTRY.all():
         surfaces.append(spec.description)
         surfaces.extend(_schema_descriptions(spec.json_schema))

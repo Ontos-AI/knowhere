@@ -14,7 +14,7 @@ provider-specific (MCP / OpenAI tool-calling) concerns.
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Set
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Any
@@ -94,6 +94,20 @@ def capped_limit(requested: int, budget: ToolBudget) -> int:
     return min(requested, budget.max_items)
 
 
+# ``(document_id, section_path)`` and ``(document_id, chunk_id)`` addresses
+# an ``agent_explore`` episode received in results of earlier rounds.
+ReadableAddresses = Set[tuple[str, str]]
+
+
+@dataclass(frozen=True)
+class Decision:
+    """One body chunk an ``agent_explore`` episode read and then picked or not."""
+
+    read_round: int
+    picked_handle: str | None
+    handle: str
+
+
 @dataclass
 class ToolContext:
     """Per-call execution context. One instance is built per tool dispatch."""
@@ -114,6 +128,10 @@ class ToolContext:
     # dropping summaries does not fit then fails that one call as "too
     # large to map" instead of guessing.
     query: str = ""
+    # ``corpus.read`` gates, set only by ``agent_explore``. ``None`` means no
+    # gate: an external MCP client calling one tool has no episode.
+    readable: ReadableAddresses | None = None
+    decided: Mapping[tuple[str, str], Decision] | None = None
 
 
 @dataclass

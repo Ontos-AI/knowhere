@@ -35,9 +35,8 @@ def build_decision_trace(steps: list[AgentStep]) -> list[DecisionTraceStep]:
         decision: dict[str, object] = {
             "action": step.tool_name or "no_tool_call",
             "args": step.tool_args,
+            "round_index": step.round_index,
         }
-        if step.pick_requested is not None:
-            decision["pick_requested"] = step.pick_requested
         result: dict[str, object] = {
             "status": "error" if step.error else "ok",
             "error": step.error,
@@ -54,10 +53,7 @@ def build_decision_trace(steps: list[AgentStep]) -> list[DecisionTraceStep]:
                 observation=observation,
                 decision=decision,
                 result=result,
-                budget={
-                    "tokens_used_delta": step.tokens_used_delta,
-                    "tokens_used_total": step.tokens_used_total,
-                },
+                budget={},
                 elapsed_ms=step.elapsed_ms,
             )
         )

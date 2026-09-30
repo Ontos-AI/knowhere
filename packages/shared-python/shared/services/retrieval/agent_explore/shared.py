@@ -14,7 +14,11 @@ from typing import Any
 import jsonschema
 import jsonschema.validators
 
-from shared.services.retrieval.agent_explore.config import FINISH_TOOL_SCHEMA
+from shared.services.retrieval.agent_explore.config import (
+    FINISH_TOOL_SCHEMA,
+    PICK_TOOL_NAME,
+    PICK_TOOL_SCHEMA,
+)
 from shared.services.retrieval.agent_tools import ToolResult
 
 # The two map-narrowing tools bound their own text at MAP_TOOL_CHAR_BUDGET by
@@ -95,6 +99,7 @@ def tool_message_content(result: ToolResult, *, tool_name: str, max_chars: int) 
     if tool_name in MAP_TOOL_NAMES or len(text) <= max_chars:
         return text
     omitted = len(text) - max_chars
+    # TODO: return a fragment for oversized corpus.read bodies, the way oversized tables do, instead of this head cut.
     return (
         text[:max_chars]
         + f"\n...[truncated, {omitted} more chars — narrow the scope "
@@ -111,10 +116,26 @@ def validate_finish_args(args: dict[str, Any]) -> str | None:
     is unverified (see ``config.py``'s ``FINISH_TOOL_SCHEMA`` docstring
     context), so this is the real enforcement point.
     """
+    return _schema_args_error("finish", FINISH_TOOL_SCHEMA, args)
+
+
+def validate_pick_args(args: dict[str, Any]) -> str | None:
+    """Validate ``corpus.pick`` args against ``PICK_TOOL_SCHEMA``; ``None`` = valid.
+
+    The Cursor SDK does not enforce ``input_schema`` (a live run sent
+    ``pick_ids``), so a malformed call must fail here instead of being
+    applied as an empty pick that closes the pick phase.
+    """
+    return _schema_args_error(PICK_TOOL_NAME, PICK_TOOL_SCHEMA, args)
+
+
+def _schema_args_error(
+    tool_name: str, schema: dict[str, object], args: dict[str, Any]
+) -> str | None:
     if not isinstance(args, dict):
-        return f"finish: arguments must be a JSON object, got {type(args).__name__}"
-    validator_cls = jsonschema.validators.validator_for(FINISH_TOOL_SCHEMA)
-    validator = validator_cls(FINISH_TOOL_SCHEMA)
+        return f"{tool_name}: arguments must be a JSON object, got {type(args).__name__}"
+    validator_cls = jsonschema.validators.validator_for(schema)
+    validator = validator_cls(schema)
     errors = sorted(
         validator.iter_errors(args), key=lambda error: [str(p) for p in error.path]
     )
@@ -125,7 +146,7 @@ def validate_finish_args(args: dict[str, Any]) -> str | None:
     if error.validator == "oneOf" and isinstance(error.schema, dict):
         message = str(error.schema.get("description") or message)
     location = "".join(f"[{p}]" if isinstance(p, int) else f".{p}" for p in error.path)
-    return f"finish: invalid arguments{f' at {location}' if location else ''}: {message}"
+    return f"{tool_name}: invalid arguments{f' at {location}' if location else ''}: {message}"
 
 
 def read_ref_status(tool_name: str, result: ToolResult) -> list[dict[str, Any]] | None:
@@ -140,6 +161,14 @@ def invalid_finish_message(error: str) -> str:
     """Model-facing text for a rejected ``finish`` call; the episode goes on."""
     return (
         f"{error}. finish was not accepted and the episode continues. Correct "
-        'form: {"pick": ["R3.1"], "notes": "..."} — Call finish again '
+        'form: {"notes": "..."} — Call finish again '
         "with fixed arguments, or keep exploring with the corpus tools."
+    )
+
+
+def invalid_pick_message(error: str) -> str:
+    """Model-facing text for a rejected ``corpus.pick`` call; the pick phase goes on."""
+    return (
+        f"{error}. Nothing was picked and the pick phase continues. Correct "
+        'form: {"pick": ["<id>", ...]} or {"pick": []} — call corpus_pick again.'
     )

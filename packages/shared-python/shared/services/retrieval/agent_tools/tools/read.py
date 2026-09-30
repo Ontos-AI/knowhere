@@ -23,6 +23,10 @@ visible in the embedded text).
 exact match first, then a unique segment-bound suffix match when the agent
 omits ancestor segments; ambiguous suffix matches return an error listing
 candidate full paths instead of picking one silently.
+
+When ``agent_explore`` sets ``ToolContext.readable``/``decided``, a ref must
+name an address from an earlier round's results, and body chunks the episode
+already picked or passed on are not read again.
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ from shared.models.database.job_result import JobResult
 from shared.services.retrieval.agent_tools.registry import (
     REF_ADDRESS_ONE_OF,
     REF_ADDRESS_RULE,
+    Decision,
     ToolContext,
     ToolResult,
     register_tool,
@@ -59,6 +64,7 @@ from shared.services.retrieval.hydration.table_grid import render_explore_table
 from shared.services.retrieval.agent_tools.section_path_lookup import (
     resolve_section_path_anchor,
     section_path_anchor_filter,
+    section_path_received,
     section_path_subtree_filter,
 )
 from shared.services.retrieval.search.lexical_text import section_path_from_chunk_path
@@ -70,6 +76,10 @@ _LOCATE_HINT = (
     "result row, or locate the section first with corpus.outline, "
     "corpus.grep, corpus.recall, or corpus.assets."
 )
+_NOT_RECEIVED_REASON = (
+    "not in any earlier result you have received; results from calls in "
+    "this same turn are not available yet"
+)
 
 
 def _with_locate_hint(reason: str) -> str:
@@ -78,8 +88,48 @@ def _with_locate_hint(reason: str) -> str:
     return reason + _LOCATE_HINT
 
 
+def _ref_received(ctx: ToolContext, document_id: str, ref: dict[str, Any]) -> bool:
+    if ctx.readable is None:
+        return True
+    chunk_id = str(ref.get("chunk_id") or "").strip()
+    if chunk_id:
+        return (document_id, chunk_id) in ctx.readable
+    section_path = str(ref.get("section_path") or "").strip()
+    return section_path_received(ctx.readable, document_id, section_path)
+
+
+def _decided_chunks(
+    ctx: ToolContext, document_id: str, chunk_ids: list[str]
+) -> dict[str, Decision]:
+    if ctx.decided is None:
+        return {}
+    return {
+        chunk_id: ctx.decided[(document_id, chunk_id)]
+        for chunk_id in chunk_ids
+        if (document_id, chunk_id) in ctx.decided
+    }
+
+
+def _already_read_reason(decisions: list[Decision]) -> str:
+    parts: list[str] = []
+    for decision in dict.fromkeys(decisions):
+        state = (
+            f"picked as {decision.picked_handle}"
+            if decision.picked_handle
+            else "not picked"
+        )
+        parts.append(f"round {decision.read_round} ({state})")
+    return f"already read in {', '.join(parts)}; cannot read again"
+
+
 def _ref_status_line(entry: dict[str, Any]) -> str:
-    tag = "[ok]" if entry["status"] == "ok" else f"[failed: {entry['reason']}]"
+    if entry["status"] == "ok":
+        omitted = entry.get("omitted_chunk_ids")
+        tag = (
+            f"[ok, {len(omitted)} already-read chunks omitted]" if omitted else "[ok]"
+        )
+    else:
+        tag = f"[failed: {entry['reason']}]"
     return (
         f"{tag} document_id={entry['document_id']} "
         f"section_path={entry['section_path']} chunk_id={entry['chunk_id']}"
@@ -373,6 +423,10 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     emit_items: list[tuple[str, Any]] = []
     for index, ref in enumerate(refs):
         document_id = str(ref.get("document_id") or "").strip()
+        if not _ref_received(ctx, document_id, ref):
+            ref_status[index]["status"] = "failed"
+            ref_status[index]["reason"] = _NOT_RECEIVED_REASON
+            continue
         job_result_id = revision_by_doc.get(document_id)
         if not job_result_id:
             ref_status[index]["status"] = "failed"
@@ -410,6 +464,11 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 )
                 continue
             chunk, resolved_section_path, section_summary = row
+            decided = _decided_chunks(ctx, document_id, [chunk.chunk_id])
+            if decided:
+                ref_status[index]["status"] = "failed"
+                ref_status[index]["reason"] = _already_read_reason(list(decided.values()))
+                continue
             ref_status[index]["status"] = "ok"
             ref_status[index]["chunk_ids"] = [chunk.chunk_id]
             emit_items.append(
@@ -549,9 +608,21 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             for section in section_matches
             if section.section_id in matched_ids
         }
+        job_chunks = [
+            chunk for chunk in batched_chunks if chunk.section_id in matched_ids
+        ]
+        decided = _decided_chunks(
+            ctx, job["document_id"], [chunk.chunk_id for chunk in job_chunks]
+        )
+        if job_chunks and all(chunk.chunk_id in decided for chunk in job_chunks):
+            ref_status[ref_index]["status"] = "failed"
+            ref_status[ref_index]["reason"] = _already_read_reason(list(decided.values()))
+            continue
+        if decided:
+            ref_status[ref_index]["omitted_chunk_ids"] = list(decided)
         job_chunk_ids: list[str] = []
         for chunk in batched_chunks:
-            if chunk.section_id not in matched_ids:
+            if chunk.section_id not in matched_ids or chunk.chunk_id in decided:
                 continue
             job_chunk_ids.append(chunk.chunk_id)
             base_rows.append(

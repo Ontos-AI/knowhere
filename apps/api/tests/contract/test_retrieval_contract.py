@@ -419,8 +419,7 @@ def _episode_keeping_refs(
                 observation_text=notes or "done",
                 error=None,
                 elapsed_ms=1,
-                tokens_used_delta=1,
-                tokens_used_total=1,
+                round_index=1,
             )
         ],
         stop_reason="finished",
@@ -800,8 +799,7 @@ async def test_agent_explore_should_release_route_session_before_final_hydration
                         observation_text="done",
                         error=None,
                         elapsed_ms=1,
-                        tokens_used_delta=1,
-                        tokens_used_total=1,
+                        round_index=1,
                     )
                 ],
             )
