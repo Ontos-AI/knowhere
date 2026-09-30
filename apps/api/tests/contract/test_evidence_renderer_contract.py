@@ -97,10 +97,7 @@ def test_retrieval_chain_groups_evidence_and_emits_mcp_blocks(monkeypatch) -> No
         {"type": "text", "text": "[E2] [§ 心衰指南.pdf / 5 治疗]"},
         {"type": "text", "text": "  5.1 body"},
     ]
-    assert public["evidence_text"] == (
-        "[E1] [§ 心衰指南.pdf / 3 诊断]  3.1 前 \n[image: see evidence]\n   后"
-        "  3.2 body\n[E2] [§ 心衰指南.pdf / 5 治疗]  5.1 body"
-    )
+    assert public["evidence_text"] == ""
     assert [row["chunk_id"] for row in public["results"]] == [
         "treat-1",
         "diag-2",
@@ -174,10 +171,7 @@ def test_evidence_fields_group_composed_parts_by_parent() -> None:
             "text": "  <table><tr><td>metric</td></tr></table>",
         },
     ]
-    assert fields["evidence_text"] == (
-        "[E1] [§ guide.pdf / 3 诊断]  first  mid [image: see evidence]"
-        "\n[E2] [§ guide.pdf / 5 治疗]  <table><tr><td>metric</td></tr></table>"
-    )
+    assert fields["evidence_text"] == ""
 
 
 def test_mcp_query_response_is_content_blocks_then_json() -> None:
@@ -232,7 +226,7 @@ def test_mcp_query_response_maps_image_parts_to_image_content() -> None:
                 {"type": "image", "media_type": "image/png", "data": "abc"},
                 {"type": "text", "text": "\n"},
             ],
-            "evidence_text": "[E1] [§ guide.pdf / 3 诊断]  before[image: see evidence]\n",
+            "evidence_text": "",
             "referenced_chunks": [],
             "decision_trace": [],
             "results": [{"content": "raw"}],

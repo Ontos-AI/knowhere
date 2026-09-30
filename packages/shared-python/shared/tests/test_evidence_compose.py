@@ -6,21 +6,9 @@ import pytest
 
 from shared.services.retrieval.hydration.evidence_compose import (
     compose_evidence_parts,
-    flatten_parts,
     group_evidence_units,
 )
 from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
-
-
-def test_flatten_parts_keeps_html_and_points_images_at_evidence() -> None:
-    text = flatten_parts(
-        [
-            {"type": "text", "text": "before"},
-            {"type": "image", "media_type": "image/png", "data": "abc"},
-            {"type": "text", "text": "after"},
-        ]
-    )
-    assert text == "before[image: see evidence]after"
 
 
 def test_page_parts_are_summary_then_page_image(monkeypatch) -> None:
@@ -437,11 +425,6 @@ def test_group_merges_same_parent_and_splits_different_parents() -> None:
         {"type": "text", "text": "[E2] [§ 心衰指南.pdf / 5 治疗]"},
         {"type": "text", "text": "  ...5.1 body..."},
     ]
-    assert flatten_parts(evidence) == (
-        "[E1] [§ 心衰指南.pdf / 3 诊断]  ...3.1 body..."
-        "[image: see evidence]  ...3.2 body..."
-        "\n[E2] [§ 心衰指南.pdf / 5 治疗]  ...5.1 body..."
-    )
 
 
 def test_group_keeps_single_segment_path() -> None:

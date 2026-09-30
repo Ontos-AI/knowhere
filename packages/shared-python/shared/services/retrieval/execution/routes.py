@@ -14,7 +14,6 @@ from shared.services.retrieval.execution.route_types import (
     RetrievalRouteOutcome,
 )
 from shared.services.retrieval.hydration.evidence_compose import (
-    flatten_parts,
     group_evidence_units,
 )
 from shared.services.retrieval.hydration.result_assembly import (
@@ -67,7 +66,7 @@ def _evidence_fields(rows: list[dict]) -> dict:
     )
     return {
         "evidence": evidence,
-        "evidence_text": flatten_parts(evidence),
+        "evidence_text": "",
     }
 
 
@@ -276,7 +275,7 @@ async def _run_agent_explore_route(
         evidence = compose_pool_evidence(episode.pool, assembled_rows)
         evidence_fields = {
             "evidence": evidence,
-            "evidence_text": flatten_parts(evidence),
+            "evidence_text": "",
         }
 
         selected_doc_ids = list(
@@ -322,6 +321,6 @@ async def _run_agent_explore_route(
         completion_label="AGENT EXPLORE RETRIEVAL",
         completion_count=len(resolved.refs),
         completion_detail=(
-            f"chunks | evidence={len(evidence_fields['evidence_text'])} chars | router=agent_explore"
+            f"chunks | evidence={len(evidence)} parts | router=agent_explore"
         ),
     )

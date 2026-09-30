@@ -53,7 +53,6 @@ def compose_evidence_parts(
     return _compose_text_parts(row, rows_by_chunk_id)
 
 
-_IMAGE_TEXT_POINTER = "[image: see evidence]"
 _GROUP_BODY_INDENT = "  "
 
 
@@ -106,27 +105,6 @@ def group_evidence_units(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
             for parts in member_parts:
                 evidence.extend(_indent_member_part(part) for part in parts)
     return evidence
-
-
-def flatten_parts(parts: list[dict[str, Any]] | None) -> str:
-    """Text projection of evidence parts.
-
-    Tables stay as HTML in the text parts. Images are not encoded as data
-    URLs; they stay on the structured ``evidence`` image parts for
-    multimodal clients. A short pointer marks each omitted image.
-    """
-    texts: list[str] = []
-    for part in parts or []:
-        if not isinstance(part, dict):
-            continue
-        if part.get("type") == "text":
-            text = str(part.get("text") or "")
-            if text:
-                texts.append(text)
-            continue
-        if part.get("type") == "image":
-            texts.append(_IMAGE_TEXT_POINTER)
-    return "".join(texts)
 
 
 def _direct_parent_path(section_path: str) -> str:

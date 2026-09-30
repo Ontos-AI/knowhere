@@ -131,16 +131,15 @@ class RetrievalQueryResponse(BaseModel):
     evidence_text: str = Field(
         default="",
         description=(
-            "Text projection of the grouped evidence blocks. Tables stay as "
-            "HTML. Images stay on evidence as image parts and are marked "
-            "here as [image: see evidence]."
+            "DEPRECATED. Always empty. Knowhere no longer projects evidence "
+            "into a string. Use evidence."
         ),
     )
     answer_text: str = Field(
         default="",
         description=(
             "DEPRECATED. Always empty; KNOWHERE no longer generates answers. "
-            "Use evidence_text and synthesize answers downstream."
+            "Use evidence and synthesize answers downstream."
         ),
     )
     referenced_chunks: list[dict] = Field(default_factory=list)
