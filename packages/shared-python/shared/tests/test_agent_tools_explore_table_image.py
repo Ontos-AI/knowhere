@@ -231,7 +231,6 @@ def _read_table(chunk_id: str, **extra: object) -> dict:
         "refs": [{"document_id": DOC_ID, "chunk_id": chunk_id}],
         "mode": "self",
         "include_assets": False,
-        "resolve_same_as": False,
         **extra,
     }
 
@@ -242,14 +241,16 @@ def test_query_table_is_registered() -> None:
     assert spec.json_schema["required"] == ["document_id", "chunk_id", "sql"]
 
 
-def test_corpus_schema_documents_explore_table_rules() -> None:
-    from shared.services.retrieval.agent_tools import load_corpus_schema_text
+def test_corpus_overview_does_not_repeat_explore_table_rules() -> None:
+    from shared.services.retrieval.agent_tools import load_corpus_overview_text
 
-    text = load_corpus_schema_text()
-    assert "query_table" in text
-    assert "Grep does not scan table-cell HTML" in text
+    text = load_corpus_overview_text()
+    assert "query_table" not in text
+    assert "Grep does not scan table-cell HTML" not in text
     assert "Table **cells** are searched only when `document_ids` is set" not in text
-    assert "focus" not in text.lower()
+    grep = REGISTRY.get("corpus.grep")
+    assert grep is not None
+    assert "Table cell values are not searched" in grep.description
 
 
 @pytest.mark.asyncio
@@ -291,7 +292,6 @@ async def test_read_inlines_connected_small_table_html(
             "refs": [{"document_id": DOC_ID, "section_path": PATH_INTRO}],
             "mode": "self",
             "include_assets": True,
-            "resolve_same_as": False,
         },
     )
     assert result.error is None
@@ -324,7 +324,6 @@ async def test_read_connected_table_download_failure_keeps_body_content(
             "refs": [{"document_id": DOC_ID, "section_path": PATH_INTRO}],
             "mode": "self",
             "include_assets": True,
-            "resolve_same_as": False,
         },
     )
     assert result.error is None

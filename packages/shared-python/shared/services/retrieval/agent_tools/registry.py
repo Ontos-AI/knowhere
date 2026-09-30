@@ -71,7 +71,7 @@ class ToolBudget:
     below, and notes it in ``ToolResult.text`` when the request was clamped.
     Tools that promise a complete, non-truncated set by contract
     (``node_filter``, ``outline``) do not apply this budget to their
-    matched-set cardinality — see ``CORPUS_SCHEMA.md`` §6.
+    matched-set cardinality.
 
     ``max_chars`` caps the rendered ``ToolResult.text`` before it enters LLM
     context. Applied in ``agent_explore.shared.tool_message_content`` (not
@@ -202,7 +202,7 @@ def validate_tool_args(spec: ToolSpec, args: dict[str, Any]) -> str | None:
 
     Every tool schema declares ``additionalProperties: false`` at every
     object level (registered tools are expected to keep this true — see
-    ``CORPUS_SCHEMA.md`` §6), so an unknown key anywhere in the argument
+    each tool schema), so an unknown key anywhere in the argument
     tree fails here instead of being silently dropped or ignored downstream.
     The returned message names the offending path, the tool's legal
     top-level argument names, and — for an unknown-key error — the exact

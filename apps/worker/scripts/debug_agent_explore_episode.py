@@ -79,7 +79,22 @@ async def main() -> None:
 
     print(f"\nstop_reason={episode.stop_reason} tokens_used={episode.tokens_used} "
           f"model={episode.model_name}")
-    print(f"final refs ({len(episode.refs)}): {json.dumps(episode.refs, ensure_ascii=False)}")
+    print(
+        f"final pool ({len(episode.pool)}): "
+        + json.dumps(
+            [
+                {
+                    "handle": item.handle,
+                    "kind": item.kind,
+                    "document_id": item.document_id,
+                    "section_path": item.section_path,
+                    "chunk_ids": list(item.chunk_ids),
+                }
+                for item in episode.pool
+            ],
+            ensure_ascii=False,
+        )
+    )
     print(f"final notes: {episode.notes!r}")
     print(f"\n{'#':>3} {'tool':<28} {'ms':>6} {'delta':>7} {'total':>7} {'obs_chars':>9} err")
     for step in episode.steps:

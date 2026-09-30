@@ -14,50 +14,23 @@ scripts use the ``cursor-harness`` extra) and ``CURSOR_API_KEY``. The
 guarded import in ``_require_cursor_sdk`` raises a clear error at episode
 start if ``cursor-sdk`` isn't installed.
 
-Architectural difference from ``openai_harness.py`` that budget enforcement
-has to work around: this harness does not control the LLM turn loop.
-``agent.send(...)`` + ``await run.wait()`` hands the *entire* multi-turn
-tool-calling loop to the Cursor SDK; the host process only sees (a)
-``execute`` callbacks for each ``corpus.*``/``finish`` tool call — run
-synchronously off the SDK's own thread and bridged back onto this event
-loop via ``asyncio.run_coroutine_threadsafe`` (mirrors the PoC's
-``_dispatch_sync``) — and (b) the terminal ``RunResult`` once ``wait()``
-returns. There is no per-turn hook to inspect budget mid-turn and force
-``tool_choice`` the way ``openai_harness.py`` does. Each budget dimension is
-therefore enforced (or explicitly not) differently here:
+This harness does not control the LLM turn loop. ``agent.send(...)`` +
+``await run.wait()`` hands the multi-turn tool-calling loop to the Cursor
+SDK. The host process only sees ``execute`` callbacks and the terminal
+``RunResult``. There is no per-turn hook to rebuild the decision context
+the way ``openai_harness.py`` does; each callback returns pick ids for
+this result, the evidence pool, and the remaining budget.
 
-- **``max_steps``**: a plain counter (``budget.steps_used``, incremented once
-  per ``corpus.*`` dispatch — ``finish`` does not count, it ends the episode
-  on its own) checked in ``_dispatch_sync`` *before* dispatching. Once the
-  counter reaches ``budget.max_steps``, further ``corpus.*`` calls are not
-  forwarded to ``REGISTRY`` at all — the callback returns a fixed
-  "budget exhausted, call finish now" string instead. This is a real,
-  synchronous cutoff (unlike the two dimensions below): no reliance on
-  cancelling the SDK run from a background task.
-- **``wall_clock``**: ``asyncio.wait_for(run.wait(), timeout=budget.wall_clock_seconds)``,
-  per the plan. On timeout, best-effort ``await run.cancel()`` (own short
-  timeout, so a hung cancel RPC can't hang this call forever) so the
-  underlying agent run actually stops server-side instead of merely being
-  abandoned by this process, then the episode result is built from whatever
-  ``finish``/tool-trajectory refs were captured before the timeout.
-- **``token_limit``**: **not actively enforced mid-run.** Verified by reading
-  the installed ``cursor-sdk`` package's source
-  (``cursor_sdk._run_base._RunBase.usage``, 2026-09) that cumulative token
-  usage is incrementally accumulated from ``SDKUsageMessage`` stream events
-  as ``run.wait()`` consumes them, and exposed as a live ``run.usage``
-  property — so a mid-run cutoff (e.g. a polling task calling
-  ``run.cancel()``) is *plausible*. It was **not** exercised against a real
-  ``CURSOR_API_KEY`` run in this change (no key available in the
-  implementation environment), so building an active cutoff on top of an
-  unverified live-update assumption was judged higher-risk than shipping.
-  ``EpisodeBudget.exhausted()``'s ``token_limit`` dimension is therefore left
-  unchecked here by design; ``budget.tokens_used`` is only populated
-  *post-hoc* from the terminal ``RunResult.usage`` for observability
-  (``EpisodeResult.tokens_used``), after the episode has already finished.
-  If ``eval-cursor-harness`` confirms ``run.usage`` does update live against
-  a real key, promoting this to an active cutoff (mirroring the
-  ``max_steps``/``wall_clock`` pattern above) is straightforward follow-up
-  work — deliberately not done speculatively here.
+Budget dimensions:
+
+- **``max_steps``**: checked in ``_dispatch_sync`` before dispatch. Once
+  ``budget.steps_used`` reaches ``budget.max_steps``, further ``corpus.*``
+  calls are not forwarded; the callback still applies ``pick`` and returns
+  a fixed exhausted message plus pool and budget.
+- **``wall_clock``**: ``asyncio.wait_for(run.wait(), timeout=budget.wall_clock_seconds)``.
+  On timeout, best-effort ``await run.cancel()``.
+- **``token_limit``**: not actively enforced mid-run; ``budget.tokens_used``
+  is populated post-hoc from the terminal ``RunResult.usage``.
 """
 
 from __future__ import annotations
@@ -78,41 +51,37 @@ from shared.services.retrieval.agent_explore.config import (
     FINISH_TOOL_DESCRIPTION,
     FINISH_TOOL_NAME,
     FINISH_TOOL_SCHEMA,
-    LOOP_CONTRACT_SUFFIX,
 )
 from shared.services.retrieval.agent_explore.dispatch import DbFactory, dispatch_tool_call
+from shared.services.retrieval.agent_explore.evidence_pool import (
+    EvidencePool,
+    PickOutcome,
+    render_budget,
+)
+from shared.services.retrieval.agent_explore.prompt import (
+    AGENT_SYSTEM_PROMPT,
+    split_pick,
+    with_pick_field,
+)
 from shared.services.retrieval.agent_explore.shared import (
-    EVIDENCE_TOOL_NAMES,
-    budget_status_line,
     cursor_execute_content,
-    finish_refs_from_args,
     invalid_finish_message,
     read_ref_status,
-    select_episode_refs,
     tool_message_content,
     validate_finish_args,
     wire_safe_tool_name,
 )
 from shared.services.retrieval.agent_explore.types import AgentStep, EpisodeResult
-from shared.services.retrieval.agent_tools import (
-    REGISTRY,
-    ToolBudget,
-    ToolResult,
-    load_corpus_schema_text,
-)
+from shared.services.retrieval.agent_tools import REGISTRY, ToolBudget, ToolResult
 
 # Grace period for the underlying agent run to actually stop, after a
 # best-effort run.cancel() following a wall_clock timeout, before this
-# process gives up waiting for a terminal RunResult and falls back to
-# whatever refs the trajectory already captured. Not tuned against real
-# cancel-RPC latency yet (no CURSOR_API_KEY in the implementation
-# environment) — revisit with eval-cursor-harness data.
+# process gives up waiting for a terminal RunResult.
 _CANCEL_GRACE_SECONDS = 30.0
 
 _BUDGET_EXHAUSTED_MESSAGE = (
     "error: step budget exhausted for this episode — do not call any more "
-    "corpus.* tools; call finish now with whatever refs you already have "
-    "(or an empty list plus a notes explanation)."
+    "corpus.* tools; call finish now."
 )
 
 
@@ -127,6 +96,19 @@ def _require_cursor_sdk() -> Any:
             "(apps/api). Worker debug scripts: uv sync --extra cursor-harness."
         ) from exc
     return cursor_sdk
+
+
+def _attach_pick(
+    step: AgentStep, requested: list[str], outcome: PickOutcome
+) -> AgentStep:
+    step.pick_requested = requested
+    step.picked = outcome.added
+    step.pick_rejected = outcome.rejected
+    return step
+
+
+def _state_tail(pool: EvidencePool, budget: EpisodeBudget) -> str:
+    return "\n\n".join([pool.render_pool(), render_budget(budget)])
 
 
 class CursorHarness:
@@ -156,47 +138,47 @@ class CursorHarness:
 
         tool_budget = ToolBudget()
         loop = asyncio.get_running_loop()
-        # The Cursor SDK delivers same-turn parallel tool calls as concurrent
-        # HTTP requests on separate threads (ThreadingHTTPServer in
-        # cursor_sdk._tool_callback) — CORPUS_SCHEMA.md's loop contract
-        # explicitly invites the model to call several independent tools in
-        # one turn. Without this lock, the check-then-increment on
-        # budget.steps_used below is a race: several concurrently-dispatched
-        # calls can each read "not exhausted yet" before any of them
-        # increments, letting more calls through than max_steps allows.
         budget_lock = threading.Lock()
+        pool = EvidencePool()
 
         steps: list[AgentStep] = []
-        trajectory_refs: list[dict[str, Any]] = []
-        # None until finish specifies refs. Explicit ``refs: []`` stays [].
-        # Omitted refs still fall back via select_episode_refs.
-        finish_state: dict[str, Any] = {"refs": None, "notes": ""}
+        finish_state: dict[str, Any] = {"notes": ""}
         stop_reason = "finished"
 
         def _dispatch_sync(
             tool_name: str, args: dict[str, Any]
         ) -> str | list[dict[str, Any]]:
+            handles, call_args = split_pick(args)
             with budget_lock:
-                if budget.steps_used >= budget.max_steps:
+                outcome = pool.apply_pick(handles, pool.take_pending())
+                exhausted = budget.steps_used >= budget.max_steps
+                if not exhausted:
+                    budget.record_step()
+            if exhausted:
+                observation = _BUDGET_EXHAUSTED_MESSAGE + "\n" + _state_tail(pool, budget)
+                with budget_lock:
                     steps.append(
-                        AgentStep(
-                            step_index=len(steps),
-                            tool_name=tool_name,
-                            tool_args=args,
-                            observation_text=_BUDGET_EXHAUSTED_MESSAGE,
-                            error="budget_max_steps",
-                            elapsed_ms=0,
-                            tokens_used_delta=0,
-                            tokens_used_total=budget.tokens_used,
+                        _attach_pick(
+                            AgentStep(
+                                step_index=len(steps),
+                                tool_name=tool_name,
+                                tool_args=call_args,
+                                observation_text=observation,
+                                error="budget_max_steps",
+                                elapsed_ms=0,
+                                tokens_used_delta=0,
+                                tokens_used_total=budget.tokens_used,
+                            ),
+                            handles,
+                            outcome,
                         )
                     )
-                    return _BUDGET_EXHAUSTED_MESSAGE
-                budget.record_step()
+                return observation
             tool_started = time.perf_counter()
             future = asyncio.run_coroutine_threadsafe(
                 dispatch_tool_call(
                     tool_name,
-                    args,
+                    call_args,
                     db_factory=db_factory,
                     user_id=user_id,
                     namespace=namespace,
@@ -216,29 +198,34 @@ class CursorHarness:
                 tool_name=tool_name,
                 max_chars=tool_budget.max_chars,
             )
-            # Appended per call, unlike openai_harness.py's once-per-turn
-            # placement — this harness has no batched-turn concept exposed to
-            # the host process (see module docstring): each corpus.* dispatch
-            # is the only per-step hook available to surface budget state.
-            content_with_budget = content + "\n" + budget_status_line(budget)
-            observation = cursor_execute_content(
-                tool_result, text=content_with_budget
-            )
-            steps.append(
-                AgentStep(
-                    step_index=len(steps),
-                    tool_name=tool_name,
-                    tool_args=args,
-                    observation_text=content_with_budget,
-                    error=tool_result.error,
-                    elapsed_ms=elapsed_ms,
-                    tokens_used_delta=0,
-                    tokens_used_total=budget.tokens_used,
-                    ref_status=read_ref_status(tool_name, tool_result),
+            with budget_lock:
+                candidates = pool.issue(tool_name, tool_result)
+                tail = _state_tail(pool, budget)
+            candidate_line = pool.render_candidates(candidates)
+            text = content
+            if candidate_line:
+                text = content + "\n" + candidate_line
+            text = text + "\n\n" + tail
+            observation = cursor_execute_content(tool_result, text=text)
+            with budget_lock:
+                steps.append(
+                    _attach_pick(
+                        AgentStep(
+                            step_index=len(steps),
+                            tool_name=tool_name,
+                            tool_args=call_args,
+                            observation_text=text,
+                            error=tool_result.error,
+                            elapsed_ms=elapsed_ms,
+                            tokens_used_delta=0,
+                            tokens_used_total=budget.tokens_used,
+                            ref_status=read_ref_status(tool_name, tool_result),
+                            candidates=[item.handle for item in candidates] or None,
+                        ),
+                        handles,
+                        outcome,
+                    )
                 )
-            )
-            if tool_name in EVIDENCE_TOOL_NAMES and not tool_result.error:
-                trajectory_refs.extend(tool_result.refs)
             return observation
 
         custom_tools: dict[str, Any] = {}
@@ -256,48 +243,57 @@ class CursorHarness:
             custom_tools[wire_name] = cursor_sdk.CustomTool(
                 execute=_make_execute(spec.name),
                 description=f"{spec.description} (canonical name: {spec.name})",
-                input_schema=spec.json_schema,
+                input_schema=with_pick_field(spec.json_schema),
             )
 
         def finish_execute(args: dict[str, Any], _ctx: Any) -> str:
             args = dict(args or {})
+            handles, call_args = split_pick(args)
             validation_error = validate_finish_args(args)
-            if validation_error is not None:
-                with budget_lock:
+            with budget_lock:
+                outcome = pool.apply_pick(handles, pool.take_pending())
+                if validation_error is not None:
                     steps.append(
+                        _attach_pick(
+                            AgentStep(
+                                step_index=len(steps),
+                                tool_name=FINISH_TOOL_NAME,
+                                tool_args=call_args,
+                                observation_text=validation_error,
+                                error=validation_error,
+                                elapsed_ms=0,
+                                tokens_used_delta=0,
+                                tokens_used_total=budget.tokens_used,
+                            ),
+                            handles,
+                            outcome,
+                        )
+                    )
+                    return json.dumps(
+                        {
+                            "status": "error",
+                            "error": invalid_finish_message(validation_error),
+                        }
+                    )
+                notes = str(call_args.get("notes") or "")
+                finish_state["notes"] = notes
+                steps.append(
+                    _attach_pick(
                         AgentStep(
                             step_index=len(steps),
                             tool_name=FINISH_TOOL_NAME,
-                            tool_args=args,
-                            observation_text=validation_error,
-                            error=validation_error,
+                            tool_args=call_args,
+                            observation_text=f"pool={len(pool.entries)} notes={notes!r}",
+                            error=None,
                             elapsed_ms=0,
                             tokens_used_delta=0,
                             tokens_used_total=budget.tokens_used,
-                        )
-                    )
-                return json.dumps(
-                    {"status": "error", "error": invalid_finish_message(validation_error)}
-                )
-            selected = finish_refs_from_args(args)
-            cited = selected if selected is not None else []
-            notes = str(args.get("notes") or "")
-            with budget_lock:
-                finish_state["refs"] = selected
-                finish_state["notes"] = notes
-                steps.append(
-                    AgentStep(
-                        step_index=len(steps),
-                        tool_name=FINISH_TOOL_NAME,
-                        tool_args=args,
-                        observation_text=f"refs={len(cited)} notes={notes!r}",
-                        error=None,
-                        elapsed_ms=0,
-                        tokens_used_delta=0,
-                        tokens_used_total=budget.tokens_used,
+                        ),
+                        handles,
+                        outcome,
                     )
                 )
-            return json.dumps({"status": "finished", "refs": len(cited)})
+            return json.dumps({"status": "finished", "pool": len(pool.entries)})
 
         custom_tools[FINISH_TOOL_NAME] = cursor_sdk.CustomTool(
             execute=finish_execute,
@@ -305,13 +301,7 @@ class CursorHarness:
             input_schema=FINISH_TOOL_SCHEMA,
         )
 
-        system_prompt = load_corpus_schema_text() + LOOP_CONTRACT_SUFFIX
-        user_prompt = (
-            f"{system_prompt}\n\n---\n\nUser query:\n{query}\n\n"
-            "Tool names on the wire use underscores "
-            f"({', '.join(sorted(custom_tools))}). Explore with those tools, "
-            "then call finish with cited refs."
-        )
+        user_prompt = f"{AGENT_SYSTEM_PROMPT}\n\n---\n\nUser query:\n{query}"
 
         result: Any = None
         async with await cursor_sdk.AsyncClient.launch_bridge(
@@ -346,18 +336,11 @@ class CursorHarness:
             result_usage_total_tokens = result.usage.total_tokens
         budget.record_usage({"total_tokens": result_usage_total_tokens})
 
-        selection = select_episode_refs(
-            finish_state["refs"],
-            trajectory_refs,
-            str(finish_state["notes"] or ""),
-        )
         return EpisodeResult(
-            refs=selection.refs,
-            notes=selection.notes,
+            pool=list(pool.entries),
+            notes=str(finish_state["notes"] or ""),
             steps=steps,
             stop_reason=stop_reason,
             tokens_used=budget.tokens_used,
             model_name=self._model,
-            agent_selected_refs=selection.agent_selected_refs,
-            fallback_refs=selection.fallback_refs,
         )

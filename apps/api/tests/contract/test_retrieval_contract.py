@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.contract_database import ContractDatabase
 
-from shared.services.retrieval.agent_explore.ref_resolution import FinishRefResolution
+from shared.services.retrieval.agent_explore.evidence_pool import Candidate
 from shared.services.retrieval.execution import routes as retrieval_routes
 from shared.services.retrieval.execution.reference_resolver import (
     ResolvedWorkflowReferences,
@@ -395,22 +395,27 @@ def _episode_keeping_refs(
 ) -> Any:
     from shared.services.retrieval.agent_explore.types import AgentStep, EpisodeResult
 
-    refs: list[dict[str, str]] = []
-    for doc in documents:
-        ref = {"document_id": doc["document_id"]}
-        if doc.get("chunk_id"):
-            ref["chunk_id"] = doc["chunk_id"]
-        if doc.get("section_path"):
-            ref["section_path"] = doc["section_path"]
-        refs.append(ref)
+    pool: list[Candidate] = []
+    for index, doc in enumerate(documents, start=1):
+        chunk_id = doc.get("chunk_id") or ""
+        pool.append(
+            Candidate(
+                handle=f"R1.{index}",
+                kind="read",
+                document_id=doc["document_id"],
+                source_file_name="",
+                section_path=doc.get("section_path"),
+                chunk_ids=(chunk_id,) if chunk_id else (),
+            )
+        )
     return EpisodeResult(
-        refs=refs,
+        pool=pool,
         notes=notes,
         steps=[
             AgentStep(
                 step_index=1,
                 tool_name="finish",
-                tool_args={"refs": refs},
+                tool_args={"notes": notes},
                 observation_text=notes or "done",
                 error=None,
                 elapsed_ms=1,
@@ -776,11 +781,15 @@ async def test_agent_explore_should_release_route_session_before_final_hydration
             simulated_idle_timeout_seconds = 0.001
             await asyncio.sleep(simulated_idle_timeout_seconds + 0.01)
             return EpisodeResult(
-                refs=[
-                    {
-                        "document_id": "doc_contract",
-                        "section_path": "contract/section",
-                    }
+                pool=[
+                    Candidate(
+                        handle="R1.1",
+                        kind="read",
+                        document_id="doc_contract",
+                        source_file_name="contract.pdf",
+                        section_path="contract/section",
+                        chunk_ids=("chunk_contract",),
+                    )
                 ],
                 notes="",
                 steps=[
@@ -796,18 +805,6 @@ async def test_agent_explore_should_release_route_session_before_final_hydration
                     )
                 ],
             )
-
-    async def fake_resolve_finish_refs(
-        db: AsyncSession,
-        **_kwargs: object,
-    ) -> FinishRefResolution:
-        assert db is final_db
-        assert _kwargs["user_id"] == "contract-user"
-        assert _kwargs["namespace"] == "contract-namespace"
-        events.append("resolve_finish_refs")
-        return FinishRefResolution(
-            resolved=[{"document_id": "doc_contract", "chunk_id": "chunk_contract"}]
-        )
 
     async def fake_resolve_workflow_references(
         *,
@@ -862,10 +859,6 @@ async def test_agent_explore_should_release_route_session_before_final_hydration
         "shared.services.retrieval.agent_explore.harness.resolve_harness",
         lambda **_kwargs: FakeHarness(),
     )
-    monkeypatch.setattr(
-        "shared.services.retrieval.agent_explore.ref_resolution.resolve_finish_refs",
-        fake_resolve_finish_refs,
-    )
     monkeypatch.setattr(retrieval_routes, "resolve_workflow_references", fake_resolve_workflow_references)
     monkeypatch.setattr(retrieval_routes, "assemble_retrieval_results", fake_assemble_retrieval_results)
     monkeypatch.setattr("shared.services.retrieval.trace.TraceRecorder", FakeTraceRecorder)
@@ -895,7 +888,6 @@ async def test_agent_explore_should_release_route_session_before_final_hydration
         "route_rollback",
         "episode",
         "final_db_open",
-        "resolve_finish_refs",
         "resolve_references",
         "assemble_results",
         "trace_init",

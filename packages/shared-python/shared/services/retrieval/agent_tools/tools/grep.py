@@ -91,13 +91,14 @@ def _term_search(terms: list[str]) -> tuple[re.Pattern[str], Any]:
 @register_tool(
     name="corpus.grep",
     description=(
-        "Exact string search against published term_search_text "
-        "(body text, image descriptions, table summaries/keywords, plus "
-        "filename and section path). Returns the total number of matching "
+        "Exact string search over body text, image descriptions, table "
+        "summaries and keywords, file names and section paths. Table cell "
+        "values are not searched. Requires pattern or patterns — do not "
+        "call without a term. Returns the total number of matching "
         "chunks plus a capped list of snippet rows (score-free — this is an "
         "exact match, not a ranked search; use corpus.recall for ranking). "
-        "Table and image hits include rendered content; body hits include "
-        "any connected table or image — read the hit's document_id + "
+        "Table and image hits show their content; body hits also show the "
+        "images and tables they contain — read the hit's document_id + "
         "section_path with corpus.read next. Provide 'pattern' for one "
         "term, or 'patterns' for several candidate terms OR'd together in "
         "this single call (e.g. synonyms) — issue one call with multiple "

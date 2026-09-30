@@ -1,10 +1,7 @@
-"""Single loader for ``CORPUS_SCHEMA.md`` — the agent-facing corpus schema text.
+"""Loader for ``CORPUS_OVERVIEW.md`` — the agent-facing corpus overview.
 
-Both harnesses (Phase 3) read through this function instead of the file
-directly, so there is exactly one place that resolves the path: the API
-``/mcp`` server's ``instructions`` and ``agent_explore``'s system prompt must
-stay byte-identical for the shared schema portion (see the module docstring
-at the top of ``CORPUS_SCHEMA.md`` — "do not duplicate it elsewhere").
+The API ``/mcp`` server instructions and ``agent_explore`` system prompt
+share this text. Tool-specific usage lives on each tool's own description.
 """
 
 from __future__ import annotations
@@ -12,10 +9,10 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-_SCHEMA_PATH = Path(__file__).with_name("CORPUS_SCHEMA.md")
+_OVERVIEW_PATH = Path(__file__).with_name("CORPUS_OVERVIEW.md")
 
 
 @lru_cache(maxsize=1)
-def load_corpus_schema_text() -> str:
-    """Return the verbatim contents of ``CORPUS_SCHEMA.md``."""
-    return _SCHEMA_PATH.read_text(encoding="utf-8")
+def load_corpus_overview_text() -> str:
+    """Return the verbatim contents of ``CORPUS_OVERVIEW.md``."""
+    return _OVERVIEW_PATH.read_text(encoding="utf-8")

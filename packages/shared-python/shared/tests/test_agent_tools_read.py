@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.agent_tools.registry import ToolContext
-from shared.services.retrieval.agent_tools.tools.read import _PICK_REMINDER, read
+from shared.services.retrieval.agent_tools.tools.read import _LOCATE_HINT, read
 
 USER_ID = "user_read"
 NAMESPACE = "default"
@@ -228,7 +228,6 @@ def _read_kwargs(refs: list[dict[str, str]], *, mode: str = "self") -> dict:
         "refs": refs,
         "mode": mode,
         "include_assets": False,
-        "resolve_same_as": False,
     }
 
 
@@ -273,9 +272,9 @@ def _assert_result(
 ) -> None:
     assert result.error is None
     expected_text = (
-        f"{_refs_text(ref_status)}\n{_PICK_REMINDER}\n{body_text}\n{_PICK_REMINDER}"
+        f"{_refs_text(ref_status)}\n{body_text}"
         if body_text
-        else f"{_refs_text(ref_status)}\n{_PICK_REMINDER}"
+        else _refs_text(ref_status)
     )
     assert result.text == expected_text
     assert result.payload["refs"] == ref_status
@@ -434,13 +433,13 @@ async def test_read_unknown_path_and_unknown_document_keep_valid_ref(
                 document_id=DOC_A,
                 status="failed",
                 section_path="no such path",
-                reason=f"unknown section_path for {DOC_A}: no such path",
+                reason=f"unknown section_path for {DOC_A}: no such path{_LOCATE_HINT}",
             ),
             _ref_status(
                 document_id="doc_missing",
                 status="failed",
                 section_path=PATH_INTRO,
-                reason="unknown document_id: doc_missing",
+                reason=f"unknown document_id: doc_missing{_LOCATE_HINT}",
             ),
             _ref_status(
                 document_id=DOC_B,
@@ -492,7 +491,7 @@ async def test_read_chunk_id_interleaved_with_section_path(read_ctx: ToolContext
                 document_id=DOC_A,
                 status="failed",
                 chunk_id="missing_chunk",
-                reason=f"unknown chunk_id: missing_chunk in {DOC_A}",
+                reason=f"unknown chunk_id: missing_chunk in {DOC_A}{_LOCATE_HINT}",
             ),
         ],
         refs=[

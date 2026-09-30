@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.mcp.dynamic_tools import register_corpus_tools
 from shared.core.database import get_db_context
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
-from shared.services.retrieval.agent_tools import load_corpus_schema_text
+from shared.services.retrieval.agent_tools import load_corpus_overview_text
 from shared.services.retrieval.app_service import run_retrieval_query
 from shared.services.retrieval.settings import DEFAULT_TOP_K
 
@@ -95,8 +95,8 @@ def create_retrieval_mcp_server(
         instructions=(
             "retrieval.query is a one-shot legacy search tool retained for "
             "backward compatibility (see its own tool description below). "
-            "Prefer the corpus.* tools for exploration; the schema below "
-            "describes what they operate on.\n\n" + load_corpus_schema_text()
+            "Prefer the corpus.* tools for exploration; the overview below "
+            "describes the corpus they operate on.\n\n" + load_corpus_overview_text()
         ),
         streamable_http_path=streamable_http_path,
         stateless_http=True,

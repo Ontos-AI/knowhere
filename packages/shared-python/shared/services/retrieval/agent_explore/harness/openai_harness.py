@@ -9,39 +9,13 @@ single tool call, parallel tool calls in one turn, tool-result feedback +
 final synthesis, and forced ``tool_choice`` (used for the budget-exhaustion
 cutoff below) all work.
 
+Each turn sends only a system message plus one rebuilt user message
+(query, one-line call trace, latest-turn results with pick ids, evidence
+pool, budget). Native tool-call history is not kept.
+
 Tool calls within one turn are dispatched sequentially through
-``dispatch.dispatch_tool_call`` (fresh DB session per call — safe for any
-harness, not just this one), not via ``asyncio.gather``: batching several
-tool calls into one LLM turn already removes the LLM round-trip per tool
-(the dominant cost); true DB-level concurrency within a turn is not
-implemented here since this provider's tool calls are handled one at a time
-by design, not because concurrent dispatch would be unsafe (it no longer is
-— see ``dispatch.py``).
-
-No import from archived map-nav modules.
-
-Two Phase 4 fixes (audited live against the eval fixture in
-``apps/worker/scripts/fixtures/changheba_archive_eval_queries.json``), both
-now shared with any other harness via ``shared.py`` except stale-message
-collapsing (fix 1), which stays here — it mutates this harness's own
-``messages: list[dict]`` history, a mechanism the Cursor SDK harness has no
-equivalent hook for:
-
-1. **Stale tool-message collapsing** (``_TOOL_MESSAGE_FRESH_TURNS``,
-   ``_collapse_stale_tool_messages``): ``messages`` only ever appended, so a
-   single ``corpus.outline``/``corpus.node_filter`` call (each capped at
-   ``ToolBudget.max_chars`` — currently ``EVIDENCE_TEXT_CHAR_BUDGET=12_000``,
-   see ``registry.py``) was resent in full on every later turn. Verified
-   live: two independent queries (q04, q06 in the eval fixture) hit
-   ``RETRIEVAL_NAV_TOKEN_LIMIT`` (100k default) within 7-8 LLM turns from
-   this resend alone, not from query difficulty — per-turn token cost grew
-   monotonically (q04: 4.4k -> 4.8k -> 19.8k -> 21.5k -> 24.2k -> 29.6k).
-2. **Trajectory refs fallback** (``shared.select_episode_refs``): verified
-   live that ``finish`` can be called with no ``refs`` key at all (raw
-   ``function.arguments`` was literally ``'{}'``) even after the model had
-   already read clearly relevant sections via ``corpus.read``. Omitted refs
-   (``None``) still fall back to ``corpus.read``/``corpus.assets`` trajectory
-   refs. An explicit ``refs: []`` is respected and does not fall back.
+``dispatch.dispatch_tool_call`` (fresh DB session per call). No import from
+archived map-nav modules.
 """
 
 from __future__ import annotations
@@ -60,38 +34,29 @@ from shared.services.retrieval.agent_explore.config import (
     FINISH_TOOL_DESCRIPTION,
     FINISH_TOOL_NAME,
     FINISH_TOOL_SCHEMA,
-    LOOP_CONTRACT_SUFFIX,
 )
 from shared.services.retrieval.agent_explore.dispatch import DbFactory, dispatch_tool_call
+from shared.services.retrieval.agent_explore.evidence_pool import (
+    EvidencePool,
+    PickOutcome,
+    render_budget,
+    render_trace_line,
+)
+from shared.services.retrieval.agent_explore.prompt import (
+    AGENT_SYSTEM_PROMPT,
+    split_pick,
+    with_pick_field,
+)
 from shared.services.retrieval.agent_explore.shared import (
-    EVIDENCE_TOOL_NAMES,
-    budget_status_line,
     build_wire_tool_name_map,
-    finish_refs_from_args,
-    https_image_parts,
     invalid_finish_message,
-    model_accepts_images,
     read_ref_status,
-    select_episode_refs,
     tool_message_content,
     validate_finish_args,
     wire_safe_tool_name,
 )
 from shared.services.retrieval.agent_explore.types import AgentStep, EpisodeResult
-from shared.services.retrieval.agent_tools import (
-    REGISTRY,
-    ToolBudget,
-    ToolResult,
-    load_corpus_schema_text,
-)
-
-# A tool-role message is kept in full for the turn it was produced plus this
-# many additional turns, then collapsed to a placeholder — see module
-# docstring point 1. Not tuned against a real recall-vs-token tradeoff yet;
-# 2 was chosen so a result stays fully visible for one full turn after the
-# one it was produced in (enough for the model to act on it immediately),
-# revisit with more Phase 4 data.
-_TOOL_MESSAGE_FRESH_TURNS = 2
+from shared.services.retrieval.agent_tools import REGISTRY, ToolBudget, ToolResult
 
 
 def _resolve_client_and_model() -> tuple[Any, str]:
@@ -119,7 +84,7 @@ def _build_openai_tools() -> tuple[list[dict[str, Any]], dict[str, str]]:
             "function": {
                 "name": wire_safe_tool_name(spec.name),
                 "description": spec.description,
-                "parameters": spec.json_schema,
+                "parameters": with_pick_field(spec.json_schema),
             },
         }
         for spec in specs
@@ -156,30 +121,34 @@ def _parse_tool_arguments(raw: str | None) -> tuple[dict[str, Any], str | None]:
     return parsed, None
 
 
-def _collapse_stale_tool_messages(
-    messages: list[dict[str, Any]],
-    tool_message_log: list[dict[str, Any]],
+def _compose_user_content(
     *,
-    current_turn: int,
-    fresh_turns: int,
-) -> None:
-    """Replace tool messages older than ``fresh_turns`` with a placeholder.
-
-    ``messages`` only ever grows within one episode (see module docstring
-    point 1); this is what keeps that growth bounded instead of resending
-    every past tool result on every later turn.
-    """
-    for entry in tool_message_log:
-        if entry["collapsed"]:
-            continue
-        if current_turn - entry["turn_index"] < fresh_turns:
-            continue
-        messages[entry["message_index"]]["content"] = (
-            f"[collapsed: {entry['tool_name']} result from turn "
-            f"{entry['turn_index']} was {entry['original_chars']} chars — "
-            "call the tool again if you need it back in view]"
+    query: str,
+    trace_lines: list[str],
+    latest_results: list[str],
+    pool: EvidencePool,
+    budget: EpisodeBudget,
+    previous_turn: int,
+) -> str:
+    parts = [f"User query: {query}"]
+    if trace_lines:
+        parts.append("trace:\n" + "\n".join(f"  {line}" for line in trace_lines))
+    if latest_results:
+        parts.append(
+            f"latest results (turn {previous_turn}):\n" + "\n\n".join(latest_results)
         )
-        entry["collapsed"] = True
+    parts.append(pool.render_pool())
+    parts.append(render_budget(budget))
+    return "\n\n".join(part for part in parts if part)
+
+
+def _attach_pick(
+    step: AgentStep, requested: list[str], outcome: PickOutcome
+) -> AgentStep:
+    step.pick_requested = requested
+    step.picked = outcome.added
+    step.pick_rejected = outcome.rejected
+    return step
 
 
 class OpenAIHarness:
@@ -198,33 +167,30 @@ class OpenAIHarness:
         tool_budget = ToolBudget()
         client, model = _resolve_client_and_model()
         openai_tools, tool_name_map = _build_openai_tools()
-
-        system_prompt = load_corpus_schema_text() + LOOP_CONTRACT_SUFFIX
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": query},
-        ]
-
+        pool = EvidencePool()
+        trace_lines: list[str] = []
+        latest_results: list[str] = []
         steps: list[AgentStep] = []
-        finish_refs: list[dict[str, Any]] | None = None
         result_notes = ""
-        # Refs from every corpus.read/corpus.assets/corpus.query_table call this episode, in call
-        # order — the fallback source when finish's own refs end up empty (see
-        # module docstring point 2).
-        trajectory_refs: list[dict[str, Any]] = []
-        # One entry per appended tool-role message: {message_index, turn_index,
-        # tool_name, original_chars, collapsed} — see _collapse_stale_tool_messages.
-        tool_message_log: list[dict[str, Any]] = []
         turn_index = 0
+        stop_reason = "finished"
 
         while True:
             turn_index += 1
-            _collapse_stale_tool_messages(
-                messages,
-                tool_message_log,
-                current_turn=turn_index,
-                fresh_turns=_TOOL_MESSAGE_FRESH_TURNS,
-            )
+            messages = [
+                {"role": "system", "content": AGENT_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": _compose_user_content(
+                        query=query,
+                        trace_lines=trace_lines,
+                        latest_results=latest_results,
+                        pool=pool,
+                        budget=budget,
+                        previous_turn=turn_index - 1,
+                    ),
+                },
+            ]
 
             forced_reason = budget.exhausted()
             tool_choice: Any = "auto"
@@ -266,92 +232,119 @@ class OpenAIHarness:
                 )
                 break
 
-            finish_call = next(
-                (tc for tc in tool_calls if tc.function.name == FINISH_TOOL_NAME), None
+            parsed_calls: list[
+                tuple[Any, str, dict[str, Any], list[str], dict[str, Any], str | None]
+            ] = []
+            all_handles: list[str] = []
+            for tool_call in tool_calls:
+                args, parse_error = _parse_tool_arguments(tool_call.function.arguments)
+                handles, call_args = split_pick(args)
+                all_handles.extend(handles)
+                parsed_calls.append(
+                    (
+                        tool_call,
+                        str(tool_call.function.name or ""),
+                        args,
+                        handles,
+                        call_args,
+                        parse_error,
+                    )
+                )
+
+            decision = pool.take_pending()
+            outcome = pool.apply_pick(all_handles, decision)
+            pick_recorded = False
+
+            finish_entry = next(
+                (item for item in parsed_calls if item[1] == FINISH_TOOL_NAME),
+                None,
             )
             finish_error: str | None = None
-            if finish_call is not None:
-                args, parse_error = _parse_tool_arguments(finish_call.function.arguments)
+            finish_args: dict[str, Any] = {}
+            finish_parse_error: str | None = None
+            if finish_entry is not None:
+                _tc, _name, raw_finish_args, _handles, finish_args, finish_parse_error = (
+                    finish_entry
+                )
+                parse_error = finish_parse_error
                 if parse_error is None:
-                    parse_error = validate_finish_args(args)
+                    parse_error = validate_finish_args(raw_finish_args)
                 if parse_error is not None and forced_reason is None:
                     finish_error = parse_error
-            if finish_call is not None and finish_error is None:
-                finish_refs = finish_refs_from_args(args) if parse_error is None else None
-                cited = finish_refs if finish_refs is not None else []
+            if finish_entry is not None and finish_error is None:
                 result_notes = (
-                    parse_error if parse_error is not None else str(args.get("notes") or "")
+                    finish_parse_error
+                    if finish_parse_error is not None
+                    else str(finish_args.get("notes") or "")
                 )
                 stop_reason = f"budget_{forced_reason}" if forced_reason else "finished"
                 steps.append(
-                    AgentStep(
-                        step_index=len(steps),
-                        tool_name=FINISH_TOOL_NAME,
-                        tool_args=args,
-                        observation_text=f"refs={len(cited)} notes={result_notes!r}",
-                        error=parse_error,
-                        elapsed_ms=turn_elapsed_ms,
-                        tokens_used_delta=turn_tokens,
-                        tokens_used_total=budget.tokens_used,
+                    _attach_pick(
+                        AgentStep(
+                            step_index=len(steps),
+                            tool_name=FINISH_TOOL_NAME,
+                            tool_args=finish_args,
+                            observation_text=(
+                                f"pool={len(pool.entries)} notes={result_notes!r}"
+                            ),
+                            error=finish_parse_error,
+                            elapsed_ms=turn_elapsed_ms,
+                            tokens_used_delta=turn_tokens,
+                            tokens_used_total=budget.tokens_used,
+                        ),
+                        all_handles,
+                        outcome,
                     )
                 )
                 break
 
             if forced_reason is not None:
-                # Forced tool_choice=finish but the provider returned a
-                # different tool anyway (not observed in verification, but a
-                # budget cutoff must never loop past). Stop here regardless.
                 stop_reason = f"budget_{forced_reason}"
                 result_notes = str(message.content or "") or (
                     "budget exhausted; provider did not return finish"
                 )
                 steps.append(
-                    AgentStep(
-                        step_index=len(steps),
-                        tool_name="",
-                        tool_args={},
-                        observation_text=result_notes,
-                        error="forced_finish_not_honored",
-                        elapsed_ms=turn_elapsed_ms,
-                        tokens_used_delta=turn_tokens,
-                        tokens_used_total=budget.tokens_used,
+                    _attach_pick(
+                        AgentStep(
+                            step_index=len(steps),
+                            tool_name="",
+                            tool_args={},
+                            observation_text=result_notes,
+                            error="forced_finish_not_honored",
+                            elapsed_ms=turn_elapsed_ms,
+                            tokens_used_delta=turn_tokens,
+                            tokens_used_total=budget.tokens_used,
+                        ),
+                        all_handles,
+                        outcome,
                     )
                 )
                 break
 
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": message.content or "",
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments,
-                            },
-                        }
-                        for tc in tool_calls
-                    ],
-                }
-            )
             first_tool_tokens_recorded = False
-            for tc in tool_calls:
+            turn_results: list[str] = []
+            for (
+                _tool_call,
+                requested_name,
+                _raw_args,
+                _handles,
+                call_args,
+                parse_error,
+            ) in parsed_calls:
                 tool_started = time.perf_counter()
-                args, parse_error = _parse_tool_arguments(tc.function.arguments)
-                requested_name = str(tc.function.name or "")
                 canonical_name = tool_name_map.get(requested_name, requested_name)
-                if tc is finish_call:
+                if requested_name == FINISH_TOOL_NAME:
                     tool_result = ToolResult(
                         text="", error=invalid_finish_message(str(finish_error))
                     )
+                    trace_result = ToolResult(text="", error=str(finish_error))
                 elif parse_error is not None:
                     tool_result = ToolResult(text="", error=parse_error)
+                    trace_result = tool_result
                 else:
                     tool_result = await dispatch_tool_call(
                         canonical_name,
-                        args,
+                        call_args,
                         db_factory=db_factory,
                         user_id=user_id,
                         namespace=namespace,
@@ -359,80 +352,54 @@ class OpenAIHarness:
                         budget=tool_budget,
                         query=query,
                     )
+                    trace_result = tool_result
                 tool_elapsed_ms = int((time.perf_counter() - tool_started) * 1000)
                 content = tool_message_content(
                     tool_result,
                     tool_name=canonical_name,
                     max_chars=tool_budget.max_chars,
                 )
-                messages.append(
-                    {"role": "tool", "tool_call_id": tc.id, "content": content}
-                )
-                tool_message_index = len(messages) - 1
-                if model_accepts_images(model):
-                    image_parts = https_image_parts(tool_result)
-                    if image_parts:
-                        messages.append(
-                            {"role": "user", "content": image_parts}
-                        )
-                tool_message_log.append(
-                    {
-                        "message_index": tool_message_index,
-                        "turn_index": turn_index,
-                        "tool_name": canonical_name,
-                        "original_chars": len(content),
-                        "collapsed": False,
-                    }
-                )
-                if canonical_name in EVIDENCE_TOOL_NAMES and not tool_result.error:
-                    trajectory_refs.extend(tool_result.refs)
-                # Turn-level token usage is attributed to the first tool step in
-                # this turn (the completion that decided all calls in it); the
-                # rest are 0 to avoid double-counting the same LLM usage.
-                steps.append(
-                    AgentStep(
-                        step_index=len(steps),
-                        tool_name=canonical_name,
-                        tool_args=args,
-                        observation_text=content,
-                        error=tool_result.error,
-                        elapsed_ms=(
-                            tool_elapsed_ms
-                            if first_tool_tokens_recorded
-                            else turn_elapsed_ms + tool_elapsed_ms
-                        ),
-                        tokens_used_delta=0 if first_tool_tokens_recorded else turn_tokens,
-                        tokens_used_total=budget.tokens_used,
-                        ref_status=read_ref_status(canonical_name, tool_result),
+                candidates = pool.issue(canonical_name, tool_result)
+                if candidates:
+                    content = f"{content}\n{pool.render_candidates(candidates)}"
+                turn_results.append(f"{requested_name}:\n{content}")
+                trace_lines.append(
+                    render_trace_line(
+                        len(trace_lines) + 1,
+                        requested_name,
+                        call_args,
+                        trace_result,
                     )
                 )
+                step = AgentStep(
+                    step_index=len(steps),
+                    tool_name=canonical_name,
+                    tool_args=call_args,
+                    observation_text=content,
+                    error=tool_result.error,
+                    elapsed_ms=(
+                        tool_elapsed_ms
+                        if first_tool_tokens_recorded
+                        else turn_elapsed_ms + tool_elapsed_ms
+                    ),
+                    tokens_used_delta=0 if first_tool_tokens_recorded else turn_tokens,
+                    tokens_used_total=budget.tokens_used,
+                    ref_status=read_ref_status(canonical_name, tool_result),
+                    candidates=[item.handle for item in candidates] or None,
+                )
+                if not pick_recorded:
+                    _attach_pick(step, all_handles, outcome)
+                    pick_recorded = True
+                steps.append(step)
                 first_tool_tokens_recorded = True
 
-            # Appended once per turn, to the last tool message only (not
-            # every AgentStep's recorded observation_text above) — the model
-            # only needs to see current remaining budget once before its next
-            # completion call, not once per parallel tool call in this turn.
-            last_tool = next(
-                (
-                    message
-                    for message in reversed(messages)
-                    if message.get("role") == "tool"
-                ),
-                None,
-            )
-            if last_tool is not None:
-                last_tool["content"] = (
-                    str(last_tool["content"]) + "\n" + budget_status_line(budget)
-                )
+            latest_results = turn_results
 
-        selection = select_episode_refs(finish_refs, trajectory_refs, result_notes)
         return EpisodeResult(
-            refs=selection.refs,
-            notes=selection.notes,
+            pool=list(pool.entries),
+            notes=result_notes,
             steps=steps,
             stop_reason=stop_reason,
             tokens_used=budget.tokens_used,
             model_name=model,
-            agent_selected_refs=selection.agent_selected_refs,
-            fallback_refs=selection.fallback_refs,
         )

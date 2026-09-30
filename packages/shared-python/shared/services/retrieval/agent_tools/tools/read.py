@@ -3,10 +3,10 @@
 Unlike ``hydration.result_assembly.assemble_retrieval_results`` (which
 down-weights ``page`` chunks to their summary — see ``page_summary``, a
 deliberate trade-off for the retrieval-answer surface),
-``read`` returns the page chunk's full body content, with ``[SAME-AS <owner>
-p<N>]`` markers resolved to the owner section's text (§2 of
-``CORPUS_SCHEMA.md``) rather than stripped or summarized. ``connect_to``
-assets are still inlined via the same placeholder mechanism as retrieval.
+``read`` returns the page chunk's full body content, with shared-page
+markers resolved to the owner section's text rather than stripped or
+summarized. Embedded images and tables are still inlined via the same
+placeholder mechanism as retrieval.
 Table chunks load the stored HTML: small tables return that HTML; large
 tables return row/column headers only and point at ``corpus.query_table``
 (no window — GREP/recall never scan table-cell HTML, so there is no real
@@ -65,12 +65,17 @@ from shared.services.retrieval.search.lexical_text import section_path_from_chun
 
 _SAME_AS_MARKER_RE = re.compile(r"\[SAME-AS (.+?) p(\d+)\]")
 _BODY_CHUNK_TYPES = ("text", "page")
-# Repeated after the ref list and after the body: a long body can be cut by
-# the per-turn text cap, and the ref list alone may scroll out of view.
-_PICK_REMINDER = (
-    "[pick: decide now, for each [ok] ref, whether to cite it in finish; "
-    "[failed] refs cannot be cited]"
+_LOCATE_HINT = (
+    " Copy document_id and section_path or chunk_id exactly from a prior "
+    "result row, or locate the section first with corpus.outline, "
+    "corpus.grep, corpus.recall, or corpus.assets."
 )
+
+
+def _with_locate_hint(reason: str) -> str:
+    if _LOCATE_HINT.strip() in reason:
+        return reason
+    return reason + _LOCATE_HINT
 
 
 def _ref_status_line(entry: dict[str, Any]) -> str:
@@ -155,9 +160,9 @@ async def _resolve_same_as_markers(
         for marker_text, owner_path in row_matches:
             resolved = owner_content.get((document_id, owner_path), "")
             if resolved:
-                replacement = f"(SAME-AS {owner_path} resolved)\n{resolved}"
+                replacement = f"(page text shared with section {owner_path})\n{resolved}"
             else:
-                replacement = f"(SAME-AS {owner_path} — page not found)"
+                replacement = f"(page text shared with section {owner_path}: not found)"
             content = content.replace(marker_text, replacement, 1)
         row["content"] = content
 
@@ -253,15 +258,14 @@ def _collect_https_image_media(
 @register_tool(
     name="corpus.read",
     description=(
-        "Read full body content for already-located sections or chunks. "
-        "Resolves page-track SAME-AS pointers to the owner section's text, "
-        "inlines connect_to assets, loads table HTML (small tables in full; "
-        "large tables as row/column headers plus a pointer to "
-        "corpus.query_table), and converts asset/page_assets references to "
-        "URLs. Use after outline/node_filter/recall/grep have located where "
-        "to look. Each ref's outcome (ok, or failed with a reason) is "
-        "reported separately — decide pick/no-pick for each ref right "
-        "after seeing its status; a failed ref defaults to not picked."
+        "Read full content for sections (document_id + section_path) or "
+        "chunks (document_id + chunk_id) that you already located. Copy "
+        "both values exactly from a prior result row. Page text shared "
+        "with another section is filled in automatically. Images and "
+        "tables the section contains are shown inline: small tables in "
+        "full, large tables as row and column headers (then use "
+        "corpus.query_table). Each ref's outcome (ok, or failed with a "
+        "reason) is reported separately."
     ),
     json_schema={
         "type": "object",
@@ -304,12 +308,7 @@ def _collect_https_image_media(
             "include_assets": {
                 "type": "boolean",
                 "default": True,
-                "description": "Inline connect_to images and tables into the body.",
-            },
-            "resolve_same_as": {
-                "type": "boolean",
-                "default": True,
-                "description": "Replace page-track SAME-AS markers with the owner text.",
+                "description": "Show the images and tables this section contains inline.",
             },
         },
         "required": ["refs"],
@@ -324,7 +323,6 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if mode not in ("self", "descendants"):
         return ToolResult(text="", error=f"unsupported mode: {mode}")
     include_assets = bool(args.get("include_assets", True))
-    resolve_same_as_flag = bool(args.get("resolve_same_as", True))
     char_budget = ctx.budget.max_chars
 
     document_ids = {
@@ -378,7 +376,9 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         job_result_id = revision_by_doc.get(document_id)
         if not job_result_id:
             ref_status[index]["status"] = "failed"
-            ref_status[index]["reason"] = f"unknown document_id: {document_id}"
+            ref_status[index]["reason"] = _with_locate_hint(
+                f"unknown document_id: {document_id}"
+            )
             continue
         chunk_id = str(ref.get("chunk_id") or "").strip()
         section_path = str(ref.get("section_path") or "").strip()
@@ -388,7 +388,11 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         if chunk_id:
             row = (
                 await ctx.db.execute(
-                    select(DocumentChunk, DocumentSection.section_path)
+                    select(
+                        DocumentChunk,
+                        DocumentSection.section_path,
+                        DocumentSection.summary,
+                    )
                     .select_from(DocumentChunk)
                     .outerjoin(
                         DocumentSection,
@@ -401,9 +405,11 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             ).first()
             if row is None:
                 ref_status[index]["status"] = "failed"
-                ref_status[index]["reason"] = f"unknown chunk_id: {chunk_id} in {document_id}"
+                ref_status[index]["reason"] = _with_locate_hint(
+                    f"unknown chunk_id: {chunk_id} in {document_id}"
+                )
                 continue
-            chunk, resolved_section_path = row
+            chunk, resolved_section_path, section_summary = row
             ref_status[index]["status"] = "ok"
             ref_status[index]["chunk_ids"] = [chunk.chunk_id]
             emit_items.append(
@@ -422,6 +428,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                             "content": chunk.content,
                             "chunk_metadata": chunk.chunk_metadata or {},
                             "file_path": chunk.file_path,
+                            "section_summary": str(section_summary or "").strip(),
                         }
                     ],
                 )
@@ -430,7 +437,9 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
         if not section_path:
             ref_status[index]["status"] = "failed"
-            ref_status[index]["reason"] = f"ref for {document_id} needs section_path or chunk_id"
+            ref_status[index]["reason"] = _with_locate_hint(
+                f"ref for {document_id} needs section_path or chunk_id"
+            )
             continue
 
         resolved_path, path_error = await resolve_section_path_anchor(
@@ -441,7 +450,9 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         )
         if path_error or not resolved_path:
             ref_status[index]["status"] = "failed"
-            ref_status[index]["reason"] = path_error or f"unknown section_path for {document_id}"
+            ref_status[index]["reason"] = _with_locate_hint(
+                path_error or f"unknown section_path for {document_id}"
+            )
             continue
         emit_items.append(
             (
@@ -499,12 +510,9 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                             DocumentChunk.section_id.in_(section_ids),
                             # Body chunks only (text/page). image/table chunks share a
                             # section_id with whichever section happens to store them
-                            # in the DB (always Root — CORPUS_SCHEMA.md §3), which is
-                            # not the same as "belonging" to that section; their real
-                            # association is connect_to on the body chunk, resolved
-                            # below via hydrate_connected_target_rows. Without this
-                            # filter, reading Root would return every still-unmounted
-                            # asset in the document as spurious top-level entries.
+                            # in the DB, which is not the same as belonging to that
+                            # section; their real association is on the body chunk,
+                            # resolved below via hydrate_connected_target_rows.
                             DocumentChunk.chunk_type.in_(_BODY_CHUNK_TYPES),
                         )
                     )
@@ -536,6 +544,11 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             for section in section_matches
             if section.section_id in matched_ids
         }
+        section_summary_by_id = {
+            section.section_id: str(section.summary or "").strip()
+            for section in section_matches
+            if section.section_id in matched_ids
+        }
         job_chunk_ids: list[str] = []
         for chunk in batched_chunks:
             if chunk.section_id not in matched_ids:
@@ -558,6 +571,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                     "content": chunk.content,
                     "chunk_metadata": chunk.chunk_metadata or {},
                     "file_path": chunk.file_path,
+                    "section_summary": section_summary_by_id.get(chunk.section_id, ""),
                 }
             )
         if job_chunk_ids:
@@ -565,7 +579,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             ref_status[ref_index]["chunk_ids"] = job_chunk_ids
         else:
             ref_status[ref_index]["status"] = "failed"
-            ref_status[ref_index]["reason"] = (
+            ref_status[ref_index]["reason"] = _with_locate_hint(
                 f"no body chunk found for {job['resolved_path']} in "
                 f"{job['document_id']} (image/table-only or empty section)"
             )
@@ -578,19 +592,15 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             error=(
                 "read: every ref failed, nothing was read:\n"
                 + "\n".join(status_lines)
-                + "\nNone of these can be picked for finish. Fix each ref "
-                "(copy document_id + section_path/chunk_id exactly from an "
-                "outline/node_filter/grep/recall/assets row) and retry."
             ),
         )
 
-    if resolve_same_as_flag:
-        await _resolve_same_as_markers(
-            ctx.db,
-            base_rows,
-            revision_by_doc=revision_by_doc,
-            source_file_name_by_doc=source_file_name_by_doc,
-        )
+    await _resolve_same_as_markers(
+        ctx.db,
+        base_rows,
+        revision_by_doc=revision_by_doc,
+        source_file_name_by_doc=source_file_name_by_doc,
+    )
 
     connected_rows: list[dict[str, Any]] = []
     if include_assets:
@@ -637,14 +647,13 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             composed["content"] = _image_display_content(row)
         assembled.append(composed)
 
-    lines = ["refs:", *(f"  {line}" for line in status_lines), _PICK_REMINDER]
+    lines = ["refs:", *(f"  {line}" for line in status_lines)]
     for row in assembled:
         lines.append(
             f"### {row.get('source_file_name')} ({row.get('document_id')}) / "
             f"{row.get('section_path')} [{row.get('chunk_type')}]"
         )
         lines.append(str(row.get("content") or ""))
-    lines.append(_PICK_REMINDER)
 
     return ToolResult(
         text="\n".join(lines),

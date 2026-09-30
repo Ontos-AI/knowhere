@@ -1,6 +1,6 @@
 """Shared section_path resolution for agent tools and harness bridge.
 
-``corpus.read`` and ``resolve_finish_refs`` both need to turn an agent-supplied
+``corpus.read`` needs to turn an agent-supplied
 ``section_path`` into one canonical DB path. Agents often cite a suffix (e.g.
 ``3 工程地质 / 3.2 覆盖层``) while the stored path includes ancestors
 (``附件目录 / 3 工程地质 / 3.2 覆盖层``). Exact match alone fails silently

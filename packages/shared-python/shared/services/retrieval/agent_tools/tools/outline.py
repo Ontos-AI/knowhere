@@ -202,7 +202,10 @@ async def outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         text=rendered.text,
         payload={
             "rows": visible_rows,
-            "details": {"hidden_count": len(order) - len(visible_rows)},
+            "details": {
+                "hidden_count": len(order) - len(visible_rows),
+                "documents": source_file_name_by_doc,
+            },
         },
         refs=[
             {"document_id": row["document_id"], "section_path": row["section_path"]}

@@ -6,7 +6,7 @@ only builds a tool's schema by introspecting a Python function's *signature*
 there is no public entry point to register a tool from an already-built JSON
 Schema dict, which is what every ``agent_tools.ToolSpec`` carries. Since our
 schema is the one already shipped to ``agent_explore`` and meant to be
-verbatim-identical across harnesses (see ``CORPUS_SCHEMA.md``), we construct
+verbatim-identical across harnesses (see ``CORPUS_OVERVIEW.md``), we construct
 ``Tool`` objects directly instead of round-tripping through a synthetic
 Python function signature, and insert them into the tool manager's registry
 dict — the same dict ``ToolManager.__init__`` accepts a ``tools=`` list for,

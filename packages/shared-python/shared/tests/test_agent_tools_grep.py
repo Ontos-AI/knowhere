@@ -419,8 +419,7 @@ async def test_grep_table_hit_text_includes_chunk_id(
 
     assert result.error is None
     assert (
-        "- [table] guide.pdf | document_id=doc_a section_path=guide.pdf / Root "
-        "(no host section) chunk_id=chunk_table"
+        "- [table] guide.pdf | document_id=doc_a (not in any section) chunk_id=chunk_table"
         in result.text
     )
     assert "<table>" in result.text

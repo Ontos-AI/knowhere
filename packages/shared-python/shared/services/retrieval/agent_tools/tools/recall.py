@@ -58,10 +58,11 @@ def _identifier_snippet(row: dict[str, Any]) -> str:
     name="corpus.recall",
     description=(
         "Fuzzy ranked candidate search for a question when you don't know "
-        "where the answer lives. Scores path and content with BM25. "
+        "where the answer lives. Ranks by how well section path and text "
+        "match the query. "
         "Returns candidates with chunk_type, document_id, path and snippet. "
-        "Table and image hits include rendered content; body hits include "
-        "any connected table or image. Exact string / identifier lookup is "
+        "Table and image hits show their content; body hits also show the "
+        "images and tables they contain. Exact string / identifier lookup is "
         "corpus.grep, not this tool. Read the candidate's document_id + "
         "section_path (or chunk_id, for image/table hits) with corpus.read "
         "next, not the filename."
@@ -144,7 +145,7 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         # recall regardless of what a better next step happens to be for
         # this corpus/query, so it nudges the agent to change approach
         # without prescribing which other tool to reach for (that's already
-        # covered generically in CORPUS_SCHEMA.md §6's tool-selection table).
+        # covered generically in each other tool's own description).
         lines.append(
             "note: few or no candidates for this phrasing — rephrasing the "
             "query and calling recall again rarely surfaces more; a "

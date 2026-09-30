@@ -126,7 +126,6 @@ async def test_read_partial_failure_status_is_in_payload_and_trace(
             ],
             "mode": "self",
             "include_assets": False,
-            "resolve_same_as": False,
         },
     )
     assert result.error is None
@@ -140,7 +139,7 @@ async def test_read_partial_failure_status_is_in_payload_and_trace(
         result, tool_name="corpus.read", max_chars=12_000
     )
     assert "[ok]" in observation
-    assert "[failed: unknown chunk_id: missing_chunk in doc_a]" in observation
+    assert "[failed: unknown chunk_id: missing_chunk in doc_a" in observation
 
     trace = build_decision_trace(
         [
@@ -159,7 +158,7 @@ async def test_read_partial_failure_status_is_in_payload_and_trace(
     )
     recorded = trace[0].observation["observation_text"]
     assert "[ok]" in recorded
-    assert "[failed: unknown chunk_id: missing_chunk in doc_a]" in recorded
+    assert "[failed: unknown chunk_id: missing_chunk in doc_a" in recorded
     assert trace[0].observation["ref_status"] == result.payload["refs"]
     assert trace[0].result["status"] == "ok"
     assert trace[0].result["error"] is None

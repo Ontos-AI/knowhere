@@ -15,7 +15,7 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 import pytest
 
 from shared.services.retrieval.agent_explore.config import FINISH_TOOL_SCHEMA
-from shared.services.retrieval.agent_tools import REGISTRY, ToolContext, load_corpus_schema_text
+from shared.services.retrieval.agent_tools import REGISTRY, ToolContext, load_corpus_overview_text
 from shared.services.retrieval.agent_tools.snippet import build_row, format_row
 
 
@@ -114,7 +114,7 @@ def test_every_schema_property_has_a_description() -> None:
                 "refs": [{"document_id": "doc_a", "section_path": "A / B"}],
                 "section_paths": ["A / B"],
             },
-            ["include_assets", "mode", "refs", "resolve_same_as"],
+            ["include_assets", "mode", "refs"],
         ),
         (
             "corpus.node_filter",
@@ -151,7 +151,7 @@ async def test_nested_unknown_key_names_the_path() -> None:
 
 
 def test_old_parameter_names_are_absent_from_docs_and_descriptions() -> None:
-    schema_text = load_corpus_schema_text()
+    schema_text = load_corpus_overview_text()
     for stale in ("document_ids", "path_prefix", "max_results"):
         assert stale not in schema_text
         for spec in REGISTRY.all():
