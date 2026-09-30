@@ -40,6 +40,7 @@ async def dispatch_tool_call(
     namespace: str,
     document_scope: DocumentScope = DocumentScope(),
     budget: ToolBudget | None = None,
+    query: str = "",
 ) -> ToolResult:
     """Run one ``REGISTRY`` tool call against a fresh, call-scoped DB session.
 
@@ -47,7 +48,10 @@ async def dispatch_tool_call(
     (defaults to ``ToolBudget()``, matching prior behavior); callers that need
     the same budget value for their own text-capping (``shared.tool_message_content``)
     should hold onto the ``ToolBudget`` they pass here rather than reach back
-    into the (call-scoped, already-closed) ``ToolContext``.
+    into the (call-scoped, already-closed) ``ToolContext``. ``query`` is the
+    end user's original query for this episode (see ``ToolContext.query``'s
+    docstring) — both harnesses' ``run_episode`` already receive it, so this
+    is a pass-through, not a new source of truth.
     """
     try:
         async with db_factory() as db:
@@ -58,6 +62,7 @@ async def dispatch_tool_call(
                 db_factory=db_factory,
                 budget=budget or ToolBudget(),
                 document_scope=document_scope,
+                query=query,
             )
             return await REGISTRY.dispatch(name, tool_ctx, args)
     except Exception as exc:  # noqa: BLE001 - one broken tool must not kill the episode

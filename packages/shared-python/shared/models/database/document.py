@@ -242,7 +242,6 @@ class DocumentMapUnit(Base):
     unit_kind: Mapped[str] = mapped_column(String(32), nullable=False)
     path_token_count: Mapped[int] = mapped_column(Integer, nullable=False)
     content_token_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    term_search_text_lower: Mapped[str] = mapped_column(Text, nullable=False)
     # Asset presence under this unit's section, after root-asset remount
     # (``KnowhereProvider._remount_root_assets``). Lets type-scoped queries
     # (e.g. chunk_types=["image"]) narrow map-unit candidates *before*

@@ -64,6 +64,7 @@ dependencies = [
     "typing-extensions==4.14.1",
     "jieba==0.42.1",
     "rank-bm25>=0.2.2",
+    "jsonschema>=4.20.0",
 
     # Text processing
     "blingfire>=0.1.8",

@@ -204,8 +204,6 @@ async def test_mapnav_route_should_release_route_session_before_fresh_final_hydr
             chunk_types=None,
             signal_paths=None,
             filter_mode="delete",
-            channels=None,
-            channel_weights=None,
             rerank=False,
             threshold=0.0,
             internal_recall_k=None,

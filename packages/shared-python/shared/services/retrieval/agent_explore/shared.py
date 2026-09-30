@@ -18,7 +18,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import jsonschema
+import jsonschema.validators
+
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+from shared.services.retrieval.agent_explore.config import FINISH_TOOL_SCHEMA
 from shared.services.retrieval.agent_tools import ToolResult
 
 # Tools whose ToolResult.refs point at evidence the agent has actually looked
@@ -29,6 +33,11 @@ from shared.services.retrieval.agent_tools import ToolResult
 EVIDENCE_TOOL_NAMES = frozenset(
     {"corpus.read", "corpus.assets", "corpus.query_table"}
 )
+
+# The two map-narrowing tools bound their own text at MAP_TOOL_CHAR_BUDGET by
+# folding whole subtrees (agent_tools.map_render) or failing the call, so
+# tool_message_content never cuts them mid-row.
+MAP_TOOL_NAMES = frozenset({"corpus.outline", "corpus.node_filter"})
 
 
 def model_accepts_images(model: str) -> bool:
@@ -88,31 +97,25 @@ def build_wire_tool_name_map(names: list[str]) -> dict[str, str]:
     return {wire_safe_tool_name(name): name for name in names}
 
 
-def tool_message_content(result: ToolResult, *, max_chars: int) -> str:
+def tool_message_content(result: ToolResult, *, tool_name: str, max_chars: int) -> str:
     """Cap a tool's rendered text before it enters LLM context.
 
     Uses the caller's ``ToolBudget.max_chars`` (``EVIDENCE_TEXT_CHAR_BUDGET``,
-    aligned with evidence packing — see ``agent_tools/registry.py``)
-    so tools like ``read`` can return unbounded body text while the harness
-    still bounds what the model sees per turn. This cap applies uniformly to
-    every tool's rendered text (not just ``read``'s body content) — a tool
-    that returns a "complete, non-truncated" *matched set* by contract
-    (``outline``, ``node_filter``) still has its *rendered text* capped here
-    the same as any other tool; that promise is about payload/refs
-    cardinality, not about how much of it is shown to the LLM per turn.
+    aligned with evidence packing — see ``agent_tools/registry.py``) so tools
+    like ``read`` can return unbounded body text while the harness still
+    bounds what the model sees per turn. ``MAP_TOOL_NAMES`` are returned
+    whole: they already fit ``MAP_TOOL_CHAR_BUDGET`` or failed the call.
     """
     if result.error:
         return f"error: {result.error}"
     text = result.text or "(empty result)"
-    if len(text) <= max_chars:
+    if tool_name in MAP_TOOL_NAMES or len(text) <= max_chars:
         return text
     omitted = len(text) - max_chars
     return (
         text[:max_chars]
         + f"\n...[truncated, {omitted} more chars — narrow the scope "
-        "(e.g. depth/path_prefix for outline, a tighter predicate for "
-        "node_filter, or a more specific ref for read) and call again if "
-        "you need the rest]"
+        "or use a more specific ref and call again if you need the rest]"
     )
 
 
@@ -161,6 +164,51 @@ def select_episode_refs(
         notes=notes,
         agent_selected_refs=list(finish_refs),
         fallback_refs=[],
+    )
+
+
+def validate_finish_args(args: dict[str, Any]) -> str | None:
+    """Validate ``finish``'s own args against ``FINISH_TOOL_SCHEMA``; ``None`` = valid.
+
+    Both harnesses route ``finish`` argument validation through this one
+    function instead of relying solely on the provider enforcing the closed
+    schema at generation time — whether either provider actually does that
+    is unverified (see ``config.py``'s ``FINISH_TOOL_SCHEMA`` docstring
+    context), so this is the real enforcement point.
+    """
+    if not isinstance(args, dict):
+        return f"finish: arguments must be a JSON object, got {type(args).__name__}"
+    validator_cls = jsonschema.validators.validator_for(FINISH_TOOL_SCHEMA)
+    validator = validator_cls(FINISH_TOOL_SCHEMA)
+    errors = sorted(
+        validator.iter_errors(args), key=lambda error: [str(p) for p in error.path]
+    )
+    if not errors:
+        return None
+    error = errors[0]
+    message = error.message
+    if error.validator == "oneOf" and isinstance(error.schema, dict):
+        message = str(error.schema.get("description") or message)
+    location = "".join(f"[{p}]" if isinstance(p, int) else f".{p}" for p in error.path)
+    return f"finish: invalid arguments{f' at {location}' if location else ''}: {message}"
+
+
+def read_ref_status(tool_name: str, result: ToolResult) -> list[dict[str, Any]] | None:
+    """``corpus.read``'s per-ref ok/failed list for ``AgentStep.ref_status``."""
+    if tool_name != "corpus.read":
+        return None
+    statuses = result.payload.get("refs")
+    return list(statuses) if isinstance(statuses, list) else None
+
+
+def invalid_finish_message(error: str) -> str:
+    """Model-facing text for a rejected ``finish`` call; the episode goes on."""
+    return (
+        f"{error}. finish was not accepted and the episode continues. Correct "
+        'form: {"refs": [{"document_id": "...", "section_path": "..."} or '
+        '{"document_id": "...", "chunk_id": "..."}], "notes": "..."} — each '
+        "ref names exactly one of section_path or chunk_id. Call finish again "
+        "with fixed arguments, or keep exploring with the corpus tools."
     )
 
 

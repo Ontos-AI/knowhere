@@ -25,12 +25,15 @@ def build_decision_trace(steps: list[AgentStep]) -> list[DecisionTraceStep]:
         phase = "finish" if step.tool_name == "finish" else (
             "stop" if not step.tool_name else "tool_call"
         )
+        observation: dict[str, object] = {"observation_text": observation_text}
+        if step.ref_status is not None:
+            observation["ref_status"] = step.ref_status
         trace_steps.append(
             DecisionTraceStep(
                 step_index=step.step_index,
                 agent="agent_explore",
                 phase=phase,
-                observation={"observation_text": observation_text},
+                observation=observation,
                 decision={
                     "action": step.tool_name or "no_tool_call",
                     "args": step.tool_args,

@@ -37,14 +37,21 @@ from shared.services.retrieval.settings import QUERY_TABLE_NAME
     json_schema={
         "type": "object",
         "properties": {
-            "document_id": {"type": "string"},
-            "chunk_id": {"type": "string"},
+            "document_id": {
+                "type": "string",
+                "description": "Document owning the table chunk.",
+            },
+            "chunk_id": {
+                "type": "string",
+                "description": "The table chunk_id, from a prior read/recall/grep row.",
+            },
             "sql": {
                 "type": "string",
                 "description": "A single SELECT. LIMIT is added when omitted.",
             },
         },
         "required": ["document_id", "chunk_id", "sql"],
+        "additionalProperties": False,
     },
 )
 async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -61,7 +68,10 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
     document = (
         await ctx.db.execute(
-            select(Document, JobResult.job_id)
+            select(
+                Document, JobResult.job_id,
+                JobResult.document_metadata["result_raw_prefix"].as_string(),
+            )
             .select_from(Document)
             .outerjoin(JobResult, JobResult.id == Document.current_job_result_id)
             .where(Document.document_id == document_id)
@@ -73,7 +83,7 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     ).first()
     if document is None:
         return ToolResult(text="", error=f"unknown document_id: {document_id}")
-    doc, job_id = document
+    doc, job_id, result_raw_prefix = document
     if not doc.current_job_result_id:
         return ToolResult(text="", error=f"unknown document_id: {document_id}")
 
@@ -100,6 +110,7 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 "content": chunk.content,
                 "file_path": chunk.file_path,
                 "job_id": job_id,
+                "result_raw_prefix": result_raw_prefix,
             }
         )
     except TableDownloadError as exc:

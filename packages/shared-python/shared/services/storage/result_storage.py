@@ -42,16 +42,38 @@ class ResultStorage(Protocol):
         raise NotImplementedError
 
     def generate_artifact_url(
-        self, *, job_id: str, artifact_ref: str, expires_in: int = 3600
+        self,
+        *,
+        job_id: str,
+        artifact_ref: str,
+        raw_prefix: str | None = None,
+        expires_in: int = 3600,
     ) -> str | None:
         raise NotImplementedError
 
     def generate_raw_file_url(
-        self, *, job_id: str, relative_path: str, expires_in: int = 3600
+        self,
+        *,
+        job_id: str,
+        relative_path: str,
+        raw_prefix: str | None = None,
+        expires_in: int = 3600,
     ) -> str | None:
         raise NotImplementedError
 
-    def verify_raw_exists(self, *, job_id: str, relative_path: str) -> bool:
+    def verify_raw_exists(
+        self, *, job_id: str, relative_path: str, raw_prefix: str | None = None
+    ) -> bool:
+        raise NotImplementedError
+
+    def upload_raw_file(
+        self,
+        *,
+        job_id: str,
+        relative_path: str,
+        local_file_path: str,
+        raw_prefix: str | None = None,
+    ) -> None:
         raise NotImplementedError
 
     def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None:
@@ -62,6 +84,7 @@ class ResultStorage(Protocol):
         *,
         job_id: str,
         relative_path: str,
+        raw_prefix: str | None = None,
         suffix: str,
         temp_dir: str,
     ) -> str:
@@ -92,11 +115,20 @@ class JobResultStorage:
     def build_raw_prefix(self, *, job_id: str) -> str:
         return self._job_file_storage.build_result_raw_prefix(job_id=job_id)
 
-    def build_raw_key(self, *, job_id: str, relative_path: str) -> str:
+    def build_raw_key(
+        self,
+        *,
+        job_id: str,
+        relative_path: str,
+        raw_prefix: str | None = None,
+    ) -> str:
         normalized = self._normalize_raw_relative_path(relative_path)
         if not normalized:
             raise ValueError(f"Invalid result raw artifact path: {relative_path}")
-        return f"{self.build_raw_prefix(job_id=job_id)}{normalized}"
+        prefix = self._normalize_raw_prefix(raw_prefix)
+        if prefix is None:
+            prefix = self.build_raw_prefix(job_id=job_id)
+        return f"{prefix}{normalized}"
 
     def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None:
         normalized = self._normalize_raw_relative_path(artifact_ref)
@@ -205,16 +237,35 @@ class JobResultStorage:
             expires_in=expires_in,
         )["download_url"]
 
-    def verify_raw_exists(self, *, job_id: str, relative_path: str) -> bool:
-        key = self.build_raw_key(job_id=job_id, relative_path=relative_path)
+    def verify_raw_exists(
+        self,
+        *,
+        job_id: str,
+        relative_path: str,
+        raw_prefix: str | None = None,
+    ) -> bool:
+        key = self.build_raw_key(
+            job_id=job_id,
+            relative_path=relative_path,
+            raw_prefix=raw_prefix,
+        )
         result = self._job_file_storage.verify_exists(key, bucket=self.results_bucket)
         return bool(result.get("exists"))
 
     def generate_raw_file_url(
-        self, *, job_id: str, relative_path: str, expires_in: int = 3600
+        self,
+        *,
+        job_id: str,
+        relative_path: str,
+        raw_prefix: str | None = None,
+        expires_in: int = 3600,
     ) -> str | None:
         return self.generate_url(
-            storage_key=self.build_raw_key(job_id=job_id, relative_path=relative_path),
+            storage_key=self.build_raw_key(
+                job_id=job_id,
+                relative_path=relative_path,
+                raw_prefix=raw_prefix,
+            ),
             expires_in=expires_in,
         )
 
@@ -223,11 +274,16 @@ class JobResultStorage:
         *,
         job_id: str,
         relative_path: str,
+        raw_prefix: str | None = None,
         local_file_path: str,
     ) -> None:
         self._job_file_storage.upload_local_file(
             local_file_path,
-            self.build_raw_key(job_id=job_id, relative_path=relative_path),
+            self.build_raw_key(
+                job_id=job_id,
+                relative_path=relative_path,
+                raw_prefix=raw_prefix,
+            ),
             bucket=self.results_bucket,
         )
 
@@ -236,24 +292,38 @@ class JobResultStorage:
         *,
         job_id: str,
         relative_path: str,
+        raw_prefix: str | None = None,
         suffix: str,
         temp_dir: str,
     ) -> str:
         return self._job_file_storage.download_to_temp(
-            self.build_raw_key(job_id=job_id, relative_path=relative_path),
+            self.build_raw_key(
+                job_id=job_id,
+                relative_path=relative_path,
+                raw_prefix=raw_prefix,
+            ),
             suffix=suffix,
             temp_dir=temp_dir,
             bucket=self.results_bucket,
         )
 
     def generate_artifact_url(
-        self, *, job_id: str, artifact_ref: str, expires_in: int = 3600
+        self,
+        *,
+        job_id: str,
+        artifact_ref: str,
+        raw_prefix: str | None = None,
+        expires_in: int = 3600,
     ) -> str | None:
         normalized_ref = self.normalize_artifact_ref(artifact_ref)
         if not normalized_ref:
             return None
         return self.generate_url(
-            storage_key=self.build_raw_key(job_id=job_id, relative_path=normalized_ref),
+            storage_key=self.build_raw_key(
+                job_id=job_id,
+                relative_path=normalized_ref,
+                raw_prefix=raw_prefix,
+            ),
             expires_in=expires_in,
         )
 
@@ -283,6 +353,21 @@ class JobResultStorage:
         if self._is_excluded_file(parts[-1]):
             return None
         return "/".join(parts)
+
+    def _normalize_raw_prefix(self, raw_prefix: str | None) -> str | None:
+        if raw_prefix is None:
+            return None
+        normalized = str(raw_prefix).strip().replace("\\", "/").lstrip("/")
+        if not normalized:
+            raise ValueError("Result raw prefix must not be empty")
+        if not normalized.startswith("results/"):
+            raise ValueError("Result raw prefix must be under results/")
+        parts = normalized.rstrip("/").split("/")
+        if not parts or any(not part or part in {".", ".."} for part in parts):
+            raise ValueError("Result raw prefix contains an invalid path component")
+        if any(self._is_excluded_dir(part) for part in parts):
+            raise ValueError("Result raw prefix contains an excluded directory")
+        return "/".join(parts) + "/"
 
     def _normalize_artifact_refs(self, artifact_refs: set[str] | None) -> set[str] | None:
         if artifact_refs is None:

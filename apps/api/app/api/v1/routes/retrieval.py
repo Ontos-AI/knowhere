@@ -7,7 +7,7 @@ from typing import Any, Literal
 from app.api.dependencies.current_user import with_current_user
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db
@@ -64,20 +64,6 @@ class RetrievalQueryRequest(BaseModel):
     filter_mode: Literal["delete", "keep"] = Field(
         "delete", description="Signal path filter mode"
     )
-    channels: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Deprecated and unsupported by the persisted map-unit route. "
-            "Leave empty; explicit channel selection is rejected."
-        ),
-    )
-    channel_weights: dict[str, float] = Field(
-        default_factory=dict,
-        description=(
-            "Deprecated and unsupported by the persisted map-unit route. "
-            "Leave empty; explicit overrides are rejected."
-        ),
-    )
     rerank: bool = Field(False, description="Enable LLM reranking after RRF fusion")
     threshold: float = Field(0.0, ge=0.0, description="Minimum RRF score threshold")
     internal_recall_k: int | None = Field(
@@ -111,15 +97,6 @@ class RetrievalQueryRequest(BaseModel):
         ),
     )
 
-    @field_validator("channels")
-    @classmethod
-    def validate_channels(cls, v: list[str]) -> list[str]:
-        valid = {"path", "content", "term"}
-        for ch in v:
-            if ch not in valid:
-                raise ValueError(f"Invalid channel: {ch}. Must be one of {valid}")
-        return v
-
     @field_validator("chunk_types")
     @classmethod
     def validate_chunk_types(cls, v: list[str] | None) -> list[str] | None:
@@ -136,20 +113,6 @@ class RetrievalQueryRequest(BaseModel):
     @classmethod
     def normalize_namespace(cls, namespace: str | None) -> str:
         return normalize_retrieval_namespace(namespace)
-
-    @model_validator(mode="after")
-    def reject_unsupported_channel_controls(self) -> "RetrievalQueryRequest":
-        if self.channels:
-            raise ValueError(
-                "channels is deprecated and unsupported; omit it and use the "
-                "persisted path/content map-unit scorer"
-            )
-        if self.channel_weights:
-            raise ValueError(
-                "channel_weights is deprecated and unsupported; omit it and use "
-                "the persisted path/content map-unit scorer"
-            )
-        return self
 
 
 class RetrievalQueryResponse(BaseModel):
@@ -209,11 +172,25 @@ async def execute_retrieval_query(
     else:
         resolved_chunk_types = None
 
+    query = str(payload.query or "").strip()
+    if not query:
+        return {
+            "namespace": normalize_retrieval_namespace(payload.namespace),
+            "query": query,
+            "router_used": "empty_query_filtered",
+            "failure_reason": "empty query — retrieval was not run",
+            "evidence": [],
+            "evidence_text": "",
+            "answer_text": "",
+            "referenced_chunks": [],
+            "results": [],
+        }
+
     return await run_retrieval_query(
         db=db,
         user_id=current_user.user_id,
         namespace=normalize_retrieval_namespace(payload.namespace),
-        query=payload.query,
+        query=query,
         top_k=payload.top_k,
         include_document_ids=payload.include_document_ids,
         exclude_document_ids=payload.exclude_document_ids,
@@ -221,8 +198,6 @@ async def execute_retrieval_query(
         chunk_types=resolved_chunk_types,
         signal_paths=payload.signal_paths or None,
         filter_mode=payload.filter_mode,
-        channels=payload.channels or None,
-        channel_weights=payload.channel_weights or None,
         rerank=payload.rerank,
         threshold=payload.threshold,
         internal_recall_k=payload.internal_recall_k,

@@ -2,14 +2,23 @@
 
 Image/table chunks are parked under their document's synthetic ``Root``
 section in the DB (§3 of ``CORPUS_SCHEMA.md``); the real association to a
-body section lives in ``chunk_metadata.connect_to`` on the *body* chunk, not
-on the asset. There is no stored asset -> body back-link, so the reverse
-lookup (``host_of``) scans the candidate documents' text/page chunks in
-Python and checks ``connect_to`` for the requested target ids.
+body section lives in ``chunk_metadata.connect_to`` on the *body* chunk.
+Both directions resolve hosts through ``agent_tools.asset_hosts`` (keyed by
+document + chunk, current revision only), the same resolver ``corpus.grep``
+and ``corpus.recall`` use: forward rows show the first in-scope host's
+section_path, and a ``scope`` section subtree keeps an asset only when one
+of its hosts lies in that subtree. An asset with no host keeps ``Root`` and
+is marked as unhosted.
 
 ``chunk_metadata`` is a plain ``JSON`` column (not ``JSONB``), so a
 containment query (``@>``) is not available here — that operator is
 JSONB-only in PostgreSQL.
+
+Forward search on its own is an unfiltered listing with no way to decide
+which assets matter for the current question — pair it with a prior
+``corpus.recall``/``corpus.grep`` hit (scope to that hit's section, or use
+its ``host_of`` reverse lookup) rather than browsing every asset in a
+document.
 """
 
 from __future__ import annotations
@@ -19,15 +28,24 @@ from typing import Any
 from sqlalchemy import select
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
+from shared.services.retrieval.agent_tools.asset_hosts import (
+    hosted_section_path,
+    in_scope_hosts,
+    load_asset_hosts,
+)
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
     ToolResult,
     register_tool,
 )
-from shared.services.retrieval.hydration.row_utils import iter_connected_target_ids
+from shared.services.retrieval.agent_tools.scope import (
+    SCOPE_SCHEMA,
+    ScopeTarget,
+    resolve_scope,
+    scope_document_ids,
+)
+from shared.services.retrieval.agent_tools.snippet import build_row, format_row
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
-
-_BODY_CHUNK_TYPES = ("text", "page")
 
 
 @register_tool(
@@ -35,16 +53,24 @@ _BODY_CHUNK_TYPES = ("text", "page")
     description=(
         "Forward search for image/table chunks by type/query, or reverse "
         "lookup: given asset chunk_ids (host_of), find which body "
-        "section(s) embed or reference them via connect_to."
+        "section(s) embed or reference them via connect_to. Rows show the "
+        "hosting section_path; an asset no body section embeds keeps Root "
+        "and is marked '(no host section)'. A forward search alone only "
+        "lists candidate assets — it does not tell you which ones matter "
+        "for the current question. Pair it with a prior corpus.recall/"
+        "corpus.grep hit: scope this call to that hit's section, or "
+        "reverse-resolve the hit's own connect_to targets via host_of "
+        "instead of browsing every asset in a document."
     ),
     json_schema={
         "type": "object",
         "properties": {
-            "document_ids": {"type": "array", "items": {"type": "string"}},
+            "scope": SCOPE_SCHEMA,
             "type": {
                 "type": "string",
                 "enum": ["image", "table", "any"],
                 "default": "any",
+                "description": "Forward-search asset type. Ignored for host_of.",
             },
             "query": {
                 "type": "string",
@@ -52,34 +78,34 @@ _BODY_CHUNK_TYPES = ("text", "page")
             },
             "host_of": {
                 "type": "array",
-                "items": {"type": "string"},
+                "items": {"type": "string", "minLength": 1},
+                "minItems": 1,
                 "description": "Asset chunk_ids to reverse-resolve to hosting sections.",
             },
         },
         "required": [],
+        "additionalProperties": False,
     },
 )
 async def assets(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-    document_ids = [
-        str(d).strip() for d in (args.get("document_ids") or []) if str(d).strip()
-    ]
+    scope: list[ScopeTarget] = []
+    if args.get("scope") is not None:
+        scope, scope_error = await resolve_scope(
+            ctx.db,
+            user_id=ctx.user_id,
+            namespace=ctx.namespace,
+            document_scope=ctx.document_scope,
+            raw_scope=args.get("scope"),
+        )
+        if scope_error is not None:
+            return ToolResult(text="", error=f"assets: {scope_error}")
     host_of = [str(c).strip() for c in (args.get("host_of") or []) if str(c).strip()]
 
-    scope_filters: list[Any] = [
-        ctx.document_scope.predicate(Document.document_id),
-        Document.user_id == ctx.user_id,
-        Document.namespace == ctx.namespace,
-        Document.status == "active",
-        Document.current_job_result_id == DocumentChunk.job_result_id,
-    ]
-    if document_ids:
-        scope_filters.append(Document.document_id.in_(document_ids))
-
     if host_of:
-        return await _reverse_lookup(ctx, scope_filters=scope_filters, target_ids=host_of)
+        return await _reverse_lookup(ctx, scope=scope, target_ids=host_of)
     return await _forward_search(
         ctx,
-        scope_filters=scope_filters,
+        scope=scope,
         asset_type=str(args.get("type") or "any").strip().lower(),
         query=str(args.get("query") or "").strip().lower(),
     )
@@ -88,7 +114,7 @@ async def assets(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 async def _forward_search(
     ctx: ToolContext,
     *,
-    scope_filters: list[Any],
+    scope: list[ScopeTarget],
     asset_type: str,
     query: str,
 ) -> ToolResult:
@@ -98,14 +124,32 @@ async def _forward_search(
         .select_from(DocumentChunk)
         .join(Document, Document.document_id == DocumentChunk.document_id)
         .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
-        .where(*scope_filters)
-        .where(DocumentChunk.chunk_type.in_(sorted(types)))
-        .order_by(DocumentChunk.document_id, DocumentChunk.sort_order)
+        .where(
+            ctx.document_scope.predicate(Document.document_id),
+            Document.user_id == ctx.user_id,
+            Document.namespace == ctx.namespace,
+            Document.status == "active",
+            Document.current_job_result_id == DocumentChunk.job_result_id,
+            DocumentChunk.chunk_type.in_(sorted(types)),
+        )
+        .order_by(DocumentChunk.document_id, DocumentChunk.sort_order, DocumentChunk.chunk_id)
     )
-    rows = (await ctx.db.execute(stmt)).all()
+    if scope:
+        stmt = stmt.where(Document.document_id.in_(scope_document_ids(scope)))
+    asset_rows = (await ctx.db.execute(stmt)).all()
 
-    results: list[dict[str, Any]] = []
-    for chunk, section_path, source_file_name in rows:
+    hosts = await load_asset_hosts(
+        ctx,
+        document_ids=sorted({chunk.document_id for chunk, _path, _name in asset_rows}),
+        asset_ids={chunk.chunk_id for chunk, _path, _name in asset_rows},
+    )
+    section_scoped = any(target.section_path is not None for target in scope)
+
+    rows: list[dict[str, Any]] = []
+    for chunk, stored_path, source_file_name in asset_rows:
+        key = (chunk.document_id, chunk.chunk_id)
+        if section_scoped and not in_scope_hosts(hosts, key, scope):
+            continue
         metadata = chunk.chunk_metadata if isinstance(chunk.chunk_metadata, dict) else {}
         summary = str(metadata.get("summary") or "").strip()
         keywords = metadata.get("keywords") or []
@@ -115,84 +159,93 @@ async def _forward_search(
             )
             if query not in haystack:
                 continue
-        results.append(
-            {
-                "chunk_id": chunk.chunk_id,
-                "document_id": chunk.document_id,
-                "source_file_name": source_file_name,
-                "chunk_type": chunk.chunk_type,
-                "file_path": chunk.file_path,
-                "summary": summary,
-                "keywords": keywords,
-                "section_path": section_path,
-            }
+        section_path, hosted = hosted_section_path(hosts, key, scope, stored_path=stored_path)
+        rows.append(
+            build_row(
+                kind=str(chunk.chunk_type or ""),
+                document_id=chunk.document_id,
+                section_path=section_path,
+                title=source_file_name,
+                chunk_id=chunk.chunk_id,
+                summary=summary,
+                hosted=hosted,
+            )
         )
-        if len(results) >= ctx.budget.max_items:
+        if len(rows) >= ctx.budget.max_items:
             break
 
-    lines = [f"assets={len(results)}"]
-    for r in results:
-        lines.append(
-            f"- [{r['chunk_type']}] document_id={r['document_id']} "
-            f"chunk_id={r['chunk_id']} file_path={r['file_path']} "
-            f"section_path={r['section_path']} — {r['summary']}"
-        )
-
+    lines = [f"assets={len(rows)}", *(format_row(row) for row in rows)]
     return ToolResult(
         text="\n".join(lines),
-        payload={"assets": results},
-        refs=[{"document_id": r["document_id"], "chunk_id": r["chunk_id"]} for r in results],
+        payload={"rows": rows, "details": {}},
+        refs=[{"document_id": row["document_id"], "chunk_id": row["chunk_id"]} for row in rows],
     )
 
 
 async def _reverse_lookup(
     ctx: ToolContext,
     *,
-    scope_filters: list[Any],
+    scope: list[ScopeTarget],
     target_ids: list[str],
 ) -> ToolResult:
-    target_set = set(target_ids)
-    stmt = (
-        select(DocumentChunk, DocumentSection.section_path, Document.source_file_name)
+    hosts = await load_asset_hosts(
+        ctx,
+        document_ids=scope_document_ids(scope) if scope else None,
+        asset_ids=target_ids,
+    )
+    asset_stmt = (
+        select(DocumentChunk.document_id, DocumentChunk.chunk_id, DocumentChunk.chunk_type)
         .select_from(DocumentChunk)
         .join(Document, Document.document_id == DocumentChunk.document_id)
-        .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
-        .where(*scope_filters)
-        .where(DocumentChunk.chunk_type.in_(_BODY_CHUNK_TYPES))
+        .where(
+            Document.current_job_result_id == DocumentChunk.job_result_id,
+            DocumentChunk.document_id.in_(sorted({key[0] for key in hosts})),
+            DocumentChunk.chunk_id.in_(target_ids),
+        )
     )
-    rows = (await ctx.db.execute(stmt)).all()
+    asset_type_by_key = {
+        (str(document_id), str(chunk_id)): str(chunk_type or "")
+        for document_id, chunk_id, chunk_type in (
+            (await ctx.db.execute(asset_stmt)).all() if hosts else []
+        )
+    }
 
-    hosts_by_target: dict[str, list[dict[str, Any]]] = {tid: [] for tid in target_set}
-    for chunk, section_path, source_file_name in rows:
-        row = {"chunk_metadata": chunk.chunk_metadata}
-        for target_id in iter_connected_target_ids(row):
-            if target_id in target_set:
-                hosts_by_target[target_id].append(
-                    {
-                        "document_id": chunk.document_id,
-                        "source_file_name": source_file_name,
-                        "section_path": section_path,
-                        "chunk_id": chunk.chunk_id,
-                        "chunk_type": chunk.chunk_type,
-                    }
+    rows: list[dict[str, Any]] = []
+    unhosted: list[str] = []
+    seen: set[tuple[str, str, str]] = set()
+    for target_id in target_ids:
+        keys = sorted(key for key in hosts if key[1] == target_id)
+        found = False
+        for key in keys:
+            for host in in_scope_hosts(hosts, key, scope):
+                found = True
+                row_key = (host.document_id, host.section_path, target_id)
+                if row_key in seen:
+                    continue
+                seen.add(row_key)
+                rows.append(
+                    build_row(
+                        kind=asset_type_by_key.get(key, "asset"),
+                        document_id=host.document_id,
+                        section_path=host.section_path,
+                        title=host.source_file_name,
+                        chunk_id=target_id,
+                        hosted=True,
+                    )
                 )
+        if not found:
+            unhosted.append(target_id)
 
-    lines = []
-    for target_id, hosts in hosts_by_target.items():
-        if not hosts:
-            lines.append(f"- {target_id}: no host found (unresolved Root asset)")
-            continue
-        for host in hosts:
-            lines.append(
-                f"- {target_id} <- {host['source_file_name']} / {host['section_path']}"
-            )
-
+    lines = [format_row(row) for row in rows]
+    lines.extend(
+        f"- {target_id}: no host section found in this scope (asset stays under Root)"
+        for target_id in unhosted
+    )
     return ToolResult(
-        text="\n".join(lines) if lines else "no hosts found",
-        payload={"hosts_by_target": hosts_by_target},
+        text="\n".join(lines),
+        payload={"rows": rows, "details": {"unhosted": unhosted}},
         refs=[
-            {"document_id": host["document_id"], "section_path": host["section_path"]}
-            for hosts in hosts_by_target.values()
-            for host in hosts
+            {"document_id": row["document_id"], "section_path": row["section_path"]}
+            for row in rows
         ],
     )

@@ -65,6 +65,8 @@ def to_mcp_query_response(response: dict[str, Any]) -> dict[str, Any]:
     """
     return {
         "query": response.get("query"),
+        "router_used": response.get("router_used"),
+        "failure_reason": response.get("failure_reason"),
         "evidence": response.get("evidence") or [],
         "evidence_text": response.get("evidence_text") or "",
         "results": response.get("results") or [],
@@ -155,8 +157,17 @@ def create_retrieval_mcp_server(
         # automatically before calling run_retrieval_query.
         # See: shared/services/retrieval/intent/ (to be created)
         namespace = resolve_mcp_namespace(ctx=ctx)
+        query = str(query or "").strip()
         async with db_factory() as db:
             user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
+            if not query:
+                return to_mcp_query_response(
+                    {
+                        "query": query,
+                        "router_used": "empty_query_filtered",
+                        "failure_reason": "empty query — retrieval was not run",
+                    }
+                )
             response = await run_retrieval_query(
                 db=db,
                 user_id=user_id,

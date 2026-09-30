@@ -67,11 +67,14 @@ async def hydrate_connected_target_rows(
         return []
 
     stmt = (
-        # Select only the job identifier needed for the public projection.
+        # Select only job and artifact location fields needed for hydration.
         # Selecting the JobResult entity triggers its ``chunks`` selectin
         # relationship, loading the entire legacy job-chunk collection for
         # every connected revision during final hydration.
-        select(Document, DocumentChunk, DocumentSection, JobResult.job_id)
+        select(
+            Document, DocumentChunk, DocumentSection, JobResult.job_id,
+            JobResult.document_metadata["result_raw_prefix"].as_string(),
+        )
         .join(
             DocumentChunk,
             (
@@ -100,7 +103,7 @@ async def hydrate_connected_target_rows(
     result = await db.execute(stmt)
 
     hydrated_rows: list[dict[str, Any]] = []
-    for document, chunk, section, job_id in result.all():
+    for document, chunk, section, job_id, result_raw_prefix in result.all():
         section_path = section.section_path if section else None
         hydrated_rows.append(
             {
@@ -116,6 +119,7 @@ async def hydrate_connected_target_rows(
                 'chunk_metadata': chunk.chunk_metadata or {},
                 'job_result_id': chunk.job_result_id,
                 'job_id': job_id,
+                'result_raw_prefix': result_raw_prefix,
                 'sort_order': chunk.sort_order,
             }
         )

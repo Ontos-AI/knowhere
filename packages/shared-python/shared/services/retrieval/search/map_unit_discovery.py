@@ -98,6 +98,7 @@ WITH scoped_units AS (
         {document_scope_clause}
         {type_clause}
         {signal_clause}
+        {section_clause}
 )
 """
 
@@ -189,6 +190,36 @@ def _build_signal_clause(
     return clause, params
 
 
+def _build_section_subtree_clause(
+    targets: list[tuple[str, str | None]] | None,
+) -> tuple[str, dict[str, Any]]:
+    """Restrict units to exact section subtrees. Empty when no target names a path.
+
+    Whole-document targets stay ``document_id`` only. A named path is that
+    section and everything under it (``path = X OR path LIKE 'X / %'``), not
+    a substring match.
+    """
+    if not targets or not any(section_path for _document_id, section_path in targets):
+        return "", {}
+    parts: list[str] = []
+    params: dict[str, Any] = {}
+    for index, (document_id, section_path) in enumerate(targets):
+        doc_key = f"_sec_doc_{index}"
+        params[doc_key] = document_id
+        if not section_path:
+            parts.append(f"(dmu.document_id = :{doc_key})")
+            continue
+        path_key = f"_sec_path_{index}"
+        like_key = f"_sec_pathlike_{index}"
+        params[path_key] = section_path
+        params[like_key] = f"{section_path} / %"
+        parts.append(
+            f"(dmu.document_id = :{doc_key} AND "
+            f"(ds.section_path = :{path_key} OR ds.section_path LIKE :{like_key}))"
+        )
+    return f"AND ({' OR '.join(parts)})", params
+
+
 async def map_unit_discovery(
     db: AsyncSession | None,
     *,
@@ -204,6 +235,7 @@ async def map_unit_discovery(
     filter_mode: str = "delete",
     revision_pins: Mapping[str, str] | None = None,
     publish_index_readiness: bool = True,
+    section_targets: list[tuple[str, str | None]] | None = None,
     **_kwargs: Any,
 ) -> DiscoveryResult:
     """Score the whole in-scope corpus via the persisted map-unit BM25 scorer."""
@@ -228,22 +260,26 @@ async def map_unit_discovery(
     signal_clause, signal_params = _build_signal_clause(
         signal_paths or [], filter_mode
     )
+    section_clause, section_params = _build_section_subtree_clause(section_targets)
     params: dict[str, Any] = {"user_id": user_id, "namespace": namespace}
     params.update(revision_params)
     params.update(document_scope_params)
     params.update(type_params)
     params.update(signal_params)
+    params.update(section_params)
 
     is_unfiltered_scope: bool = not any(
         (
             chunk_types,
             signal_paths,
+            section_clause,
             exclude_sections,
             exclude_document_ids,
             document_scope.include is not None,
             document_scope.exclude,
         )
     )
+    uses_section_join = bool(signal_paths or section_clause)
 
     cte = _SCOPED_UNITS_CTE.format(
         revision_join=revision_join,
@@ -251,6 +287,7 @@ async def map_unit_discovery(
         document_scope_clause=document_scope_clause,
         type_clause=type_clause,
         signal_clause=signal_clause,
+        section_clause=section_clause,
     )
     unit_statement = cte + "SELECT * FROM scoped_units"
     if is_unfiltered_scope:
@@ -288,7 +325,7 @@ async def map_unit_discovery(
         len(unit_rows),
     )
 
-    frequency_scope_cte = cte if signal_paths else _SCOPED_UNIT_IDS_CTE.format(
+    frequency_scope_cte = cte if uses_section_join else _SCOPED_UNIT_IDS_CTE.format(
         revision_join=revision_join,
         revision_clause=revision_clause,
         document_scope_clause=document_scope_clause,
@@ -357,7 +394,7 @@ async def map_unit_discovery(
         index_statement = (
             (
                 cte
-                if signal_paths
+                if uses_section_join
                 else _SCOPED_UNIT_IDS_CTE.format(
                     revision_join=revision_join,
                     revision_clause=revision_clause,
@@ -484,7 +521,7 @@ async def map_unit_discovery(
     # undercount check used for unfiltered token projection.
     has_index_unit_count_mismatch = (
         indexed_unit_count < len(unit_rows)
-        if is_unfiltered_scope or type_clause or signal_paths or exclude_sections
+        if is_unfiltered_scope or type_clause or signal_paths or section_clause or exclude_sections
         else indexed_unit_count != len(unit_rows)
     )
     is_index_format_incompatible = any(
@@ -765,7 +802,8 @@ async def _hydrate_winning_units(
             "SELECT dc.chunk_id, dc.document_id, dc.section_id, dc.chunk_type, "
             "dc.content, dc.source_chunk_path, dc.file_path, dc.chunk_metadata, "
             "dc.job_result_id, dc.sort_order, ds.section_path, d.source_file_name, "
-            "jr.job_id "
+            "jr.job_id, "
+            "jr.document_metadata ->> 'result_raw_prefix' AS result_raw_prefix "
             "FROM document_chunks dc "
             "JOIN documents d ON d.document_id = dc.document_id "
             "LEFT JOIN document_sections ds ON ds.section_id = dc.section_id "

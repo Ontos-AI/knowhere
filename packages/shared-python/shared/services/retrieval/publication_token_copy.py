@@ -8,13 +8,16 @@ import time
 from collections.abc import Iterator, Sequence
 from typing import Protocol, cast
 
+from psycopg2.extensions import cursor as PsycopgCursor
+from psycopg2.extensions import get_wait_callback
+from psycopg2.extras import execute_values
 from sqlalchemy.orm import Session
 
 from shared.services.jobs.lifecycle.publication_trace_sql import record_publication_sql
 
-# Keep the production-shaped publication in one COPY while retaining a bound
-# for larger documents so token persistence does not add avoidable round trips.
-_COPY_BATCH_SIZE = 100_000
+# Each COPY has the API's per-command timeout. Bound the work even for a
+# single token-heavy map unit; all batches remain in the caller's transaction.
+_COPY_BATCH_SIZE: int = 1_000
 _TOKEN_COLUMNS = (
     "id", "map_unit_id", "channel", "token", "token_hash", "frequency",
 )
@@ -64,11 +67,21 @@ def _copy_psycopg(
     connection: _PsycopgConnection,
     records: list[tuple[str | int, ...]],
 ) -> None:
-    buffer = _encode_binary_rows(records)
-    buffer.seek(0)
     cursor = connection.cursor()
     try:
-        cursor.copy_expert(_COPY_SQL, buffer)
+        if get_wait_callback() is not None:
+            # psycogreen uses a process-wide callback that COPY cannot support.
+            # Keep cooperative I/O and the caller's transaction intact.
+            execute_values(
+                cast(PsycopgCursor, cursor),
+                "INSERT INTO document_map_unit_tokens (" + ", ".join(_TOKEN_COLUMNS) + ") VALUES %s",
+                records,
+                page_size=_COPY_BATCH_SIZE,
+            )
+        else:
+            buffer = _encode_binary_rows(records)
+            buffer.seek(0)
+            cursor.copy_expert(_COPY_SQL, buffer)
     finally:
         cursor.close()
 

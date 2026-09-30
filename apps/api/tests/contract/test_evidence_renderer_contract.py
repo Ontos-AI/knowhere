@@ -51,6 +51,8 @@ def test_mcp_query_response_keeps_evidence_and_debug_results() -> None:
 
     assert response == {
         "query": "q",
+        "router_used": None,
+        "failure_reason": None,
         "evidence": [{"type": "text", "text": "t"}],
         "evidence_text": "t",
         "results": [

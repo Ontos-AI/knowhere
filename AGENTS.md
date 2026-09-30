@@ -576,9 +576,9 @@ flowchart LR
 **Channel weights** (default): path=1.0, content=2.0. **RRF formula**:
 `score = weight / (k + rank + 1)` per channel, summed across channels, `k=60`.
 
-There is no scored term channel in this primary path. `term_search_text` /
-`term_search_text_lower` are persisted at publish time and are read by
-`corpus.recall`'s term channel, not by classic discovery.
+There is no scored term channel in this primary path. Chunk
+`term_search_text` is persisted at publish time and is read by
+`corpus.grep`, not by classic discovery.
 
 #### Agent-explore Mode (default)
 

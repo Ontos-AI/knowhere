@@ -386,7 +386,7 @@ def capture_semantic_fingerprints(
         db,
         "SELECT u.id, u.document_id, u.job_result_id, u.unit_id, u.section_id, "
         "u.unit_kind, u.path_token_count, u.content_token_count, "
-        "u.term_search_text_lower, u.has_image, u.has_table, u.sort_order "
+        "u.has_image, u.has_table, u.sort_order "
         "FROM document_map_units u JOIN documents d ON d.document_id = u.document_id "
         "WHERE d.user_id = :user_id AND d.namespace = :namespace",
         parameters,
@@ -411,7 +411,6 @@ def capture_semantic_fingerprints(
             "unit_id": _unit_id(row["unit_id"], section_paths),
             "path_token_count": row["path_token_count"],
             "content_token_count": row["content_token_count"],
-            "term_search_text_lower": row["term_search_text_lower"],
             "has_image": row["has_image"],
             "has_table": row["has_table"],
         }

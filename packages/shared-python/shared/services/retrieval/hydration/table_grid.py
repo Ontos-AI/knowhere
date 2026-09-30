@@ -21,6 +21,7 @@ from shared.services.retrieval.settings import (
     LARGE_TABLE_AXIS,
     QUERY_TABLE_NAME,
 )
+from shared.services.storage.raw_prefix_arguments import RawPrefixArguments
 from shared.services.storage.result_storage import get_result_storage
 
 _TABLE_HTML_RE = re.compile(r"<table(?:\s|>)", re.IGNORECASE)
@@ -58,6 +59,11 @@ def load_table_html(row: Mapping[str, Any]) -> str:
         return ""
     try:
         temp_path = storage.download_raw_to_temp(
+            **(
+                RawPrefixArguments(raw_prefix=str(row["result_raw_prefix"]))
+                if row.get("result_raw_prefix")
+                else RawPrefixArguments()
+            ),
             job_id=job_id,
             relative_path=normalized,
             suffix=".html",

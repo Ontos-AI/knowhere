@@ -7,10 +7,11 @@ from loguru import logger
 
 from shared.services.retrieval.hydration.row_utils import MEDIA_CHUNK_TYPES, normalize_chunk_type
 from shared.services.storage.page_pdf_crop import crop_source_pdf_pages
+from shared.services.storage.raw_prefix_arguments import RawPrefixArguments
 from shared.services.storage.result_storage import get_result_storage
 
 AssetUrlValue = str
-PagePdfRequestKey = tuple[str, tuple[int, ...]]
+PagePdfRequestKey = tuple[str, tuple[int, ...], str]
 
 
 def _normalize_artifact_ref(asset_ref: object) -> str | None:
@@ -107,7 +108,7 @@ def _resolve_page_pdf_request(row: dict[str, Any]) -> PagePdfRequestKey | None:
     normalized_pages = tuple(sorted({page for page in pages if page > 0}))
     if not normalized_pages:
         return None
-    return job_id, normalized_pages
+    return job_id, normalized_pages, str(row.get("result_raw_prefix") or "")
 
 
 async def _generate_retrieval_asset_url(
@@ -122,6 +123,11 @@ async def _generate_retrieval_asset_url(
     job_id, artifact_ref = request
     try:
         return get_result_storage().generate_artifact_url(
+            **(
+                RawPrefixArguments(raw_prefix=str(row["result_raw_prefix"]))
+                if row.get("result_raw_prefix")
+                else RawPrefixArguments()
+            ),
             job_id=job_id,
             artifact_ref=artifact_ref,
         )
@@ -146,6 +152,11 @@ async def _generate_page_citation_asset_url(
     job_id, artifact_ref = request
     try:
         return get_result_storage().generate_artifact_url(
+            **(
+                RawPrefixArguments(raw_prefix=str(row["result_raw_prefix"]))
+                if row.get("result_raw_prefix")
+                else RawPrefixArguments()
+            ),
             job_id=job_id,
             artifact_ref=artifact_ref,
         )
@@ -176,6 +187,11 @@ async def _enrich_page_assets(
             if artifact_ref is not None:
                 try:
                     asset_url = get_result_storage().generate_artifact_url(
+                        **(
+                            RawPrefixArguments(raw_prefix=str(row["result_raw_prefix"]))
+                            if row.get("result_raw_prefix")
+                            else RawPrefixArguments()
+                        ),
                         job_id=job_id,
                         artifact_ref=artifact_ref,
                     )
@@ -208,10 +224,15 @@ async def _generate_page_pdf_asset_url_for_request(
     *,
     log_context: str,
 ) -> str | None:
-    job_id, pages = request
+    job_id, pages, raw_prefix = request
     try:
         return await asyncio.to_thread(
             crop_source_pdf_pages,
+            **(
+                RawPrefixArguments(raw_prefix=raw_prefix)
+                if raw_prefix
+                else RawPrefixArguments()
+            ),
             job_id=job_id,
             pages=list(pages),
         )

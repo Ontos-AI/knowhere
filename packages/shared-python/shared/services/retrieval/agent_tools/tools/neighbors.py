@@ -31,8 +31,14 @@ from shared.services.retrieval.agent_tools.registry import (
     ),
     json_schema={
         "type": "object",
-        "properties": {"document_id": {"type": "string"}},
+        "properties": {
+            "document_id": {
+                "type": "string",
+                "description": "Document to find related documents for.",
+            }
+        },
         "required": ["document_id"],
+        "additionalProperties": False,
     },
 )
 async def neighbors(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:

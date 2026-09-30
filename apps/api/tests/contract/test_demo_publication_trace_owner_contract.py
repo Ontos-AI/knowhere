@@ -21,13 +21,14 @@ configure_import_environment()
 ensure_import_paths()
 
 from app.services.demo.source_catalog import DemoSourceCatalog, DemoSourceDefinition  # noqa: E402
+from app.services.demo.canonical_bundle_result import CanonicalDemoBundle  # noqa: E402
 from app.services.demo.source_materializer import DemoSourceMaterializer  # noqa: E402
 from shared.models.database.demo_materialization import DemoMaterialization  # noqa: E402
 from shared.models.database.job import Job  # noqa: E402
 from shared.services.jobs.lifecycle.publication_trace import PublicationTrace  # noqa: E402
 from shared.services.retrieval.publication_models import PublishedDocumentState  # noqa: E402
 from shared.services.retrieval.publication_service import RetrievalPublicationService  # noqa: E402
-from shared.services.redis import RedisPublicationSemaphore  # noqa: E402
+from shared.services.redis import RedisPublicationSemaphore, RedisService  # noqa: E402
 
 
 class FakeCatalog:
@@ -138,6 +139,7 @@ def make_materializer(
     materializer = object.__new__(materializer_type)
     materializer._catalog = cast(DemoSourceCatalog, FakeCatalog())
     materializer._publication_service = cast(RetrievalPublicationService, publication)
+    materializer._redis_service = cast(RedisService, object())
     return materializer
 
 
@@ -164,11 +166,16 @@ async def test_demo_owner_finishes_trace_at_publication_commit_or_rollback(
         updated_at=None,
     )
 
-    def use_bundle(**kwargs: object) -> dict[str, int | str]:
-        return {
-            "zip_key": "zip/123",
-            "zip_size": 123,
-        }
+    async def use_bundle(**kwargs: object) -> CanonicalDemoBundle:
+        assert kwargs["demo_source_id"] == source.demo_source_id
+        assert kwargs["source_directory"] == Path("/tmp")
+        return CanonicalDemoBundle(
+            zip_key="zip/123",
+            zip_size=123,
+            raw_prefix="results/demo-canonical/",
+            content_version="v1",
+            reused=False,
+        )
 
     monkeypatch.setattr(materializer_module, "_upload_demo_result_bundle", use_bundle)
     monkeypatch.setattr(
@@ -179,7 +186,11 @@ async def test_demo_owner_finishes_trace_at_publication_commit_or_rollback(
     monkeypatch.setattr(
         materializer_module,
         "settings",
-        SimpleNamespace(KNOWHERE_PUBLICATION_TRACE_ENABLED=True),
+        SimpleNamespace(
+            KNOWHERE_PUBLICATION_TRACE_ENABLED=True,
+            DEMO_CANONICAL_BUNDLE_ENABLED=True,
+            DEMO_PUBLICATION_PREPARATION_CACHE_ENABLED=False,
+        ),
     )
     terminal_payloads: list[dict[str, object]] = []
 

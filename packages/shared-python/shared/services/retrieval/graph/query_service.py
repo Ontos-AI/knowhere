@@ -199,6 +199,10 @@ class GraphQueryService:
                     'chunk_metadata': chunk.chunk_metadata or {},
                     'job_result_id': chunk.job_result_id,
                     'job_id': job_result.job_id if job_result else None,
+                    'result_raw_prefix': (
+                        (job_result.document_metadata or {}).get('result_raw_prefix')
+                        if job_result else None
+                    ),
                 })
                 if len(rows) >= top_k:
                     break

@@ -572,37 +572,42 @@ async def test_recall_mounts_connected_table(
     explore_ctx: ToolContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _term_rows(*_args, **_kwargs):  # noqa: ANN001
-        return [
-            {
-                "chunk_id": CHUNK_TEXT,
-                "document_id": DOC_ID,
-                "section_id": "sec_intro",
-                "section_path": PATH_INTRO,
-                "source_file_name": FILE_NAME,
-                "chunk_type": "text",
-                "snippet": "intro body",
-                "content": "intro body [tables/small.html]",
-                "file_path": None,
-                "chunk_metadata": {
-                    "connect_to": [
-                        {
-                            "target": CHUNK_SMALL,
-                            "relation": "embeds",
-                            "ref": "[tables/small.html]",
-                        }
-                    ]
-                },
-                "job_result_id": REV_ID,
-                "job_id": JOB_ID,
-            }
-        ]
+    async def _discovery(*_args, **_kwargs):  # noqa: ANN001
+        return DiscoveryResult(
+            status="discovery_done",
+            payload={
+                "fused_rows": [
+                    {
+                        "chunk_id": CHUNK_TEXT,
+                        "document_id": DOC_ID,
+                        "section_id": "sec_intro",
+                        "section_path": PATH_INTRO,
+                        "source_file_name": FILE_NAME,
+                        "chunk_type": "text",
+                        "snippet": "intro body",
+                        "content": "intro body [tables/small.html]",
+                        "file_path": None,
+                        "chunk_metadata": {
+                            "connect_to": [
+                                {
+                                    "target": CHUNK_SMALL,
+                                    "relation": "embeds",
+                                    "ref": "[tables/small.html]",
+                                }
+                            ]
+                        },
+                        "job_result_id": REV_ID,
+                        "job_id": JOB_ID,
+                    }
+                ]
+            },
+        )
 
     monkeypatch.setattr(
-        "shared.services.retrieval.agent_tools.tools.recall._term_channel_rows",
-        _term_rows,
+        "shared.services.retrieval.agent_tools.tools.recall.map_unit_discovery",
+        _discovery,
     )
-    result = await recall(explore_ctx, {"query": "intro", "channels": ["term"]})
+    result = await recall(explore_ctx, {"query": "intro"})
     assert result.error is None
     assert f"mounted table chunk_id={CHUNK_SMALL}:" in result.text
     assert "<table" in result.text
@@ -614,29 +619,34 @@ async def test_recall_mounts_table_hit(
     explore_ctx: ToolContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _term_rows(*_args, **_kwargs):  # noqa: ANN001
-        return [
-            {
-                "chunk_id": CHUNK_SMALL,
-                "document_id": DOC_ID,
-                "section_id": "sec_root",
-                "section_path": PATH_ROOT,
-                "source_file_name": FILE_NAME,
-                "chunk_type": "table",
-                "snippet": "dose table summary",
-                "content": SMALL_HTML,
-                "file_path": "tables/small.html",
-                "chunk_metadata": {"summary": "dose table summary"},
-                "job_result_id": REV_ID,
-                "job_id": JOB_ID,
-            }
-        ]
+    async def _discovery(*_args, **_kwargs):  # noqa: ANN001
+        return DiscoveryResult(
+            status="discovery_done",
+            payload={
+                "fused_rows": [
+                    {
+                        "chunk_id": CHUNK_SMALL,
+                        "document_id": DOC_ID,
+                        "section_id": "sec_root",
+                        "section_path": PATH_ROOT,
+                        "source_file_name": FILE_NAME,
+                        "chunk_type": "table",
+                        "snippet": "dose table summary",
+                        "content": SMALL_HTML,
+                        "file_path": "tables/small.html",
+                        "chunk_metadata": {"summary": "dose table summary"},
+                        "job_result_id": REV_ID,
+                        "job_id": JOB_ID,
+                    }
+                ]
+            },
+        )
 
     monkeypatch.setattr(
-        "shared.services.retrieval.agent_tools.tools.recall._term_channel_rows",
-        _term_rows,
+        "shared.services.retrieval.agent_tools.tools.recall.map_unit_discovery",
+        _discovery,
     )
-    result = await recall(explore_ctx, {"query": "dose", "channels": ["term"]})
+    result = await recall(explore_ctx, {"query": "dose"})
     assert result.error is None
     assert f"chunk_id={CHUNK_SMALL}" in result.text
     assert "<table" in result.text
@@ -681,7 +691,7 @@ async def test_recall_path_content_table_snippet_uses_summary_not_path(
         "shared.services.retrieval.hydration.table_grid.load_table_html",
         lambda _row: SMALL_HTML,
     )
-    result = await recall(explore_ctx, {"query": "dose", "channels": ["path_content"]})
+    result = await recall(explore_ctx, {"query": "dose"})
     assert result.error is None
     assert "dose table summary" in result.text
     assert "<table" in result.text
@@ -707,7 +717,7 @@ async def test_recall_path_content_table_snippet_empty_without_summary(
         "shared.services.retrieval.hydration.table_grid.load_table_html",
         lambda _row: SMALL_HTML,
     )
-    result = await recall(explore_ctx, {"query": "dose", "channels": ["path_content"]})
+    result = await recall(explore_ctx, {"query": "dose"})
     assert result.error is None
     assert "<table" in result.text
     assert "tables/small.html" not in result.text
@@ -735,6 +745,7 @@ class _GrepConnectedRow:
                 },
                 REV_ID,
                 JOB_ID,
+                None,
                 PATH_INTRO,
                 FILE_NAME,
                 1,

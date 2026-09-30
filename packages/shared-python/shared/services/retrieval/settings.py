@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-CHANNEL_WEIGHT_PATH = 1.0
-CHANNEL_WEIGHT_CONTENT = 2.0
 INTERNAL_RECALL_K_MULTIPLIER = 2
-RRF_K = 60
 DEFAULT_TOP_K = 10
 
 # Final evidence / tool-observation text budget (characters). Used by

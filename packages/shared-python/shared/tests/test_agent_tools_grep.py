@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from typing import Any
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
@@ -17,7 +19,7 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from shared.services.retrieval.agent_tools.registry import REGISTRY, ToolContext
-from shared.services.retrieval.agent_tools.snippet import format_search_hit_line
+from shared.services.retrieval.agent_tools.snippet import build_row, format_row
 from shared.services.retrieval.agent_tools.tools.grep import (
     _term_search,
     _terms_from_args,
@@ -44,6 +46,7 @@ def _text_row(
         None,
         "jr_a",
         "job_a",
+        None,
         section_path,
         source_file_name,
         total,
@@ -91,22 +94,56 @@ class _EmptyRowsResult:
         return []
 
 
-class _RecordingDb:
-    def __init__(self, result: object) -> None:
-        self.result = result
-        self.execute_count = 0
-        self.statement = None
+class _ScalarsResult:
+    """Fakes ``(await db.execute(...)).scalars().all()`` for ORM lookups
+    (``resolve_scope``'s ``Document`` query)."""
 
-    async def execute(self, statement):  # noqa: ANN001
+    def __init__(self, items: list[Any]) -> None:
+        self._items = items
+
+    def scalars(self) -> "_ScalarsResult":
+        return self
+
+    def all(self) -> list[Any]:
+        return self._items
+
+
+class _SequencedDb:
+    """Replays one canned result per ``execute()`` call, in order.
+
+    ``resolve_scope`` (when a call passes ``scope``) issues its own
+    ``Document`` lookup before grep's own rows query — this fake replaces
+    the single-result ``_RecordingDb`` so each call gets the result meant
+    for it.
+    """
+
+    def __init__(self, results: list[Any]) -> None:
+        self.results = list(results)
+        self.execute_count = 0
+        self.statements: list[Any] = []
+
+    async def execute(self, statement: Any):  # noqa: ANN001
         self.execute_count += 1
-        if self.statement is None:
-            self.statement = statement
-        return self.result
+        self.statements.append(statement)
+        return self.results[self.execute_count - 1]
+
+    @property
+    def statement(self) -> Any:
+        return self.statements[0] if self.statements else None
+
+    @property
+    def rows_statement(self) -> Any:
+        """The final (rows) statement — last one issued."""
+        return self.statements[-1] if self.statements else None
+
+
+def _scoped_document(document_id: str, job_result_id: str = "jr_a") -> SimpleNamespace:
+    return SimpleNamespace(document_id=document_id, current_job_result_id=job_result_id)
 
 
 @pytest.mark.asyncio
 async def test_grep_runs_one_scoped_query_with_exact_total() -> None:
-    db = _RecordingDb(_RowsResult())
+    db = _SequencedDb([_RowsResult()])
 
     @asynccontextmanager
     async def rows_factory():
@@ -119,19 +156,19 @@ async def test_grep_runs_one_scoped_query_with_exact_total() -> None:
         namespace="default",
         db_factory=rows_factory,
     )
-    result = await grep(ctx, {"pattern": "HFrEF", "document_ids": ["doc_a"]})
+    result = await grep(ctx, {"pattern": "HFrEF"})
 
     assert result.error is None
-    assert result.payload["total_matches"] == 2
-    assert [row["chunk_id"] for row in result.payload["results"]] == ["chunk_a", "chunk_b"]
+    assert result.payload["details"]["total_matches"] == 2
+    assert [row["document_id"] for row in result.payload["rows"]] == ["doc_a", "doc_a"]
+    assert [row["chunk_id"] for row in result.payload["rows"]] == [None, None]
     assert result.refs == [
         {"document_id": "doc_a", "chunk_id": "chunk_a"},
         {"document_id": "doc_a", "chunk_id": "chunk_b"},
     ]
     assert db.execute_count == 1
-    assert db.statement is not None
     sql = str(
-        db.statement.compile(
+        db.rows_statement.compile(
             dialect=postgresql.dialect(),
             compile_kwargs={"literal_binds": True},
         )
@@ -141,7 +178,6 @@ async def test_grep_runs_one_scoped_query_with_exact_total() -> None:
     assert "term_search_text" in matched_sql
     assert "document_chunks.user_id = 'user_grep'" in matched_sql
     assert "document_chunks.namespace = 'default'" in matched_sql
-    assert "document_chunks.document_id IN ('doc_a')" in matched_sql
     assert "lower(" in matched_sql.lower()
     assert "coalesce" in matched_sql.lower()
     assert " like " in matched_sql.lower()
@@ -149,13 +185,13 @@ async def test_grep_runs_one_scoped_query_with_exact_total() -> None:
     assert "~*" not in matched_sql
     assert "%hfref%" in matched_sql.lower()
     assert result.text.startswith("total_matches=2 returned=2")
-    assert "- [text] guide.pdf (doc_a) / guide.pdf / Intro:" in result.text
+    assert "- [text] guide.pdf | document_id=doc_a section_path=guide.pdf / Intro" in result.text
     assert "chunk_id=" not in result.text
 
 
 @pytest.mark.asyncio
-async def test_grep_exact_total_survives_row_limit() -> None:
-    db = _RecordingDb(_LimitedRowsResult())
+async def test_grep_scope_narrows_to_document_and_subtree() -> None:
+    db = _SequencedDb([_ScalarsResult([_scoped_document("doc_a")]), _RowsResult()])
 
     @asynccontextmanager
     async def unused_factory():
@@ -168,16 +204,71 @@ async def test_grep_exact_total_survives_row_limit() -> None:
         namespace="default",
         db_factory=unused_factory,
     )
-    result = await grep(ctx, {"pattern": "HFrEF", "max_results": 1})
+    result = await grep(
+        ctx, {"pattern": "HFrEF", "scope": [{"document_id": "doc_a"}]}
+    )
 
-    assert result.payload["total_matches"] == 2
-    assert len(result.payload["results"]) == 1
+    assert result.error is None
+    assert db.execute_count == 2
+    sql = str(
+        db.rows_statement.compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    matched_sql = sql.split(")\n SELECT", 1)[0]
+    assert "document_chunks.document_id = 'doc_a'" in matched_sql
+
+
+@pytest.mark.asyncio
+async def test_grep_unknown_scope_document_fails_the_call() -> None:
+    db = _SequencedDb([_ScalarsResult([])])
+
+    @asynccontextmanager
+    async def unused_factory():
+        raise AssertionError("grep must not open a second database connection")
+        yield  # pragma: no cover
+
+    ctx = ToolContext(
+        db=db,  # type: ignore[arg-type]
+        user_id="user_grep",
+        namespace="default",
+        db_factory=unused_factory,
+    )
+    result = await grep(
+        ctx, {"pattern": "HFrEF", "scope": [{"document_id": "doc_missing"}]}
+    )
+
+    assert result.error is not None
+    assert "unknown document_id: doc_missing" in result.error
+    assert db.execute_count == 1
+
+
+@pytest.mark.asyncio
+async def test_grep_exact_total_survives_row_limit() -> None:
+    db = _SequencedDb([_LimitedRowsResult()])
+
+    @asynccontextmanager
+    async def unused_factory():
+        raise AssertionError("grep must not open a second database connection")
+        yield  # pragma: no cover
+
+    ctx = ToolContext(
+        db=db,  # type: ignore[arg-type]
+        user_id="user_grep",
+        namespace="default",
+        db_factory=unused_factory,
+    )
+    result = await grep(ctx, {"pattern": "HFrEF", "limit": 1})
+
+    assert result.payload["details"]["total_matches"] == 2
+    assert len(result.payload["rows"]) == 1
     assert result.text.startswith("total_matches=2 returned=1")
 
 
 @pytest.mark.asyncio
 async def test_grep_empty_result_reports_zero_total() -> None:
-    db = _RecordingDb(_EmptyRowsResult())
+    db = _SequencedDb([_EmptyRowsResult()])
 
     @asynccontextmanager
     async def unused_factory():
@@ -192,21 +283,20 @@ async def test_grep_empty_result_reports_zero_total() -> None:
     )
     result = await grep(ctx, {"pattern": "missing"})
 
-    assert result.payload == {"total_matches": 0, "results": []}
+    assert result.payload["rows"] == []
+    assert result.payload["details"]["total_matches"] == 0
     assert result.refs == []
     assert result.text == "total_matches=0 returned=0"
 
 
 @pytest.mark.asyncio
 async def test_grep_requires_pattern_or_patterns() -> None:
-    # Error path returns before any db access, so a never-entered factory is
-    # enough here — mirrors the other tests' db_factory shape for consistency.
     @asynccontextmanager
     async def rows_factory():
-        yield _RecordingDb(_RowsResult())
+        yield _SequencedDb([_RowsResult()])
 
     ctx = ToolContext(
-        db=_RecordingDb(_RowsResult()),  # type: ignore[arg-type]
+        db=_SequencedDb([_RowsResult()]),  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
         db_factory=rows_factory,
@@ -227,6 +317,11 @@ def test_grep_schema_requires_pattern_or_patterns() -> None:
         {"required": ["patterns"]},
     ]
     assert "is_regex" not in spec.json_schema["properties"]
+    assert spec.json_schema["additionalProperties"] is False
+    assert "document_ids" not in spec.json_schema["properties"]
+    assert "max_results" not in spec.json_schema["properties"]
+    assert "limit" in spec.json_schema["properties"]
+    assert "scope" in spec.json_schema["properties"]
 
 
 def test_terms_from_args_merges_pattern_and_patterns() -> None:
@@ -293,6 +388,7 @@ class _TableRowsResult:
                 {"summary": "dose table summary 30 mg"},
                 "jr_a",
                 "job_a",
+                None,
                 "guide.pdf / Root",
                 "guide.pdf",
                 1,
@@ -304,7 +400,7 @@ class _TableRowsResult:
 async def test_grep_table_hit_text_includes_chunk_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    db = _RecordingDb(_TableRowsResult())
+    db = _SequencedDb([_TableRowsResult(), _EmptyRowsResult()])
 
     @asynccontextmanager
     async def unused_factory():
@@ -325,7 +421,8 @@ async def test_grep_table_hit_text_includes_chunk_id(
 
     assert result.error is None
     assert (
-        "- [table] guide.pdf (doc_a) chunk_id=chunk_table / guide.pdf / Root:"
+        "- [table] guide.pdf | document_id=doc_a section_path=guide.pdf / Root "
+        "(no host section) chunk_id=chunk_table"
         in result.text
     )
     assert "<table>" in result.text
@@ -342,7 +439,7 @@ async def test_grep_table_download_failure_does_not_fail_whole_call(
     warning note instead of raising."""
     from shared.services.retrieval.hydration.table_grid import TableDownloadError
 
-    db = _RecordingDb(_TableRowsResult())
+    db = _SequencedDb([_TableRowsResult(), _EmptyRowsResult()])
 
     @asynccontextmanager
     async def unused_factory():
@@ -365,7 +462,7 @@ async def test_grep_table_download_failure_does_not_fail_whole_call(
     result = await grep(ctx, {"pattern": "30 mg"})
 
     assert result.error is None
-    assert result.payload["total_matches"] == 1
+    assert result.payload["details"]["total_matches"] == 1
     assert "table unavailable" in result.text
     assert "download failed" in result.text
 
@@ -374,7 +471,7 @@ async def test_grep_table_download_failure_does_not_fail_whole_call(
 async def test_grep_matches_table_via_term_search_text_not_content_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    db = _RecordingDb(_TableRowsResult())
+    db = _SequencedDb([_TableRowsResult(), _EmptyRowsResult()])
 
     @asynccontextmanager
     async def unused_factory():
@@ -394,44 +491,55 @@ async def test_grep_matches_table_via_term_search_text_not_content_path(
     result = await grep(ctx, {"pattern": "dose table summary"})
 
     assert result.error is None
-    assert result.payload["total_matches"] == 1
-    assert result.payload["results"][0]["chunk_id"] == "chunk_table"
+    assert result.payload["details"]["total_matches"] == 1
+    assert result.payload["rows"][0]["chunk_id"] == "chunk_table"
     assert "dose table summary" in result.text
 
 
-def test_format_search_hit_line_body_omits_chunk_id() -> None:
-    assert format_search_hit_line(
-        source_file_name="guide.pdf",
-        document_id="doc_a",
-        section_path="guide.pdf / Intro",
-        snippet="alpha",
-        chunk_type="text",
-    ) == "- [text] guide.pdf (doc_a) / guide.pdf / Intro: 'alpha'"
-
-
-def test_format_search_hit_line_omits_empty_snippet() -> None:
-    assert format_search_hit_line(
-        source_file_name="guide.pdf",
-        document_id="doc_a",
-        section_path="guide.pdf / Root",
-        snippet="",
-        chunk_type="table",
-        chunk_id="chunk_table",
-    ) == "- [table] guide.pdf (doc_a) chunk_id=chunk_table / guide.pdf / Root"
-
-
-def test_format_search_hit_line_asset_includes_chunk_id() -> None:
-    assert format_search_hit_line(
-        source_file_name="guide.pdf",
-        document_id="doc_a",
-        section_path="guide.pdf / Root",
-        snippet="30 mg",
-        chunk_type="table",
-        chunk_id="chunk_table",
-        score=1.5,
+def test_format_row_body_omits_chunk_id() -> None:
+    assert format_row(
+        build_row(
+            kind="text",
+            document_id="doc_a",
+            section_path="guide.pdf / Intro",
+            title="guide.pdf",
+            snippet="alpha",
+        )
     ) == (
-        "- [table] guide.pdf (doc_a) chunk_id=chunk_table / "
-        "guide.pdf / Root score=1.5: '30 mg'"
+        "- [text] guide.pdf | document_id=doc_a section_path=guide.pdf / Intro\n"
+        "  snippet: 'alpha'"
+    )
+
+
+def test_format_row_omits_empty_snippet() -> None:
+    assert (
+        format_row(
+            build_row(
+                kind="table",
+                document_id="doc_a",
+                section_path="guide.pdf / Root",
+                title="guide.pdf",
+                chunk_id="chunk_table",
+            )
+        )
+        == "- [table] guide.pdf | document_id=doc_a section_path=guide.pdf / Root chunk_id=chunk_table"
+    )
+
+
+def test_format_row_asset_includes_chunk_id_and_score() -> None:
+    assert format_row(
+        build_row(
+            kind="table",
+            document_id="doc_a",
+            section_path="guide.pdf / Root",
+            title="guide.pdf",
+            chunk_id="chunk_table",
+            snippet="30 mg",
+            score=1.5,
+        )
+    ) == (
+        "- [table] guide.pdf | document_id=doc_a section_path=guide.pdf / Root "
+        "chunk_id=chunk_table score=1.5\n  snippet: '30 mg'"
     )
 
 
@@ -450,13 +558,14 @@ async def test_grep_matches_image_description() -> None:
                     None,
                     "jr_a",
                     "job_a",
+                    None,
                     "guide.pdf / Root",
                     "guide.pdf",
                     1,
                 )
             ]
 
-    db = _RecordingDb(_ImageRows())
+    db = _SequencedDb([_ImageRows(), _EmptyRowsResult()])
 
     @asynccontextmanager
     async def unused_factory():
@@ -471,14 +580,14 @@ async def test_grep_matches_image_description() -> None:
     )
     result = await grep(ctx, {"pattern": "chart of dose"})
     assert result.error is None
-    assert result.payload["results"][0]["chunk_id"] == "chunk_image"
+    assert result.payload["rows"][0]["chunk_id"] == "chunk_image"
     assert "chart of dose" in result.text
     assert "[Image:" in result.text
 
 
 @pytest.mark.asyncio
-async def test_grep_document_ids_does_not_scan_table_cells() -> None:
-    db = _RecordingDb(_EmptyRowsResult())
+async def test_grep_scope_does_not_scan_table_cells() -> None:
+    db = _SequencedDb([_ScalarsResult([_scoped_document("doc_a")]), _EmptyRowsResult()])
 
     @asynccontextmanager
     async def unused_factory():
@@ -491,7 +600,9 @@ async def test_grep_document_ids_does_not_scan_table_cells() -> None:
         namespace="default",
         db_factory=unused_factory,
     )
-    result = await grep(ctx, {"pattern": "30 mg", "document_ids": ["doc_a"]})
-    assert db.execute_count == 1
-    assert result.payload["total_matches"] == 0
+    result = await grep(
+        ctx, {"pattern": "30 mg", "scope": [{"document_id": "doc_a"}]}
+    )
+    assert db.execute_count == 2
+    assert result.payload["details"]["total_matches"] == 0
     assert "cell=" not in result.text

@@ -28,8 +28,6 @@ class RetrievalQuery:
     chunk_types: set[str] | None = None
     signal_paths: list[str] | None = None
     filter_mode: str = "delete"
-    channels: list[str] | None = None
-    channel_weights: dict[str, float] | None = None
     rerank: bool = False
     threshold: float = 0.0
     internal_recall_k: int | None = None
@@ -54,8 +52,6 @@ class RetrievalQuery:
         chunk_types: set[str] | None = None,
         signal_paths: list[str] | None = None,
         filter_mode: str = "delete",
-        channels: list[str] | None = None,
-        channel_weights: dict[str, float] | None = None,
         rerank: bool = False,
         threshold: float = 0.0,
         internal_recall_k: int | None = None,
@@ -76,8 +72,6 @@ class RetrievalQuery:
             chunk_types=chunk_types,
             signal_paths=signal_paths,
             filter_mode=filter_mode,
-            channels=channels,
-            channel_weights=channel_weights,
             rerank=rerank,
             threshold=threshold,
             internal_recall_k=internal_recall_k,
@@ -102,8 +96,6 @@ class RetrievalQuery:
             "chunk_types": sorted(self.chunk_types) if self.chunk_types else None,
             "signal_paths": self.signal_paths,
             "filter_mode": self.filter_mode,
-            "channels": self.channels,
-            "channel_weights": self.channel_weights,
             "rerank": self.rerank,
             "threshold": self.threshold,
             "internal_recall_k": self.internal_recall_k,
@@ -141,8 +133,6 @@ class RetrievalQuery:
             chunk_types=self.chunk_types,
             signal_paths=self.signal_paths,
             filter_mode=self.filter_mode,
-            channels=self.channels,
-            channel_weights=self.channel_weights,
             rerank=self.rerank,
             threshold=self.threshold,
             internal_recall_k=self.internal_recall_k,

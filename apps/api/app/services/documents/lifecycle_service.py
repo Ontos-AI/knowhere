@@ -43,6 +43,7 @@ def _document_chunk_asset_url(
     *,
     chunk_type: str,
     job_id: str | None,
+    raw_prefix: str | None,
     file_path: str | None,
     include_asset_urls: bool,
     result_storage: ResultStorage | None,
@@ -57,8 +58,10 @@ def _document_chunk_asset_url(
         return None
 
     try:
-        return result_storage.generate_artifact_url(
+        return _generate_artifact_url(
+            result_storage,
             job_id=job_id,
+            raw_prefix=raw_prefix,
             artifact_ref=file_path,
             expires_in=_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS,
         )
@@ -71,6 +74,7 @@ def _document_page_assets(
     *,
     metadata: dict[str, Any] | None,
     job_id: str | None,
+    raw_prefix: str | None,
     include_asset_urls: bool,
     result_storage: ResultStorage | None,
 ) -> list[dict[str, Any]]:
@@ -90,6 +94,7 @@ def _document_page_assets(
         if include_asset_urls and job_id and result_storage is not None:
             asset_url = _page_asset_url(
                 job_id=job_id,
+                raw_prefix=raw_prefix,
                 artifact_ref=asset["artifact_ref"],
                 result_storage=result_storage,
             )
@@ -125,6 +130,7 @@ def _normalize_page_asset(raw_asset: dict[str, Any]) -> dict[str, Any] | None:
 def _page_asset_url(
     *,
     job_id: str,
+    raw_prefix: str | None,
     artifact_ref: str,
     result_storage: ResultStorage,
 ) -> str | None:
@@ -132,8 +138,10 @@ def _page_asset_url(
     if not normalized_ref or not normalized_ref.startswith("page_citation_assets/"):
         return None
     try:
-        return result_storage.generate_artifact_url(
+        return _generate_artifact_url(
+            result_storage,
             job_id=job_id,
+            raw_prefix=raw_prefix,
             artifact_ref=normalized_ref,
             expires_in=_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS,
         )
@@ -148,6 +156,76 @@ def _positive_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return number if number > 0 else None
+
+
+def _result_raw_prefix(metadata: object) -> str | None:
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get("result_raw_prefix")
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _generate_artifact_url(
+    storage: ResultStorage,
+    *,
+    job_id: str,
+    raw_prefix: str | None,
+    artifact_ref: str,
+    expires_in: int,
+) -> str | None:
+    if raw_prefix is None:
+        return storage.generate_artifact_url(
+            job_id=job_id,
+            artifact_ref=artifact_ref,
+            expires_in=expires_in,
+        )
+    return storage.generate_artifact_url(
+        job_id=job_id,
+        raw_prefix=raw_prefix,
+        artifact_ref=artifact_ref,
+        expires_in=expires_in,
+    )
+
+
+def _verify_raw_exists(
+    storage: ResultStorage,
+    *,
+    job_id: str,
+    raw_prefix: str | None,
+    relative_path: str,
+) -> bool:
+    if raw_prefix is None:
+        return storage.verify_raw_exists(job_id=job_id, relative_path=relative_path)
+    return storage.verify_raw_exists(
+        job_id=job_id,
+        raw_prefix=raw_prefix,
+        relative_path=relative_path,
+    )
+
+
+def _generate_raw_file_url(
+    storage: ResultStorage,
+    *,
+    job_id: str,
+    raw_prefix: str | None,
+    relative_path: str,
+    expires_in: int,
+) -> str | None:
+    if raw_prefix is None:
+        return storage.generate_raw_file_url(
+            job_id=job_id,
+            relative_path=relative_path,
+            expires_in=expires_in,
+        )
+    return storage.generate_raw_file_url(
+        job_id=job_id,
+        raw_prefix=raw_prefix,
+        relative_path=relative_path,
+        expires_in=expires_in,
+    )
 
 
 def document_payload(document) -> dict[str, Any]:
@@ -266,6 +344,7 @@ class DocumentService:
                 chunk=chunk,
                 section=section,
                 job_id=job_result.job_id,
+                raw_prefix=_result_raw_prefix(job_result.document_metadata),
                 include_asset_urls=include_asset_urls,
                 result_storage=result_storage,
             )
@@ -324,6 +403,7 @@ class DocumentService:
                 chunk=chunk,
                 section=section,
                 job_id=job_result.job_id,
+                raw_prefix=_result_raw_prefix(job_result.document_metadata),
                 include_asset_urls=include_asset_urls,
                 result_storage=result_storage,
             ),
@@ -365,17 +445,26 @@ class DocumentService:
             return None
 
         result_storage = self._result_storage or get_result_storage()
-        if not result_storage.verify_raw_exists(
-            job_id=job_result.job_id,
-            relative_path=_PAGE_CITATION_SOURCE_FILE_NAME,
-        ):
-            return None
+        raw_prefix = _result_raw_prefix(job_result.document_metadata)
+        try:
+            if not _verify_raw_exists(
+                result_storage,
+                job_id=job_result.job_id,
+                raw_prefix=raw_prefix,
+                relative_path=_PAGE_CITATION_SOURCE_FILE_NAME,
+            ):
+                return None
 
-        source_url = result_storage.generate_raw_file_url(
-            job_id=job_result.job_id,
-            relative_path=_PAGE_CITATION_SOURCE_FILE_NAME,
-            expires_in=_PAGE_CITATION_SOURCE_EXPIRES_SECONDS,
-        )
+            source_url = _generate_raw_file_url(
+                result_storage,
+                job_id=job_result.job_id,
+                raw_prefix=raw_prefix,
+                relative_path=_PAGE_CITATION_SOURCE_FILE_NAME,
+                expires_in=_PAGE_CITATION_SOURCE_EXPIRES_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to generate page citation source URL (ignored): {exc}")
+            return None
         if not source_url:
             return None
 
@@ -400,6 +489,7 @@ class DocumentService:
         chunk: DocumentChunk,
         section: DocumentSection | None,
         job_id: str | None,
+        raw_prefix: str | None,
         include_asset_urls: bool,
         result_storage: ResultStorage | None,
     ) -> dict[str, Any]:
@@ -409,6 +499,7 @@ class DocumentService:
         page_assets = _document_page_assets(
             metadata=raw_metadata,
             job_id=job_id,
+            raw_prefix=raw_prefix,
             include_asset_urls=include_asset_urls,
             result_storage=result_storage,
         )
@@ -429,6 +520,7 @@ class DocumentService:
             "asset_url": _document_chunk_asset_url(
                 chunk_type=chunk_type,
                 job_id=job_id,
+                raw_prefix=raw_prefix,
                 file_path=file_path,
                 include_asset_urls=include_asset_urls,
                 result_storage=result_storage,

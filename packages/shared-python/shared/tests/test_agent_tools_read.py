@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Any
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
@@ -25,7 +26,7 @@ from sqlalchemy.orm import Session
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.agent_tools.registry import ToolContext
-from shared.services.retrieval.agent_tools.tools.read import read
+from shared.services.retrieval.agent_tools.tools.read import _PICK_REMINDER, read
 
 USER_ID = "user_read"
 NAMESPACE = "default"
@@ -231,18 +232,53 @@ def _read_kwargs(refs: list[dict[str, str]], *, mode: str = "self") -> dict:
     }
 
 
+def _ref_status(
+    *,
+    document_id: str,
+    status: str,
+    section_path: str | None = None,
+    chunk_id: str | None = None,
+    reason: str | None = None,
+    chunk_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "document_id": document_id,
+        "section_path": section_path,
+        "chunk_id": chunk_id,
+        "status": status,
+        "reason": reason,
+        "chunk_ids": chunk_ids or [],
+    }
+
+
+def _refs_text(entries: list[dict[str, Any]]) -> str:
+    lines = ["refs:"]
+    for entry in entries:
+        tag = "[ok]" if entry["status"] == "ok" else f"[failed: {entry['reason']}]"
+        lines.append(
+            f"  {tag} document_id={entry['document_id']} "
+            f"section_path={entry['section_path']} chunk_id={entry['chunk_id']}"
+        )
+    return "\n".join(lines)
+
+
 def _assert_result(
     ctx: ToolContext,
     result,
     *,
-    text: str,
-    errors: list[str],
+    body_text: str,
+    ref_status: list[dict[str, Any]],
     refs: list[dict[str, str]],
     executes: int,
 ) -> None:
     assert result.error is None
-    assert result.text == text
-    assert result.payload["errors"] == errors
+    expected_text = (
+        f"{_refs_text(ref_status)}\n{_PICK_REMINDER}\n{body_text}\n{_PICK_REMINDER}"
+        if body_text
+        else f"{_refs_text(ref_status)}\n{_PICK_REMINDER}"
+    )
+    assert result.text == expected_text
+    assert result.payload["refs"] == ref_status
     assert result.refs == refs
     assert [row["chunk_id"] for row in result.payload["chunks"]] == [
         ref["chunk_id"] for ref in refs
@@ -264,13 +300,26 @@ async def test_read_multi_exact_section_paths_preserve_ref_order(read_ctx: ToolC
     _assert_result(
         read_ctx,
         result,
-        text=(
+        body_text=(
             f"### {FILE_A} ({DOC_A}) / {PATH_TREATMENT} [text]\n"
             "treatment body\n"
             f"### {FILE_A} ({DOC_A}) / {PATH_OVERVIEW} [text]\n"
             "overview body"
         ),
-        errors=[],
+        ref_status=[
+            _ref_status(
+                document_id=DOC_A,
+                status="ok",
+                section_path=PATH_TREATMENT,
+                chunk_ids=[CHUNK_TREATMENT],
+            ),
+            _ref_status(
+                document_id=DOC_A,
+                status="ok",
+                section_path=PATH_OVERVIEW,
+                chunk_ids=[CHUNK_OVERVIEW],
+            ),
+        ],
         refs=[
             {"document_id": DOC_A, "chunk_id": CHUNK_TREATMENT},
             {"document_id": DOC_A, "chunk_id": CHUNK_OVERVIEW},
@@ -293,13 +342,26 @@ async def test_read_suffix_unique_and_cross_document(read_ctx: ToolContext) -> N
     _assert_result(
         read_ctx,
         result,
-        text=(
+        body_text=(
             f"### {FILE_B} ({DOC_B}) / {PATH_UNIQUE} [text]\n"
             "unique body\n"
             f"### {FILE_A} ({DOC_A}) / {PATH_TREATMENT} [text]\n"
             "treatment body"
         ),
-        errors=[],
+        ref_status=[
+            _ref_status(
+                document_id=DOC_B,
+                status="ok",
+                section_path="Unique Leaf",
+                chunk_ids=[CHUNK_UNIQUE],
+            ),
+            _ref_status(
+                document_id=DOC_A,
+                status="ok",
+                section_path=PATH_TREATMENT,
+                chunk_ids=[CHUNK_TREATMENT],
+            ),
+        ],
         refs=[
             {"document_id": DOC_B, "chunk_id": CHUNK_UNIQUE},
             {"document_id": DOC_A, "chunk_id": CHUNK_TREATMENT},
@@ -321,18 +383,29 @@ async def test_read_ambiguous_suffix_does_not_contaminate_other_refs(
             ]
         ),
     )
-    assert "ambiguous section_path '1.1 Findings'" in result.payload["errors"][0]
-    assert PATH_FINDINGS in result.payload["errors"][0]
-    assert PATH_ANNEX_FINDINGS in result.payload["errors"][0]
+    failed_reason = result.payload["refs"][0]["reason"]
+    assert failed_reason is not None
+    assert "ambiguous section_path '1.1 Findings'" in failed_reason
+    assert PATH_FINDINGS in failed_reason
+    assert PATH_ANNEX_FINDINGS in failed_reason
     _assert_result(
         read_ctx,
         result,
-        text=(
-            f"errors: {result.payload['errors'][0]}\n"
-            f"### {FILE_B} ({DOC_B}) / {PATH_INTRO} [text]\n"
-            "intro body"
-        ),
-        errors=result.payload["errors"],
+        body_text=(f"### {FILE_B} ({DOC_B}) / {PATH_INTRO} [text]\n" "intro body"),
+        ref_status=[
+            _ref_status(
+                document_id=DOC_A,
+                status="failed",
+                section_path="1.1 Findings",
+                reason=failed_reason,
+            ),
+            _ref_status(
+                document_id=DOC_B,
+                status="ok",
+                section_path=PATH_INTRO,
+                chunk_ids=[CHUNK_INTRO],
+            ),
+        ],
         refs=[{"document_id": DOC_B, "chunk_id": CHUNK_INTRO}],
         executes=7,
     )
@@ -355,15 +428,26 @@ async def test_read_unknown_path_and_unknown_document_keep_valid_ref(
     _assert_result(
         read_ctx,
         result,
-        text=(
-            f"errors: unknown section_path for {DOC_A}: no such path; "
-            "unknown document_id: doc_missing\n"
-            f"### {FILE_B} ({DOC_B}) / {PATH_INTRO} [text]\n"
-            "intro body"
-        ),
-        errors=[
-            f"unknown section_path for {DOC_A}: no such path",
-            "unknown document_id: doc_missing",
+        body_text=(f"### {FILE_B} ({DOC_B}) / {PATH_INTRO} [text]\n" "intro body"),
+        ref_status=[
+            _ref_status(
+                document_id=DOC_A,
+                status="failed",
+                section_path="no such path",
+                reason=f"unknown section_path for {DOC_A}: no such path",
+            ),
+            _ref_status(
+                document_id="doc_missing",
+                status="failed",
+                section_path=PATH_INTRO,
+                reason="unknown document_id: doc_missing",
+            ),
+            _ref_status(
+                document_id=DOC_B,
+                status="ok",
+                section_path=PATH_INTRO,
+                chunk_ids=[CHUNK_INTRO],
+            ),
         ],
         refs=[{"document_id": DOC_B, "chunk_id": CHUNK_INTRO}],
         executes=7,
@@ -385,14 +469,32 @@ async def test_read_chunk_id_interleaved_with_section_path(read_ctx: ToolContext
     _assert_result(
         read_ctx,
         result,
-        text=(
-            f"errors: unknown chunk_id: missing_chunk in {DOC_A}\n"
+        body_text=(
             f"### {FILE_A} ({DOC_A}) / {PATH_FINDINGS} [text]\n"
             "findings body\n"
             f"### {FILE_B} ({DOC_B}) / {PATH_INTRO} [text]\n"
             "intro body"
         ),
-        errors=[f"unknown chunk_id: missing_chunk in {DOC_A}"],
+        ref_status=[
+            _ref_status(
+                document_id=DOC_A,
+                status="ok",
+                chunk_id=CHUNK_FINDINGS,
+                chunk_ids=[CHUNK_FINDINGS],
+            ),
+            _ref_status(
+                document_id=DOC_B,
+                status="ok",
+                section_path=PATH_INTRO,
+                chunk_ids=[CHUNK_INTRO],
+            ),
+            _ref_status(
+                document_id=DOC_A,
+                status="failed",
+                chunk_id="missing_chunk",
+                reason=f"unknown chunk_id: missing_chunk in {DOC_A}",
+            ),
+        ],
         refs=[
             {"document_id": DOC_A, "chunk_id": CHUNK_FINDINGS},
             {"document_id": DOC_B, "chunk_id": CHUNK_INTRO},
@@ -415,13 +517,20 @@ async def test_read_descendants_does_not_include_sibling_suffix_or_old_revision(
     _assert_result(
         read_ctx,
         result,
-        text=(
+        body_text=(
             f"### {FILE_A} ({DOC_A}) / {PATH_FINDINGS} [text]\n"
             "findings body\n"
             f"### {FILE_A} ({DOC_A}) / {PATH_OVERVIEW} [text]\n"
             "overview body"
         ),
-        errors=[],
+        ref_status=[
+            _ref_status(
+                document_id=DOC_A,
+                status="ok",
+                section_path=PATH_OVERVIEW,
+                chunk_ids=[CHUNK_FINDINGS, CHUNK_OVERVIEW],
+            ),
+        ],
         refs=[
             {"document_id": DOC_A, "chunk_id": CHUNK_FINDINGS},
             {"document_id": DOC_A, "chunk_id": CHUNK_OVERVIEW},
@@ -447,13 +556,26 @@ async def test_read_duplicate_section_refs_emit_twice(read_ctx: ToolContext) -> 
     _assert_result(
         read_ctx,
         result,
-        text=(
+        body_text=(
             f"### {FILE_A} ({DOC_A}) / {PATH_TREATMENT} [text]\n"
             "treatment body\n"
             f"### {FILE_A} ({DOC_A}) / {PATH_TREATMENT} [text]\n"
             "treatment body"
         ),
-        errors=[],
+        ref_status=[
+            _ref_status(
+                document_id=DOC_A,
+                status="ok",
+                section_path=PATH_TREATMENT,
+                chunk_ids=[CHUNK_TREATMENT],
+            ),
+            _ref_status(
+                document_id=DOC_A,
+                status="ok",
+                section_path=PATH_TREATMENT,
+                chunk_ids=[CHUNK_TREATMENT],
+            ),
+        ],
         refs=[
             {"document_id": DOC_A, "chunk_id": CHUNK_TREATMENT},
             {"document_id": DOC_A, "chunk_id": CHUNK_TREATMENT},

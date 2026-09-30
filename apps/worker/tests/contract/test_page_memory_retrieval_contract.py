@@ -267,6 +267,25 @@ def test_result_storage_allows_page_citation_and_page_pdf_artifact_refs_not_debu
     )
 
 
+def test_result_storage_uses_validated_canonical_raw_prefix_without_job_fallback() -> None:
+    storage = JobResultStorage(results_bucket="test-results")
+
+    assert (
+        storage.build_raw_key(
+            job_id="job-materialization",
+            raw_prefix="results/demo-canonical/source-a/content-v1/",
+            relative_path="images/chart.png",
+        )
+        == "results/demo-canonical/source-a/content-v1/images/chart.png"
+    )
+    with pytest.raises(ValueError, match="under results"):
+        storage.build_raw_key(
+            job_id="job-materialization",
+            raw_prefix="uploads/shared/",
+            relative_path="images/chart.png",
+        )
+
+
 def test_result_storage_upload_filters_to_referenced_artifacts(tmp_path) -> None:
     class FakeStorageAdapter:
         def __init__(self) -> None:

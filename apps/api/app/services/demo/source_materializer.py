@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import tempfile
 import time
@@ -16,6 +17,8 @@ from uuid import uuid4
 import logfire
 
 from app.services.demo.source_catalog import DemoSourceCatalog, DemoSourceDefinition
+from app.services.demo.canonical_bundle import CanonicalDemoBundleStore
+from app.services.demo.canonical_bundle_result import CanonicalDemoBundle
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
@@ -33,7 +36,9 @@ from shared.services.jobs.lifecycle.publication_trace_sql import (
 from shared.services.retrieval.cache_service import invalidate_retrieval_cache_namespaces
 from shared.services.retrieval.publication_service import RetrievalPublicationService
 from shared.services.retrieval.publication_models import DocumentPublicationScope
-from shared.services.redis import RedisPublicationSemaphore, RedisServiceFactory
+from shared.services.retrieval.publication_preparation_cache import PublicationPreparationCache
+from shared.services.retrieval.scoring.knowhere_hybrid import MAP_UNIT_INDEX_FORMAT_VERSION
+from shared.services.redis import RedisPublicationSemaphore, RedisService, RedisServiceFactory
 from shared.core.config import settings
 from shared.services.storage.result_storage import get_result_storage
 
@@ -157,14 +162,18 @@ class DemoSourceMaterializer:
                 bind.engine if isinstance(bind, AsyncConnection) else bind
             )
         stage_started_at = time.perf_counter()
-        result_bundle = _upload_demo_result_bundle(
+        result_bundle = await _upload_demo_result_bundle(
             job_id=job_id,
+            demo_source_id=source.demo_source_id,
             source_directory=self._catalog.source_directory(source),
+            redis_service=self._redis_service,
         )
         logfire.info(
             "Demo materialization source bundle upload completed",
             demo_source_id=source.demo_source_id,
             duration_seconds=time.perf_counter() - stage_started_at,
+            reused=result_bundle.reused,
+            content_version=result_bundle.content_version,
         )
 
         db.add(
@@ -197,10 +206,15 @@ class DemoSourceMaterializer:
                 document_metadata={
                     "source_file_name": source.title,
                     "demo_source_id": source.demo_source_id,
+                    **(
+                        {"result_raw_prefix": result_bundle.raw_prefix}
+                        if result_bundle.content_version
+                        else {}
+                    ),
                 },
                 inline_payload={"source": "canonical_demo"},
-                result_s3_key=result_bundle["zip_key"],
-                result_size=result_bundle["zip_size"],
+                result_s3_key=result_bundle.zip_key,
+                result_size=result_bundle.zip_size,
                 created_at=timestamp,
                 updated_at=timestamp,
             )
@@ -259,16 +273,26 @@ class DemoSourceMaterializer:
                 demo_source_id=source.demo_source_id,
                 duration_seconds=time.perf_counter() - base_rows_started_at,
             )
-            published_state = await db.run_sync(
-                lambda sync_db: self._publication_service.publish_document_state(
-                    sync_db,
-                    job_id=job_id,
-                    job_result_id=job_result_id,
-                    chunks=[dict(chunk) for chunk in chunks],
-                    update_namespace_snapshot=False,
-                    trace=trace,
+            with (
+                PublicationPreparationCache.scope(
+                    source_id=source.demo_source_id,
+                    content_version=result_bundle.content_version,
+                    index_format_version=MAP_UNIT_INDEX_FORMAT_VERSION,
                 )
-            )
+                if settings.DEMO_PUBLICATION_PREPARATION_CACHE_ENABLED
+                and result_bundle.content_version
+                else nullcontext()
+            ):
+                published_state = await db.run_sync(
+                    lambda sync_db: self._publication_service.publish_document_state(
+                        sync_db,
+                        job_id=job_id,
+                        job_result_id=job_result_id,
+                        chunks=[dict(chunk) for chunk in chunks],
+                        update_namespace_snapshot=False,
+                        trace=trace,
+                    )
+                )
             await db.run_sync(
                 lambda sync_db: self._publication_service.publish_document_graph(
                     sync_db,
@@ -493,32 +517,38 @@ def _materialized_source_payload(
     )
 
 
-def _upload_demo_result_bundle(
+async def _upload_demo_result_bundle(
     *,
     job_id: str,
+    demo_source_id: str,
     source_directory: Path,
-) -> dict[str, int | str]:
-    storage = get_result_storage()
-    with tempfile.TemporaryDirectory(prefix="knowhere-demo-result-") as temp_directory:
-        zip_base_path = Path(temp_directory) / job_id
-        zip_file_path = Path(
-            shutil.make_archive(
-                str(zip_base_path),
-                "zip",
-                root_dir=source_directory,
-            )
+    redis_service: RedisService,
+) -> CanonicalDemoBundle:
+    if not settings.DEMO_CANONICAL_BUNDLE_ENABLED:
+        return await asyncio.to_thread(
+            _upload_job_result_bundle, job_id=job_id, source_directory=source_directory
         )
-        zip_size = zip_file_path.stat().st_size
-        bundle = storage.upload(
-            job_id=job_id,
-            result_dir=str(source_directory),
-            zip_file_path=str(zip_file_path),
-        )
+    return await CanonicalDemoBundleStore(redis_service=redis_service).ensure_bundle(
+        source_id=demo_source_id, source_directory=source_directory
+    )
 
-    return {
-        "zip_key": bundle.zip_key,
-        "zip_size": zip_size,
-    }
+
+def _upload_job_result_bundle(
+    *, job_id: str, source_directory: Path
+) -> CanonicalDemoBundle:
+    with tempfile.TemporaryDirectory(prefix="knowhere-demo-result-") as temporary:
+        archive_path: Path = Path(shutil.make_archive(
+            str(Path(temporary) / job_id), "zip", root_dir=source_directory
+        ))
+        zip_size: int = archive_path.stat().st_size
+        bundle = get_result_storage().upload(
+            job_id=job_id, result_dir=str(source_directory),
+            zip_file_path=str(archive_path),
+        )
+    return CanonicalDemoBundle(
+        zip_key=bundle.zip_key, zip_size=zip_size, raw_prefix=bundle.raw_prefix,
+        content_version="", reused=False,
+    )
 
 
 def _utc_now() -> datetime:

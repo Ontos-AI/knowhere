@@ -270,6 +270,37 @@ def test_should_index_document_chunks_in_lazy_section_order(
     )
 
 
+def test_should_not_have_map_unit_term_search_text(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        columns = connection.execute(
+            text(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'document_map_units'
+                  AND column_name = 'term_search_text_lower'
+                """
+            )
+        ).fetchall()
+        index_count = connection.execute(
+            text(
+                """
+                SELECT count(*)
+                FROM pg_class
+                JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+                WHERE pg_namespace.nspname = current_schema()
+                  AND pg_class.relname = 'idx_document_map_units_term_trgm'
+                """
+            )
+        ).scalar_one()
+
+    assert columns == []
+    assert index_count == 0
+
+
 def test_should_not_have_content_trigram_index(
     migrated_head_engine: Engine,
 ) -> None:

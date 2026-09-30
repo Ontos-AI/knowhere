@@ -68,11 +68,14 @@ async def hydrate_referenced_chunk_rows(
         )
 
     stmt = (
-        # Select only the job identifier needed for the public projection.
+        # Select only job and artifact location fields needed for hydration.
         # Selecting the JobResult entity would trigger its ``chunks`` selectin
         # relationship, loading the entire legacy job-chunk collection for
         # every referenced revision during final hydration.
-        select(Document, DocumentChunk, DocumentSection, JobResult.job_id)
+        select(
+            Document, DocumentChunk, DocumentSection, JobResult.job_id,
+            JobResult.document_metadata["result_raw_prefix"].as_string(),
+        )
         .join(DocumentChunk, chunk_join)
         .outerjoin(
             DocumentSection, DocumentSection.section_id == DocumentChunk.section_id
@@ -94,7 +97,7 @@ async def hydrate_referenced_chunk_rows(
 
     rows_by_key: dict[ReferenceLookupKey, dict[str, Any]] = {}
     rows_by_base_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for document, chunk, section, job_id in result.all():
+    for document, chunk, section, job_id, result_raw_prefix in result.all():
         row = {
             "document_id": document.document_id,
             "chunk_id": chunk.chunk_id,
@@ -115,6 +118,7 @@ async def hydrate_referenced_chunk_rows(
             "chunk_metadata": chunk.chunk_metadata or {},
             "job_result_id": chunk.job_result_id,
             "job_id": job_id,
+            "result_raw_prefix": result_raw_prefix,
             "source_chunk_path": chunk.source_chunk_path,
             "sort_order": chunk.sort_order,
         }

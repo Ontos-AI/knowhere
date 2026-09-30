@@ -72,12 +72,15 @@ def test_build_wire_tool_name_map_round_trips_to_canonical() -> None:
 
 def test_tool_message_content_passes_through_short_text() -> None:
     result = ToolResult(text="short body")
-    assert tool_message_content(result, max_chars=100) == "short body"
+    assert (
+        tool_message_content(result, tool_name="corpus.grep", max_chars=100)
+        == "short body"
+    )
 
 
 def test_tool_message_content_caps_long_text_with_note() -> None:
     result = ToolResult(text="x" * 200)
-    content = tool_message_content(result, max_chars=100)
+    content = tool_message_content(result, tool_name="corpus.grep", max_chars=100)
     assert content.startswith("x" * 100)
     assert "truncated, 100 more chars" in content
     assert len(content) > 100  # capped body + truncation note, not silently dropped
@@ -85,12 +88,18 @@ def test_tool_message_content_caps_long_text_with_note() -> None:
 
 def test_tool_message_content_surfaces_error_instead_of_text() -> None:
     result = ToolResult(text="ignored", error="bad args: missing document_id")
-    assert tool_message_content(result, max_chars=100) == "error: bad args: missing document_id"
+    assert (
+        tool_message_content(result, tool_name="corpus.grep", max_chars=100)
+        == "error: bad args: missing document_id"
+    )
 
 
 def test_tool_message_content_empty_text_placeholder() -> None:
     result = ToolResult(text="")
-    assert tool_message_content(result, max_chars=100) == "(empty result)"
+    assert (
+        tool_message_content(result, tool_name="corpus.grep", max_chars=100)
+        == "(empty result)"
+    )
 
 
 def test_model_accepts_images_only_when_name_contains_vision() -> None:
@@ -329,7 +338,8 @@ def test_agent_explore_keeps_inventory_tool_for_explicit_inventory_requests() ->
     wire_names = {tool["function"]["name"] for tool in tools}
     assert "corpus_list_documents" in wire_names
     assert name_map["corpus_list_documents"] == "corpus.list_documents"
-    assert "only if the user explicitly asks to list or inventory" in LOOP_CONTRACT_SUFFIX
+    assert "only if the user explicitly" in LOOP_CONTRACT_SUFFIX
+    assert "asks to list or inventory the corpus's documents" in LOOP_CONTRACT_SUFFIX
 
 
 # --------------------------------------------------------------------------

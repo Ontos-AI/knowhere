@@ -303,58 +303,6 @@ async def test_retrieval_should_use_classic_topk_when_agentic_is_false(
     assert response_json["router_used"] == "classic_topk"
 
 
-async def test_should_return_request_validation_failure_for_an_invalid_channel(
-    developer_api_client_factory: Callable[
-        [], AbstractAsyncContextManager[AsyncClient]
-    ],
-) -> None:
-    async with developer_api_client_factory() as api_client:
-        response = await api_client.post(
-            "/api/v1/retrieval/query",
-            json={
-                "namespace": "default",
-                "query": "alpha",
-                "channels": ["invalid-channel"],
-            },
-        )
-
-    assert response.status_code == 400
-    assert response.headers["x-request-id"]
-
-    response_json = cast(dict[str, object], response.json())
-    error = cast(dict[str, object], response_json["error"])
-    details = cast(dict[str, object], error["details"])
-    violations = cast(list[dict[str, object]], details["violations"])
-
-    assert response_json["success"] is False
-    assert error["code"] == "INVALID_ARGUMENT"
-    assert error["message"] == "Request validation failed"
-    assert violations[0]["field"] == "body.channels"
-    assert "Invalid channel" in cast(str, violations[0]["description"])
-
-
-async def test_should_reject_legacy_channel_controls(
-    developer_api_client_factory: Callable[
-        [], AbstractAsyncContextManager[AsyncClient]
-    ],
-) -> None:
-    async with developer_api_client_factory() as api_client:
-        response = await api_client.post(
-            "/api/v1/retrieval/query",
-            json={
-                "namespace": "default",
-                "query": "alpha",
-                "channels": ["content"],
-            },
-        )
-
-    assert response.status_code == 400
-    response_json = cast(dict[str, object], response.json())
-    error = cast(dict[str, object], response_json["error"])
-    assert error["code"] == "INVALID_ARGUMENT"
-    assert "deprecated and unsupported" in str(error)
-
-
 async def test_should_exclude_matching_document_ids_from_the_response(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
@@ -935,8 +883,6 @@ async def test_agent_explore_should_release_route_session_before_final_hydration
             chunk_types=None,
             signal_paths=None,
             filter_mode="delete",
-            channels=None,
-            channel_weights=None,
             rerank=False,
             threshold=0.0,
             internal_recall_k=None,

@@ -228,6 +228,10 @@ async def _hydrate_chunk_paths(
             'chunk_metadata': chunk.chunk_metadata or {},
             'job_result_id': chunk.job_result_id,
             'job_id': job_result.job_id if job_result else None,
+            'result_raw_prefix': (
+                (job_result.document_metadata or {}).get('result_raw_prefix')
+                if job_result else None
+            ),
             'source_chunk_path': chunk.source_chunk_path,
             'sort_order': chunk.sort_order,
             'hydrate_mode': path_mode,

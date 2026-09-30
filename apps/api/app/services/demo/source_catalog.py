@@ -651,9 +651,19 @@ def _normalize_asset_path(asset_path: str) -> Path | None:
     return Path(*parts)
 
 
-@lru_cache(maxsize=8)
 def _load_source_chunks(source: DemoSourceDefinition) -> tuple[dict[str, Any], ...]:
     chunks_path = (_DATA_ROOT / source.asset_directory) / "chunks.json"
+    status = chunks_path.stat()
+    return _load_source_chunks_version(
+        chunks_path, status.st_size, status.st_mtime_ns, status.st_ctime_ns
+    )
+
+
+@lru_cache(maxsize=8)
+def _load_source_chunks_version(
+    chunks_path: Path, size: int, modified_at: int, changed_at: int
+) -> tuple[dict[str, Any], ...]:
+    """Invalidate parsed source content when the canonical input file changes."""
     with chunks_path.open("r", encoding="utf-8") as file:
         payload = json.load(file)
 

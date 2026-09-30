@@ -69,13 +69,21 @@ from shared.services.retrieval.agent_explore.shared import (
     build_wire_tool_name_map,
     finish_refs_from_args,
     https_image_parts,
+    invalid_finish_message,
     model_accepts_images,
+    read_ref_status,
     select_episode_refs,
     tool_message_content,
+    validate_finish_args,
     wire_safe_tool_name,
 )
 from shared.services.retrieval.agent_explore.types import AgentStep, EpisodeResult
-from shared.services.retrieval.agent_tools import REGISTRY, ToolBudget, load_corpus_schema_text
+from shared.services.retrieval.agent_tools import (
+    REGISTRY,
+    ToolBudget,
+    ToolResult,
+    load_corpus_schema_text,
+)
 
 # A tool-role message is kept in full for the turn it was produced plus this
 # many additional turns, then collapsed to a placeholder — see module
@@ -129,14 +137,23 @@ def _build_openai_tools() -> tuple[list[dict[str, Any]], dict[str, str]]:
     return tools, name_map
 
 
-def _safe_json_loads(raw: str | None) -> dict[str, Any]:
-    if not raw:
-        return {}
+def _parse_tool_arguments(raw: str | None) -> tuple[dict[str, Any], str | None]:
+    """Parse one tool call's JSON arguments, or return the parse error.
+
+    Only a missing argument string or an explicit ``{}`` is an empty object;
+    an empty string or malformed JSON is an error. Either way the error
+    fails just that one call (a corpus.* tool or ``finish``) and is sent
+    back to the model — the episode continues.
+    """
+    if raw is None:
+        return {}, None
     try:
         parsed = json.loads(raw)
-    except (TypeError, ValueError):
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError) as exc:
+        return {}, f"invalid JSON arguments: {exc}"
+    if not isinstance(parsed, dict):
+        return {}, f"arguments must be a JSON object, got {type(parsed).__name__}"
+    return parsed, None
 
 
 def _collapse_stale_tool_messages(
@@ -252,11 +269,19 @@ class OpenAIHarness:
             finish_call = next(
                 (tc for tc in tool_calls if tc.function.name == FINISH_TOOL_NAME), None
             )
+            finish_error: str | None = None
             if finish_call is not None:
-                args = _safe_json_loads(finish_call.function.arguments)
-                finish_refs = finish_refs_from_args(args)
+                args, parse_error = _parse_tool_arguments(finish_call.function.arguments)
+                if parse_error is None:
+                    parse_error = validate_finish_args(args)
+                if parse_error is not None and forced_reason is None:
+                    finish_error = parse_error
+            if finish_call is not None and finish_error is None:
+                finish_refs = finish_refs_from_args(args) if parse_error is None else None
                 cited = finish_refs if finish_refs is not None else []
-                result_notes = str(args.get("notes") or "")
+                result_notes = (
+                    parse_error if parse_error is not None else str(args.get("notes") or "")
+                )
                 stop_reason = f"budget_{forced_reason}" if forced_reason else "finished"
                 steps.append(
                     AgentStep(
@@ -264,7 +289,7 @@ class OpenAIHarness:
                         tool_name=FINISH_TOOL_NAME,
                         tool_args=args,
                         observation_text=f"refs={len(cited)} notes={result_notes!r}",
-                        error=None,
+                        error=parse_error,
                         elapsed_ms=turn_elapsed_ms,
                         tokens_used_delta=turn_tokens,
                         tokens_used_total=budget.tokens_used,
@@ -314,20 +339,32 @@ class OpenAIHarness:
             first_tool_tokens_recorded = False
             for tc in tool_calls:
                 tool_started = time.perf_counter()
-                args = _safe_json_loads(tc.function.arguments)
+                args, parse_error = _parse_tool_arguments(tc.function.arguments)
                 requested_name = str(tc.function.name or "")
                 canonical_name = tool_name_map.get(requested_name, requested_name)
-                tool_result = await dispatch_tool_call(
-                    canonical_name,
-                    args,
-                    db_factory=db_factory,
-                    user_id=user_id,
-                    namespace=namespace,
-                    document_scope=document_scope,
-                    budget=tool_budget,
-                )
+                if tc is finish_call:
+                    tool_result = ToolResult(
+                        text="", error=invalid_finish_message(str(finish_error))
+                    )
+                elif parse_error is not None:
+                    tool_result = ToolResult(text="", error=parse_error)
+                else:
+                    tool_result = await dispatch_tool_call(
+                        canonical_name,
+                        args,
+                        db_factory=db_factory,
+                        user_id=user_id,
+                        namespace=namespace,
+                        document_scope=document_scope,
+                        budget=tool_budget,
+                        query=query,
+                    )
                 tool_elapsed_ms = int((time.perf_counter() - tool_started) * 1000)
-                content = tool_message_content(tool_result, max_chars=tool_budget.max_chars)
+                content = tool_message_content(
+                    tool_result,
+                    tool_name=canonical_name,
+                    max_chars=tool_budget.max_chars,
+                )
                 messages.append(
                     {"role": "tool", "tool_call_id": tc.id, "content": content}
                 )
@@ -366,6 +403,7 @@ class OpenAIHarness:
                         ),
                         tokens_used_delta=0 if first_tool_tokens_recorded else turn_tokens,
                         tokens_used_total=budget.tokens_used,
+                        ref_status=read_ref_status(canonical_name, tool_result),
                     )
                 )
                 first_tool_tokens_recorded = True

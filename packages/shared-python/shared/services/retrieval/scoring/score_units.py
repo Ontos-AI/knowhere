@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast
 from shared.services.retrieval.scoring.knowhere_hybrid import (
     build_content_search_text,
     build_path_search_text,
-    build_term_search_text,
 )
 
 def _children_ids(ts: Any, section_id: str, doc_id: str) -> List[str]:
@@ -153,9 +152,6 @@ def build_score_units(
                     section_path=path_text, section_title=title or content
                 ),
                 "content_search_text": build_content_search_text(content),
-                "term_search_text": build_term_search_text(
-                    content, path_text=path_text
-                ),
             }
         )
 
@@ -182,9 +178,6 @@ def build_score_units(
                     section_path=path_text, section_title=titles.get(sid) or ""
                 ),
                 "content_search_text": build_content_search_text(self_text),
-                "term_search_text": build_term_search_text(
-                    self_text, path_text=path_text
-                ),
             }
         )
     return units

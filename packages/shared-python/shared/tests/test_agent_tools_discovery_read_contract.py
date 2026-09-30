@@ -65,6 +65,7 @@ class _GrepRows:
                 {"summary": "dose table"},
                 REV_ID,
                 JOB_ID,
+                None,
                 PATH_ROOT,
                 FILE_NAME,
                 1,
@@ -72,12 +73,20 @@ class _GrepRows:
         ]
 
 
+class _EmptyHostRows:
+    def all(self) -> list[tuple[object, ...]]:
+        return []
+
+
 class _RecordingDb:
-    def __init__(self, result: object) -> None:
-        self.result = result
+    def __init__(self, results: object) -> None:
+        self.results = list(results) if isinstance(results, list) else [results]
+        self._index = 0
 
     async def execute(self, statement):  # noqa: ANN001
-        return self.result
+        result = self.results[min(self._index, len(self.results) - 1)]
+        self._index += 1
+        return result
 
 
 @asynccontextmanager
@@ -199,21 +208,21 @@ def _read_kwargs(refs: list[dict[str, str]]) -> dict:
 
 
 def _section_paths_from_outline_text(text: str) -> list[str]:
-    return re.findall(r"\| section_path=(.+) \(chunks=", text)
+    return re.findall(r"section_path=(.+)$", text, re.MULTILINE)
 
 
 def _asset_refs_from_text(text: str) -> list[dict[str, str]]:
     return [
         {"document_id": document_id, "chunk_id": chunk_id}
         for document_id, chunk_id in re.findall(
-            r"document_id=(\S+) chunk_id=(\S+)", text
+            r"document_id=(\S+) section_path=.+? chunk_id=(\S+)", text
         )
     ]
 
 
 @pytest.mark.asyncio
 async def test_outline_visible_section_path_reads(discovery_ctx: ToolContext) -> None:
-    listed = await outline(discovery_ctx, {"document_id": DOC_ID})
+    listed = await outline(discovery_ctx, {"scope": [{"document_id": DOC_ID}]})
     assert listed.error is None
     paths = _section_paths_from_outline_text(listed.text)
     assert PATH_INTRO in paths
@@ -222,33 +231,36 @@ async def test_outline_visible_section_path_reads(discovery_ctx: ToolContext) ->
         _read_kwargs([{"document_id": DOC_ID, "section_path": PATH_INTRO}]),
     )
     assert result.error is None
-    assert result.payload["errors"] == []
+    assert [entry["status"] for entry in result.payload["refs"]] == ["ok"]
     assert result.refs == [{"document_id": DOC_ID, "chunk_id": CHUNK_INTRO}]
 
 
 @pytest.mark.asyncio
 async def test_assets_visible_chunk_id_reads(discovery_ctx: ToolContext) -> None:
-    listed = await assets(discovery_ctx, {"document_ids": [DOC_ID], "type": "table"})
+    listed = await assets(
+        discovery_ctx, {"scope": [{"document_id": DOC_ID}], "type": "table"}
+    )
     assert listed.error is None
-    assert TABLE_FILE in listed.text
+    assert listed.payload["rows"][0]["chunk_id"] == CHUNK_TABLE
+    assert listed.payload["rows"][0]["kind"] == "table"
     refs = _asset_refs_from_text(listed.text)
     assert refs == [{"document_id": DOC_ID, "chunk_id": CHUNK_TABLE}]
     result = await read(discovery_ctx, _read_kwargs(refs))
     assert result.error is None
-    assert result.payload["errors"] == []
+    assert [entry["status"] for entry in result.payload["refs"]] == ["ok"]
     assert result.refs == [{"document_id": DOC_ID, "chunk_id": CHUNK_TABLE}]
 
 
 @pytest.mark.asyncio
 async def test_grep_table_visible_chunk_id_reads(discovery_ctx: ToolContext) -> None:
     grep_ctx = ToolContext(
-        db=_RecordingDb(_GrepRows()),  # type: ignore[arg-type]
+        db=_RecordingDb([_GrepRows(), _EmptyHostRows()]),  # type: ignore[arg-type]
         user_id=USER_ID,
         namespace=NAMESPACE,
         db_factory=_unused_db_factory,
     )
     listed = await grep(grep_ctx, {"pattern": "30 mg"})
-    match = re.search(r"\((\S+)\) chunk_id=(\S+) /", listed.text)
+    match = re.search(r"document_id=(\S+) section_path=.+? chunk_id=(\S+)", listed.text)
     assert match is not None
     result = await read(
         discovery_ctx,
@@ -257,7 +269,7 @@ async def test_grep_table_visible_chunk_id_reads(discovery_ctx: ToolContext) -> 
         ),
     )
     assert result.error is None
-    assert result.payload["errors"] == []
+    assert [entry["status"] for entry in result.payload["refs"]] == ["ok"]
     assert result.refs == [{"document_id": DOC_ID, "chunk_id": CHUNK_TABLE}]
 
 
@@ -270,4 +282,6 @@ async def test_file_path_is_not_a_readable_chunk_id(
         _read_kwargs([{"document_id": DOC_ID, "chunk_id": TABLE_FILE}]),
     )
     assert result.error is not None
-    assert f"unknown chunk_id: {TABLE_FILE}" in result.error
+    failed_entry = result.payload["refs"][0]
+    assert failed_entry["status"] == "failed"
+    assert f"unknown chunk_id: {TABLE_FILE}" in failed_entry["reason"]

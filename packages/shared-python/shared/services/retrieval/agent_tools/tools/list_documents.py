@@ -32,6 +32,7 @@ from shared.services.retrieval.agent_tools.registry import (
         "type": "object",
         "properties": {},
         "required": [],
+        "additionalProperties": False,
     },
 )
 async def list_documents(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:

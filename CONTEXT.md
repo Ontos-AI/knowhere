@@ -343,7 +343,7 @@ The query workflow that returns cited evidence from published documents.
 ### Retrieval Query
 
 The typed retrieval request that owns cache-shaping fields and route policy:
-scope, filters, data type, channels, ranking options, and agentic toggle.
+scope, filters, data type, ranking options, and agentic toggle.
 
 ### Retrieval Run
 

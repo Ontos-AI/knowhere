@@ -18,6 +18,9 @@ class AgentStep:
     elapsed_ms: int
     tokens_used_delta: int
     tokens_used_total: int
+    # corpus.read only: one {ref, status, reason?} entry per requested ref,
+    # kept whole in the trace (observation_text is capped there).
+    ref_status: list[dict[str, Any]] | None = None
 
 
 @dataclass

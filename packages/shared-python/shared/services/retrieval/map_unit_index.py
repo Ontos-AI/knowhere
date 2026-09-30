@@ -31,6 +31,7 @@ from shared.services.retrieval.scoring.persisted_score_load import (
 )
 from shared.services.retrieval.scoring.score_units import build_score_units
 from shared.services.retrieval.publication_models import DocumentPublicationScope
+from shared.services.retrieval.publication_preparation_cache import PublicationPreparationCache
 from shared.services.retrieval.publication_strategy import resolve_publication_strategy
 from shared.services.retrieval.publication_token_copy import (
     TokenCopyRow,
@@ -130,16 +131,20 @@ def replace_document_map_units(
             if not unit_id or not section_id:
                 continue
             map_unit_id = f"dmu_{uuid4().hex}"
-            path_tokens = str(unit.get("path_search_text") or "").split()
-            content_tokens = str(unit.get("content_search_text") or "").split()
-            if path_tokens:
+            path_frequencies = PublicationPreparationCache.count_tokens(
+                str(unit.get("path_search_text") or "")
+            )
+            content_frequencies = PublicationPreparationCache.count_tokens(
+                str(unit.get("content_search_text") or "")
+            )
+            path_token_count = sum(path_frequencies.values())
+            content_token_count = sum(content_frequencies.values())
+            if path_token_count:
                 path_document_count += 1
-                path_total_length += len(path_tokens)
-            if content_tokens:
+                path_total_length += path_token_count
+            if content_token_count:
                 content_document_count += 1
-                content_total_length += len(content_tokens)
-            path_frequencies = Counter(path_tokens)
-            content_frequencies = Counter(content_tokens)
+                content_total_length += content_token_count
             path_unit_df.update(path_frequencies.keys())
             content_unit_df.update(content_frequencies.keys())
             # ``provider.self_units`` already reflects root-asset remount (assets
@@ -160,11 +165,8 @@ def replace_document_map_units(
                     "unit_id": unit_id,
                     "section_id": section_id,
                     "unit_kind": str(unit.get("kind") or "leaf"),
-                    "path_token_count": len(path_tokens),
-                    "content_token_count": len(content_tokens),
-                    "term_search_text_lower": str(
-                        unit.get("term_search_text") or ""
-                    ).lower(),
+                    "path_token_count": path_token_count,
+                    "content_token_count": content_token_count,
                     "has_image": "image" in section_types,
                     "has_table": "table" in section_types,
                     "sort_order": sort_order,

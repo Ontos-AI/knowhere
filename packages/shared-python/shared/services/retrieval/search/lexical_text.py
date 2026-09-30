@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 from shared.services.chunks.document_path import split_document_path
 from shared.services.chunks.path_segments import split_escaped_document_path
-from shared.utils.text_utils import tokenize_contents_for_retrieval
+from shared.services.retrieval.publication_preparation_cache import PublicationPreparationCache
 
 _SAME_AS_RE = re.compile(r"\[SAME-AS [^\]]+\]")
 
@@ -44,8 +44,7 @@ def build_lexical_text(value: str) -> str:
     if not text:
         return ""
 
-    tokens = tokenize_contents_for_retrieval([text], stopwords=[], link_char=" ", dedupe=True)
-    token_text = tokens[0] if tokens else ""
+    token_text = " ".join(PublicationPreparationCache.tokenize(text, dedupe=True))
     lexical_parts = [part for part in [text, token_text] if part]
     return "\n".join(lexical_parts) if lexical_parts else text
 
@@ -136,8 +135,7 @@ def build_content_search_text(
     if section_summary and str(section_summary).strip():
         parts.append(str(section_summary).strip())
     raw = " ".join(parts)
-    tokens = tokenize_contents_for_retrieval([raw], stopwords=[], link_char=" ")
-    return tokens[0] if tokens else raw
+    return " ".join(PublicationPreparationCache.tokenize(raw))
 
 
 def _chunk_summary_text(chunk: dict[str, Any]) -> str:
@@ -179,8 +177,7 @@ def build_path_search_text(
     if not parts:
         return None
     raw = " ".join(parts)
-    tokens = tokenize_contents_for_retrieval([raw], stopwords=[], link_char=" ")
-    return tokens[0] if tokens else raw
+    return " ".join(PublicationPreparationCache.tokenize(raw))
 
 
 def build_term_search_text(
