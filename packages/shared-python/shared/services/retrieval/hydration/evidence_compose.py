@@ -17,6 +17,7 @@ from loguru import logger
 from shared.services.retrieval.hydration.asset_inline import (
     remove_path_placeholders,
 )
+from shared.utils.chunk_refs import match_resource_path_ref
 from shared.services.retrieval.hydration.row_utils import (
     extract_page_nums,
     normalize_chunk_type,
@@ -60,95 +61,48 @@ def group_evidence_units(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Group units by document and the direct parent of ``section_path``.
 
     Each unit is ``document_id``, ``source_file_name``, ``section_path``,
-    ``sort_order``, ``parts``, and optional ``kind`` (``read`` or ``outline``).
+    ``sort_order``, ``parts``, and ``kind`` (``read`` or ``outline``).
+    Outline units ignore ``section_path`` and ``sort_order``.
     """
-    prepared: list[tuple[int, dict[str, Any], str, list[dict[str, Any]]]] = []
+    documents: dict[str, dict[str, Any]] = {}
     for index, unit in enumerate(units):
-        parts = [
-            item for item in (unit.get("parts") or []) if isinstance(item, dict)
-        ]
-        if not parts:
+        document = documents.setdefault(
+            unit["document_id"], {"outlines": [], "reads": {}}
+        )
+        if unit["kind"] == "outline":
+            document["outlines"].append(
+                (f"[§ {unit['source_file_name']}]", [unit["parts"]])
+            )
             continue
-        kind = str(unit.get("kind") or "read")
-        prepared.append((index, unit, kind, parts))
-
-    document_order: list[str] = []
-    seen_documents: set[str] = set()
-    for _index, unit, _kind, _parts in prepared:
-        document_id = str(unit.get("document_id") or "")
-        if document_id in seen_documents:
-            continue
-        seen_documents.add(document_id)
-        document_order.append(document_id)
-
-    outlines_by_document: dict[str, list[tuple[int, dict[str, Any], list[dict[str, Any]]]]] = {
-        document_id: [] for document_id in document_order
-    }
-    reads_by_document: dict[str, dict[str, dict[str, Any]]] = {
-        document_id: {} for document_id in document_order
-    }
-    for index, unit, kind, parts in prepared:
-        document_id = str(unit.get("document_id") or "")
-        if kind == "outline":
-            outlines_by_document[document_id].append((index, unit, parts))
-            continue
-        parent_path = _direct_parent_path(str(unit.get("section_path") or ""))
-        group = reads_by_document[document_id].setdefault(
+        parent_path = _direct_parent_path(unit["section_path"])
+        group = document["reads"].setdefault(
             parent_path,
             {
-                "source_file_name": str(unit.get("source_file_name") or ""),
+                "title": f"[§ {unit['source_file_name']} / {parent_path}]",
                 "members": [],
-                "min_order": None,
-                "first_index": index,
             },
         )
-        if not group["source_file_name"]:
-            group["source_file_name"] = str(unit.get("source_file_name") or "")
-        order = _sort_order_value(unit.get("sort_order"), index)
-        group["members"].append((order, index, parts))
-        if group["min_order"] is None or order < group["min_order"]:
-            group["min_order"] = order
+        group["members"].append((unit["sort_order"], index, unit["parts"]))
 
     evidence: list[dict[str, Any]] = []
     group_number = 0
-    for document_id in document_order:
-        document_groups: list[tuple[tuple[Any, ...], str, str, bool, list[list[dict[str, Any]]]]] = []
-        for index, unit, parts in outlines_by_document[document_id]:
-            document_groups.append(
-                (
-                    (0, index),
-                    str(unit.get("source_file_name") or ""),
-                    "",
-                    True,
-                    [parts],
-                )
-            )
-        for parent_path, group in reads_by_document[document_id].items():
-            members = sorted(group["members"], key=lambda item: (item[0], item[1]))
-            document_groups.append(
-                (
-                    (1, group["min_order"], group["first_index"]),
-                    str(group["source_file_name"] or ""),
-                    parent_path,
-                    False,
-                    [item[2] for item in members],
-                )
-            )
-        document_groups.sort(key=lambda item: item[0])
-        for _sort_key, source_file_name, parent_path, is_outline, member_parts in document_groups:
+    for document in documents.values():
+        read_groups = sorted(
+            (
+                (min(group["members"]), group["title"], sorted(group["members"]))
+                for group in document["reads"].values()
+            ),
+            key=lambda item: item[0],
+        )
+        ordered = [*document["outlines"]] + [
+            (title, [member[2] for member in members])
+            for _first, title, members in read_groups
+        ]
+        for title, member_parts in ordered:
             if group_number:
                 evidence.append(_text_part("\n"))
             group_number += 1
-            evidence.append(
-                _text_part(
-                    _group_title(
-                        group_number,
-                        source_file_name=source_file_name,
-                        parent_path=parent_path,
-                        outline=is_outline,
-                    )
-                )
-            )
+            evidence.append(_text_part(f"[E{group_number}] {title}"))
             for parts in member_parts:
                 evidence.extend(_indent_member_part(part) for part in parts)
     return evidence
@@ -176,46 +130,20 @@ def flatten_parts(parts: list[dict[str, Any]] | None) -> str:
 
 
 def _direct_parent_path(section_path: str) -> str:
-    raw = str(section_path or "").strip()
-    parts = split_section_path(raw)
+    parts = split_section_path(section_path)
     if len(parts) > 1:
         return " / ".join(parts[:-1])
-    return raw
-
-
-def _sort_order_value(raw: Any, fallback: int) -> int | float:
-    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-        return fallback
-    return raw
-
-
-def _group_title(
-    index: int,
-    *,
-    source_file_name: str,
-    parent_path: str,
-    outline: bool,
-) -> str:
-    if outline or not parent_path:
-        path = source_file_name
-    elif source_file_name:
-        path = f"{source_file_name} / {parent_path}"
-    else:
-        path = parent_path
-    return f"[E{index}] [§ {path}]"
+    return section_path
 
 
 def _indent_member_part(part: dict[str, Any]) -> dict[str, Any]:
-    if part.get("type") != "text":
-        return part
-    text = str(part.get("text") or "")
-    if not text:
+    if part["type"] != "text":
         return part
     return {
         "type": "text",
         "text": "".join(
             (_GROUP_BODY_INDENT + line if line.strip() else line)
-            for line in text.splitlines(keepends=True)
+            for line in part["text"].splitlines(keepends=True)
         ),
     }
 
@@ -330,10 +258,10 @@ def _connections(row: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _replace_placeholder(text: str, ref: str, replacement: str) -> tuple[str, bool]:
-    for candidate in _ref_candidates(ref):
-        if candidate and candidate in text:
-            return text.replace(candidate, replacement, 1), True
-    return text, False
+    match = match_resource_path_ref(text, ref)
+    if match is None:
+        return text, False
+    return text[: match.start()] + replacement + text[match.end() :], True
 
 
 def _earliest_image_placeholder(
@@ -342,39 +270,21 @@ def _earliest_image_placeholder(
 ) -> tuple[str, str, dict[str, Any]] | None:
     best: tuple[int, int, dict[str, Any]] | None = None
     for _target_id, target_row, ref in images:
-        for candidate in _ref_candidates(ref):
-            if not candidate:
-                continue
-            index = text.find(candidate)
-            if index < 0:
-                continue
-            length = len(candidate)
-            if (
-                best is None
-                or index < best[0]
-                or (index == best[0] and length > best[1])
-            ):
-                best = (index, length, target_row)
+        match = match_resource_path_ref(text, ref)
+        if match is None:
+            continue
+        index = match.start()
+        length = match.end() - match.start()
+        if (
+            best is None
+            or index < best[0]
+            or (index == best[0] and length > best[1])
+        ):
+            best = (index, length, target_row)
     if best is None:
         return None
     index, length, target_row = best
     return text[:index], text[index + length :], target_row
-
-
-def _ref_candidates(ref: str) -> list[str]:
-    raw = str(ref or "").strip()
-    if not raw:
-        return []
-    out = [raw]
-    if raw.startswith("[") and raw.endswith("]"):
-        inner = raw[1:-1].strip()
-        if inner and inner not in out:
-            out.append(inner)
-    else:
-        bracketed = f"[{raw}]"
-        if bracketed not in out:
-            out.append(bracketed)
-    return out
 
 
 def _try_read_table_html(row: dict[str, Any]) -> str | None:

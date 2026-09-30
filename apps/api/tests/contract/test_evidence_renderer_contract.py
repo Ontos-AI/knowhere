@@ -7,6 +7,127 @@ from shared.services.retrieval.execution.response_projection import (
     project_public_retrieval_response,
 )
 from shared.services.retrieval.execution.routes import _evidence_fields
+from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
+
+
+def _scoped_row(chunk_id: str, section_path: str, sort_order: int, **extra) -> dict:
+    return {
+        "document_id": "doc_a",
+        "source_file_name": "心衰指南.pdf",
+        "chunk_id": chunk_id,
+        "section_path": section_path,
+        "sort_order": sort_order,
+        "job_id": "job-1",
+        "chunk_metadata": {},
+        **extra,
+    }
+
+
+def test_retrieval_chain_groups_evidence_and_emits_mcp_blocks(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.evidence_compose._try_read_image_artifact",
+        lambda row, artifact, media_type: {
+            "type": "image",
+            "media_type": "image/jpeg",
+            "data": "aW1n",
+        },
+    )
+    rows = [
+        _scoped_row(
+            "treat-1",
+            "5 治疗 / 5.1",
+            30,
+            chunk_type="text",
+            content="5.1 body",
+        ),
+        _scoped_row(
+            "diag-2",
+            "3 诊断 / 3.2",
+            20,
+            chunk_type="text",
+            content="3.2 body",
+        ),
+        _scoped_row(
+            "diag-1",
+            "3 诊断 / 3.1",
+            10,
+            chunk_type="text",
+            content="3.1 前 [images/a.jpg] 后",
+            chunk_metadata={
+                "connect_to": [
+                    {"target": "img-1", "relation": "embeds", "ref": "[images/a.jpg]"}
+                ]
+            },
+        ),
+        _scoped_row(
+            "img-1",
+            "3 诊断 / 3.1",
+            11,
+            chunk_type="image",
+            content="chart",
+            file_path="images/a.jpg",
+        ),
+    ]
+
+    assembled = asyncio.run(
+        assemble_retrieval_results(rows=rows, exclude_document_ids=[], exclude_sections=[])
+    )
+    public = asyncio.run(
+        project_public_retrieval_response(
+            {
+                "namespace": "default",
+                "query": "q",
+                "router_used": "small_corpus_all",
+                **_evidence_fields(assembled),
+                "results": assembled,
+            }
+        )
+    )
+    blocks = to_mcp_query_response(public)
+
+    image = {"type": "image", "media_type": "image/jpeg", "data": "aW1n"}
+    assert public["evidence"] == [
+        {"type": "text", "text": "[E1] [§ 心衰指南.pdf / 3 诊断]"},
+        {"type": "text", "text": "  3.1 前 \n"},
+        image,
+        {"type": "text", "text": "\n"},
+        {"type": "text", "text": "   后"},
+        {"type": "text", "text": "  3.2 body"},
+        {"type": "text", "text": "\n"},
+        {"type": "text", "text": "[E2] [§ 心衰指南.pdf / 5 治疗]"},
+        {"type": "text", "text": "  5.1 body"},
+    ]
+    assert public["evidence_text"] == (
+        "[E1] [§ 心衰指南.pdf / 3 诊断]  3.1 前 \n[image: see evidence]\n   后"
+        "  3.2 body\n[E2] [§ 心衰指南.pdf / 5 治疗]  5.1 body"
+    )
+    assert [row["chunk_id"] for row in public["results"]] == [
+        "treat-1",
+        "diag-2",
+        "diag-1",
+    ]
+    assert public["results"][2]["content"] == "3.1 前 [images/a.jpg] 后"
+
+    assert blocks[:-1] == [
+        ImageContent(type="image", data="aW1n", mimeType="image/jpeg")
+        if part["type"] == "image"
+        else TextContent(type="text", text=part["text"])
+        for part in public["evidence"]
+    ]
+    payload = json.loads(blocks[-1].text)
+    assert set(payload) == {
+        "query",
+        "router_used",
+        "failure_reason",
+        "referenced_chunks",
+        "decision_trace",
+        "results",
+    }
+    assert [row["chunk_id"] for row in payload["results"]] == [
+        "treat-1",
+        "diag-2",
+        "diag-1",
+    ]
 
 
 def test_evidence_fields_group_composed_parts_by_parent() -> None:

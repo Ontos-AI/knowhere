@@ -63,25 +63,12 @@ def to_mcp_query_response(response: dict[str, Any]) -> list[TextContent | ImageC
     referenced_chunks, decision_trace, and results. That JSON does not
     repeat evidence or evidence_text.
     """
-    blocks: list[TextContent | ImageContent] = []
-    for part in response.get("evidence") or []:
-        if not isinstance(part, dict):
-            continue
-        if part.get("type") == "text":
-            text = part.get("text")
-            if text is None:
-                continue
-            blocks.append(TextContent(type="text", text=str(text)))
-            continue
-        if part.get("type") != "image":
-            continue
-        data = part.get("data")
-        media_type = part.get("media_type")
-        if data is None or media_type is None:
-            continue
-        blocks.append(
-            ImageContent(type="image", data=str(data), mimeType=str(media_type))
-        )
+    blocks: list[TextContent | ImageContent] = [
+        ImageContent(type="image", data=part["data"], mimeType=part["media_type"])
+        if part["type"] == "image"
+        else TextContent(type="text", text=part["text"])
+        for part in response.get("evidence") or []
+    ]
     blocks.append(
         TextContent(
             type="text",

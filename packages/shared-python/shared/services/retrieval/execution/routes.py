@@ -51,25 +51,20 @@ def open_agent_explore_database_context() -> AbstractAsyncContextManager[AsyncSe
 
 def _evidence_fields(rows: list[dict]) -> dict:
     # TODO: 后面用 TypeSafe JEV 补结果重排/筛选。现在没有这一步。
-    units: list[dict] = []
-    for row in rows:
-        composed = row.get("composed")
-        if not isinstance(composed, list):
-            continue
-        parts = [item for item in composed if isinstance(item, dict)]
-        if not parts:
-            continue
-        units.append(
+    evidence = group_evidence_units(
+        [
             {
-                "document_id": str(row.get("document_id") or ""),
-                "source_file_name": str(row.get("source_file_name") or ""),
-                "section_path": str(row.get("section_path") or ""),
-                "sort_order": row.get("sort_order"),
-                "parts": parts,
+                "document_id": row["document_id"],
+                "source_file_name": row["source_file_name"],
+                "section_path": row["section_path"],
+                "sort_order": row["sort_order"],
+                "parts": row["composed"],
                 "kind": "read",
             }
-        )
-    evidence = group_evidence_units(units)
+            for row in rows
+            if row["composed"]
+        ]
+    )
     return {
         "evidence": evidence,
         "evidence_text": flatten_parts(evidence),

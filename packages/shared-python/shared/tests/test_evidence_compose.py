@@ -214,6 +214,42 @@ def test_text_image_keeps_newlines_around_image(monkeypatch) -> None:
     assert parts[3] == {"type": "text", "text": " 后"}
 
 
+def test_image_placeholder_with_inner_bracket_is_fully_removed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.evidence_compose._try_read_image_artifact",
+        lambda row, artifact, media_type: None,
+    )
+    placeholder = (
+        "[images/image-3-适应证_(1)二级预防_患者 $^{[99]}$ (I,A)。(2)一级.jpg]"
+    )
+    parts = compose_evidence_parts(
+        {
+            "chunk_type": "text",
+            "content": f"前 {placeholder} 后",
+            "chunk_metadata": {
+                "connect_to": [
+                    {
+                        "target": "image-1",
+                        "relation": "embeds",
+                        "ref": "[images/image-3-适应证_(1)二级预防_患者 $^{[99]",
+                    }
+                ]
+            },
+        },
+        {
+            "image-1": {
+                "chunk_type": "image",
+                "file_path": "images/image-3-适应证_(1)二级预防_患者 $^{[99]}$ (I,A)。(2)一级.jpg",
+                "job_id": "job-1",
+            }
+        },
+    )
+    composed_text = "".join(part["text"] for part in parts if part["type"] == "text")
+    assert composed_text == "前  后"
+    assert "一级.jpg" not in composed_text
+    assert all(part["type"] != "image" for part in parts)
+
+
 def test_unreachable_assets_clear_placeholders(monkeypatch) -> None:
     monkeypatch.setattr(
         "shared.services.retrieval.hydration.evidence_compose._try_read_image_artifact",
@@ -367,6 +403,7 @@ def test_group_merges_same_parent_and_splits_different_parents() -> None:
                 "document_id": "doc_a",
                 "source_file_name": "心衰指南.pdf",
                 "section_path": "3 诊断 / 3.1",
+                "kind": "read",
                 "sort_order": 10,
                 "parts": [
                     {"type": "text", "text": "...3.1 body..."},
@@ -377,6 +414,7 @@ def test_group_merges_same_parent_and_splits_different_parents() -> None:
                 "document_id": "doc_a",
                 "source_file_name": "心衰指南.pdf",
                 "section_path": "3 诊断 / 3.2",
+                "kind": "read",
                 "sort_order": 20,
                 "parts": [{"type": "text", "text": "...3.2 body..."}],
             },
@@ -384,6 +422,7 @@ def test_group_merges_same_parent_and_splits_different_parents() -> None:
                 "document_id": "doc_a",
                 "source_file_name": "心衰指南.pdf",
                 "section_path": "5 治疗 / 5.1",
+                "kind": "read",
                 "sort_order": 30,
                 "parts": [{"type": "text", "text": "...5.1 body..."}],
             },
@@ -412,6 +451,7 @@ def test_group_keeps_single_segment_path() -> None:
                 "document_id": "doc_a",
                 "source_file_name": "guide.pdf",
                 "section_path": "3 诊断",
+                "kind": "read",
                 "sort_order": 1,
                 "parts": [{"type": "text", "text": "body"}],
             }
@@ -428,6 +468,7 @@ def test_group_orders_by_sort_order_not_input_order() -> None:
                 "document_id": "doc_a",
                 "source_file_name": "guide.pdf",
                 "section_path": "5 治疗 / 5.1",
+                "kind": "read",
                 "sort_order": 30,
                 "parts": [{"type": "text", "text": "later"}],
             },
@@ -435,6 +476,7 @@ def test_group_orders_by_sort_order_not_input_order() -> None:
                 "document_id": "doc_a",
                 "source_file_name": "guide.pdf",
                 "section_path": "3 诊断 / 3.1",
+                "kind": "read",
                 "sort_order": 10,
                 "parts": [{"type": "text", "text": "earlier"}],
             },
@@ -456,6 +498,7 @@ def test_group_merges_page_chunks_under_root() -> None:
                 "document_id": "doc_a",
                 "source_file_name": "slides.pptx",
                 "section_path": "Root / Overview (2 of 3)",
+                "kind": "read",
                 "sort_order": 2,
                 "parts": [{"type": "text", "text": "page 2"}],
             },
@@ -463,6 +506,7 @@ def test_group_merges_page_chunks_under_root() -> None:
                 "document_id": "doc_a",
                 "source_file_name": "slides.pptx",
                 "section_path": "Root / Overview (1 of 3)",
+                "kind": "read",
                 "sort_order": 1,
                 "parts": [{"type": "text", "text": "page 1"}],
             },
