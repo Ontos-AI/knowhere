@@ -705,7 +705,10 @@ async def test_cursor_harness_rounds_follow_model_call_id_and_pick_phase_rejects
 
     assert sorted(name for name, _readable in dispatched) == ["corpus.grep", "corpus.read"]
     assert all(readable == frozenset() for _name, readable in dispatched)
-    assert "Next turn is a pick phase: call only corpus_pick." in str(outputs["c2"])
+    assert (
+        "Pick phase: you can only call corpus_pick now. Pick the ids worth "
+        "keeping, or pass an empty list."
+    ) in str(outputs["c2"])
     assert outputs["c3"] == (
         "Pick phase: only corpus_pick is accepted now. Pick from R/O ids above, "
         "or pass an empty list."

@@ -197,7 +197,7 @@ class OpenAIHarness:
         while True:
             turn_index += 1
             pool.begin_round()
-            pick_turn = pool.pick_phase and budget.remaining_seconds() > 0
+            pick_turn = pool.pick_phase
             forced_reason = None if pick_turn else budget.exhausted()
             if pick_turn:
                 tools = [pick_tool]
@@ -260,16 +260,34 @@ class OpenAIHarness:
             if pick_turn:
                 for call_index, tool_call in enumerate(tool_calls):
                     args, parse_error = _parse_tool_arguments(tool_call.function.arguments)
-                    outcome = pool.apply_pick(pick_handles(args))
+                    pick_error = parse_error or validate_pick_args(args)
+                    if pick_error is not None:
+                        message = invalid_pick_message(pick_error)
+                        trace_lines.append(
+                            render_trace_line(
+                                len(trace_lines) + 1,
+                                _PICK_WIRE_NAME,
+                                args,
+                                trace_status(ToolResult(text="", error=message)),
+                            )
+                        )
+                        steps.append(
+                            AgentStep(
+                                step_index=len(steps),
+                                tool_name=PICK_TOOL_NAME,
+                                tool_args=args,
+                                observation_text=message,
+                                error=message,
+                                elapsed_ms=turn_elapsed_ms if call_index == 0 else 0,
+                                round_index=pool.round_index,
+                            )
+                        )
+                        continue
+                    outcome = pool.apply_pick(list(args["pick"]))
                     observation = render_pick_outcome(outcome)
                     trace_lines.append(
                         render_trace_line(
-                            len(trace_lines) + 1,
-                            _PICK_WIRE_NAME,
-                            args,
-                            trace_status(ToolResult(text="", error=parse_error))
-                            if parse_error is not None
-                            else observation,
+                            len(trace_lines) + 1, _PICK_WIRE_NAME, args, observation
                         )
                     )
                     steps.append(
@@ -278,7 +296,7 @@ class OpenAIHarness:
                             tool_name=PICK_TOOL_NAME,
                             tool_args=args,
                             observation_text=observation,
-                            error=parse_error,
+                            error=None,
                             elapsed_ms=turn_elapsed_ms if call_index == 0 else 0,
                             round_index=pool.round_index,
                             picked=outcome.added,

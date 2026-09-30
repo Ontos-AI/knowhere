@@ -100,7 +100,10 @@ _PICK_PHASE_REJECTION = (
     "or pass an empty list."
 )
 
-_NEXT_TURN_PICK_INSTRUCTION = "Next turn is a pick phase: call only corpus_pick."
+_PICK_PHASE_INSTRUCTION = (
+    "Pick phase: you can only call corpus_pick now. Pick the ids worth "
+    "keeping, or pass an empty list."
+)
 
 _ROUND_TAG_MISSING = "round tag missing"
 
@@ -255,7 +258,7 @@ class CursorHarness:
             if candidates:
                 text = (
                     f"{content}\n{pool.render_candidates(candidates)}\n"
-                    f"{_NEXT_TURN_PICK_INSTRUCTION}"
+                    f"{_PICK_PHASE_INSTRUCTION}"
                 )
             text = text + "\n\n" + tail
             observation = cursor_execute_content(tool_result, text=text)

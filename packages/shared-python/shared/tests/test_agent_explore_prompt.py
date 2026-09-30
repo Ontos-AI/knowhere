@@ -19,6 +19,7 @@ from shared.services.retrieval.agent_explore.config import (
     PICK_TOOL_SCHEMA,
 )
 from shared.services.retrieval.agent_explore.prompt import AGENT_SYSTEM_PROMPT, LOOP_RULES
+from shared.services.retrieval.agent_explore.shared import validate_pick_args
 from shared.services.retrieval.agent_tools import REGISTRY
 
 _BANNED = (
@@ -51,6 +52,14 @@ def test_pick_is_its_own_tool_and_absent_from_finish_and_registry() -> None:
     assert "cannot be read again" in PICK_TOOL_DESCRIPTION
     for spec in REGISTRY.all():
         assert "pick" not in (spec.json_schema.get("properties") or {}), spec.name
+
+
+def test_pick_args_follow_pick_tool_schema() -> None:
+    assert validate_pick_args({"pick": []}) is None
+    assert validate_pick_args({"pick": ["R1.1", "O2"]}) is None
+    assert validate_pick_args({"pick_ids": ["R1.1"]}) is not None
+    assert validate_pick_args({}) is not None
+    assert validate_pick_args({"pick": ["x"]}) is not None
 
 
 def _schema_descriptions(schema: object) -> list[str]:

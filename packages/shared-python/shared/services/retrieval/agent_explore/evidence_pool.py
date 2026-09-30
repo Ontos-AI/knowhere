@@ -101,11 +101,7 @@ class EvidencePool:
                 continue
             picked_handle = candidate.handle if candidate.handle in picked else None
             for chunk_id in candidate.chunk_ids:
-                key = (candidate.document_id, chunk_id)
-                existing = self._decided.get(key)
-                if existing is not None and existing.picked_handle is not None:
-                    continue
-                self._decided[key] = Decision(
+                self._decided[(candidate.document_id, chunk_id)] = Decision(
                     read_round=self._batch_round,
                     picked_handle=picked_handle,
                     handle=candidate.handle,

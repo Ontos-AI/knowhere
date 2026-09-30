@@ -176,9 +176,6 @@ def test_apply_pick_rejects_unknown_duplicate_and_already_in_pool() -> None:
         {"handle": "R9.9", "reason": "unknown id"},
         {"handle": "R1.2", "reason": "already in pool"},
     ]
-    assert pool.decided()[("doc_a", "c1")] == Decision(
-        read_round=1, picked_handle="R1.1", handle="R1.1"
-    )
 
 
 def test_unpicked_read_chunks_are_decided_and_unpicked_outline_is_dropped() -> None:
