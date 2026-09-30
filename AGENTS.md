@@ -669,8 +669,8 @@ uv sync --all-packages
 cp apps/api/.env.example apps/api/.env
 cp apps/worker/.env.example apps/worker/.env
 ./deploy/local-dev/start-dev.sh        # PostgreSQL, Redis, LocalStack
-cd apps/api && uv run main.py          # API on :5005
-cd apps/worker && uv run worker.py     # Celery worker
+cd apps/api && uv run --env-file .env main.py        # API on :5005
+cd apps/worker && uv run --env-file .env worker.py   # Celery worker
 ```
 
 ### Debug Scripts (Worker)

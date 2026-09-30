@@ -225,8 +225,8 @@ full dependency matrix.
 5. Start the API and worker in separate terminals:
 
 ```bash
-cd apps/api && uv run main.py
-cd apps/worker && uv run worker.py
+cd apps/api && uv run --env-file .env main.py
+cd apps/worker && uv run --env-file .env worker.py
 ```
 
 Run API migrations explicitly before starting the API when the database schema needs updating:
