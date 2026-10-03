@@ -156,6 +156,10 @@ class OpenAICompatibleClientSync:
         if "doubao" in model_lower or model_lower.startswith("ep-"):
             return self._strip_chat_completions(getattr(settings, "ARK_URL", None))
 
+        if "orcarouter" in model_lower:
+            orca_base = getattr(settings, "ORCA_URL", "https://api.orcarouter.ai/v1")
+            return self._strip_chat_completions(orca_base)
+
         return self._strip_chat_completions(settings.DS_URL)
 
     def _resolve_direct_api_key(
@@ -172,6 +176,9 @@ class OpenAICompatibleClientSync:
 
         if "doubao" in model_lower or model_lower.startswith("ep-"):
             return getattr(settings, "ARK_API_KEY", None)
+
+        if "orcarouter" in model_lower:
+            return getattr(settings, "ORCA_API_KEY", None)
 
         return settings.DS_KEY
 
