@@ -85,6 +85,11 @@ class Job(Base):
         onupdate=utc_now_naive,
         nullable=False,
     )
+    # Soft deletion. A deleted job is hidden from the read APIs but keeps its
+    # row so in-flight workers, billing records, and audit history stay intact.
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, comment="Soft-deletion time; NULL when active"
+    )
 
     # Billing Information (Per-Page Billing)
     page_count: Mapped[Optional[int]] = mapped_column(
@@ -130,6 +135,20 @@ class Job(Base):
         Index("idx_job_type", "job_type"),
         Index("idx_job_created_at", "created_at"),
         Index("idx_job_user_status", "user_id", "status"),
+        # Supports the default list query: a user's active jobs, newest first.
+        Index(
+            "idx_job_user_active_created_at",
+            "user_id",
+            "created_at",
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        # Supports namespace-scoped listing for multi-tenant proxies.
+        Index(
+            "idx_job_user_namespace",
+            "user_id",
+            text("(job_metadata ->> 'namespace')"),
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
         Index(
             "idx_job_user_active_states",
             "user_id",

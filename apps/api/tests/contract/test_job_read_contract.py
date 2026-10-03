@@ -227,3 +227,120 @@ async def test_should_forbid_access_to_a_job_owned_by_another_user(
     assert error["code"] == "PERMISSION_DENIED"
     assert error["message"] == "You don't have permission to access this job"
     assert "details" not in error
+
+
+async def _seed_job_in_namespace(
+    *,
+    namespace: str | None,
+    file_name: str = "seeded.pdf",
+) -> str:
+    """Insert a job row directly.
+
+    Job creation is rate limited, so namespace-filter coverage seeds rows
+    instead of issuing extra POSTs. Passing ``namespace=None`` reproduces a
+    job written before the namespace key existed in ``job_metadata``.
+    """
+    job_id = f"job_seeded_{uuid4().hex[:12]}"
+    job_metadata: dict[str, object] = {
+        "document_id": f"doc_seeded_{uuid4().hex[:12]}",
+        "source_type": "file",
+        "original_request": {"file_name": file_name},
+    }
+    if namespace is not None:
+        job_metadata["namespace"] = namespace
+
+    await ContractDatabase.insert_job(
+        job_id=job_id,
+        user_id="local-dev-user",
+        status="done",
+        job_metadata=job_metadata,
+    )
+    return job_id
+
+
+@pytest.mark.asyncio
+async def test_should_list_only_jobs_in_the_requested_namespace(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        scoped_job_id = await _seed_job_in_namespace(namespace="tenant-a")
+        await _seed_job_in_namespace(namespace="tenant-b")
+
+        response = await api_client.get(
+            "/api/v1/jobs", params={"namespace": "tenant-a"}
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    jobs = cast(list[dict[str, object]], response_json["jobs"])
+
+    assert response_json["total"] == 1
+    assert len(jobs) == 1
+    assert jobs[0]["job_id"] == scoped_job_id
+    assert jobs[0]["namespace"] == "tenant-a"
+
+
+@pytest.mark.asyncio
+async def test_should_list_every_namespace_when_no_namespace_filter_is_given(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        await _seed_job_in_namespace(namespace="tenant-a")
+        await _seed_job_in_namespace(namespace="tenant-b")
+
+        response = await api_client.get("/api/v1/jobs")
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+
+    assert response_json["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_should_treat_a_blank_namespace_filter_as_the_default_namespace(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        default_job_id = await _seed_job_in_namespace(namespace="default")
+        await _seed_job_in_namespace(namespace="tenant-a")
+
+        response = await api_client.get("/api/v1/jobs", params={"namespace": "  "})
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    jobs = cast(list[dict[str, object]], response_json["jobs"])
+
+    assert response_json["total"] == 1
+    assert jobs[0]["job_id"] == default_job_id
+
+
+@pytest.mark.asyncio
+async def test_should_treat_a_job_without_a_namespace_key_as_the_default_namespace(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        legacy_job_id = await _seed_job_in_namespace(namespace=None)
+        await _seed_job_in_namespace(namespace="tenant-a")
+
+        response = await api_client.get(
+            "/api/v1/jobs", params={"namespace": "default"}
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    jobs = cast(list[dict[str, object]], response_json["jobs"])
+
+    assert response_json["total"] == 1
+    assert jobs[0]["job_id"] == legacy_job_id
