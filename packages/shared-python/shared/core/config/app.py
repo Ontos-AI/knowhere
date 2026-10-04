@@ -10,6 +10,7 @@ from .base import BaseConfig
 from .billing import BillingConfig
 from .celery import CeleryConfig
 from .database import DatabaseConfig
+from .demo import DemoConfig
 from .job import JobConfig
 from .mineru import MineruConfig
 from .publication import PublicationConfig
@@ -32,6 +33,7 @@ class AppConfig(
     JobConfig,
     RetrievalConfig,
     PublicationConfig,
+    DemoConfig,
 ):
     """Application configuration — all config components merged."""
 

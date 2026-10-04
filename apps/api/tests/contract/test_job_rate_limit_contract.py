@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from shared.testing.contract_runtime import (
+    configure_runtime_database_role,
     PostgreSQLProcess,
     clear_application_modules,
     cleanup_contract_runtime_async,
@@ -130,6 +131,13 @@ async def _create_rate_limited_developer_api_client(
     monkeypatch.setenv("BILLING_ENABLED", "true" if billing_enabled else "false")
     monkeypatch.setenv("RATE_LIMIT_ENABLED", "true" if rate_limit_enabled else "false")
     await prepare_contract_storage()
+    engine = await _create_contract_engine()
+    try:
+        async with engine.connect() as connection:
+            previousTier = (await connection.execute(text("SELECT max_concurrent_jobs, rpm_limit, daily_quota FROM tier_limits WHERE tier_name='tier_5'"))).mappings().one()
+            previousSystem = (await connection.execute(text("SELECT rpm, period FROM system_limits WHERE method='*' AND api_pattern='*'"))).mappings().one()
+    finally:
+        await engine.dispose()
     await _set_local_developer_tier_limits(
         max_concurrent_jobs=max_concurrent_jobs,
         rpm_limit=rpm_limit,
@@ -139,6 +147,7 @@ async def _create_rate_limited_developer_api_client(
         rpm=default_system_rpm,
         period=default_system_period,
     )
+    await configure_runtime_database_role(monkeypatch, get_contract_database_url(postgresql_process))
     _ensure_import_paths()
     clear_application_modules()
 
@@ -158,6 +167,8 @@ async def _create_rate_limited_developer_api_client(
                 )
                 yield client
     finally:
+        await _set_local_developer_tier_limits(**dict(previousTier))
+        await _set_default_system_limit(**dict(previousSystem))
         await cleanup_contract_runtime_async(remove_test_directories=True)
 
 

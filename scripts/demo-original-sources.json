@@ -1,0 +1,191 @@
+[
+  {
+    "source_id": "demo-tsla-q4-2025",
+    "original_job_id": "job_424aa26c4f99",
+    "s3_key": "uploads/job_424aa26c4f99.pdf",
+    "file_name": "TSLA-Q4-2025-Update.pdf",
+    "asset_directory": "tsla-q4-2025"
+  },
+  {
+    "source_id": "demo-spacex-s1",
+    "original_job_id": "job_d69e5bcaa3ad",
+    "s3_key": "uploads/job_d69e5bcaa3ad.pdf",
+    "file_name": "spacex-s1.pdf",
+    "asset_directory": "spacex-s1"
+  },
+  {
+    "source_id": "demo-financial-nvda-q1-fy27-earnings-call",
+    "original_job_id": "job_af4ebba4cd03",
+    "s3_key": "uploads/job_af4ebba4cd03.pdf",
+    "file_name": "NVDA Q1 FY27 Earnings Call Transcript.pdf",
+    "asset_directory": "financial-nvda-q1-fy27-earnings-call"
+  },
+  {
+    "source_id": "demo-financial-nvda-q4-fy26-earnings-call",
+    "original_job_id": "job_1c90dc114eec",
+    "s3_key": "uploads/job_1c90dc114eec.pdf",
+    "file_name": "NVDA Q4 FY26 Earnings Call Transcript.pdf",
+    "asset_directory": "financial-nvda-q4-fy26-earnings-call"
+  },
+  {
+    "source_id": "demo-financial-nvda-q1-fy27-cfo-commentary",
+    "original_job_id": "job_fd2e1fbf5bd3",
+    "s3_key": "uploads/job_fd2e1fbf5bd3.pdf",
+    "file_name": "NVIDIA Q1 FY27 CFO Commentary.pdf",
+    "asset_directory": "financial-nvda-q1-fy27-cfo-commentary"
+  },
+  {
+    "source_id": "demo-financial-nvda-q1-fy27-results",
+    "original_job_id": "job_2fa89f92637f",
+    "s3_key": "uploads/job_2fa89f92637f.pdf",
+    "file_name": "NVIDIA Q1 FY27 Results.pdf",
+    "asset_directory": "financial-nvda-q1-fy27-results"
+  },
+  {
+    "source_id": "demo-financial-nvda-q1-fy27-presentation",
+    "original_job_id": "job_983e1b5fd4c4",
+    "s3_key": "uploads/job_983e1b5fd4c4.pdf",
+    "file_name": "NVIDIA Q1 FY27 Quarterly Presentation.pdf",
+    "asset_directory": "financial-nvda-q1-fy27-presentation"
+  },
+  {
+    "source_id": "demo-financial-nvda-fy26-annual-report",
+    "original_job_id": "job_7cef64d9b61e",
+    "s3_key": "uploads/job_7cef64d9b61e.pdf",
+    "file_name": "NVIDIA FY26 Annual Report.pdf",
+    "asset_directory": "financial-nvda-fy26-annual-report"
+  },
+  {
+    "source_id": "demo-financial-micron-report-530bd7ed",
+    "original_job_id": "job_d46a260e0c32",
+    "s3_key": "uploads/job_d46a260e0c32.pdf",
+    "file_name": "Micron investor report 530bd7ed.pdf",
+    "asset_directory": "financial-micron-report-530bd7ed"
+  },
+  {
+    "source_id": "demo-financial-micron-report-9c0becf5",
+    "original_job_id": "job_b3f1ce4985c8",
+    "s3_key": "uploads/job_b3f1ce4985c8.pdf",
+    "file_name": "Micron investor report 9c0becf5.pdf",
+    "asset_directory": "financial-micron-report-9c0becf5"
+  },
+  {
+    "source_id": "demo-financial-goog-10-k-2025",
+    "original_job_id": "job_57cae6fdb820",
+    "s3_key": "uploads/job_57cae6fdb820.pdf",
+    "file_name": "GOOG 10-K 2025.pdf",
+    "asset_directory": "financial-goog-10-k-2025"
+  },
+  {
+    "source_id": "demo-financial-meta-q1-2026-results",
+    "original_job_id": "job_e28e0306a02a",
+    "s3_key": "uploads/job_e28e0306a02a.pdf",
+    "file_name": "Meta Q1 2026 Exhibit 99.1.pdf",
+    "asset_directory": "financial-meta-q1-2026-results"
+  },
+  {
+    "source_id": "demo-financial-meta-q1-2026-presentation",
+    "original_job_id": "job_08cdaef3d6af",
+    "s3_key": "uploads/job_08cdaef3d6af.pdf",
+    "file_name": "Meta Q1 2026 Earnings Presentation.pdf",
+    "asset_directory": "financial-meta-q1-2026-presentation"
+  },
+  {
+    "source_id": "demo-financial-meta-q1-2026-earnings-call",
+    "original_job_id": "job_fc7d8542b353",
+    "s3_key": "uploads/job_fc7d8542b353.pdf",
+    "file_name": "Meta Q1 2026 Earnings Call Transcript.pdf",
+    "asset_directory": "financial-meta-q1-2026-earnings-call"
+  },
+  {
+    "source_id": "demo-financial-microsoft-2025-annual-report",
+    "original_job_id": "job_b9eb8b0f3f50",
+    "s3_key": "uploads/job_b9eb8b0f3f50.docx",
+    "file_name": "Microsoft 2025 Annual Report.docx",
+    "asset_directory": "financial-microsoft-2025-annual-report"
+  },
+  {
+    "source_id": "demo-financial-alibaba-fy2026-interim-report",
+    "original_job_id": "job_8aacc19b54f8",
+    "s3_key": "uploads/job_8aacc19b54f8.pdf",
+    "file_name": "Alibaba Fiscal Year 2026 Interim Report.pdf",
+    "asset_directory": "financial-alibaba-fy2026-interim-report"
+  },
+  {
+    "source_id": "demo-research-attention-is-all-you-need",
+    "original_job_id": "job_b583b4c5c4c0",
+    "s3_key": "uploads/job_b583b4c5c4c0.pdf",
+    "file_name": "Attention Is All You Need.pdf",
+    "asset_directory": "research-attention-is-all-you-need"
+  },
+  {
+    "source_id": "demo-research-rag-survey",
+    "original_job_id": "job_9f032493aca9",
+    "s3_key": "uploads/job_9f032493aca9.pdf",
+    "file_name": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf",
+    "asset_directory": "research-rag-survey"
+  },
+  {
+    "source_id": "demo-research-rag-realized",
+    "original_job_id": "job_e9c30a85c60b",
+    "s3_key": "uploads/job_e9c30a85c60b.pdf",
+    "file_name": "Retrieval-Augmented Generation Realized.pdf",
+    "asset_directory": "research-rag-realized"
+  },
+  {
+    "source_id": "demo-research-toolformer",
+    "original_job_id": "job_8e54b45fba36",
+    "s3_key": "uploads/job_8e54b45fba36.pdf",
+    "file_name": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf",
+    "asset_directory": "research-toolformer"
+  },
+  {
+    "source_id": "demo-research-ai-agents-overview",
+    "original_job_id": "job_36b03afb3724",
+    "s3_key": "uploads/job_36b03afb3724.pdf",
+    "file_name": "AI Agents Overview.pdf",
+    "asset_directory": "research-ai-agents-overview"
+  },
+  {
+    "source_id": "demo-stem-jurafsky-transformers",
+    "original_job_id": "job_3a655ead76a2",
+    "s3_key": "uploads/job_3a655ead76a2.pdf",
+    "file_name": "Speech and Language Processing, Chapter 8: Transformers.pdf",
+    "asset_directory": "stem-jurafsky-transformers"
+  },
+  {
+    "source_id": "demo-stem-transformers-tutorial",
+    "original_job_id": "job_0ad9b3c443ad",
+    "s3_key": "uploads/job_0ad9b3c443ad.pdf",
+    "file_name": "Transformers Tutorial.pdf",
+    "asset_directory": "stem-transformers-tutorial"
+  },
+  {
+    "source_id": "demo-stem-deep-learning-transformer-network",
+    "original_job_id": "job_98728272ac53",
+    "s3_key": "uploads/job_98728272ac53.pdf",
+    "file_name": "Deep Learning - Transformer Network.pdf",
+    "asset_directory": "stem-deep-learning-transformer-network"
+  },
+  {
+    "source_id": "demo-stem-probability-theory-lecture-notes",
+    "original_job_id": "job_459e062c475a",
+    "s3_key": "uploads/job_459e062c475a.pdf",
+    "file_name": "Probability Theory Lecture Notes.pdf",
+    "asset_directory": "stem-probability-theory-lecture-notes"
+  },
+  {
+    "source_id": "demo-stem-introduction-statistical-learning-theory",
+    "original_job_id": "job_e2f0b8c6961c",
+    "s3_key": "uploads/job_e2f0b8c6961c.pdf",
+    "file_name": "Introduction to Statistical Learning Theory.pdf",
+    "asset_directory": "stem-introduction-statistical-learning-theory"
+  },
+  {
+    "source_id": "demo-stem-statistical-learning",
+    "original_job_id": "job_d5b4e9750b05",
+    "s3_key": "uploads/job_d5b4e9750b05.pdf",
+    "file_name": "Statistical Learning Notes.pdf",
+    "asset_directory": "stem-statistical-learning"
+  }
+]

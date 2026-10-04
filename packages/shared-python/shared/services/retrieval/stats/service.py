@@ -6,6 +6,8 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import text
+from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.demo_authorization import authorize_demo_caller
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _HALF_LIFE_DAYS = 30.0
@@ -67,6 +69,9 @@ async def _upsert_hit_stat(
     chunk_id: str | None,
     now: datetime,
 ) -> None:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
+    if corpusStorage.is_demo:
+        await db.run_sync(lambda session: authorize_demo_caller(session, user_id=user_id))
     params = {
         "id": f"rhs_{uuid4().hex[:12]}",
         "user_id": user_id,
@@ -76,10 +81,10 @@ async def _upsert_hit_stat(
         "now": now,
     }
     if chunk_id is None:
-        await db.execute(_UPSERT_DOCUMENT_HIT_SQL, params)
+        await db.execute(text(corpusStorage.compile_sql(str(_UPSERT_DOCUMENT_HIT_SQL))), params)
     else:
         params["chunk_id"] = chunk_id
-        await db.execute(_UPSERT_CHUNK_HIT_SQL, params)
+        await db.execute(text(corpusStorage.compile_sql(str(_UPSERT_CHUNK_HIT_SQL))), params)
 
 
 async def record_retrieval_hits(

@@ -15,6 +15,8 @@ same row shape ``corpus.outline``/``corpus.node_filter``/``corpus.grep``/
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+
 from typing import Any
 
 from shared.services.retrieval.agent_tools.asset_hosts import host_paths_for_hits
@@ -123,6 +125,7 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         document_scope=document_scope,
         exclude_sections=[],
         chunk_types=chunk_types,
+        revision_pins=CorpusRevisionContext.get_pins(),
         section_targets=[
             (target.document_id, target.section_path) for target in scope
         ]

@@ -585,14 +585,14 @@ Rules:
    - TOC/index headings such as "Contents", "目录", "目次";
    - front matter such as "前言" when it is outside the segment's body outline.
 4. When two rows are near-duplicates, keep the clearer/more complete one and
-   omit the duplicate from output.
+   mark the duplicate with level 0.
 5. Do not invent headings. Only return ids that exist in the input.
 
 Output requirements:
 - Output ONLY a valid JSON array. No markdown fences, no explanations.
-- Include each retained heading as:
-  {{"id": <integer>, "level": <integer from 1 to {max_depth}>}}
-- Omitted ids are treated as filtered noise.
+- Classify EVERY input id exactly once, including noise:
+  {{"id": <integer>, "level": <integer from 0 to {max_depth}>}}
+- Use level 0 only for filtered noise. Never omit an id.
 """
 
     elif task == "page-memory-node-summary":

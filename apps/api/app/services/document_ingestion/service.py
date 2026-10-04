@@ -29,6 +29,9 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.config import settings
+from shared.services.retrieval.corpus_storage import CorpusStorage, DEMO_NAMESPACE
+from shared.services.retrieval.demo_authorization import require_demo_maintainer
+from app.services.document_ingestion.demo_scope import resolve_demo_scope
 from shared.core.exceptions.domain_exceptions import (
     ConflictException,
     JobOperationException,
@@ -111,6 +114,8 @@ class DocumentIngestionService:
         build_command: IngestionCommandFactory,
     ) -> JobResponse:
         try:
+            if CorpusStorage.resolve_namespace(payload.namespace).is_demo or str(payload.document_id or "").startswith("ddoc_"):
+                require_demo_maintainer(current_user.user_id)
             job_id = f"job_{uuid.uuid4().hex[:12]}"
             file_extension = await self._validate_create_payload(
                 payload,
@@ -135,6 +140,8 @@ class DocumentIngestionService:
                 current_user=current_user,
                 scope=scope,
             )
+        except PermissionDeniedException:
+            raise
         except NotFoundException:
             raise
         except ValidationException:
@@ -279,6 +286,15 @@ class DocumentIngestionService:
                 page_memory_config=command.page_memory_config,
             ),
         )
+        if CorpusStorage.resolve_namespace(payload.namespace).is_demo:
+            documentId: str = await resolve_demo_scope(db, user_id=current_user.user_id, payload=payload)
+            JobMetadataHelper.set_document_scope(job_metadata, document_id=documentId, namespace=DEMO_NAMESPACE)
+            job_metadata["corpus_target"] = "DEMO"
+            job_metadata["demo_source_id"] = str(payload.data_id).strip()
+            return ResolvedDocumentIngestionScope(job_metadata=job_metadata, document_id=documentId, namespace=DEMO_NAMESPACE)
+        if str(payload.document_id or "").startswith("ddoc_"):
+            raise ValidationException(user_message="Demo documents cannot move to a private namespace.", violations=[{"field": "namespace", "description": "Use the reserved demo namespace"}])
+        job_metadata["corpus_target"] = "PRIVATE"
         requested_document_id = JobMetadataHelper.get_document_id(job_metadata)
         if requested_document_id:
             active_job = await find_active_job_for_document(

@@ -1,23 +1,26 @@
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+
 from collections.abc import Iterable, Sequence
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.search.section_filters import is_excluded_section
 
 _SECTION_EXCLUSION_PAGE_MULTIPLIER = 2
 
 
-def _build_lexical_match_predicate(query: str):
+def _build_lexical_match_predicate(query: str, namespace: str = "default"):
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     like = f'%{query}%'
     return (
-        DocumentChunk.content_lexical_text.ilike(like)
-        | DocumentChunk.path_lexical_text.ilike(like)
+        corpusStorage.DocumentChunk.content_lexical_text.ilike(like)
+        | corpusStorage.DocumentChunk.path_lexical_text.ilike(like)
     )
 
 
@@ -67,25 +70,26 @@ class GraphQueryService:
         exclude_document_ids: set[str],
         exclude_sections: Iterable[dict[str, str]],
     ) -> list[str]:
+        corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
         like = f'%{query}%'
         stmt = (
-            select(DocumentSection.document_id)
+            select(corpusStorage.DocumentSection.document_id)
             .join(
-                Document,
-                (Document.document_id == DocumentSection.document_id)
-                & (Document.current_job_result_id == DocumentSection.job_result_id),
+                corpusStorage.Document,
+                (corpusStorage.Document.document_id == corpusStorage.DocumentSection.document_id)
+                & (CorpusRevisionContext.build_revision_column(corpusStorage.Document) == corpusStorage.DocumentSection.job_result_id),
             )
-            .where(Document.user_id == user_id)
-            .where(Document.namespace == namespace)
-            .where(Document.status == 'active')
+            .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
+            .where(corpusStorage.Document.namespace == namespace)
+            .where(corpusStorage.Document.status == 'active')
             .where(
-                DocumentSection.section_title.ilike(like)
-                | DocumentSection.section_path.ilike(like)
+                corpusStorage.DocumentSection.section_title.ilike(like)
+                | corpusStorage.DocumentSection.section_path.ilike(like)
             )
             .distinct()
         )
         if exclude_document_ids:
-            stmt = stmt.where(Document.document_id.notin_(list(exclude_document_ids)))
+            stmt = stmt.where(corpusStorage.Document.document_id.notin_(list(exclude_document_ids)))
         for item in exclude_sections or ():
             if not isinstance(item, dict):
                 continue
@@ -94,10 +98,10 @@ class GraphQueryService:
             if excluded_document_id and excluded_path:
                 stmt = stmt.where(
                     ~(
-                        (DocumentSection.document_id == excluded_document_id)
+                        (corpusStorage.DocumentSection.document_id == excluded_document_id)
                         & (
-                            (DocumentSection.section_path == excluded_path)
-                            | DocumentSection.section_path.like(f'{excluded_path} / %')
+                            (corpusStorage.DocumentSection.section_path == excluded_path)
+                            | corpusStorage.DocumentSection.section_path.like(f'{excluded_path} / %')
                         )
                     )
                 )
@@ -114,21 +118,22 @@ class GraphQueryService:
         query: str,
         exclude_document_ids: set[str],
     ) -> list[str]:
+        corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
         like = f'%{query}%'
         stmt = (
-            select(Document.document_id)
+            select(corpusStorage.Document.document_id)
             .join(
-                DocumentChunk,
-                (DocumentChunk.document_id == Document.document_id)
-                & (DocumentChunk.job_result_id == Document.current_job_result_id),
+                corpusStorage.DocumentChunk,
+                (corpusStorage.DocumentChunk.document_id == corpusStorage.Document.document_id)
+                & (corpusStorage.DocumentChunk.job_result_id == CorpusRevisionContext.build_revision_column(corpusStorage.Document)),
             )
-            .where(Document.user_id == user_id)
-            .where(Document.namespace == namespace)
-            .where(Document.status == 'active')
-            .where(DocumentChunk.content_lexical_text.ilike(like))
+            .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
+            .where(corpusStorage.Document.namespace == namespace)
+            .where(corpusStorage.Document.status == 'active')
+            .where(corpusStorage.DocumentChunk.content_lexical_text.ilike(like))
         )
         if exclude_document_ids:
-            stmt = stmt.where(Document.document_id.notin_(list(exclude_document_ids)))
+            stmt = stmt.where(corpusStorage.Document.document_id.notin_(list(exclude_document_ids)))
         result = await db.execute(stmt)
         seen: list[str] = []
         for (document_id,) in result.all():
@@ -147,29 +152,30 @@ class GraphQueryService:
         top_k: int,
         exclude_sections: Iterable[dict[str, str]] = (),
     ) -> list[dict[str, Any]]:
+        corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
         if not entry_document_ids:
             return []
         page_size = top_k
         if exclude_sections:
             page_size = max(top_k, top_k * _SECTION_EXCLUSION_PAGE_MULTIPLIER)
         base_stmt = (
-            select(Document, DocumentChunk, DocumentSection, JobResult)
+            select(corpusStorage.Document, corpusStorage.DocumentChunk, corpusStorage.DocumentSection, JobResult)
             .join(
-                DocumentChunk,
-                (DocumentChunk.document_id == Document.document_id)
-                & (DocumentChunk.job_result_id == Document.current_job_result_id),
+                corpusStorage.DocumentChunk,
+                (corpusStorage.DocumentChunk.document_id == corpusStorage.Document.document_id)
+                & (corpusStorage.DocumentChunk.job_result_id == CorpusRevisionContext.build_revision_column(corpusStorage.Document)),
             )
             .outerjoin(
-                DocumentSection,
-                DocumentSection.section_id == DocumentChunk.section_id,
+                corpusStorage.DocumentSection,
+                corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id,
             )
-            .join(JobResult, JobResult.id == DocumentChunk.job_result_id)
-            .where(Document.user_id == user_id)
-            .where(Document.namespace == namespace)
-            .where(Document.status == 'active')
-            .where(Document.document_id.in_(list(entry_document_ids)))
-            .where(_build_lexical_match_predicate(query))
-            .order_by(DocumentChunk.sort_order)
+            .join(JobResult, JobResult.id == corpusStorage.DocumentChunk.job_result_id)
+            .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
+            .where(corpusStorage.Document.namespace == namespace)
+            .where(corpusStorage.Document.status == 'active')
+            .where(corpusStorage.Document.document_id.in_(list(entry_document_ids)))
+            .where(_build_lexical_match_predicate(query, namespace))
+            .order_by(corpusStorage.DocumentChunk.sort_order)
         )
         rows: list[dict[str, Any]] = []
         offset = 0

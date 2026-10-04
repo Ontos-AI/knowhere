@@ -12,7 +12,7 @@ from shared.models import database as shared_database_models  # noqa: F401
 from shared.services.auth.user_table_bootstrap import ensure_better_auth_user_table
 
 # Build a synchronous database URL by replacing asyncpg with psycopg2.
-sync_database_url = settings.DATABASE_URL.replace("asyncpg", "psycopg2")
+sync_database_url = (settings.MIGRATION_DATABASE_URL or settings.DATABASE_URL).replace("asyncpg", "psycopg2")
 
 # Read SSL connect args from shared settings.
 ssl_connect_args = settings.get_ssl_connect_args()

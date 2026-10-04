@@ -11,7 +11,9 @@ from typing import Protocol, cast
 from psycopg2.extensions import cursor as PsycopgCursor
 from psycopg2.extensions import get_wait_callback
 from psycopg2.extras import execute_values
+from sqlalchemy import insert
 from sqlalchemy.orm import Session
+from shared.services.retrieval.corpus_storage import CorpusStorage
 
 from shared.services.jobs.lifecycle.publication_trace_sql import record_publication_sql
 
@@ -125,9 +127,14 @@ def insert_token_rows_with_copy(
 def insert_token_records_with_copy(
     db: Session,
     rows: Sequence[TokenCopyRow],
+    *, corpus_storage: CorpusStorage = CorpusStorage("PRIVATE"),
 ) -> None:
     """COPY compact token rows within the publication transaction."""
     if not rows:
+        return
+    if corpus_storage.is_demo:
+        for records in _iter_batches(rows):
+            db.execute(insert(corpus_storage.DocumentMapUnitToken.__table__), [dict(zip(_TOKEN_COLUMNS, record, strict=True)) for record in records])
         return
     connection = db.connection()
     driver = connection.dialect.driver

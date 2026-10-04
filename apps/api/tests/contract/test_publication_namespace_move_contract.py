@@ -71,7 +71,7 @@ def _keyword_chunks(chunk_id: str) -> list[dict[str, object]]:
     ]
 
 
-@pytest.mark.parametrize("strategy", ("baseline", "candidate"))
+@pytest.mark.parametrize("strategy", ("candidate",))
 def test_replacement_moves_graph_and_snapshot_in_one_transaction(
     strategy: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -79,7 +79,6 @@ def test_replacement_moves_graph_and_snapshot_in_one_transaction(
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
-    monkeypatch.setattr(settings, "KNOWHERE_PUBLICATION_STRATEGY", strategy)
     database_url = make_url(get_contract_database_url()).set(
         drivername="postgresql+psycopg2"
     )
@@ -176,7 +175,6 @@ def test_graph_publication_filters_peers_by_keyword_candidates(
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
-    monkeypatch.setattr(settings, "KNOWHERE_PUBLICATION_STRATEGY", "candidate")
     database_url = make_url(get_contract_database_url()).set(
         drivername="postgresql+psycopg2"
     )
@@ -241,7 +239,6 @@ def test_oversized_snapshot_uses_generation_mismatch_fallback(
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
-    monkeypatch.setattr(settings, "KNOWHERE_PUBLICATION_STRATEGY", "candidate")
     monkeypatch.setattr(
         settings, "KNOWHERE_PUBLICATION_NAMESPACE_SNAPSHOT_MAX_BYTES", 1
     )

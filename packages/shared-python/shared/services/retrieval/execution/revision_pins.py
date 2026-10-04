@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import Document
-from shared.models.database.document import RetrievalNamespaceGeneration
 
 
 @dataclass(frozen=True)
@@ -41,25 +41,21 @@ async def capture_revision_pins(
     namespace: str,
 ) -> RetrievalRevisionPins:
     """Capture active document revisions in one database read transaction."""
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
+    generationQuery = select(corpusStorage.RetrievalNamespaceGeneration.generation).where(corpusStorage.RetrievalNamespaceGeneration.user_id == corpusStorage.resolve_owner(user_id), corpusStorage.RetrievalNamespaceGeneration.namespace == namespace).scalar_subquery()
     statement = (
-        select(Document.document_id, Document.current_job_result_id)
-        .where(Document.user_id == user_id)
-        .where(Document.namespace == namespace)
-        .where(Document.status == "active")
-        .where(Document.current_job_result_id.is_not(None))
-        .order_by(Document.document_id)
+        select(corpusStorage.Document.document_id, corpusStorage.Document.current_job_result_id, func.coalesce(generationQuery, 0))
+        .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
+        .where(corpusStorage.Document.namespace == namespace)
+        .where(corpusStorage.Document.status == "active")
+        .where(corpusStorage.Document.current_job_result_id.is_not(None))
+        .order_by(corpusStorage.Document.document_id)
     )
-    try:
-        generation_result = await db.execute(
-            select(RetrievalNamespaceGeneration.generation)
-            .where(RetrievalNamespaceGeneration.user_id == user_id)
-            .where(RetrievalNamespaceGeneration.namespace == namespace)
-        )
-        generation_row = generation_result.scalar_one_or_none()
-    except SQLAlchemyError:
-        await db.rollback()
-        generation_row = None
-    rows = (await db.execute(statement)).all()
+    if corpusStorage.is_demo:
+        statement = statement.join(corpusStorage.DocumentMapUnitIndex, (corpusStorage.DocumentMapUnitIndex.document_id == corpusStorage.Document.document_id) & (corpusStorage.DocumentMapUnitIndex.job_result_id == corpusStorage.Document.current_job_result_id))
+    capturedRows = (await db.execute(statement)).all()
+    generation_row = capturedRows[0][2] if capturedRows else 0
+    rows = [(identity, revision) for identity, revision, _generation in capturedRows]
     revisions = {
         str(document_id): str(job_result_id)
         for document_id, job_result_id in rows
@@ -79,11 +75,12 @@ async def is_revision_generation_stable(
     pins: RetrievalRevisionPins,
 ) -> bool:
     """Return whether the namespace generation is unchanged since capture."""
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     try:
         result = await db.execute(
-            select(RetrievalNamespaceGeneration.generation)
-            .where(RetrievalNamespaceGeneration.user_id == user_id)
-            .where(RetrievalNamespaceGeneration.namespace == namespace)
+            select(corpusStorage.RetrievalNamespaceGeneration.generation)
+            .where(corpusStorage.RetrievalNamespaceGeneration.user_id == corpusStorage.resolve_owner(user_id))
+            .where(corpusStorage.RetrievalNamespaceGeneration.namespace == namespace)
         )
         current_generation = result.scalar_one_or_none()
     except SQLAlchemyError:

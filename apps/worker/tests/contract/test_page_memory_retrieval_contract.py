@@ -15,10 +15,6 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from shared.services.retrieval.hydration.assets import (  # noqa: E402
-    build_retrieval_asset_url_map,
-    enrich_rows_with_retrieval_asset_url,
-)
 from shared.services.retrieval.hydration.result_assembly import (  # noqa: E402
     assemble_retrieval_results,
 )
@@ -28,9 +24,6 @@ from shared.services.retrieval.search.lexical_text import (  # noqa: E402
     build_term_search_text,
 )
 from shared.services.retrieval.settings import normalize_chunk_types  # noqa: E402
-from shared.services.retrieval.execution.reference_resolver import (  # noqa: E402
-    resolve_workflow_references,
-)
 from shared.core.exceptions.domain_exceptions import StorageServiceException  # noqa: E402
 from shared.services.storage.result_storage import JobResultStorage  # noqa: E402
 from shared.services.storage.page_pdf_crop import crop_source_pdf_pages  # noqa: E402
@@ -155,6 +148,13 @@ async def test_table_result_assembly_uses_summary_not_html() -> None:
 
 @pytest.mark.asyncio
 async def test_page_asset_url_is_generated_from_page_nums(monkeypatch) -> None:
+    # Database contracts clear retrieval modules between environments. Resolve
+    # the live functions so this test patches the module it actually calls.
+    from shared.services.retrieval.hydration.assets import (
+        build_retrieval_asset_url_map,
+        enrich_rows_with_retrieval_asset_url,
+    )
+
     monkeypatch.setattr(
         "shared.services.retrieval.hydration.assets.crop_source_pdf_pages",
         lambda *, job_id, pages: (
@@ -188,6 +188,11 @@ async def test_page_asset_url_is_generated_from_page_nums(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_page_citation_asset_precedes_lazy_page_pdf_fallback(monkeypatch) -> None:
+    from shared.services.retrieval.hydration.assets import (
+        build_retrieval_asset_url_map,
+        enrich_rows_with_retrieval_asset_url,
+    )
+
     page_pdf_calls: list[tuple[str, list[int]]] = []
 
     def fake_crop_source_pdf_pages(*, job_id, pages):
@@ -630,6 +635,10 @@ def test_crop_source_pdf_pages_returns_none_when_source_pdf_is_missing(tmp_path)
 async def test_referenced_chunks_get_page_asset_url_from_hydrated_rows(
     monkeypatch,
 ) -> None:
+    from shared.services.retrieval.execution.reference_resolver import (
+        resolve_workflow_references,
+    )
+
     async def fake_hydrate_referenced_chunk_rows(**_kwargs):
         return [
             {

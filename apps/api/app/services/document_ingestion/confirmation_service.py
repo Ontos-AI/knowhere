@@ -43,6 +43,9 @@ class DocumentIngestionConfirmationService:
             check_job_permission(job, user_id, job_id)
             assert job is not None
 
+            from shared.services.retrieval.demo_job_scope import validate_job_corpus
+            await db.run_sync(lambda session: validate_job_corpus(session, job=job))
+
             logger.info(f"Confirm upload - Job {job_id} current status: {job.status}")
             if job.status not in [JobStatus.PENDING.value, JobStatus.WAITING_FILE.value]:
                 logger.info(f"Job {job_id} already processed, status: {job.status}")

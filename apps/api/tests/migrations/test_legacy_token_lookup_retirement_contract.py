@@ -50,6 +50,10 @@ def test_should_keep_default_indexes_then_apply_and_restore_at_same_head(
 ) -> None:
     config: Config = _build_config()
     command.upgrade(config, "heads")
+    with alembic_engine.connect() as connection:
+        initialRevision: str = str(
+            connection.scalar(text("SELECT version_num FROM alembic_version"))
+        )
     initial: dict[str, dict[str, str | bool]] = _inspect_indexes(alembic_engine)
     assert len(initial) == 5
     assert _LEGACY_INDEX in initial
@@ -64,7 +68,7 @@ def test_should_keep_default_indexes_then_apply_and_restore_at_same_head(
             name: state for name, state in initial.items() if name != _LEGACY_INDEX
         }
     with alembic_engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == _REVISION
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == initialRevision
     for _ in range(2):
         result = _run_operator("--restore")
         assert result.returncode == 0, result.stderr

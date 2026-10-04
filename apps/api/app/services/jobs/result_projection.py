@@ -154,6 +154,7 @@ async def build_job_result_response(
     result, result_url, result_url_expires_at = await _resolve_result_delivery(job)
 
     return JobResultResponse(
+        job_result_id=getattr(getattr(job, "job_result", None), "id", None),
         job_id=job.job_id,
         namespace=JobMetadataHelper.get_namespace(job_metadata),
         document_id=resolve_job_document_id(job, job_metadata),

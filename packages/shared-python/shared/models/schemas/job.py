@@ -150,6 +150,8 @@ class StandardErrorObject(BaseModel):
 class JobResultResponse(BaseModel):
     """Job status query response (for GET /jobs/{job_id}/result)"""
 
+    job_result_id: Optional[str] = Field(None, description="Immutable completed publication revision, when available")
+
     job_id: str = Field(..., description="Job ID")
     namespace: Optional[str] = Field(None, description="Effective retrieval namespace")
     document_id: Optional[str] = Field(None, description="Linked document ID")

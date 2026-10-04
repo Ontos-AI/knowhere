@@ -6,6 +6,10 @@ from typing import Any
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
+from hashlib import sha256
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.demo_query_scope import validate_demo_query_scope
 
 from shared.models.schemas.llm_config import LLMConfig
 from shared.services.ai.llm_overrides import (
@@ -136,7 +140,14 @@ class RetrievalExecutionPlan:
             f"rerank={request.rerank}  threshold={request.threshold}"
         )
 
+        capturedDemoPins = None
         cache_extra = request.build_cache_extra()
+        if CorpusStorage.resolve_namespace(request.namespace).is_demo:
+            capturedDemoPins = await capture_revision_pins(request.db, user_id=request.user_id, namespace=request.namespace)
+            await validate_demo_query_scope(request.db, include_document_ids=request.include_document_ids, pins=capturedDemoPins)
+            cache_extra["corpus_generation"] = capturedDemoPins.generation
+            cache_extra["revision_digest"] = sha256(repr(sorted(capturedDemoPins.items())).encode()).hexdigest()
+
         cache_version, cached_response = await _read_cached_response(
             user_id=request.user_id,
             namespace=request.namespace,
@@ -152,7 +163,7 @@ class RetrievalExecutionPlan:
         logger.debug(f"  📦 Cache miss (version={cache_version}), running full pipeline")
 
         route_context = request.build_route_context()
-        revision_pins = await capture_revision_pins(
+        revision_pins = capturedDemoPins or await capture_revision_pins(
             request.db,
             user_id=request.user_id,
             namespace=request.namespace,
@@ -168,9 +179,14 @@ class RetrievalExecutionPlan:
                 user_id=request.user_id,
                 namespace=request.namespace,
             )
-        outcome = await run_retrieval_route(
-            replace(route_context, revision_pins=revision_pins)
-        )
+        if capturedDemoPins is not None:
+            await validate_demo_query_scope(request.db, include_document_ids=request.include_document_ids, pins=revision_pins)
+            cache_extra["corpus_generation"] = revision_pins.generation
+            cache_extra["revision_digest"] = sha256(repr(sorted(revision_pins.items())).encode()).hexdigest()
+        with CorpusRevisionContext.bind(revision_pins):
+            outcome = await run_retrieval_route(
+                replace(route_context, revision_pins=revision_pins, document_scope=route_context.document_scope.narrow(list(revision_pins)))
+            )
 
         if cache_version is not None:
             await _write_cached_response(

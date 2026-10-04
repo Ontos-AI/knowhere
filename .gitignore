@@ -17,6 +17,7 @@ __pycache__/
 venv/
 venv_pptx2md/
 .benchmarks/
+.demo-originals/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/

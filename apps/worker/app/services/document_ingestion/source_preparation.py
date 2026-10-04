@@ -56,6 +56,8 @@ def prepare_source_file(
         suffix=file_extension,
         temp_dir=input_dir,
     )
+    if job_context.job_metadata.get("corpus_target") == "DEMO":
+        persist_job_metadata_updates(job_id=job_id, job_context=job_context, metadata_updates={"source_size_bytes": os.path.getsize(local_file_path)})
     logger.info(f"File downloaded: job_id={job_id}, local_path={local_file_path}")
 
     prepared_parse_input = prepare_internal_parse_input(

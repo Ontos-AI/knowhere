@@ -6,7 +6,6 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from hashlib import sha256
-import os
 import subprocess
 from threading import Barrier, Event
 from time import monotonic
@@ -248,10 +247,9 @@ def run_capacity_batch(batch: CapacityBatch) -> dict[str, Any]:
         run_id=batch.run_id,
         strategy=batch.strategy,
     )
-    from shared.core.config import settings
 
-    settings.KNOWHERE_PUBLICATION_STRATEGY = batch.strategy
-    os.environ["KNOWHERE_PUBLICATION_STRATEGY"] = batch.strategy
+    if batch.strategy != "candidate":
+        raise ValueError("Only the optimized publication implementation is available.")
     quiet_samples = asyncio.run(
         run_open_loop_probes(
             database_url=batch.database_url,

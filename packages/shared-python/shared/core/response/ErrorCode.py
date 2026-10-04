@@ -63,6 +63,9 @@ class ErrorCode(str, Enum):
     )
     CANCELLED = "CANCELLED"  # 499 - Client cancelled request
 
+    DEMO_NOT_READY = "DEMO_NOT_READY"
+    DEMO_MATERIALIZATION_REMOVED = "DEMO_MATERIALIZATION_REMOVED"
+
     # Server Errors (5xx)
     UNKNOWN = "UNKNOWN"  # 500 - Unknown error (fallback)
     INTERNAL_ERROR = "INTERNAL_ERROR"  # 500 - Internal invariants broken
@@ -83,6 +86,8 @@ class ErrorCodeMapper:
 
     _error_code_to_http_status = {
         ErrorCode.OK: 200,
+        ErrorCode.DEMO_NOT_READY: 503,
+        ErrorCode.DEMO_MATERIALIZATION_REMOVED: 410,
         ErrorCode.INVALID_ARGUMENT: 400,
         ErrorCode.FAILED_PRECONDITION: 400,
         ErrorCode.OUT_OF_RANGE: 400,

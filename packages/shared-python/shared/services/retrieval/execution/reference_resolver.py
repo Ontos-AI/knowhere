@@ -120,6 +120,8 @@ def _merge_reference_projection(
         if row is None:
             row = _find_matching_row_for_ref(ref, rows)
         if row is not None:
+            if row.get("job_result_id"):
+                merged["job_result_id"] = row["job_result_id"]
             if row.get("asset_url"):
                 merged["asset_url"] = row["asset_url"]
             page_nums = extract_page_nums(row)

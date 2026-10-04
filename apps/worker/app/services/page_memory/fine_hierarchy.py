@@ -14,7 +14,6 @@ candidates on the scan boundary page are dropped (page-level fallback).
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from typing import Any
@@ -23,11 +22,10 @@ from loguru import logger
 
 from app.services.document_parser.structure.body_boundary import normalize_match_text
 from app.services.page_memory.page_tagger import PageTagResult
+from app.services.page_memory.hierarchy_level_resolver import PageHierarchyLevelResolver
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
 from app.services.page_memory._utils import page_scope_info, sort_skeletons
 from shared.services.ai.llm_overrides import get_text_client
-from shared.services.ai.prompt_service import build_prompt
-from shared.services.ai.response_process_service import eval_response
 from shared.services.chunks.path_segments import append_document_path
 
 
@@ -91,6 +89,10 @@ def refine_fat_leaf_skeletons(
         )
 
         if deeper:
+            # The first observed heading may start after the coarse section's
+            # opening body pages. Keep its parent so assembly owns that prefix.
+            if deeper[0].start_page > skeleton.start_page:
+                refined.append(skeleton)
             refined.extend(deeper)
         else:
             refined.append(skeleton)
@@ -306,70 +308,20 @@ def _run_hierarchy_on_candidates(
     if not candidates:
         return None
 
-    input_json = json.dumps(
-        [
-            {
-                "id": cand["id"],
-                "page": cand["page"],
-                "prominence": cand.get("prominence"),
-                "heading": cand["heading"],
-            }
-            for cand in candidates
-        ],
-        ensure_ascii=False,
-        indent=2,
-    )
-    coarse_context = (
+    coarse_context: str = (
         f"title={skeleton.title}\n"
         f"path={skeleton.section_path}\n"
         f"pages={skeleton.start_page}-{skeleton.end_page}"
     )
-
-    try:
-        prompt, temperature, _top_p, prompt_max_tokens = build_prompt(
-            "page-memory-hierarchy",
-            input_json,
-            "",
-            paras={
-                "max_depth": max_depth,
-                "max_tokens": max_tokens,
-                "coarse_context": coarse_context,
-            },
-        )
-        resolved_model = (
-            model_name
-            or os.environ.get(
-                "HIERARCHY_LLM_MODEL",
-                os.environ.get("NORMOL_MODEL"),
-            )
-        )
-        client, resolved_model = get_text_client(requested_model=resolved_model)
-        answer = client.chat_completion(
-            messages=[
-                {"role": "system", "content": "you are a document structure expert"},
-                {"role": "user", "content": prompt},
-            ],
-            model=resolved_model,
-            max_tokens=prompt_max_tokens,
-            temperature=temperature,
-            usage_task="page_memory.hierarchy",
-        )
-        result = eval_response(answer)
-    except Exception as exc:
-        logger.warning(
-            "[page_memory.fine_hierarchy] LLM failed for skeleton {}: {}",
-            skeleton.section_path,
-            exc,
-        )
-        return None
-
-    levels_by_id = _parse_hierarchy_result(result, max_depth=max_depth)
-    if not levels_by_id:
-        logger.warning(
-            "[page_memory.fine_hierarchy] empty hierarchy result for skeleton {}",
-            skeleton.section_path,
-        )
-        return None
+    resolved_model: str | None = model_name or os.environ.get(
+        "HIERARCHY_LLM_MODEL", os.environ.get("NORMOL_MODEL"),
+    )
+    client, resolved_model = get_text_client(requested_model=resolved_model)
+    resolver: PageHierarchyLevelResolver = PageHierarchyLevelResolver(
+        client=client, model=resolved_model, max_tokens=max_tokens,
+        max_depth=max_depth, coarse_context=coarse_context,
+    )
+    levels_by_id: dict[int, int] = resolver.resolve_levels(candidates)
 
     # Keep candidate order (== id order == the sequence fed to the LLM).
     ordered: list[dict[str, Any]] = []
@@ -474,28 +426,6 @@ def _title_key(title: str | None) -> str:
     normalized = normalize_match_text(str(title or ""))
     normalized = re.sub(r"[^\w\u4e00-\u9fff]+", "", normalized)
     return normalized
-
-
-def _parse_hierarchy_result(result: Any, *, max_depth: int) -> dict[int, int]:
-    if not isinstance(result, list):
-        logger.warning(
-            "[page_memory.fine_hierarchy] unexpected hierarchy response type: {}",
-            type(result).__name__,
-        )
-        return {}
-    parsed: dict[int, int] = {}
-    for item in result:
-        if not isinstance(item, dict):
-            continue
-        try:
-            row_id = int(item["id"])
-            level = int(item["level"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if level < 1:
-            continue
-        parsed[row_id] = min(level, max_depth)
-    return parsed
 
 
 def _record_trace_hierarchy(

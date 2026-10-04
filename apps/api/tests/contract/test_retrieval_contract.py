@@ -190,6 +190,7 @@ async def test_should_return_seeded_retrieval_results_for_the_authenticated_user
     assert results[0]["score"] == 1.0
     assert results[0]["source"] == {
         "document_id": seeded_document["document_id"],
+        "job_result_id": seeded_document["job_result_id"],
         "source_file_name": "contract-retrieval.pdf",
         "section_path": "contract/intro",
     }
@@ -492,11 +493,13 @@ async def test_agent_explore_retrieval_should_return_seeded_chunk_via_fake_episo
     assert any(
         ref.get("chunk_id") == target["chunk_id"]
         and ref.get("document_id") == target["document_id"]
+        and ref.get("job_result_id") == target["job_result_id"]
         for ref in referenced_chunks
     )
     assert results[0]["content"] == "explore seeded EBITDA marker content"
     assert results[0]["source"] == {
         "document_id": target["document_id"],
+        "job_result_id": target["job_result_id"],
         "source_file_name": "target.pdf",
         "section_path": target["section_path"],
     }

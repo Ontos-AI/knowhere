@@ -148,7 +148,7 @@ def assert_strategy_matches_environment(
     if str(requested_strategy).strip().lower() != str(environment_value).strip().lower():
         raise BenchmarkGuardError(
             f"{purpose}: requested strategy {requested_strategy!r} does not "
-            f"match KNOWHERE_PUBLICATION_STRATEGY {environment_value!r}"
+            f"match the available publication implementation {environment_value!r}"
         )
 
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import jsonschema
@@ -24,6 +24,8 @@ import jsonschema.validators
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.retrieval.document_scope import DocumentScope
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+from shared.services.retrieval.execution.revision_pins import capture_revision_pins
 from shared.services.retrieval.settings import EVIDENCE_TEXT_CHAR_BUDGET
 
 DbFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
@@ -174,7 +176,11 @@ class ToolRegistry:
         if schema_error is not None:
             return ToolResult(text="", error=schema_error)
         try:
-            return await spec.run(ctx, args)
+            pins = CorpusRevisionContext.get_pins()
+            if pins is None:
+                pins = await capture_revision_pins(ctx.db, user_id=ctx.user_id, namespace=ctx.namespace)
+            with CorpusRevisionContext.bind(pins):
+                return await spec.run(replace(ctx, document_scope=ctx.document_scope.narrow(list(pins))), args)
         except Exception as exc:  # noqa: BLE001 - one broken call must not end the caller's loop
             logger.exception("corpus tool %s raised", name)
             return ToolResult(

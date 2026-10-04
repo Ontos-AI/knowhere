@@ -8,6 +8,7 @@ from shared.services.retrieval.search.section_filters import is_excluded_section
 
 MEDIA_CHUNK_TYPES = {'image', 'table'}
 PUBLIC_RESULT_FIELDS = {
+    'job_result_id',
     'chunk_id',
     'chunk_type',
     'content',
@@ -18,7 +19,7 @@ PUBLIC_RESULT_FIELDS = {
     'file_path',
 }
 PUBLIC_SOURCE_FIELDS = {
-    'document_id', 'source_file_name', 'section_path', 'page_nums',
+    'document_id', 'source_file_name', 'section_path', 'page_nums', 'job_result_id',
 }
 
 ReferenceLookupKey = tuple[str, str, str, str]

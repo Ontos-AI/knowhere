@@ -83,7 +83,6 @@ def build_publication_environment(
         "DS_URL": "https://benchmark.invalid/v1",
         "TELEMETRY_ENABLED": "false",
         "LOGFIRE_TOKEN": "",
-        "KNOWHERE_PUBLICATION_STRATEGY": strategy,
     }
 
 

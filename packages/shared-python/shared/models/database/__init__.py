@@ -83,3 +83,5 @@ __all__ = [
     "SystemLimit",
     # "OAuthProvider"
 ]
+
+from . import demo_corpus  # noqa: F401

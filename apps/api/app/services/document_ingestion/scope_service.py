@@ -50,7 +50,7 @@ async def find_active_job_for_document(
 
 def is_active_document_job_unique_violation(exc: Exception) -> bool:
     text = f"{exc} {getattr(exc, 'orig', '')}"
-    return "uq_jobs_user_active_document" in text
+    return "uq_jobs_user_active_document" in text or "uq_jobs_active_demo_source" in text
 
 
 def raise_document_ingestion_conflict(

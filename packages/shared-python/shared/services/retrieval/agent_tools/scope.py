@@ -20,13 +20,16 @@ an exact match is required — the caller got this path from a prior
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import Document, DocumentSection
 from shared.services.retrieval.document_scope import DocumentScope
 from shared.services.retrieval.search.lexical_text import normalize_section_path
 
@@ -88,6 +91,7 @@ async def resolve_scope(
     exact ``section_path`` on that document's current revision. Any single
     failure fails the whole call.
     """
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     items = raw_scope if isinstance(raw_scope, list) else []
     if not items:
         return [], "scope requires at least one {document_id, section_path?} item"
@@ -104,19 +108,19 @@ async def resolve_scope(
     documents = (
         (
             await db.execute(
-                select(Document)
-                .where(Document.document_id.in_(document_ids))
-                .where(Document.user_id == user_id)
-                .where(Document.namespace == namespace)
-                .where(Document.status == "active")
-                .where(document_scope.predicate(Document.document_id))
+                select(corpusStorage.Document)
+                .where(corpusStorage.Document.document_id.in_(document_ids))
+                .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
+                .where(corpusStorage.Document.namespace == namespace)
+                .where(corpusStorage.Document.status == "active")
+                .where(document_scope.predicate(corpusStorage.Document.document_id))
             )
         )
         .scalars()
         .all()
     )
     revision_by_doc = {
-        d.document_id: d.current_job_result_id for d in documents if d.current_job_result_id
+        d.document_id: revision for d in documents if (revision := CorpusRevisionContext.resolve_revision(d.document_id, d.current_job_result_id))
     }
 
     targets: list[ScopeTarget] = []
@@ -132,10 +136,10 @@ async def resolve_scope(
         normalized = normalize_section_path(raw_path)
         exists = (
             await db.execute(
-                select(DocumentSection.section_id)
-                .where(DocumentSection.document_id == document_id)
-                .where(DocumentSection.job_result_id == job_result_id)
-                .where(DocumentSection.section_path == normalized)
+                select(corpusStorage.DocumentSection.section_id)
+                .where(corpusStorage.DocumentSection.document_id == document_id)
+                .where(corpusStorage.DocumentSection.job_result_id == job_result_id)
+                .where(corpusStorage.DocumentSection.section_path == normalized)
             )
         ).first()
         if exists is None:

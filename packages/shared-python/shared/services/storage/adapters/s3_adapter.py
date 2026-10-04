@@ -195,6 +195,11 @@ class S3StorageAdapter(StorageAdapter):
                 if content_type:
                     params["ContentType"] = content_type
 
+            if method.upper() == "GET" and headers:
+                if contentType := headers.get("Content-Type"):
+                    params["ResponseContentType"] = contentType
+                if disposition := headers.get("Content-Disposition"):
+                    params["ResponseContentDisposition"] = disposition
             if method.upper() == "PUT":
                 url = self.s3_client.generate_presigned_url(
                     "put_object", Params=params, ExpiresIn=expiration

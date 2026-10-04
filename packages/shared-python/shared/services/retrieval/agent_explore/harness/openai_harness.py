@@ -27,7 +27,7 @@ collapsing (fix 1), which stays here — it mutates this harness's own
 ``messages: list[dict]`` history, a mechanism the Cursor SDK harness has no
 equivalent hook for:
 
-1. **Stale tool-message collapsing** (``_TOOL_MESSAGE_FRESH_TURNS``,
+1. **Stale discovery-message collapsing** (``_TOOL_MESSAGE_FRESH_TURNS``,
    ``_collapse_stale_tool_messages``): ``messages`` only ever appended, so a
    single ``corpus.outline``/``corpus.node_filter`` call (each capped at
    ``ToolBudget.max_chars`` — currently ``EVIDENCE_TEXT_CHAR_BUDGET=12_000``,
@@ -36,6 +36,10 @@ equivalent hook for:
    ``RETRIEVAL_NAV_TOKEN_LIMIT`` (100k default) within 7-8 LLM turns from
    this resend alone, not from query difficulty — per-turn token cost grew
    monotonically (q04: 4.4k -> 4.8k -> 19.8k -> 21.5k -> 24.2k -> 29.6k).
+   Successful evidence reads remain visible until finish. Removing them after
+   two turns caused a real SpaceX query to alternate between complementary
+   sections until its token budget ran out. Per-result text caps and the
+   episode budget still apply.
 2. **Trajectory refs fallback** (``shared.select_episode_refs``): verified
    live that ``finish`` can be called with no ``refs`` key at all (raw
    ``function.arguments`` was literally ``'{}'``) even after the model had
@@ -85,7 +89,7 @@ from shared.services.retrieval.agent_tools import (
     load_corpus_schema_text,
 )
 
-# A tool-role message is kept in full for the turn it was produced plus this
+# A discovery or failed tool message is kept in full for the turn it was produced plus this
 # many additional turns, then collapsed to a placeholder — see module
 # docstring point 1. Not tuned against a real recall-vs-token tradeoff yet;
 # 2 was chosen so a result stays fully visible for one full turn after the
@@ -163,14 +167,15 @@ def _collapse_stale_tool_messages(
     current_turn: int,
     fresh_turns: int,
 ) -> None:
-    """Replace tool messages older than ``fresh_turns`` with a placeholder.
+    """Replace stale discovery/error messages while preserving read evidence.
 
     ``messages`` only ever grows within one episode (see module docstring
     point 1); this is what keeps that growth bounded instead of resending
-    every past tool result on every later turn.
+    every past discovery result on every later turn. Successful evidence must
+    remain visible so complementary reads can be synthesized without rereading.
     """
     for entry in tool_message_log:
-        if entry["collapsed"]:
+        if entry["collapsed"] or entry.get("has_evidence", False):
             continue
         if current_turn - entry["turn_index"] < fresh_turns:
             continue
@@ -213,7 +218,7 @@ class OpenAIHarness:
         # module docstring point 2).
         trajectory_refs: list[dict[str, Any]] = []
         # One entry per appended tool-role message: {message_index, turn_index,
-        # tool_name, original_chars, collapsed} — see _collapse_stale_tool_messages.
+        # tool_name, original_chars, has_evidence, collapsed} — see _collapse_stale_tool_messages.
         tool_message_log: list[dict[str, Any]] = []
         turn_index = 0
 
@@ -381,6 +386,11 @@ class OpenAIHarness:
                         "turn_index": turn_index,
                         "tool_name": canonical_name,
                         "original_chars": len(content),
+                        "has_evidence": (
+                            canonical_name in EVIDENCE_TOOL_NAMES
+                            and not tool_result.error
+                            and bool(tool_result.refs)
+                        ),
                         "collapsed": False,
                     }
                 )

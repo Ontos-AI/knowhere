@@ -230,17 +230,25 @@ def resolve_source_content_digest(repository_root: Path) -> str:
             capture_output=True,
             check=True,
         )
+        deleted = subprocess.run(
+            ["git", "ls-files", "--deleted", "-z"],
+            cwd=repository_root, capture_output=True, check=True,
+        )
     except (OSError, subprocess.CalledProcessError) as error:
         raise RunRecordError("could not list benchmark source files") from error
     paths = sorted(set(completed.stdout.split(b"\0")) - {b""})
+    deleted_paths = set(deleted.stdout.split(b"\0")) - {b""}
     digest = hashlib.sha256()
     for raw_path in paths:
         if raw_path == b".benchmarks" or raw_path.startswith(b".benchmarks/"):
             continue
         path = repository_root / os.fsdecode(raw_path)
         try:
-            file_mode = path.lstat().st_mode
-            if stat.S_ISLNK(file_mode):
+            file_mode = path.lstat().st_mode if raw_path not in deleted_paths else None
+            if file_mode is None:
+                content = b""
+                file_kind = b"deleted"
+            elif stat.S_ISLNK(file_mode):
                 content = os.readlink(path).encode("utf-8", errors="surrogateescape")
                 file_kind = b"link"
             elif stat.S_ISREG(file_mode):

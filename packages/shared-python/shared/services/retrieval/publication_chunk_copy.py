@@ -11,7 +11,9 @@ from typing import Any, Protocol, cast
 from psycopg2.extensions import cursor as PsycopgCursor
 from psycopg2.extensions import get_wait_callback
 from psycopg2.extras import execute_values
+from sqlalchemy import insert
 from sqlalchemy.orm import Session
+from shared.models.database.demo_corpus import DemoDocumentChunk
 
 from shared.models.database.document import DocumentChunk
 from shared.services.jobs.lifecycle.publication_trace_sql import record_publication_sql
@@ -123,8 +125,12 @@ def _copy_psycopg(
         cursor.close()
 
 
-def _insert_chunk_batch(db: Session, chunks: list[DocumentChunk]) -> None:
+def _insert_chunk_batch(db: Session, chunks: list[DocumentChunk | DemoDocumentChunk]) -> None:
     """Persist one bounded statement and record its actual SQL duration."""
+    if chunks and isinstance(chunks[0], DemoDocumentChunk):
+        demoRecords = [{column: (getattr(chunk, column) if column != "created_at" else getattr(chunk, column) or datetime.now(timezone.utc).replace(tzinfo=None)) for column in _COLUMNS} for chunk in chunks]
+        db.execute(insert(DemoDocumentChunk.__table__), demoRecords)
+        return
     connection = db.connection()
     raw_connection = connection.connection
     driver = connection.dialect.driver
@@ -176,7 +182,7 @@ def _insert_chunk_batch(db: Session, chunks: list[DocumentChunk]) -> None:
         )
 
 
-def insert_chunks_with_copy(db: Session, chunks: list[DocumentChunk]) -> None:
+def insert_chunks_with_copy(db: Session, chunks: list[DocumentChunk | DemoDocumentChunk]) -> None:
     """Persist prepared chunks in bounded batches inside the caller's transaction."""
     for start in range(0, len(chunks), _COPY_BATCH_SIZE):
         _insert_chunk_batch(db, chunks[start : start + _COPY_BATCH_SIZE])

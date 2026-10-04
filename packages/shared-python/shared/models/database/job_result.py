@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import CheckConstraint, UniqueConstraint, JSON, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from shared.core.database import Base
@@ -32,6 +32,15 @@ class JobResult(Base):
         ForeignKey("documents.document_id", ondelete="SET NULL"),
         nullable=True,
         index=True,
+    )
+
+    demo_document_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("demo_documents.document_id", ondelete="RESTRICT"),
+        nullable=True, index=True,
+    )
+    __table_args__ = (
+        CheckConstraint("document_id IS NULL OR demo_document_id IS NULL", name="ck_job_results_corpus_target"),
+        UniqueConstraint("id", "demo_document_id", name="uq_job_results_demo_revision"),
     )
 
     delivery_mode: Mapped[str] = mapped_column(String(20), nullable=False)  # inline/url

@@ -28,11 +28,7 @@ async def lifespan(app: FastAPI):
     """
     Application lifecycle management
     """
-    from shared.services.retrieval.publication_strategy import (
-        announce_publication_strategy,
-    )
 
-    announce_publication_strategy("knowhere-api")
 
     from shared.core.database import prewarm_connection_pool
 
@@ -50,6 +46,8 @@ async def lifespan(app: FastAPI):
     redis_url = redis_pool_manager.config.get_connection_url()
     RateLimitConfig.get_instance(redis_url)
     async with get_db_context() as session:
+        from shared.services.retrieval.demo_authorization import verify_runtime_database_role
+        await session.run_sync(verify_runtime_database_role)
         await load_rules(session)
     logger.info("rate limit rules loaded at startup; restart the pod to apply changes")
 

@@ -57,7 +57,11 @@ def collect_evidence(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for row in rows:
         composed = row.get("composed")
         if isinstance(composed, list):
-            parts.extend(composed)
+            revisionId: object = row.get("job_result_id")
+            parts.extend(
+                {**part, "job_result_id": revisionId} if revisionId else part
+                for part in composed
+            )
     return parts
 
 

@@ -41,6 +41,8 @@ class ResultStorage(Protocol):
     ) -> UploadedResultBundle:
         raise NotImplementedError
 
+    def build_raw_key(self, *, job_id: str, relative_path: str, raw_prefix: str | None = None) -> str: ...
+
     def generate_artifact_url(
         self,
         *,

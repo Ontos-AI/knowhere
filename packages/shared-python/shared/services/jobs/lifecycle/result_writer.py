@@ -6,6 +6,7 @@ from uuid import uuid4
 from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
+from shared.models.database.job import Job
 from shared.models.database.job_result import JobChunk, JobResult
 from shared.utils.json_utils import remove_nul_characters
 
@@ -34,10 +35,13 @@ class SyncJobResultWriter:
             db.flush()
             return existing
 
+        job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
+        metadata = job.job_metadata or {} if job is not None else {}
+        demoMetadata = {key: metadata[key] for key in ("source_size_bytes", "demo_asset_manifest", "result_raw_prefix", "parse_track") if key in metadata} if metadata.get("corpus_target") == "DEMO" else {}
         job_result = JobResult(
             job_id=job_id,
             delivery_mode=delivery_mode,
-            document_metadata={},
+            document_metadata=demoMetadata,
             inline_payload=inline_payload,
             result_s3_key=result_s3_key,
             result_size=result_size,

@@ -110,6 +110,7 @@ def worker_contract_environment(
 ) -> Generator[None, None, None]:
     contract_runtime.configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(contract_runtime.prepare_contract_storage())
+    asyncio.run(contract_runtime.configure_runtime_database_role(monkeypatch, contract_runtime.get_contract_database_url(postgresql_proc)))
 
     _ensure_worker_import_context()
     contract_runtime.clear_application_modules()

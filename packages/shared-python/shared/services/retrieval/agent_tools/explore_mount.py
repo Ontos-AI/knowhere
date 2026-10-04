@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.services.retrieval.agent_tools.registry import ToolContext
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 from shared.services.retrieval.hydration.assets import (
     enrich_rows_with_retrieval_asset_url,
 )
@@ -71,6 +72,7 @@ async def mount_explore_hits(
             exclude_document_ids=[],
             document_scope=ctx.document_scope,
             exclude_sections=[],
+            revision_pins=CorpusRevisionContext.get_pins(),
         )
 
     render_rows = [

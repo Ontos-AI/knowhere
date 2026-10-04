@@ -98,5 +98,8 @@ class JobResultRepository:
         result = await self.get_by_job_id(db, job_id)
         if not result:
             return
+        if result.demo_document_id is not None:
+            from shared.core.exceptions.domain_exceptions import ConflictException
+            raise ConflictException(user_message="Shared demo revision results and their assets must be retained.", resource="Demo revision", resource_id=result.id)
         await db.delete(result)
         await db.flush()

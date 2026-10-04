@@ -7,7 +7,7 @@ from typing import Any
 from app.api.dependencies.current_user import with_current_user
 from app.services.documents.lifecycle_service import DocumentService
 from app.services.rate_limit.data_structures import CurrentUser
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db
@@ -21,6 +21,7 @@ _document_service = DocumentService()
 @router.get("/{document_id}/files/page-citation-source")
 async def get_document_page_citation_source(
     document_id: str,
+    job_result_id: str | None = Query(None, max_length=36),
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -28,6 +29,7 @@ async def get_document_page_citation_source(
         db,
         user_id=current_user.user_id,
         document_id=document_id,
+        job_result_id=job_result_id,
     )
     if response is None:
         raise NotFoundException(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import logfire
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -26,7 +27,7 @@ from loguru import logger
 
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.ai.token_tracking import get_current_token_tracker
-from app.services.document_parser.support.stage_profiler import get_current_stage_tracker
+from app.services.document_parser.support.stage_profiler import get_current_stage_tracker, stage_timer
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
 from shared.services.storage.zip_result_service import ZipResultService
 
@@ -82,7 +83,9 @@ def finalize_parse_success(
         generated_package=generated_package,
         job_id=job_id,
         result_storage_factory=result_storage_factory,
+        job_context=job_context,
     )
+    _refresh_processing_stages(job_context)
     stored_count = 0
 
     finalization_response = lifecycle_service.finalize_job_success(
@@ -252,15 +255,19 @@ def _upload_result_package(
     generated_package: GeneratedResultPackage,
     job_id: str,
     result_storage_factory: ResultStorageFactory,
+    job_context: ParseJobContext | None = None,
 ) -> str:
     artifact_refs = collect_referenced_artifact_refs(result_package.chunks)
     add_dir = str(result_package.artifact.add_dir) if result_package.artifact.add_dir else ""
     if add_dir and os.path.isfile(os.path.join(add_dir, "source.pdf")):
         artifact_refs.add("source.pdf")
-    result_bundle = result_storage_factory().upload(
-        job_id=job_id,
-        result_dir=add_dir,
-        zip_file_path=generated_package.zip_file_path,
-        artifact_refs=artifact_refs,
-    )
+    with logfire.span("Upload result assets for {job_id}", job_id=job_id), stage_timer("worker.result.assets_upload", job_id=job_id):
+        result_bundle = result_storage_factory().upload(
+            job_id=job_id,
+            result_dir=add_dir,
+            zip_file_path=generated_package.zip_file_path,
+            artifact_refs=artifact_refs,
+        )
+    if job_context is not None and job_context.job_metadata.get("corpus_target") == "DEMO":
+        persist_job_metadata_updates(job_id=job_id, job_context=job_context, metadata_updates={"demo_asset_manifest": sorted(result_bundle.raw_files), "result_raw_prefix": result_bundle.raw_prefix})
     return result_bundle.zip_key

@@ -27,13 +27,16 @@ candidate full paths instead of picking one silently.
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 import re
 from typing import Any
 
 from sqlalchemy import and_, or_, select
 
 from shared.models.database.document import (
-    Document,
     DocumentChunk,
     DocumentSection,
 )
@@ -106,6 +109,7 @@ async def _resolve_same_as_markers(
     source_file_name_by_doc: dict[str, str],
 ) -> None:
     """Mutate ``page`` rows in place, replacing SAME-AS markers with owner text."""
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(next(iter(revision_by_doc), ''))
     matches_by_index: dict[int, list[tuple[str, str]]] = {}
     needed: set[tuple[str, str]] = set()
     for index, row in enumerate(rows):
@@ -135,13 +139,13 @@ async def _resolve_same_as_markers(
         if not job_result_id:
             continue
         result = await db.execute(
-            select(DocumentChunk.content)
-            .select_from(DocumentChunk)
-            .join(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
-            .where(DocumentChunk.document_id == document_id)
-            .where(DocumentChunk.job_result_id == job_result_id)
-            .where(DocumentSection.section_path == owner_path)
-            .where(DocumentChunk.chunk_type == "page")
+            select(corpusStorage.DocumentChunk.content)
+            .select_from(corpusStorage.DocumentChunk)
+            .join(corpusStorage.DocumentSection, corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id)
+            .where(corpusStorage.DocumentChunk.document_id == document_id)
+            .where(corpusStorage.DocumentChunk.job_result_id == job_result_id)
+            .where(corpusStorage.DocumentSection.section_path == owner_path)
+            .where(corpusStorage.DocumentChunk.chunk_type == "page")
         )
         content_row = result.first()
         owner_content[(document_id, owner_path)] = (
@@ -317,6 +321,7 @@ def _collect_https_image_media(
     },
 )
 async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
     refs = args.get("refs")
     if not isinstance(refs, list) or not refs:
         return ToolResult(text="", error="read requires a non-empty refs list")
@@ -333,19 +338,19 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     documents = (
         (
             await ctx.db.execute(
-                select(Document)
-                .where(Document.document_id.in_(document_ids))
-                .where(Document.user_id == ctx.user_id)
-                .where(Document.namespace == ctx.namespace)
-                .where(Document.status == "active")
-                .where(ctx.document_scope.predicate(Document.document_id))
+                select(corpusStorage.Document)
+                .where(corpusStorage.Document.document_id.in_(document_ids))
+                .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(ctx.user_id))
+                .where(corpusStorage.Document.namespace == ctx.namespace)
+                .where(corpusStorage.Document.status == "active")
+                .where(ctx.document_scope.predicate(corpusStorage.Document.document_id))
             )
         )
         .scalars()
         .all()
     )
     revision_by_doc = {
-        d.document_id: d.current_job_result_id for d in documents if d.current_job_result_id
+        d.document_id: revision for d in documents if (revision := CorpusRevisionContext.resolve_revision(d.document_id, d.current_job_result_id))
     }
     source_file_name_by_doc = {d.document_id: d.source_file_name or "" for d in documents}
     job_result_ids = sorted(set(revision_by_doc.values()))
@@ -395,15 +400,15 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         if chunk_id:
             row = (
                 await ctx.db.execute(
-                    select(DocumentChunk, DocumentSection.section_path)
-                    .select_from(DocumentChunk)
+                    select(corpusStorage.DocumentChunk, corpusStorage.DocumentSection.section_path)
+                    .select_from(corpusStorage.DocumentChunk)
                     .outerjoin(
-                        DocumentSection,
-                        DocumentSection.section_id == DocumentChunk.section_id,
+                        corpusStorage.DocumentSection,
+                        corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id,
                     )
-                    .where(DocumentChunk.document_id == document_id)
-                    .where(DocumentChunk.job_result_id == job_result_id)
-                    .where(DocumentChunk.chunk_id == chunk_id)
+                    .where(corpusStorage.DocumentChunk.document_id == document_id)
+                    .where(corpusStorage.DocumentChunk.job_result_id == job_result_id)
+                    .where(corpusStorage.DocumentChunk.chunk_id == chunk_id)
                 )
             ).first()
             if row is None:
@@ -473,21 +478,21 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         path_clauses = []
         for job in section_jobs:
             path_filter = (
-                section_path_subtree_filter(job["resolved_path"])
+                section_path_subtree_filter(job["resolved_path"], job["document_id"])
                 if mode == "descendants"
-                else section_path_anchor_filter(job["resolved_path"])
+                else section_path_anchor_filter(job["resolved_path"], job["document_id"])
             )
             path_clauses.append(
                 and_(
-                    DocumentSection.document_id == job["document_id"],
-                    DocumentSection.job_result_id == job["job_result_id"],
+                    corpusStorage.DocumentSection.document_id == job["document_id"],
+                    corpusStorage.DocumentSection.job_result_id == job["job_result_id"],
                     path_filter,
                 )
             )
         section_matches = list(
             (
                 await ctx.db.execute(
-                    select(DocumentSection).where(or_(*path_clauses))
+                    select(corpusStorage.DocumentSection).where(or_(*path_clauses))
                 )
             )
             .scalars()
@@ -498,14 +503,14 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             batched_chunks = list(
                 (
                     await ctx.db.execute(
-                        select(DocumentChunk).where(
-                            DocumentChunk.document_id.in_(
+                        select(corpusStorage.DocumentChunk).where(
+                            corpusStorage.DocumentChunk.document_id.in_(
                                 {job["document_id"] for job in section_jobs}
                             ),
-                            DocumentChunk.job_result_id.in_(
+                            corpusStorage.DocumentChunk.job_result_id.in_(
                                 {job["job_result_id"] for job in section_jobs}
                             ),
-                            DocumentChunk.section_id.in_(section_ids),
+                            corpusStorage.DocumentChunk.section_id.in_(section_ids),
                             # Body chunks only (text/page). image/table chunks share a
                             # section_id with whichever section happens to store them
                             # in the DB (always Root — CORPUS_SCHEMA.md §3), which is
@@ -514,7 +519,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                             # below via hydrate_connected_target_rows. Without this
                             # filter, reading Root would return every still-unmounted
                             # asset in the document as spurious top-level entries.
-                            DocumentChunk.chunk_type.in_(_BODY_CHUNK_TYPES),
+                            corpusStorage.DocumentChunk.chunk_type.in_(_BODY_CHUNK_TYPES),
                         )
                     )
                 )
@@ -610,6 +615,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             exclude_document_ids=[],
             document_scope=ctx.document_scope,
             exclude_sections=[],
+            revision_pins=CorpusRevisionContext.get_pins(),
         )
     enriched_rows = await enrich_rows_with_retrieval_asset_url(
         [*base_rows, *connected_rows],

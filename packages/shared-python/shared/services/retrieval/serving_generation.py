@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from hashlib import sha256
 
 from sqlalchemy import select
@@ -18,9 +20,11 @@ def lock_namespace_generation(
     namespace: str,
 ) -> RetrievalNamespaceGeneration:
     """Create if needed, then lock and return one namespace generation row."""
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
+    user_id = corpusStorage.resolve_owner(user_id)
     generation_id = f"rng_{sha256(f'{user_id}:{namespace}'.encode()).hexdigest()}"
     db.execute(
-        insert(RetrievalNamespaceGeneration)
+        insert(corpusStorage.RetrievalNamespaceGeneration)
         .values(
             id=generation_id,
             user_id=user_id,
@@ -29,15 +33,15 @@ def lock_namespace_generation(
         )
         .on_conflict_do_nothing(
             index_elements=[
-                RetrievalNamespaceGeneration.user_id,
-                RetrievalNamespaceGeneration.namespace,
+                corpusStorage.RetrievalNamespaceGeneration.user_id,
+                corpusStorage.RetrievalNamespaceGeneration.namespace,
             ]
         )
     )
     generation = db.execute(
-        select(RetrievalNamespaceGeneration)
-        .where(RetrievalNamespaceGeneration.user_id == user_id)
-        .where(RetrievalNamespaceGeneration.namespace == namespace)
+        select(corpusStorage.RetrievalNamespaceGeneration)
+        .where(corpusStorage.RetrievalNamespaceGeneration.user_id == corpusStorage.resolve_owner(user_id))
+        .where(corpusStorage.RetrievalNamespaceGeneration.namespace == namespace)
         .with_for_update()
     ).scalar_one()
     return generation

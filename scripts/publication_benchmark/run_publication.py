@@ -4,7 +4,7 @@
       --owner sync \
       --db-url-file .benchmarks/publication/clones/<run-id>/database-url \
       --input .benchmarks/publication/inputs/spacex-s1-production \
-      --strategy baseline \
+      --strategy candidate \
       --mode cold
 """
 
@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import os
 import sys
 from pathlib import Path
 from typing import Any, Sequence
@@ -52,7 +51,6 @@ from scripts.publication_benchmark.run_record import (  # noqa: E402
     resolve_source_content_digest,
 )
 
-STRATEGY_ENVIRONMENT_VARIABLE: str = "KNOWHERE_PUBLICATION_STRATEGY"
 
 
 def default_run_id() -> str:
@@ -147,19 +145,7 @@ def run_publication_point(
             f"clone {resolved_run_id!r} is in state {clone_record.state!r}"
         )
 
-    os.environ[STRATEGY_ENVIRONMENT_VARIABLE] = strategy
-    assert_strategy_matches_environment(
-        strategy,
-        os.environ[STRATEGY_ENVIRONMENT_VARIABLE],
-        purpose="run_publication",
-    )
-    from shared.core.config import settings as live_settings
-
-    assert_strategy_matches_environment(
-        strategy,
-        str(live_settings.KNOWHERE_PUBLICATION_STRATEGY),
-        purpose="run_publication(live settings)",
-    )
+    assert_strategy_matches_environment(strategy, "candidate", purpose="run_publication")
 
     scope_suffix = hashlib.sha256(resolved_run_id.encode("utf-8")).hexdigest()[:16]
     scope = PublicationScope(
@@ -339,7 +325,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--strategy",
         required=True,
-        choices=("baseline", "candidate"),
+        choices=("candidate",),
     )
     parser.add_argument("--mode", required=True, choices=PUBLICATION_MODES)
     parser.add_argument("--run-id", default=None)

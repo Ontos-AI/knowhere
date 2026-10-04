@@ -112,3 +112,25 @@ async def confirm_upload(
         request_payload=request,
         user_id=current_user.user_id,
     )
+
+
+@router.post("/{job_id}/upload-url", summary="Renew a waiting job upload URL")
+async def renew_upload_url(
+    job_id: str,
+    current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.jobs.source_upload_service import renew_source_upload
+    return await renew_source_upload(db, user_id=current_user.user_id, job_id=job_id)
+
+
+@router.delete("/{job_id}", summary="Reject deletion of retained demo revisions")
+async def delete_job(
+    job_id: str,
+    current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.jobs.deletion_guard import reject_job_deletion
+    await reject_job_deletion(db, user_id=current_user.user_id, job_id=job_id)

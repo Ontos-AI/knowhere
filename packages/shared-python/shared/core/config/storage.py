@@ -111,20 +111,6 @@ class StorageConfig(BaseModel):
             "ZIP bundles remain single-object uploads."
         ),
     )
-    DEMO_CANONICAL_BUNDLE_ENABLED: bool = Field(
-        default=False,
-        description=(
-            "Reuse immutable demo ZIP and raw artifacts by content version. "
-            "Disabling only changes new uploads; existing canonical results remain readable."
-        ),
-    )
-    DEMO_PUBLICATION_PREPARATION_CACHE_ENABLED: bool = Field(
-        default=False,
-        description=(
-            "Reuse pure tokenization and token frequencies for versioned canonical "
-            "demo publication, in a bounded process-local cache. Requires canonical bundles."
-        ),
-    )
     SUPPORTED_EXTENSIONS: str = Field(
         default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.pptx,.jpg,.jpeg,.png,.md,.html,.htm",
         description="Supported file extensions",

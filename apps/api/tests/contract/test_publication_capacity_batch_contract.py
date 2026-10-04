@@ -16,7 +16,6 @@ from shared.testing.contract_runtime import (
     get_contract_database_url,
     prepare_contract_storage,
 )
-from shared.core.config import settings
 from tests.support.publication_benchmark_support import ensure_benchmark_import_path
 
 ensure_benchmark_import_path()
@@ -38,7 +37,7 @@ from scripts.publication_benchmark.retrieval_interference import (  # noqa: E402
 
 
 @pytest.mark.parametrize("owner", ("sync", "async"))
-@pytest.mark.parametrize("strategy", ("baseline", "candidate"))
+@pytest.mark.parametrize("strategy", ("candidate",))
 def test_capacity_batch_converges_while_protected_retrieval_stays_stable(
     owner: str,
     strategy: str,
@@ -47,8 +46,6 @@ def test_capacity_batch_converges_while_protected_retrieval_stays_stable(
     tmp_path: Path,
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
-    original_strategy = settings.KNOWHERE_PUBLICATION_STRATEGY
-    monkeypatch.setattr(settings, "KNOWHERE_PUBLICATION_STRATEGY", original_strategy)
     environment_keys = build_publication_environment(
         database_url="postgresql://benchmark.invalid/test",
         run_id="capacity-contract",

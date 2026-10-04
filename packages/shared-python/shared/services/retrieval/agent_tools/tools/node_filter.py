@@ -20,11 +20,12 @@ behind a placeholder.
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from typing import Any
 
 from sqlalchemy import select
 
-from shared.models.database.document import DocumentChunk, DocumentSection
 from shared.services.retrieval.agent_tools.map_render import render_map
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
@@ -114,6 +115,7 @@ from shared.services.retrieval.scoring.node_filter_predicates import (
     },
 )
 async def node_filter(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
     targets, scope_error = await resolve_scope(
         ctx.db,
         user_id=ctx.user_id,
@@ -161,9 +163,9 @@ async def node_filter(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     allowed_section_ids: set[str] | None = None
     if chunk_types:
         chunk_rows = await ctx.db.execute(
-            select(DocumentChunk.section_id, DocumentChunk.chunk_type).where(
-                DocumentChunk.document_id.in_(document_ids),
-                DocumentChunk.job_result_id.in_(list(revision_by_doc.values())),
+            select(corpusStorage.DocumentChunk.section_id, corpusStorage.DocumentChunk.chunk_type).where(
+                corpusStorage.DocumentChunk.document_id.in_(document_ids),
+                corpusStorage.DocumentChunk.job_result_id.in_(list(revision_by_doc.values())),
             )
         )
         allowed_section_ids = {
@@ -179,10 +181,10 @@ async def node_filter(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
     for target in targets:
         section_stmt = (
-            select(DocumentSection)
-            .where(DocumentSection.document_id == target.document_id)
-            .where(DocumentSection.job_result_id == target.job_result_id)
-            .order_by(DocumentSection.sort_order, DocumentSection.section_id)
+            select(corpusStorage.DocumentSection)
+            .where(corpusStorage.DocumentSection.document_id == target.document_id)
+            .where(corpusStorage.DocumentSection.job_result_id == target.job_result_id)
+            .order_by(corpusStorage.DocumentSection.sort_order, corpusStorage.DocumentSection.section_id)
         )
         doc_sections = list((await ctx.db.execute(section_stmt)).scalars().all())
         if target.section_path is not None:

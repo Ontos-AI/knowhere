@@ -23,11 +23,14 @@ document.
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from typing import Any
 
 from sqlalchemy import select
 
-from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.services.retrieval.agent_tools.asset_hosts import (
     hosted_section_path,
     in_scope_hosts,
@@ -118,24 +121,25 @@ async def _forward_search(
     asset_type: str,
     query: str,
 ) -> ToolResult:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
     types = {asset_type} if asset_type in ASSET_CHUNK_TYPES else set(ASSET_CHUNK_TYPES)
     stmt = (
-        select(DocumentChunk, DocumentSection.section_path, Document.source_file_name)
-        .select_from(DocumentChunk)
-        .join(Document, Document.document_id == DocumentChunk.document_id)
-        .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
+        select(corpusStorage.DocumentChunk, corpusStorage.DocumentSection.section_path, corpusStorage.Document.source_file_name)
+        .select_from(corpusStorage.DocumentChunk)
+        .join(corpusStorage.Document, corpusStorage.Document.document_id == corpusStorage.DocumentChunk.document_id)
+        .outerjoin(corpusStorage.DocumentSection, corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id)
         .where(
-            ctx.document_scope.predicate(Document.document_id),
-            Document.user_id == ctx.user_id,
-            Document.namespace == ctx.namespace,
-            Document.status == "active",
-            Document.current_job_result_id == DocumentChunk.job_result_id,
-            DocumentChunk.chunk_type.in_(sorted(types)),
+            ctx.document_scope.predicate(corpusStorage.Document.document_id),
+            corpusStorage.Document.user_id == corpusStorage.resolve_owner(ctx.user_id),
+            corpusStorage.Document.namespace == ctx.namespace,
+            corpusStorage.Document.status == "active",
+            CorpusRevisionContext.build_revision_column(corpusStorage.Document) == corpusStorage.DocumentChunk.job_result_id,
+            corpusStorage.DocumentChunk.chunk_type.in_(sorted(types)),
         )
-        .order_by(DocumentChunk.document_id, DocumentChunk.sort_order, DocumentChunk.chunk_id)
+        .order_by(corpusStorage.DocumentChunk.document_id, corpusStorage.DocumentChunk.sort_order, corpusStorage.DocumentChunk.chunk_id)
     )
     if scope:
-        stmt = stmt.where(Document.document_id.in_(scope_document_ids(scope)))
+        stmt = stmt.where(corpusStorage.Document.document_id.in_(scope_document_ids(scope)))
     asset_rows = (await ctx.db.execute(stmt)).all()
 
     hosts = await load_asset_hosts(
@@ -188,19 +192,20 @@ async def _reverse_lookup(
     scope: list[ScopeTarget],
     target_ids: list[str],
 ) -> ToolResult:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
     hosts = await load_asset_hosts(
         ctx,
         document_ids=scope_document_ids(scope) if scope else None,
         asset_ids=target_ids,
     )
     asset_stmt = (
-        select(DocumentChunk.document_id, DocumentChunk.chunk_id, DocumentChunk.chunk_type)
-        .select_from(DocumentChunk)
-        .join(Document, Document.document_id == DocumentChunk.document_id)
+        select(corpusStorage.DocumentChunk.document_id, corpusStorage.DocumentChunk.chunk_id, corpusStorage.DocumentChunk.chunk_type)
+        .select_from(corpusStorage.DocumentChunk)
+        .join(corpusStorage.Document, corpusStorage.Document.document_id == corpusStorage.DocumentChunk.document_id)
         .where(
-            Document.current_job_result_id == DocumentChunk.job_result_id,
-            DocumentChunk.document_id.in_(sorted({key[0] for key in hosts})),
-            DocumentChunk.chunk_id.in_(target_ids),
+            CorpusRevisionContext.build_revision_column(corpusStorage.Document) == corpusStorage.DocumentChunk.job_result_id,
+            corpusStorage.DocumentChunk.document_id.in_(sorted({key[0] for key in hosts})),
+            corpusStorage.DocumentChunk.chunk_id.in_(target_ids),
         )
     )
     asset_type_by_key = {
