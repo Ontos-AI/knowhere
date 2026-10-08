@@ -4,12 +4,13 @@ SQL ``LIKE`` on ``lower(coalesce(term_search_text, ''))``, scoped to the
 current revision. That expression is the existing term trigram index.
 The field is already published (body + filename + section path; tables
 use summary/keywords/caption; images use their description).
-Reports a total match count (over the full in-scope corpus, not just the
-returned page) alongside capped snippets.
 
-Matching table/image chunks, and body chunks that list ``connect_to``
-targets, are mounted through the shared explore mount so the tool result
-includes rendered table/image content.
+Several terms are matched in one query (OR). Hits are then split back
+into one block per term, one row per matching section (first chunk in
+document / sort order). Terms with fewer matching sections are listed
+first so a rare term is not buried by a generic one. Visible rows stop
+at the existing ``limit``; leftover sections become one fold line per
+document with a reusable ``scope``.
 
 Snippets are built by the shared ``agent_tools.snippet.build_snippet`` (head
 + first-match window + tail, ``...``-joined, overlap-merged). Rows render
@@ -21,14 +22,13 @@ use, so a model reads one shape regardless of which tool produced it.
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from typing import Any
 
 from sqlalchemy import func, or_, select
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
-from shared.models.database.job_result import JobResult
 from shared.services.retrieval.agent_tools.asset_hosts import host_paths_for_hits
-from shared.services.retrieval.agent_tools.explore_mount import mount_explore_hits
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
     ToolResult,
@@ -88,24 +88,78 @@ def _term_search(terms: list[str]) -> tuple[re.Pattern[str], Any]:
     )
 
 
+def _term_span(text: str, term: str) -> tuple[int, int] | None:
+    match = re.search(re.escape(term), text, flags=re.IGNORECASE)
+    return match.span() if match else None
+
+
+def _sections_for_term(
+    hits: list[dict[str, Any]], term: str, context_chars: int
+) -> list[dict[str, Any]]:
+    """Keep the first hit per ``(document_id, section_path)`` for this term.
+
+    ``hits`` must already be in document / sort order.
+    """
+    kept: dict[tuple[str, str], dict[str, Any]] = {}
+    order: list[tuple[str, str]] = []
+    for hit in hits:
+        text = str(hit["term_search_text"] or "")
+        span = _term_span(text, term)
+        if span is None:
+            continue
+        key = (str(hit["document_id"]), str(hit["section_path"] or ""))
+        if key in kept:
+            continue
+        kept[key] = {**hit, "snippet": build_snippet(text, span, hit_context=context_chars)}
+        order.append(key)
+    return [kept[key] for key in order]
+
+
+def _fold_line(source_file_name: str, document_id: str, leftover: int) -> str:
+    return (
+        f"{source_file_name} 还有 {leftover} 节命中 — "
+        f"scope=[{{document_id: {document_id}}}]"
+    )
+
+
+def _build_hit_row(
+    hit: dict[str, Any],
+    host_paths: dict[tuple[str, str], tuple[str, bool]],
+) -> dict[str, Any]:
+    chunk_type = str(hit["chunk_type"] or "").strip()
+    is_asset = chunk_type in ASSET_CHUNK_TYPES
+    key = (str(hit["document_id"]), str(hit["chunk_id"]))
+    section_path, hosted = (
+        host_paths[key] if is_asset and key in host_paths else (hit["section_path"], None)
+    )
+    return build_row(
+        kind=chunk_type or "text",
+        document_id=hit["document_id"],
+        section_path=section_path,
+        title=hit["source_file_name"],
+        chunk_id=hit["chunk_id"] if is_asset else None,
+        snippet=hit["snippet"],
+        hosted=hosted if is_asset else None,
+    )
+
+
 @register_tool(
     name="corpus.grep",
     description=(
         "Exact string search over body text, image descriptions, table "
         "summaries and keywords, file names and section paths. Table cell "
         "values are not searched. Requires pattern or patterns — do not "
-        "call without a term. Returns the total number of matching "
-        "chunks plus a capped list of snippet rows (score-free — this is an "
-        "exact match, not a ranked search; use corpus.recall for ranking). "
-        "Table and image hits show their content; body hits also show the "
-        "images and tables they contain — read the hit's document_id + "
-        "section_path with corpus.read next. Provide 'pattern' for one "
-        "term, or 'patterns' for several candidate terms OR'd together in "
-        "this single call (e.g. synonyms) — issue one call with multiple "
-        "terms instead of several parallel corpus.grep calls for different "
-        "terms in the same turn. Several terms are any-match (OR), and "
-        "rows stay in document order — this tool does not rank by "
-        "relevance. At least one of pattern/patterns is required."
+        "call without a term. Each term is a separate block of section "
+        "rows (score-free — this is an exact match, not a ranked search; "
+        "use corpus.recall for ranking). Terms with fewer matching "
+        "sections are listed first. Rows past limit are folded per "
+        "document with a reusable scope — copy that scope onto a later "
+        "corpus.grep call to search only that document. Table and image "
+        "hits are address + snippet rows; read the hit's document_id + "
+        "section_path (or chunk_id for image/table) with corpus.read "
+        "next. Provide 'pattern' for one term, or 'patterns' for several "
+        "terms in this single call instead of several parallel "
+        "corpus.grep calls. At least one of pattern/patterns is required."
     ),
     json_schema={
         "type": "object",
@@ -118,9 +172,10 @@ def _term_search(terms: list[str]) -> tuple[re.Pattern[str], Any]:
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "Several search terms OR'd together in this one call. "
-                    "A chunk matches if any term hits. Results stay in "
-                    "document order, not relevance order."
+                    "Several search terms in this one call. Each term is "
+                    "listed as its own block. Terms with fewer matching "
+                    "sections are shown first. This tool does not rank "
+                    "by relevance."
                 ),
             },
             "scope": SCOPE_SCHEMA,
@@ -137,7 +192,10 @@ def _term_search(terms: list[str]) -> tuple[re.Pattern[str], Any]:
                 "type": "integer",
                 "minimum": 1,
                 "default": _DEFAULT_LIMIT,
-                "description": "Max rows to return. The total match count is still reported.",
+                "description": (
+                    "Max section rows to show. Further matching sections "
+                    "are folded per document with a reusable scope."
+                ),
             },
         },
         "anyOf": [
@@ -176,7 +234,7 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             section_path_col=DocumentSection.section_path,
         )
 
-    compiled, term_filter = _term_search(terms)
+    _compiled, term_filter = _term_search(terms)
     # Match the indexed haystack first so PostgreSQL can use
     # idx_document_chunks_term_trgm. Section is joined here (not later) so a
     # scope's section-subtree condition can apply inside this same CTE.
@@ -188,9 +246,6 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             DocumentChunk.job_result_id,
             DocumentChunk.chunk_type,
             DocumentChunk.term_search_text,
-            DocumentChunk.content,
-            DocumentChunk.file_path,
-            DocumentChunk.chunk_metadata,
             DocumentChunk.section_id,
             DocumentChunk.sort_order,
             DocumentSection.section_path,
@@ -219,111 +274,86 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             matched.c.document_id,
             matched.c.chunk_type,
             matched.c.term_search_text,
-            matched.c.content,
-            matched.c.file_path,
-            matched.c.chunk_metadata,
-            matched.c.job_result_id,
-            JobResult.job_id,
+            matched.c.sort_order,
             matched.c.section_path,
             Document.source_file_name,
-            func.count().over().label("total_matches"),
         )
         .select_from(matched)
         .join(Document, Document.document_id == matched.c.document_id)
-        .outerjoin(JobResult, JobResult.id == Document.current_job_result_id)
         .where(
             Document.user_id == ctx.user_id,
             Document.namespace == ctx.namespace,
             Document.status == "active",
             Document.current_job_result_id == matched.c.job_result_id,
         )
-        .order_by(matched.c.document_id, matched.c.sort_order)
-        .limit(limit)
+        .order_by(matched.c.document_id, matched.c.sort_order, matched.c.chunk_id)
     )
     matched_rows = (await ctx.db.execute(rows_stmt)).all()
-    total_matches = int(matched_rows[0][-1]) if matched_rows else 0
 
-    results: list[dict[str, Any]] = []
+    hits: list[dict[str, Any]] = []
     for (
         chunk_id,
         document_id,
         chunk_type,
         term_search_text,
-        content,
-        file_path,
-        chunk_metadata,
-        job_result_id,
-        job_id,
+        _sort_order,
         section_path,
         source_file_name,
-        _total_matches,
     ) in matched_rows:
-        text = str(term_search_text or "")
-        match = compiled.search(text)
-        snippet = build_snippet(
-            text, match.span() if match else None, hit_context=context_chars
-        )
-        results.append(
+        hits.append(
             {
                 "document_id": document_id,
                 "source_file_name": source_file_name,
                 "chunk_id": chunk_id,
                 "chunk_type": chunk_type,
                 "section_path": section_path,
-                "snippet": snippet,
-                "content": content,
-                "file_path": file_path,
-                "chunk_metadata": chunk_metadata or {},
-                "job_result_id": job_result_id,
-                "job_id": job_id,
+                "term_search_text": term_search_text,
             }
         )
 
-    media: list[dict[str, str]] = []
-    if results:
-        results, media = await mount_explore_hits(
-            ctx, results, char_budget=ctx.budget.max_chars
-        )
-    host_paths = await host_paths_for_hits(ctx, results, scope)
+    blocks: list[tuple[int, int, str, list[dict[str, Any]]]] = []
+    for index, term in enumerate(terms):
+        sections = _sections_for_term(hits, term, context_chars)
+        if sections:
+            blocks.append((len(sections), index, term, sections))
+    blocks.sort()
 
-    rows: list[dict[str, Any]] = []
-    lines = [f"total_matches={total_matches} returned={len(results)}"]
+    shown_hits: list[dict[str, Any]] = []
+    remaining = limit
+    allocated: list[tuple[str, list[dict[str, Any]], list[dict[str, Any]]]] = []
+    for _count, _index, term, sections in blocks:
+        visible = sections[:remaining]
+        leftover = sections[remaining:]
+        remaining -= len(visible)
+        shown_hits.extend(visible)
+        allocated.append((term, visible, leftover))
+
+    host_paths = await host_paths_for_hits(ctx, shown_hits, scope)
+
+    lines: list[str] = []
     if requested_limit > limit:
         lines.append(f"note: capped to budget.max_items={ctx.budget.max_items}")
-    for r in results:
-        chunk_type = str(r["chunk_type"] or "").strip()
-        is_asset = chunk_type in ASSET_CHUNK_TYPES
-        key = (str(r["document_id"]), str(r["chunk_id"]))
-        section_path, hosted = (
-            host_paths[key] if is_asset and key in host_paths else (r["section_path"], None)
-        )
-        row = build_row(
-            kind=chunk_type or "text",
-            document_id=r["document_id"],
-            section_path=section_path,
-            title=r["source_file_name"],
-            chunk_id=r["chunk_id"] if is_asset else None,
-            snippet=r["snippet"],
-            hosted=hosted if is_asset else None,
-        )
-        row["mounted_chunk_ids"] = r["mounted_chunk_ids"]
-        rows.append(row)
-        lines.append(format_row(row))
-        rendered = str(r.get("rendered") or "").strip()
-        if rendered:
-            lines.append(rendered)
+    rows: list[dict[str, Any]] = []
+    for term, visible, leftover in allocated:
+        lines.append(term)
+        for hit in visible:
+            row = _build_hit_row(hit, host_paths)
+            rows.append(row)
+            lines.append(format_row(row))
+        leftover_by_doc: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for hit in leftover:
+            leftover_by_doc[str(hit["document_id"])].append(hit)
+        for document_id in leftover_by_doc:
+            group = leftover_by_doc[document_id]
+            lines.append(
+                _fold_line(str(group[0]["source_file_name"] or ""), document_id, len(group))
+            )
 
     return ToolResult(
         text="\n".join(lines),
-        payload={
-            "rows": rows,
-            "details": {
-                "total_matches": total_matches,
-                "capped": requested_limit > limit,
-            },
-        },
+        payload={"rows": rows, "details": {}},
         refs=[
-            {"document_id": r["document_id"], "chunk_id": r["chunk_id"]} for r in results
+            {"document_id": hit["document_id"], "chunk_id": hit["chunk_id"]}
+            for hit in shown_hits
         ],
-        media=media,
     )

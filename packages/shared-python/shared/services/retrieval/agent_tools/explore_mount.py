@@ -1,4 +1,4 @@
-"""Shared explore-phase mounting for ``corpus.grep`` and ``corpus.recall`` hits.
+"""Shared explore-phase mounting for ``corpus.recall`` hits.
 
 Table/image hits are rendered with the same explore table/image functions
 ``corpus.read`` uses. Body hits that already list ``connect_to`` targets get

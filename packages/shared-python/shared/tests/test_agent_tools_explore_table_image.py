@@ -731,22 +731,9 @@ class _GrepConnectedRow:
                 DOC_ID,
                 "text",
                 "intro body 30 mg mention",
-                "intro body [tables/small.html]",
-                None,
-                {
-                    "connect_to": [
-                        {
-                            "target": CHUNK_SMALL,
-                            "relation": "embeds",
-                            "ref": "[tables/small.html]",
-                        }
-                    ]
-                },
-                REV_ID,
-                JOB_ID,
+                1,
                 PATH_INTRO,
                 FILE_NAME,
-                1,
             )
         ]
 
@@ -765,7 +752,7 @@ class _GrepThenSession:
 
 
 @pytest.mark.asyncio
-async def test_grep_mounts_connected_table(explore_ctx: ToolContext) -> None:
+async def test_grep_connected_table_is_not_mounted(explore_ctx: ToolContext) -> None:
     db = _GrepThenSession(explore_ctx.db._session, _GrepConnectedRow())
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
@@ -775,8 +762,8 @@ async def test_grep_mounts_connected_table(explore_ctx: ToolContext) -> None:
     )
     result = await grep(ctx, {"pattern": "intro body"})
     assert result.error is None
-    assert f"mounted table chunk_id={CHUNK_SMALL}:" in result.text
-    assert "<table" in result.text
-    assert "30 mg" in result.text
-    assert db.execute_count == 2
+    assert "mounted table" not in result.text
+    assert "<table" not in result.text
+    assert "intro body 30 mg mention" in result.text
+    assert db.execute_count == 1
 
