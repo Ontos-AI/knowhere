@@ -24,13 +24,14 @@ def _scoped_row(chunk_id: str, section_path: str, sort_order: int, **extra) -> d
 
 
 def test_retrieval_chain_groups_evidence_and_emits_mcp_blocks(monkeypatch) -> None:
+    image = {"type": "image", "media_type": "image/jpeg", "data": "aW1n"}
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.evidence_compose._try_read_image",
+        lambda row: image,
+    )
     monkeypatch.setattr(
         "shared.services.retrieval.hydration.evidence_compose._try_read_image_artifact",
-        lambda row, artifact, media_type: {
-            "type": "image",
-            "media_type": "image/jpeg",
-            "data": "aW1n",
-        },
+        lambda row, artifact, **kwargs: image,
     )
     rows = [
         _scoped_row(
