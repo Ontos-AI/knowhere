@@ -2,7 +2,7 @@
 
 Prints, for each LLM turn / tool call: tool name, args, elapsed ms,
 observation length (chars sent back into the LLM's context), and error.
-Also prints the final ``EpisodeResult`` (pool/notes/stop_reason/episode
+Also prints the final ``EpisodeResult`` (pool/stop_reason/episode
 token total).
 
 Read-only diagnostic; does not modify any behavior.
@@ -93,7 +93,6 @@ async def main() -> None:
             ensure_ascii=False,
         )
     )
-    print(f"final notes: {episode.notes!r}")
     print(f"\n{'#':>3} {'tool':<28} {'ms':>6} {'obs_chars':>9} err")
     for step in episode.steps:
         args_preview = json.dumps(step.tool_args, ensure_ascii=False)[:80]

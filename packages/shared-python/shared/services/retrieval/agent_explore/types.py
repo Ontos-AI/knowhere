@@ -33,7 +33,6 @@ class EpisodeResult:
     """Everything ``bridge.py`` / the route need after the episode ends."""
 
     pool: list[Candidate]
-    notes: str
     steps: list[AgentStep] = field(default_factory=list)
     stop_reason: str = "finished"
     tokens_used: int = 0

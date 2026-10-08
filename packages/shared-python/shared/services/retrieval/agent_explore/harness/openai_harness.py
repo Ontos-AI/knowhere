@@ -436,7 +436,6 @@ class OpenAIHarness:
 
         return EpisodeResult(
             pool=list(pool.entries),
-            notes=result_notes,
             steps=steps,
             stop_reason=stop_reason,
             tokens_used=budget.tokens_used,

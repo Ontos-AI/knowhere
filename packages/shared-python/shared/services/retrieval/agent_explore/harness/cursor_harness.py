@@ -158,7 +158,6 @@ class CursorHarness:
         current_round: dict[str, Any] = {"id": None, "pick_phase": False}
 
         steps: list[AgentStep] = []
-        finish_state: dict[str, Any] = {"notes": ""}
         stop_reason = "finished"
 
         def _on_delta(update: Any) -> None:
@@ -342,7 +341,6 @@ class CursorHarness:
                         }
                     )
                 notes = str(args.get("notes") or "")
-                finish_state["notes"] = notes
                 _append_step(
                     tool_name=FINISH_TOOL_NAME,
                     tool_args=args,
@@ -398,7 +396,6 @@ class CursorHarness:
 
         return EpisodeResult(
             pool=list(pool.entries),
-            notes=str(finish_state["notes"] or ""),
             steps=steps,
             stop_reason=stop_reason,
             tokens_used=budget.tokens_used,

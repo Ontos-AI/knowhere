@@ -537,7 +537,6 @@ async def test_openai_harness_runs_pick_phase_after_read_without_counting_it(
     assert budget.steps_used == 3
     assert episode.tokens_used == 40
     assert [item.handle for item in episode.pool] == ["R1.1"]
-    assert episode.notes == "done"
     assert episode.stop_reason == "finished"
     assert [step.tool_name for step in episode.steps] == [
         "corpus.grep",
@@ -719,7 +718,6 @@ async def test_cursor_harness_rounds_follow_model_call_id_and_pick_phase_rejects
 
     assert budget.steps_used == 2
     assert episode.tokens_used == 77
-    assert episode.notes == "done"
     assert [item.handle for item in episode.pool] == ["R1.1"]
     by_round: dict[int, list[str]] = {}
     for step in episode.steps:

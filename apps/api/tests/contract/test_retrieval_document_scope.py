@@ -287,7 +287,6 @@ async def test_agent_scope_survives_dispatch_and_untrusted_finish(
                                 chunk_ids=(f"{namespace}-alpha-1",),
                             )
                         ],
-                        notes="",
                     )
 
             monkeypatch.setattr(

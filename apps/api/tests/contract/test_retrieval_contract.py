@@ -410,7 +410,6 @@ def _episode_keeping_refs(
         )
     return EpisodeResult(
         pool=pool,
-        notes=notes,
         steps=[
             AgentStep(
                 step_index=1,
@@ -790,7 +789,6 @@ async def test_agent_explore_should_release_route_session_before_final_hydration
                         chunk_ids=("chunk_contract",),
                     )
                 ],
-                notes="",
                 steps=[
                     AgentStep(
                         step_index=0,
