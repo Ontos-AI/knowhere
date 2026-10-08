@@ -21,9 +21,9 @@ from tests.support.import_environment import (
 from tests.support.contract_database import ContractDatabase
 
 
-DEMO_SOURCE_ID = "demo-tsla-q4-2025"
-SPACEX_DEMO_SOURCE_ID = "demo-spacex-s1"
-NVDA_EARNINGS_CALL_DEMO_SOURCE_ID = "demo-financial-nvda-q1-fy27-earnings-call"
+DEMO_SOURCE_ID = "demo-spacex-s1"
+MICRON_DEMO_SOURCE_ID = "demo-financial-micron-report-530bd7ed"
+TRANSFORMERS_DEMO_SOURCE_ID = "demo-stem-transformers-tutorial"
 
 
 class FakeResultStorage:
@@ -113,8 +113,8 @@ def test_should_keep_demo_catalog_metadata_light_for_sources_without_examples(
 
     assert catalog["sources"]
     assert DEMO_SOURCE_ID in loaded_demo_source_ids
-    assert SPACEX_DEMO_SOURCE_ID in loaded_demo_source_ids
-    assert NVDA_EARNINGS_CALL_DEMO_SOURCE_ID not in loaded_demo_source_ids
+    assert MICRON_DEMO_SOURCE_ID not in loaded_demo_source_ids
+    assert TRANSFORMERS_DEMO_SOURCE_ID not in loaded_demo_source_ids
 
 
 def test_should_project_demo_example_cite_markers_and_page_numbers() -> None:
@@ -123,19 +123,10 @@ def test_should_project_demo_example_cite_markers_and_page_numbers() -> None:
         str(source["demo_source_id"]): source
         for source in catalog["sources"]
     }
-    tesla = sources[DEMO_SOURCE_ID]
-    spacex = sources[SPACEX_DEMO_SOURCE_ID]
-    tesla_example = tesla["examples"][0]
-    tesla_citation = tesla_example["citations"][0]
+    spacex = sources[DEMO_SOURCE_ID]
     spacex_example = spacex["examples"][0]
     spacex_citation = spacex_example["citations"][0]
 
-    assert "[[cite:1]]" in tesla_example["answer"]
-    assert tesla_citation["page_citation_page_number"] == 12
-    assert tesla_citation["page_nums"] == [12]
-    assert str(tesla_citation["page_citation_asset_url"]).endswith(
-        "/page_citation_assets/page-12.png"
-    )
     assert "[[cite:1]]" in spacex_example["answer"]
     assert spacex_citation["page_citation_page_number"] == 28
     assert spacex_citation["page_nums"] == [28]
@@ -145,7 +136,7 @@ def test_should_project_demo_example_cite_markers_and_page_numbers() -> None:
 def test_should_preserve_filename_rooted_sections_when_publishing_demo_chunks() -> None:
     source_catalog_module = _load_source_catalog_module()
     catalog = source_catalog_module.DemoSourceCatalog()
-    source = catalog.require_source(NVDA_EARNINGS_CALL_DEMO_SOURCE_ID)
+    source = catalog.require_source(MICRON_DEMO_SOURCE_ID)
     publication_chunks = catalog.publication_chunks(source)
     publication_paths = {
         str(chunk.get("path") or "")
@@ -153,8 +144,8 @@ def test_should_preserve_filename_rooted_sections_when_publishing_demo_chunks() 
         if chunk.get("type") == "page"
     }
 
-    assert f"{source.title}/Root/MANAGEMENT DISCUSSION SECTION" in publication_paths
-    assert f"{source.title}/Root/QUESTION AND ANSWER SECTION" in publication_paths
+    assert f"{source.title}/Root/Appendix" in publication_paths
+    assert f"{source.title}/Root/AI use at Micron" in publication_paths
 
 
 @pytest.mark.asyncio
@@ -169,7 +160,6 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     sources = cast(list[dict[str, Any]], catalog["sources"])
     sources_by_id = {str(source["demo_source_id"]): source for source in sources}
     source = sources_by_id[DEMO_SOURCE_ID]
-    spacex_source = sources_by_id[SPACEX_DEMO_SOURCE_ID]
     official_library = cast(dict[str, Any], catalog["official_library"])
     library_sources = cast(list[dict[str, Any]], official_library["sources"])
     library_sources_by_id = {
@@ -178,76 +168,30 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     examples = cast(list[dict[str, Any]], source["examples"])
     citations = cast(list[dict[str, Any]], examples[0]["citations"])
     citation = citations[0]
-    spacex_examples = cast(list[dict[str, Any]], spacex_source["examples"])
-    spacex_citations = cast(list[dict[str, Any]], spacex_examples[0]["citations"])
 
     assert str(sources[0]["demo_source_id"]) == DEMO_SOURCE_ID
-    assert SPACEX_DEMO_SOURCE_ID in sources_by_id
+    assert MICRON_DEMO_SOURCE_ID in sources_by_id
+    assert TRANSFORMERS_DEMO_SOURCE_ID in sources_by_id
     assert source["demo_source_id"] == DEMO_SOURCE_ID
-    assert source["canonical_document_id"] == "demo-doc-tsla-q4-2025"
-    assert source["chunk_count"] == 71
+    assert source["canonical_document_id"] == "demo-doc-spacex-s1"
+    assert source["chunk_count"] == 227
     assert source["original_file"]["can_download"] is False
-    assert citation["canonical_document_id"] == "demo-doc-tsla-q4-2025"
+    assert citation["canonical_document_id"] == "demo-doc-spacex-s1"
     assert citation["canonical_chunk_id"].startswith(f"{DEMO_SOURCE_ID}:")
     assert "[[cite:1]]" in examples[0]["answer"]
-    assert citation["page_citation_page_number"] == 12
-    assert citation["page_nums"] == [12]
-    assert str(citation["page_citation_asset_url"]).endswith(
-        "/page_citation_assets/page-12.png"
-    )
-    assert spacex_source["official_library"]["library_source_id"] == (
-        "financial-spacex-s1"
-    )
-    assert spacex_source["canonical_document_id"] == "demo-doc-spacex-s1"
-    assert spacex_source["chunk_count"] == 227
-    assert spacex_citations[0]["canonical_chunk_id"].startswith(
-        f"{SPACEX_DEMO_SOURCE_ID}:"
-    )
-    assert "[[cite:1]]" in spacex_examples[0]["answer"]
-    assert spacex_citations[0]["page_citation_page_number"] == 28
-    assert spacex_citations[0]["page_nums"] == [28]
-    assert str(spacex_citations[0]["source"]["section_path"]).endswith("/Root")
+    assert citation["page_citation_page_number"] == 28
+    assert citation["page_nums"] == [28]
+    assert str(citation["source"]["section_path"]).endswith("/Root")
+    assert source["official_library"]["library_source_id"] == "financial-spacex-s1"
     assert [
         category["category_id"]
         for category in cast(list[dict[str, Any]], official_library["categories"])
-    ] == ["financial-reports", "research-papers", "stem-books"]
+    ] == ["financial-reports", "stem-books"]
     assert library_sources_by_id["financial-spacex-s1"]["status"] == "ready"
     assert library_sources_by_id["financial-spacex-s1"]["demo_source_id"] == (
-        SPACEX_DEMO_SOURCE_ID
+        DEMO_SOURCE_ID
     )
     assert library_sources_by_id["financial-spacex-s1"]["chunk_count"] == 227
-    assert library_sources_by_id["stem-statistical-learning"]["status"] == "ready"
-    assert library_sources_by_id["stem-statistical-learning"]["demo_source_id"] == (
-        "demo-stem-statistical-learning"
-    )
-    assert library_sources_by_id["stem-statistical-learning"]["chunk_count"] == 45
-    research_demo_sources = {
-        "research-attention-is-all-you-need": (
-            "demo-research-attention-is-all-you-need",
-            34,
-        ),
-        "research-rag-survey": ("demo-research-rag-survey", 35),
-        "research-rag-realized": ("demo-research-rag-realized", 59),
-        "research-toolformer": ("demo-research-toolformer", 41),
-        "research-ai-agents-overview": ("demo-research-ai-agents-overview", 58),
-    }
-    for library_source_id, (
-        expected_demo_source_id,
-        expected_chunk_count,
-    ) in research_demo_sources.items():
-        assert library_sources_by_id[library_source_id]["status"] == "ready"
-        assert (
-            library_sources_by_id[library_source_id]["demo_source_id"]
-            == expected_demo_source_id
-        )
-        assert (
-            library_sources_by_id[library_source_id]["chunk_count"]
-            == expected_chunk_count
-        )
-    assert (
-        library_sources_by_id["financial-nvda-q1-fy27-earnings-call"]["demo_source_id"]
-        == "demo-financial-nvda-q1-fy27-earnings-call"
-    )
     assert library_sources_by_id["financial-micron-report-530bd7ed"]["status"] == (
         "ready"
     )
@@ -304,8 +248,7 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
 
     assert asset_response.status_code == 200
     assert asset_response.headers["content-disposition"].startswith("inline")
-    assert original_response.status_code == 200
-    assert original_response.headers["content-disposition"].startswith("inline")
+    assert original_response.status_code == 404
     assert internal_asset_response.status_code == 404
 
 
@@ -330,7 +273,7 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
             "/api/v1/retrieval/query",
             json={
                 "namespace": "contract-demo",
-                "query": "xAI investment",
+                "query": "AI use at Micron",
                 "top_k": 5,
                 "use_agentic": False,
             },
@@ -339,21 +282,21 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
             "/api/v1/demo/materializations",
             json={
                 "namespace": "contract-demo",
-                "demo_source_ids": [DEMO_SOURCE_ID],
+                "demo_source_ids": [MICRON_DEMO_SOURCE_ID],
             },
         )
         retry_response = await api_client.post(
             "/api/v1/demo/materializations",
             json={
                 "namespace": "contract-demo",
-                "demo_source_ids": [DEMO_SOURCE_ID],
+                "demo_source_ids": [MICRON_DEMO_SOURCE_ID],
             },
         )
         retrieval_response = await api_client.post(
             "/api/v1/retrieval/query",
             json={
                 "namespace": "contract-demo",
-                "query": "xAI investment",
+                "query": "AI use at Micron",
                 "top_k": 5,
                 "use_agentic": False,
             },
@@ -386,7 +329,7 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
           AND namespace = 'contract-demo'
           AND demo_source_id = :demo_source_id
         """,
-        {"demo_source_id": DEMO_SOURCE_ID},
+        {"demo_source_id": MICRON_DEMO_SOURCE_ID},
     )
     document_row = await ContractDatabase.fetch_one(
         """
@@ -411,18 +354,18 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
         WHERE user_id = 'local-dev-user'
           AND job_metadata ->> 'demo_source_id' = :demo_source_id
         """,
-        {"demo_source_id": DEMO_SOURCE_ID},
+        {"demo_source_id": MICRON_DEMO_SOURCE_ID},
     )
 
     assert materialization_rows == [
-        {"demo_source_id": DEMO_SOURCE_ID, "document_id": document_id}
+        {"demo_source_id": MICRON_DEMO_SOURCE_ID, "document_id": document_id}
     ]
     assert document_row == {
         "document_id": document_id,
         "status": "active",
-        "source_file_name": "TSLA-Q4-2025-Update.pdf",
+        "source_file_name": "Micron investor report 530bd7ed.pdf",
     }
-    assert len(chunk_rows) == 71
+    assert len(chunk_rows) == 77
     assert len(job_rows) == 1
     job_row = job_rows[0]
     assert job_row["status"] == "done"
@@ -478,7 +421,7 @@ async def test_should_release_materialization_claims_after_publication_failure(
                 "/api/v1/demo/materializations",
                 json={
                     "namespace": "contract-demo-publication-failure",
-                    "demo_source_ids": [DEMO_SOURCE_ID],
+                    "demo_source_ids": [MICRON_DEMO_SOURCE_ID],
                 },
             )
 
@@ -516,9 +459,9 @@ async def test_should_materialize_each_normalized_demo_source_once_per_request(
             json={
                 "namespace": "contract-demo-deduplicate",
                 "demo_source_ids": [
-                    DEMO_SOURCE_ID,
-                    f" {DEMO_SOURCE_ID} ",
-                    DEMO_SOURCE_ID,
+                    MICRON_DEMO_SOURCE_ID,
+                    f" {MICRON_DEMO_SOURCE_ID} ",
+                    MICRON_DEMO_SOURCE_ID,
                     "",
                 ],
             },
@@ -528,7 +471,7 @@ async def test_should_materialize_each_normalized_demo_source_once_per_request(
 
     body = cast(dict[str, Any], response.json())
     sources = cast(list[dict[str, Any]], body["sources"])
-    assert [source["demo_source_id"] for source in sources] == [DEMO_SOURCE_ID]
+    assert [source["demo_source_id"] for source in sources] == [MICRON_DEMO_SOURCE_ID]
 
     materialization_rows = await ContractDatabase.fetch_all(
         """
@@ -546,7 +489,7 @@ async def test_should_materialize_each_normalized_demo_source_once_per_request(
           AND job_metadata ->> 'namespace' = 'contract-demo-deduplicate'
           AND job_metadata ->> 'demo_source_id' = :demo_source_id
         """,
-        {"demo_source_id": DEMO_SOURCE_ID},
+        {"demo_source_id": MICRON_DEMO_SOURCE_ID},
     )
 
     assert len(materialization_rows) == 1
@@ -573,11 +516,11 @@ async def test_should_reject_sequential_duplicate_demo_materialization(
         )
         first_response = await api_client.post(
             "/api/v1/demo/materializations",
-            json={"namespace": "contract-demo-duplicate", "demo_source_ids": [DEMO_SOURCE_ID]},
+            json={"namespace": "contract-demo-duplicate", "demo_source_ids": [MICRON_DEMO_SOURCE_ID]},
         )
         second_response = await api_client.post(
             "/api/v1/demo/materializations",
-            json={"namespace": "contract-demo-duplicate", "demo_source_ids": [DEMO_SOURCE_ID]},
+            json={"namespace": "contract-demo-duplicate", "demo_source_ids": [MICRON_DEMO_SOURCE_ID]},
         )
 
     assert first_response.status_code == 200
@@ -608,14 +551,14 @@ async def test_should_reject_concurrent_duplicate_demo_materialization(
                 "/api/v1/demo/materializations",
                 json={
                     "namespace": "contract-demo-race",
-                    "demo_source_ids": [DEMO_SOURCE_ID],
+                    "demo_source_ids": [MICRON_DEMO_SOURCE_ID],
                 },
             ),
             api_client.post(
                 "/api/v1/demo/materializations",
                 json={
                     "namespace": "contract-demo-race",
-                    "demo_source_ids": [DEMO_SOURCE_ID],
+                    "demo_source_ids": [MICRON_DEMO_SOURCE_ID],
                 },
             ),
         )
@@ -635,7 +578,7 @@ async def test_should_reject_concurrent_duplicate_demo_materialization(
           AND namespace = 'contract-demo-race'
           AND demo_source_id = :demo_source_id
         """,
-        {"demo_source_id": DEMO_SOURCE_ID},
+        {"demo_source_id": MICRON_DEMO_SOURCE_ID},
     )
     job_rows = await ContractDatabase.fetch_all(
         """
@@ -645,7 +588,7 @@ async def test_should_reject_concurrent_duplicate_demo_materialization(
           AND job_metadata ->> 'namespace' = 'contract-demo-race'
           AND job_metadata ->> 'demo_source_id' = :demo_source_id
         """,
-        {"demo_source_id": DEMO_SOURCE_ID},
+        {"demo_source_id": MICRON_DEMO_SOURCE_ID},
     )
 
     assert len(materialization_rows) == 1
@@ -692,7 +635,7 @@ async def test_should_reject_mixed_demo_materialization_selection_before_upload(
             "/api/v1/demo/materializations",
             json={
                 "namespace": "contract-demo-mixed-invalid",
-                "demo_source_ids": [DEMO_SOURCE_ID, "missing-demo-source"],
+                "demo_source_ids": [MICRON_DEMO_SOURCE_ID, "missing-demo-source"],
             },
         )
 

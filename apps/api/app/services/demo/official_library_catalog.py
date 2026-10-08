@@ -34,11 +34,6 @@ _OFFICIAL_LIBRARY_CATEGORIES: tuple[OfficialLibraryCategoryDefinition, ...] = (
         description="Company filings, earnings materials, and investor reports.",
     ),
     OfficialLibraryCategoryDefinition(
-        category_id="research-papers",
-        label="Research papers",
-        description="Curated academic papers and technical reports.",
-    ),
-    OfficialLibraryCategoryDefinition(
         category_id="stem-books",
         label="STEM books",
         description="Open lecture notes, books, and course materials.",
@@ -54,78 +49,6 @@ _OFFICIAL_LIBRARY_SOURCES: tuple[OfficialLibrarySourceDefinition, ...] = (
         mime_type="application/pdf",
         status="ready",
         demo_source_id="demo-spacex-s1",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="financial-nvda-q1-fy27-earnings-call",
-        category_id="financial-reports",
-        title="NVDA Q1 FY27 Earnings Call Transcript.pdf",
-        source_url=(
-            "https://s201.q4cdn.com/141608511/files/doc_financials/2027/q1/"
-            "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf"
-        ),
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-financial-nvda-q1-fy27-earnings-call",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="financial-nvda-q4-fy26-earnings-call",
-        category_id="financial-reports",
-        title="NVDA Q4 FY26 Earnings Call Transcript.pdf",
-        source_url=(
-            "https://s201.q4cdn.com/141608511/files/doc_financials/2026/q4/"
-            "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf"
-        ),
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-financial-nvda-q4-fy26-earnings-call",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="financial-nvda-q1-fy27-cfo-commentary",
-        category_id="financial-reports",
-        title="NVIDIA Q1 FY27 CFO Commentary.pdf",
-        source_url=(
-            "https://s201.q4cdn.com/141608511/files/doc_financials/2027/Q127/"
-            "Q1FY27-CFO-Commentary.pdf"
-        ),
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-financial-nvda-q1-fy27-cfo-commentary",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="financial-nvda-q1-fy27-results",
-        category_id="financial-reports",
-        title="NVIDIA Q1 FY27 Results.pdf",
-        source_url=(
-            "https://s201.q4cdn.com/141608511/files/doc_financials/2027/q1/"
-            "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf"
-        ),
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-financial-nvda-q1-fy27-results",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="financial-nvda-q1-fy27-presentation",
-        category_id="financial-reports",
-        title="NVIDIA Q1 FY27 Quarterly Presentation.pdf",
-        source_url=(
-            "https://s201.q4cdn.com/141608511/files/doc_financials/2027/Q127/"
-            "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf"
-        ),
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-financial-nvda-q1-fy27-presentation",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="financial-nvda-fy26-annual-report",
-        category_id="financial-reports",
-        title="NVIDIA FY26 Annual Report.pdf",
-        source_url=(
-            "https://s201.q4cdn.com/141608511/files/doc_financials/2026/ar/"
-            "2026-Annual-Report-Web.pdf"
-        ),
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-financial-nvda-fy26-annual-report",
     ),
     OfficialLibrarySourceDefinition(
         library_source_id="financial-micron-report-530bd7ed",
@@ -152,141 +75,6 @@ _OFFICIAL_LIBRARY_SOURCES: tuple[OfficialLibrarySourceDefinition, ...] = (
         demo_source_id="demo-financial-micron-report-9c0becf5",
     ),
     OfficialLibrarySourceDefinition(
-        library_source_id="financial-goog-10-k-2025",
-        category_id="financial-reports",
-        title="GOOG 10-K 2025.pdf",
-        source_url=(
-            "https://s206.q4cdn.com/479360582/files/doc_financials/2025/q4/"
-            "GOOG-10-K-2025.pdf"
-        ),
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-financial-goog-10-k-2025",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="financial-meta-q1-2026-results",
-        category_id="financial-reports",
-        title="Meta Q1 2026 Exhibit 99.1.pdf",
-        source_url=(
-            "https://s21.q4cdn.com/399680738/files/doc_financials/2026/q1/"
-            "Meta-03-31-2026-Exhibit-99-1_final.pdf"
-        ),
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-financial-meta-q1-2026-results",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="financial-meta-q1-2026-presentation",
-        category_id="financial-reports",
-        title="Meta Q1 2026 Earnings Presentation.pdf",
-        source_url=(
-            "https://s21.q4cdn.com/399680738/files/doc_financials/2026/q1/"
-            "Earnings-Presentation-Q1-2026.pdf"
-        ),
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-financial-meta-q1-2026-presentation",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="financial-meta-q1-2026-earnings-call",
-        category_id="financial-reports",
-        title="Meta Q1 2026 Earnings Call Transcript.pdf",
-        source_url=(
-            "https://s21.q4cdn.com/399680738/files/doc_financials/2026/q1/"
-            "META-Q1-2026-Earnings-Call-Transcript.pdf"
-        ),
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-financial-meta-q1-2026-earnings-call",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="financial-microsoft-2025-annual-report",
-        category_id="financial-reports",
-        title="Microsoft 2025 Annual Report.docx",
-        source_url=(
-            "https://cdn-dynmedia-1.microsoft.com/is/content/microsoftcorp/"
-            "2025_AnnualReport.docx"
-        ),
-        mime_type=(
-            "application/vnd.openxmlformats-officedocument."
-            "wordprocessingml.document"
-        ),
-        status="ready",
-        demo_source_id="demo-financial-microsoft-2025-annual-report",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="financial-alibaba-fy2026-interim-report",
-        category_id="financial-reports",
-        title="Alibaba Fiscal Year 2026 Interim Report.pdf",
-        source_url=(
-            "https://data.alibabagroup.com/ecms-files/1514443390/"
-            "2b483071-b7a2-45ea-b6cd-f4d35861bab0/"
-            "Fiscal%20Year%202026%20Interim%20Report.pdf"
-        ),
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-financial-alibaba-fy2026-interim-report",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="research-attention-is-all-you-need",
-        category_id="research-papers",
-        title="Attention Is All You Need.pdf",
-        source_url="https://arxiv.org/pdf/1706.03762",
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-research-attention-is-all-you-need",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="research-rag-survey",
-        category_id="research-papers",
-        title="Retrieval-Augmented Generation for Large Language Models: A Survey.pdf",
-        source_url="https://arxiv.org/pdf/2312.10997",
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-research-rag-survey",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="research-rag-realized",
-        category_id="research-papers",
-        title="Retrieval-Augmented Generation Realized.pdf",
-        source_url=(
-            "https://www.appliedai.de/uploads/files/"
-            "retrieval-augmented-generation-realized/"
-            "AppliedAI_White_Paper_Retrieval-augmented-Generation-"
-            "Realized_FINAL_20240618.pdf"
-        ),
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-research-rag-realized",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="research-toolformer",
-        category_id="research-papers",
-        title="Toolformer: Language Models Can Teach Themselves to Use Tools.pdf",
-        source_url="https://arxiv.org/pdf/2302.04761",
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-research-toolformer",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="research-ai-agents-overview",
-        category_id="research-papers",
-        title="AI Agents Overview.pdf",
-        source_url="https://cseweb.ucsd.edu/~yiying/cse291a-fall25/reading/ai-agents.pdf",
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-research-ai-agents-overview",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="stem-jurafsky-transformers",
-        category_id="stem-books",
-        title="Speech and Language Processing, Chapter 8: Transformers.pdf",
-        source_url="https://web.stanford.edu/~jurafsky/slp3/8.pdf",
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-stem-jurafsky-transformers",
-    ),
-    OfficialLibrarySourceDefinition(
         library_source_id="stem-transformers-tutorial",
         category_id="stem-books",
         title="Transformers Tutorial.pdf",
@@ -299,47 +87,11 @@ _OFFICIAL_LIBRARY_SOURCES: tuple[OfficialLibrarySourceDefinition, ...] = (
         demo_source_id="demo-stem-transformers-tutorial",
     ),
     OfficialLibrarySourceDefinition(
-        library_source_id="stem-deep-learning-transformer-network",
-        category_id="stem-books",
-        title="Deep Learning - Transformer Network.pdf",
-        source_url="https://homel.vsb.cz/~pla06/files/dl/dl_10.pdf",
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-stem-deep-learning-transformer-network",
-    ),
-    OfficialLibrarySourceDefinition(
         library_source_id="stem-information-theory",
         category_id="stem-books",
         title="Information Theory.pdf",
         source_url="https://people.lids.mit.edu/yp/homepage/data/itbook-export.pdf",
         mime_type="application/pdf",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="stem-probability-theory-lecture-notes",
-        category_id="stem-books",
-        title="Probability Theory Lecture Notes.pdf",
-        source_url="https://www.math.union.edu/~marianop/ma41600sum19/Notes.pdf",
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-stem-probability-theory-lecture-notes",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="stem-statistical-learning",
-        category_id="stem-books",
-        title="Statistical Learning Notes.pdf",
-        source_url="http://www.statslab.cam.ac.uk/~rds37/teaching/stat_learning/notes.pdf",
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-stem-statistical-learning",
-    ),
-    OfficialLibrarySourceDefinition(
-        library_source_id="stem-introduction-statistical-learning-theory",
-        category_id="stem-books",
-        title="Introduction to Statistical Learning Theory.pdf",
-        source_url="https://cciliber.github.io/intro-slt/slides/lec1.pdf",
-        mime_type="application/pdf",
-        status="ready",
-        demo_source_id="demo-stem-introduction-statistical-learning-theory",
     ),
 )
 
