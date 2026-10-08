@@ -15,9 +15,9 @@ from tests.support.import_environment import (
 )
 
 
-DEMO_SOURCE_ID = "demo-tsla-q4-2025"
-SPACEX_DEMO_SOURCE_ID = "demo-spacex-s1"
-NVDA_EARNINGS_CALL_DEMO_SOURCE_ID = "demo-financial-nvda-q1-fy27-earnings-call"
+DEMO_SOURCE_ID = "demo-spacex-s1"
+MICRON_DEMO_SOURCE_ID = "demo-financial-micron-report-530bd7ed"
+TRANSFORMERS_DEMO_SOURCE_ID = "demo-stem-transformers-tutorial"
 
 
 class FakeResultStorage:
@@ -107,8 +107,8 @@ def test_should_keep_demo_catalog_metadata_light_for_sources_without_examples(
 
     assert catalog["sources"]
     assert DEMO_SOURCE_ID in loaded_demo_source_ids
-    assert SPACEX_DEMO_SOURCE_ID in loaded_demo_source_ids
-    assert NVDA_EARNINGS_CALL_DEMO_SOURCE_ID not in loaded_demo_source_ids
+    assert MICRON_DEMO_SOURCE_ID not in loaded_demo_source_ids
+    assert TRANSFORMERS_DEMO_SOURCE_ID not in loaded_demo_source_ids
 
 
 def test_should_project_demo_example_cite_markers_and_page_numbers() -> None:
@@ -117,19 +117,10 @@ def test_should_project_demo_example_cite_markers_and_page_numbers() -> None:
         str(source["demo_source_id"]): source
         for source in catalog["sources"]
     }
-    tesla = sources[DEMO_SOURCE_ID]
-    spacex = sources[SPACEX_DEMO_SOURCE_ID]
-    tesla_example = tesla["examples"][0]
-    tesla_citation = tesla_example["citations"][0]
+    spacex = sources[DEMO_SOURCE_ID]
     spacex_example = spacex["examples"][0]
     spacex_citation = spacex_example["citations"][0]
 
-    assert "[[cite:1]]" in tesla_example["answer"]
-    assert tesla_citation["page_citation_page_number"] == 12
-    assert tesla_citation["page_nums"] == [12]
-    assert str(tesla_citation["page_citation_asset_url"]).endswith(
-        "/page_citation_assets/page-12.png"
-    )
     assert "[[cite:1]]" in spacex_example["answer"]
     assert spacex_citation["page_citation_page_number"] == 28
     assert spacex_citation["page_nums"] == [28]
@@ -139,7 +130,7 @@ def test_should_project_demo_example_cite_markers_and_page_numbers() -> None:
 def test_should_preserve_filename_rooted_sections_when_publishing_demo_chunks() -> None:
     source_catalog_module = _load_source_catalog_module()
     catalog = source_catalog_module.DemoSourceCatalog()
-    source = catalog.require_source(NVDA_EARNINGS_CALL_DEMO_SOURCE_ID)
+    source = catalog.require_source(MICRON_DEMO_SOURCE_ID)
     publication_chunks = catalog.publication_chunks(source)
     publication_paths = {
         str(chunk.get("path") or "")
@@ -147,5 +138,5 @@ def test_should_preserve_filename_rooted_sections_when_publishing_demo_chunks() 
         if chunk.get("type") == "page"
     }
 
-    assert f"{source.title}/Root/MANAGEMENT DISCUSSION SECTION" in publication_paths
-    assert f"{source.title}/Root/QUESTION AND ANSWER SECTION" in publication_paths
+    assert f"{source.title}/Root/Appendix" in publication_paths
+    assert f"{source.title}/Root/AI use at Micron" in publication_paths
