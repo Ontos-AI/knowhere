@@ -78,7 +78,7 @@ class ToolBudget:
     inside individual tools) so ``read`` can return full body text from the
     tool while the harness still bounds what the model sees per turn. Aligned
     with final evidence packing via ``EVIDENCE_TEXT_CHAR_BUDGET``
-    (12_000).
+    (15_000).
     """
 
     max_chars: int = EVIDENCE_TEXT_CHAR_BUDGET

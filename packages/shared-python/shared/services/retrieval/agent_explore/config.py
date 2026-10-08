@@ -20,8 +20,8 @@ AGENT_EXPLORE_MODEL = "deepseek-v4-flash"
 AGENT_EXPLORE_CURSOR_MODEL = "composer-2.5"
 
 # One LLM turn = one round-trip that may contain several parallel tool calls
-# (see episode.py).
-AGENT_EXPLORE_MAX_STEPS = 12
+# (see episode.py). Both harnesses count one explore turn as one step.
+AGENT_EXPLORE_MAX_STEPS = 15
 
 # Wall-clock ceiling for the whole episode (LLM round-trips + tool
 # dispatch). A service-level guard, never shown to the model.

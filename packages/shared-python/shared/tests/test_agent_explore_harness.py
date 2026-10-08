@@ -716,7 +716,7 @@ async def test_cursor_harness_rounds_follow_model_call_id_and_pick_phase_rejects
     assert str(outputs["c4"]).startswith("picked: R1.1")
     assert '"status": "finished"' in str(outputs["c6"])
 
-    assert budget.steps_used == 2
+    assert budget.steps_used == 1
     assert episode.tokens_used == 77
     assert [item.handle for item in episode.pool] == ["R1.1"]
     by_round: dict[int, list[str]] = {}

@@ -33,10 +33,12 @@ uncounted. ``corpus_pick`` itself never counts as a step.
 
 Budget dimensions:
 
-- **``max_steps``**: checked in ``_dispatch_sync`` before dispatch. Once
-  ``budget.steps_used`` reaches ``budget.max_steps``, further ``corpus.*``
-  calls are not forwarded; the callback returns a fixed exhausted message
-  plus pool and budget.
+- **``max_steps``**: one explore round (shared ``model_call_id``) is one
+  step, matching the OpenAI harness. Checked when a new explore round
+  starts. Once ``budget.steps_used`` reaches ``budget.max_steps``, further
+  explore rounds are not forwarded; the callback returns a fixed exhausted
+  message plus pool and budget. Same-round sibling ``corpus.*`` calls share
+  that one step and still dispatch.
 - **``wall_clock``**: ``asyncio.wait_for(run.wait(), timeout=budget.wall_clock_seconds)``.
   On timeout, best-effort ``await run.cancel()``.
 - **tokens**: not limited; ``budget.tokens_used`` is only the episode total
@@ -167,23 +169,24 @@ class CursorHarness:
                 round_of[update.call_id] = update.model_call_id
                 state.notify_all()
 
-        def _enter_round(ctx: Any) -> bool | None:
+        def _enter_round(ctx: Any) -> tuple[bool | None, bool]:
             """Wait for this call's round tag (caller holds ``state``).
 
-            Returns whether the call's round is a pick phase, or ``None`` when
-            the tag never arrived.
+            Returns ``(pick_phase, is_new_round)``. ``pick_phase`` is
+            ``None`` when the tag never arrived.
             """
             call_id = ctx.tool_call_id
             if not state.wait_for(
                 lambda: call_id in round_of, timeout=budget.remaining_seconds()
             ):
-                return None
+                return None, False
             model_call_id = round_of[call_id]
             if model_call_id != current_round["id"]:
                 pool.begin_round()
                 current_round["id"] = model_call_id
                 current_round["pick_phase"] = pool.pick_phase
-            return current_round["pick_phase"]
+                return current_round["pick_phase"], True
+            return current_round["pick_phase"], False
 
         def _append_step(**fields: Any) -> None:
             steps.append(AgentStep(step_index=len(steps), **fields))
@@ -202,7 +205,7 @@ class CursorHarness:
             tool_name: str, args: dict[str, Any], ctx: Any
         ) -> str | list[dict[str, Any]]:
             with state:
-                pick_round = _enter_round(ctx)
+                pick_round, new_round = _enter_round(ctx)
                 round_index = pool.round_index
                 if pick_round is None:
                     _reject(tool_name, args, _ROUND_TAG_MISSING)
@@ -210,18 +213,21 @@ class CursorHarness:
                 if pick_round:
                     _reject(tool_name, args, _PICK_PHASE_REJECTION)
                     return _PICK_PHASE_REJECTION
-                if budget.steps_used >= budget.max_steps:
-                    observation = _BUDGET_EXHAUSTED_MESSAGE + "\n" + _state_tail(pool, budget)
-                    _append_step(
-                        tool_name=tool_name,
-                        tool_args=args,
-                        observation_text=observation,
-                        error="budget_max_steps",
-                        elapsed_ms=0,
-                        round_index=round_index,
-                    )
-                    return observation
-                budget.record_step()
+                if new_round:
+                    if budget.steps_used >= budget.max_steps:
+                        observation = (
+                            _BUDGET_EXHAUSTED_MESSAGE + "\n" + _state_tail(pool, budget)
+                        )
+                        _append_step(
+                            tool_name=tool_name,
+                            tool_args=args,
+                            observation_text=observation,
+                            error="budget_max_steps",
+                            elapsed_ms=0,
+                            round_index=round_index,
+                        )
+                        return observation
+                    budget.record_step()
                 readable = pool.readable()
                 decided = pool.decided()
             tool_started = time.perf_counter()
@@ -295,7 +301,8 @@ class CursorHarness:
         def pick_execute(args: dict[str, Any], ctx: Any) -> str:
             args = dict(args or {})
             with state:
-                if _enter_round(ctx) is None:
+                pick_round, _new_round = _enter_round(ctx)
+                if pick_round is None:
                     _reject(PICK_TOOL_NAME, args, _ROUND_TAG_MISSING)
                     return f"error: {_ROUND_TAG_MISSING}"
                 validation_error = validate_pick_args(args)
@@ -326,7 +333,7 @@ class CursorHarness:
         def finish_execute(args: dict[str, Any], ctx: Any) -> str:
             args = dict(args or {})
             with state:
-                pick_round = _enter_round(ctx)
+                pick_round, _new_round = _enter_round(ctx)
                 if pick_round is None or pick_round:
                     message = _ROUND_TAG_MISSING if pick_round is None else _PICK_PHASE_REJECTION
                     _reject(FINISH_TOOL_NAME, args, message)
