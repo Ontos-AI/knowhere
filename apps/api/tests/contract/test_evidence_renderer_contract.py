@@ -7,7 +7,10 @@ from shared.services.retrieval.execution.response_projection import (
     project_public_retrieval_response,
 )
 from shared.services.retrieval.execution.routes import _evidence_fields
-from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
+from shared.services.retrieval.hydration.result_assembly import (
+    assemble_retrieval_results,
+    compose_evidence_parts,
+)
 
 
 def _scoped_row(chunk_id: str, section_path: str, sort_order: int, **extra) -> dict:
@@ -25,12 +28,10 @@ def _scoped_row(chunk_id: str, section_path: str, sort_order: int, **extra) -> d
 
 def test_retrieval_chain_groups_evidence_and_emits_mcp_blocks(monkeypatch) -> None:
     image = {"type": "image", "media_type": "image/jpeg", "data": "aW1n"}
-    monkeypatch.setattr(
-        "shared.services.retrieval.hydration.evidence_compose._try_read_image",
-        lambda row: image,
-    )
-    monkeypatch.setattr(
-        "shared.services.retrieval.hydration.evidence_compose._try_read_image_artifact",
+    monkeypatch.setitem(compose_evidence_parts.__globals__, "_try_read_image", lambda row: image)
+    monkeypatch.setitem(
+        compose_evidence_parts.__globals__,
+        "_try_read_image_artifact",
         lambda row, artifact, **kwargs: image,
     )
     rows = [
