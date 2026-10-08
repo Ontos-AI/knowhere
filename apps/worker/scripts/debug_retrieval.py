@@ -944,7 +944,7 @@ def _render_md_report(all_reports: list[dict[str, Any]]) -> str:
         md.append('### Answer Contract\n')
         md.append('`answer_text` is intentionally empty. Downstream agents synthesize answers from `evidence`.\n\n')
 
-        evidence_text = r.get('evidence_text', '')
+        evidence_text = _evidence_preview(r)
         md.append('### Rendered Evidence\n')
         if evidence_text:
             md.append(f'<details><summary>Full evidence preview ({len(evidence_text)} chars)</summary>\n\n')

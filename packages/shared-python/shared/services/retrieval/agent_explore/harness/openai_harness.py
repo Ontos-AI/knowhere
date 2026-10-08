@@ -441,4 +441,5 @@ class OpenAIHarness:
             stop_reason=stop_reason,
             tokens_used=budget.tokens_used,
             model_name=model,
+            queried_tables=dict(pool.queried_tables()),
         )

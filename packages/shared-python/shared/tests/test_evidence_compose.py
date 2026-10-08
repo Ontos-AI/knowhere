@@ -85,6 +85,59 @@ def test_standalone_table_uses_html() -> None:
     assert "<table><tr><td>Q4</td></tr></table>" in parts[0]["text"]
 
 
+def test_standalone_table_uses_queried_html() -> None:
+    parts = compose_evidence_parts(
+        {
+            "document_id": "doc_a",
+            "chunk_id": "table-1",
+            "chunk_type": "table",
+            "content": "<table><tr><td>FULL TABLE SHOULD NOT APPEAR</td></tr></table>",
+        },
+        {},
+        queried_tables={
+            ("doc_a", "table-1"): "<table><tr><th>Unit</th></tr><tr><td>tablet</td></tr></table>"
+        },
+    )
+    assert parts[0]["type"] == "text"
+    assert "tablet" in parts[0]["text"]
+    assert "FULL TABLE SHOULD NOT APPEAR" not in parts[0]["text"]
+
+
+def test_embedded_table_uses_queried_html() -> None:
+    parts = compose_evidence_parts(
+        {
+            "document_id": "doc_a",
+            "chunk_id": "text-1",
+            "chunk_type": "text",
+            "content": "见表 [tables/a.html] 结束",
+            "chunk_metadata": {
+                "connect_to": [
+                    {
+                        "target": "table-1",
+                        "relation": "embeds",
+                        "ref": "[tables/a.html]",
+                    }
+                ]
+            },
+        },
+        {
+            "table-1": {
+                "document_id": "doc_a",
+                "chunk_id": "table-1",
+                "chunk_type": "table",
+                "content": "<table><tr><td>FULL TABLE SHOULD NOT APPEAR</td></tr></table>",
+            }
+        },
+        queried_tables={
+            ("doc_a", "table-1"): "<table><tr><th>Unit</th></tr><tr><td>tablet</td></tr></table>"
+        },
+    )
+    composed_text = "".join(part["text"] for part in parts if part["type"] == "text")
+    assert "tablet" in composed_text
+    assert "FULL TABLE SHOULD NOT APPEAR" not in composed_text
+    assert "[tables/" not in composed_text
+
+
 def test_standalone_image_is_bytes(monkeypatch) -> None:
     monkeypatch.setattr(
         "shared.services.retrieval.hydration.evidence_compose._try_read_image_artifact",
@@ -163,6 +216,43 @@ async def test_text_result_keeps_placeholders_and_composes_assets(monkeypatch) -
     assert "<table><tr><td>Q4</td></tr></table>" in composed_text
     assert "[tables/" not in composed_text
     assert "[images/" not in composed_text
+
+
+@pytest.mark.asyncio
+async def test_assemble_uses_queried_subtable_and_keeps_full_without_map() -> None:
+    full_html = "<table><tr><td>FULL TABLE SHOULD NOT APPEAR</td></tr></table>"
+    sub_html = "<table><tr><th>Unit</th></tr><tr><td>tablet</td></tr></table>"
+    rows = [
+        {
+            "document_id": "doc_a",
+            "chunk_id": "table-1",
+            "chunk_type": "table",
+            "content": full_html,
+            "sort_order": 1,
+        }
+    ]
+    queried = await assemble_retrieval_results(
+        rows=rows,
+        exclude_document_ids=[],
+        exclude_sections=[],
+        queried_tables={("doc_a", "table-1"): sub_html},
+    )
+    queried_text = "".join(
+        part["text"] for part in queried[0]["composed"] if part["type"] == "text"
+    )
+    assert "tablet" in queried_text
+    assert "FULL TABLE SHOULD NOT APPEAR" not in queried_text
+
+    classic = await assemble_retrieval_results(
+        rows=rows,
+        exclude_document_ids=[],
+        exclude_sections=[],
+    )
+    classic_text = "".join(
+        part["text"] for part in classic[0]["composed"] if part["type"] == "text"
+    )
+    assert "FULL TABLE SHOULD NOT APPEAR" in classic_text
+    assert "tablet" not in classic_text
 
 
 def test_text_image_keeps_newlines_around_image(monkeypatch) -> None:
@@ -245,7 +335,7 @@ def test_unreachable_assets_clear_placeholders(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "shared.services.retrieval.hydration.evidence_compose._try_read_table_html",
-        lambda row: None,
+        lambda row, queried_tables=None: None,
     )
     parts = compose_evidence_parts(
         {

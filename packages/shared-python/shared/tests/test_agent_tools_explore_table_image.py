@@ -349,6 +349,11 @@ async def test_query_table_select_returns_html_rows(
     assert "<table>" in result.text
     assert "30 mg" in result.text
     assert result.refs == [{"document_id": DOC_ID, "chunk_id": CHUNK_SMALL}]
+    assert result.payload["document_id"] == DOC_ID
+    assert result.payload["chunk_id"] == CHUNK_SMALL
+    assert result.payload["table_html"]
+    assert "30 mg" in result.payload["table_html"]
+    assert result.payload["table_html"].startswith("<table>")
 
 
 @pytest.mark.asyncio

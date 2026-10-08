@@ -56,6 +56,7 @@ class EvidencePool:
         self._batch_staged: dict[str, Candidate] = {}
         self._batch_round = 0
         self._decided: dict[tuple[str, str], Decision] = {}
+        self._queried_tables: dict[tuple[str, str], str] = {}
 
     def begin_round(self) -> None:
         self.round_index += 1
@@ -71,6 +72,7 @@ class EvidencePool:
         if result.error:
             return []
         self._collect_seen(result)
+        self._record_queried_table(tool_name, result)
         if tool_name == "corpus.read":
             return self._issue_read(result)
         if tool_name == "corpus.outline":
@@ -116,6 +118,9 @@ class EvidencePool:
     def decided(self) -> Mapping[tuple[str, str], Decision]:
         return MappingProxyType(dict(self._decided))
 
+    def queried_tables(self) -> Mapping[tuple[str, str], str]:
+        return MappingProxyType(self._queried_tables)
+
     def render_candidates(self, candidates: list[Candidate]) -> str:
         if not candidates:
             return ""
@@ -154,6 +159,16 @@ class EvidencePool:
             (candidate.document_id, chunk_id) in self._chunk_keys
             for chunk_id in candidate.chunk_ids
         )
+
+    def _record_queried_table(self, tool_name: str, result: ToolResult) -> None:
+        if tool_name != "corpus.query_table":
+            return
+        document_id = str(result.payload.get("document_id") or "").strip()
+        chunk_id = str(result.payload.get("chunk_id") or "").strip()
+        table_html = result.payload.get("table_html")
+        if not document_id or not chunk_id or not isinstance(table_html, str):
+            return
+        self._queried_tables[(document_id, chunk_id)] = table_html
 
     def _collect_seen(self, result: ToolResult) -> None:
         for key in ("rows", "chunks"):

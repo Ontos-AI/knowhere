@@ -49,7 +49,7 @@ def open_agent_explore_database_context() -> AbstractAsyncContextManager[AsyncSe
 
 
 def _evidence_fields(rows: list[dict]) -> dict:
-    # TODO: 后面用 TypeSafe JEV 补结果重排/筛选。现在没有这一步。
+    # TODO: later use TypeSafe JEV for result rerank/filter. This step does not exist yet.
     evidence = group_evidence_units(
         [
             {
@@ -271,6 +271,7 @@ async def _run_agent_explore_route(
             exclude_sections=context.exclude_sections,
             allowed_chunk_types=context.allowed_chunk_types,
             revision_pins=context.revision_pins,
+            queried_tables=episode.queried_tables,
         )
         evidence = compose_pool_evidence(episode.pool, assembled_rows)
         evidence_fields = {

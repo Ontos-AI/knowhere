@@ -38,3 +38,4 @@ class EpisodeResult:
     stop_reason: str = "finished"
     tokens_used: int = 0
     model_name: str = ""
+    queried_tables: dict[tuple[str, str], str] = field(default_factory=dict)

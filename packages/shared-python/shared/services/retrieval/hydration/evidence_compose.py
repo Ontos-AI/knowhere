@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import tempfile
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from loguru import logger
@@ -42,15 +43,16 @@ _IMAGE_MEDIA_TYPES = {
 def compose_evidence_parts(
     row: dict[str, Any],
     rows_by_chunk_id: dict[str, dict[str, Any]],
+    queried_tables: Mapping[tuple[str, str], str] | None = None,
 ) -> list[dict[str, Any]]:
     chunk_type = normalize_chunk_type(row.get("chunk_type"))
     if chunk_type == "page":
         return _compose_page_parts(row)
     if chunk_type == "table":
-        return _compose_standalone_table_parts(row)
+        return _compose_standalone_table_parts(row, queried_tables)
     if chunk_type == "image":
         return _compose_standalone_image_parts(row)
-    return _compose_text_parts(row, rows_by_chunk_id)
+    return _compose_text_parts(row, rows_by_chunk_id, queried_tables)
 
 
 _GROUP_BODY_INDENT = "  "
@@ -139,8 +141,11 @@ def _compose_page_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
     return parts
 
 
-def _compose_standalone_table_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
-    html = _try_read_table_html(row)
+def _compose_standalone_table_parts(
+    row: dict[str, Any],
+    queried_tables: Mapping[tuple[str, str], str] | None = None,
+) -> list[dict[str, Any]]:
+    html = _try_read_table_html(row, queried_tables)
     if html is None:
         return []
     return [_text_part(f"\n{html}\n")]
@@ -160,11 +165,12 @@ def _compose_standalone_image_parts(row: dict[str, Any]) -> list[dict[str, Any]]
 def _compose_text_parts(
     row: dict[str, Any],
     rows_by_chunk_id: dict[str, dict[str, Any]],
+    queried_tables: Mapping[tuple[str, str], str] | None = None,
 ) -> list[dict[str, Any]]:
     content = str(row.get("content") or "")
     tables, images = _embed_targets(row, rows_by_chunk_id)
     for _target_id, target_row, ref in tables:
-        html = _try_read_table_html(target_row)
+        html = _try_read_table_html(target_row, queried_tables)
         content, placed = _replace_placeholder(content, ref, "" if html is None else f"\n{html}\n")
         if html is not None and not placed:
             _warn_skipped(target_row, "table", "placeholder not found")
@@ -265,7 +271,14 @@ def _earliest_image_placeholder(
     return text[:index], text[index + length :], target_row
 
 
-def _try_read_table_html(row: dict[str, Any]) -> str | None:
+def _try_read_table_html(
+    row: dict[str, Any],
+    queried_tables: Mapping[tuple[str, str], str] | None = None,
+) -> str | None:
+    if queried_tables is not None:
+        key = (str(row.get("document_id") or ""), str(row.get("chunk_id") or ""))
+        if key in queried_tables:
+            return queried_tables[key].strip()
     try:
         html = load_table_html(row).strip()
     except TableDownloadError as exc:

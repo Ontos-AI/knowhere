@@ -190,6 +190,8 @@ def normalize_select_sql(sql: str) -> str | None:
     return text
 
 
+# TODO: later adapt nested / multi-level row and column headers.
+# Current mapping is first row as columns and the first cell of each data row as row_header.
 def sql_columns(grid: list[list[str]]) -> list[str]:
     if not grid:
         return ["row_header"]

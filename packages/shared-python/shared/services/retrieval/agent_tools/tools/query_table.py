@@ -137,10 +137,11 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         connection.close()
 
     result_grid = [result_headers, *result_rows] if result_headers else []
+    table_html = grid_to_html(result_grid)
     text = (
         f"### {doc.source_file_name} ({document_id}) / {section_path} [table]\n"
         f"columns={', '.join(columns)}\n"
-        f"{grid_to_html(result_grid)}"
+        f"{table_html}"
     )
     return ToolResult(
         text=text,
@@ -150,6 +151,7 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             "columns": columns,
             "headers": result_headers,
             "rows": result_rows,
+            "table_html": table_html,
         },
         refs=[{"document_id": document_id, "chunk_id": chunk_id}],
     )

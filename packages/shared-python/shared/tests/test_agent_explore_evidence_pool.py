@@ -23,6 +23,7 @@ from shared.services.retrieval.agent_explore.evidence_pool import (
     trace_status,
 )
 from shared.services.retrieval.agent_tools import Decision, ToolResult
+from shared.services.retrieval.hydration.evidence_compose import compose_evidence_parts
 from shared.services.retrieval.agent_tools.section_path_lookup import (
     section_path_received,
 )
@@ -464,3 +465,108 @@ def test_issue_ignores_other_tools_and_errors() -> None:
     assert pool.issue("corpus.grep", ToolResult(text="hits")) == []
     assert pool.issue("corpus.read", ToolResult(text="", error="bad args")) == []
     assert pool.issue("corpus.assets", ToolResult(text="assets")) == []
+
+
+def test_query_table_records_last_successful_html_and_issues_nothing() -> None:
+    pool = EvidencePool()
+    first = ToolResult(
+        text="first",
+        payload={
+            "document_id": "doc_a",
+            "chunk_id": "t1",
+            "table_html": "<table>first</table>",
+        },
+    )
+    second = ToolResult(
+        text="second",
+        payload={
+            "document_id": "doc_a",
+            "chunk_id": "t1",
+            "table_html": "<table>second</table>",
+        },
+    )
+    failed = ToolResult(
+        text="",
+        error="bad sql",
+        payload={
+            "document_id": "doc_a",
+            "chunk_id": "t1",
+            "table_html": "<table>failed</table>",
+        },
+    )
+    other_doc = ToolResult(
+        text="other",
+        payload={
+            "document_id": "doc_b",
+            "chunk_id": "t1",
+            "table_html": "<table>other</table>",
+        },
+    )
+    assert pool.issue("corpus.query_table", first) == []
+    assert pool.issue("corpus.query_table", second) == []
+    assert pool.issue("corpus.query_table", failed) == []
+    assert pool.issue("corpus.query_table", other_doc) == []
+    assert pool.issue("corpus.grep", ToolResult(text="hits")) == []
+    assert dict(pool.queried_tables()) == {
+        ("doc_a", "t1"): "<table>second</table>",
+        ("doc_b", "t1"): "<table>other</table>",
+    }
+    assert pool.entries == []
+
+
+def test_queried_table_reaches_pool_evidence() -> None:
+    pool = EvidencePool()
+    pool.issue(
+        "corpus.query_table",
+        ToolResult(
+            text="ok",
+            payload={
+                "document_id": "doc_a",
+                "chunk_id": "c1",
+                "table_html": "<table><tr><td>sub</td></tr></table>",
+            },
+        ),
+    )
+    parts = compose_evidence_parts(
+        {
+            "document_id": "doc_a",
+            "chunk_id": "c1",
+            "chunk_type": "table",
+            "content": "<table><tr><td>FULL</td></tr></table>",
+        },
+        {},
+        queried_tables=pool.queried_tables(),
+    )
+    evidence = compose_pool_evidence(
+        [
+            Candidate(
+                handle="R1.1",
+                kind="read",
+                document_id="doc_a",
+                source_file_name="guide.pdf",
+                section_path="2 Treatment",
+                chunk_ids=("c1",),
+            )
+        ],
+        [{"chunk_id": "c1", "sort_order": 1, "composed": parts}],
+    )
+    text = "".join(part["text"] for part in evidence if part["type"] == "text")
+    assert "sub" in text
+    assert "FULL" not in text
+
+
+def test_query_table_without_table_html_is_not_recorded() -> None:
+    pool = EvidencePool()
+    pool.issue(
+        "corpus.query_table",
+        ToolResult(
+            text="ok",
+            payload={
+                "document_id": "doc_a",
+                "chunk_id": "t1",
+                "headers": ["Unit"],
+                "rows": [["tablet"]],
+            },
+        ),
+    )
+    assert dict(pool.queried_tables()) == {}
