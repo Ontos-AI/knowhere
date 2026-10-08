@@ -10,10 +10,11 @@ ambiguity instead of guessing.
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import DocumentSection
 from shared.services.retrieval.agent_tools.registry import ReadableAddresses
 from shared.services.retrieval.search.lexical_text import (
     normalize_section_path,
@@ -60,16 +61,18 @@ def format_ambiguous_section_path_error(normalized: str, matches: list[str]) -> 
     )
 
 
-def section_path_anchor_filter(resolved_path: str):
+def section_path_anchor_filter(resolved_path: str, document_id: str = ""):
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(document_id)
     """SQL filter for one section (``mode=self`` anchor)."""
-    return DocumentSection.section_path == resolved_path
+    return corpusStorage.DocumentSection.section_path == resolved_path
 
 
-def section_path_subtree_filter(resolved_path: str):
+def section_path_subtree_filter(resolved_path: str, document_id: str = ""):
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(document_id)
     """SQL filter for a section and all descendants (``mode=descendants``)."""
     return or_(
-        DocumentSection.section_path == resolved_path,
-        DocumentSection.section_path.like(f"{resolved_path} / %"),
+        corpusStorage.DocumentSection.section_path == resolved_path,
+        corpusStorage.DocumentSection.section_path.like(f"{resolved_path} / %"),
     )
 
 
@@ -81,23 +84,24 @@ async def resolve_section_path_anchor(
     section_path: str,
 ) -> tuple[str | None, str | None]:
     """Resolve one canonical ``section_path`` or return ``(None, error)``."""
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(document_id)
     normalized = normalize_section_path(section_path)
     base = (
-        select(DocumentSection.section_path)
-        .where(DocumentSection.document_id == document_id)
-        .where(DocumentSection.job_result_id == job_result_id)
+        select(corpusStorage.DocumentSection.section_path)
+        .where(corpusStorage.DocumentSection.document_id == document_id)
+        .where(corpusStorage.DocumentSection.job_result_id == job_result_id)
     )
 
-    exact_row = (await db.execute(base.where(DocumentSection.section_path == normalized))).first()
+    exact_row = (await db.execute(base.where(corpusStorage.DocumentSection.section_path == normalized))).first()
     if exact_row is not None and exact_row[0]:
         return str(exact_row[0]), None
 
     suffix_filter = or_(
-        DocumentSection.section_path == normalized,
-        DocumentSection.section_path.like(f"% / {normalized}"),
+        corpusStorage.DocumentSection.section_path == normalized,
+        corpusStorage.DocumentSection.section_path.like(f"% / {normalized}"),
     )
     suffix_rows = (
-        await db.execute(base.where(suffix_filter).order_by(DocumentSection.sort_order))
+        await db.execute(base.where(suffix_filter).order_by(corpusStorage.DocumentSection.sort_order))
     ).all()
     matches = paths_matching_section_ref(
         normalized, [str(row[0]) for row in suffix_rows if row and row[0]]

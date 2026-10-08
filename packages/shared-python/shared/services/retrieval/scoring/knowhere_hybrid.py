@@ -13,7 +13,7 @@ import os
 from dataclasses import dataclass
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
-from shared.utils.text_utils import tokenize_for_retrieval as _tokenize_word_level
+from shared.services.retrieval.publication_preparation_cache import PublicationPreparationCache
 
 RRF_K = 60
 CHANNEL_WEIGHT_PATH = 1.0
@@ -30,12 +30,7 @@ def tokenize_for_retrieval(text: str, *, dedupe: bool = True) -> List[str]:
     ``min_token_length=2`` so map-unit indexes match ``document_chunks`` search
     text. Character-level regex tokenization was removed.
     """
-    return _tokenize_word_level(
-        text,
-        stopwords=[],
-        dedupe=dedupe,
-        min_token_length=2,
-    )
+    return PublicationPreparationCache.tokenize(text, dedupe=dedupe)
 
 
 def tokenize_query_for_ranker(query: str) -> List[str]:

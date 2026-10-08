@@ -60,14 +60,9 @@ class _GrepRows:
                 DOC_ID,
                 "table",
                 "dose table 30 mg",
-                "<table><tr><td>30 mg</td></tr></table>",
-                TABLE_FILE,
-                {"summary": "dose table"},
-                REV_ID,
-                JOB_ID,
+                1,
                 PATH_ROOT,
                 FILE_NAME,
-                1,
             )
         ]
 

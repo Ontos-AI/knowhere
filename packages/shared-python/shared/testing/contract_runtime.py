@@ -377,6 +377,10 @@ def clear_application_modules() -> None:
             sys.modules.pop(module_name, None)
             continue
 
+        if module_name == "shared.services.retrieval" or module_name.startswith("shared.services.retrieval."):
+            sys.modules.pop(module_name, None)
+            continue
+
         if module_name == "shared.services.redis" or module_name.startswith(
             "shared.services.redis."
         ):
@@ -820,3 +824,22 @@ def reset_contract_object_storage() -> None:
         parents=True,
         exist_ok=True,
     )
+
+
+async def configure_runtime_database_role(monkeypatch: MonkeyPatch, adminUrl: str) -> None:
+    engine = create_async_engine(adminUrl)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("DO $$ BEGIN IF NOT EXISTS(SELECT FROM pg_roles WHERE rolname = 'contract_runtime') THEN CREATE ROLE contract_runtime LOGIN NOSUPERUSER NOBYPASSRLS; END IF; END $$"))
+            await connection.execute(text("GRANT USAGE, CREATE ON SCHEMA public TO contract_runtime"))
+            await connection.execute(text("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO contract_runtime"))
+            await connection.execute(text("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO contract_runtime"))
+            await connection.execute(text('ALTER TABLE "user" OWNER TO contract_runtime'))
+            # Reset destroys test content; reseed only the immutable directory.
+            import json
+            entries = json.loads((_API_ROOT / "alembic/demo-corpus-catalog.json").read_text())
+            for entry in entries:
+                await connection.execute(text("INSERT INTO demo_documents (document_id, demo_source_id, title, category_id, catalog_metadata, user_id, namespace, status, source_file_name, parse_track, created_at, updated_at) VALUES (:document_id, :demo_source_id, :title, :category_id, CAST(:catalog_metadata AS json), '__knowhere_demo__', '__knowhere_demo__', 'active', :file_name, 'chunk', now(), now())"), {**entry, "catalog_metadata": json.dumps(entry["catalog_metadata"])})
+    finally:
+        await engine.dispose()
+    monkeypatch.setenv("DATABASE_URL", make_url(adminUrl).set(username="contract_runtime", password=None).render_as_string(hide_password=False))

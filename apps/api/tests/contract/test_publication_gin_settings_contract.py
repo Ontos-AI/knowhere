@@ -10,7 +10,6 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session
 
-from shared.core.config import settings
 from shared.services.retrieval.publication_service import RetrievalPublicationService
 from shared.testing.contract_runtime import (
     PostgreSQLProcess,
@@ -59,7 +58,7 @@ def _publish(db: Session, scope: PublicationScope) -> str:
     return str(db.execute(text("SHOW gin_pending_list_limit")).scalar_one())
 
 
-@pytest.mark.parametrize("strategy", ("baseline", "candidate"))
+@pytest.mark.parametrize("strategy", ("candidate",))
 def test_gin_limit_is_local_to_sync_publication_transaction(
     strategy: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -67,7 +66,6 @@ def test_gin_limit_is_local_to_sync_publication_transaction(
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
-    monkeypatch.setattr(settings, "KNOWHERE_PUBLICATION_STRATEGY", strategy)
     database_url = make_url(get_contract_database_url()).set(
         drivername="postgresql+psycopg2"
     )
@@ -79,14 +77,14 @@ def test_gin_limit_is_local_to_sync_publication_transaction(
             session.commit()
             default_limit = str(session.execute(text("SHOW gin_pending_list_limit")).scalar_one())
             observed_limit = _publish(session, scope)
-            assert observed_limit == ("64MB" if strategy == "candidate" else default_limit)
+            assert observed_limit == "64MB"
             session.rollback()
             assert str(session.execute(text("SHOW gin_pending_list_limit")).scalar_one()) == default_limit
     finally:
         engine.dispose()
 
 
-@pytest.mark.parametrize("strategy", ("baseline", "candidate"))
+@pytest.mark.parametrize("strategy", ("candidate",))
 async def test_gin_limit_is_local_to_async_publication_transaction(
     strategy: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -94,7 +92,6 @@ async def test_gin_limit_is_local_to_async_publication_transaction(
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
     await prepare_contract_storage()
-    monkeypatch.setattr(settings, "KNOWHERE_PUBLICATION_STRATEGY", strategy)
     database_url = make_url(get_contract_database_url()).set(
         drivername="postgresql+asyncpg"
     )
@@ -107,7 +104,7 @@ async def test_gin_limit_is_local_to_async_publication_transaction(
             await session.commit()
             default_limit = str((await session.execute(text("SHOW gin_pending_list_limit"))).scalar_one())
             observed_limit = await session.run_sync(lambda db: _publish(db, scope))
-            assert observed_limit == ("64MB" if strategy == "candidate" else default_limit)
+            assert observed_limit == "64MB"
             await session.rollback()
             assert str((await session.execute(text("SHOW gin_pending_list_limit"))).scalar_one()) == default_limit
     finally:

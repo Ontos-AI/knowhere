@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from shared.services.retrieval.document_scope import DocumentScope
 
 from collections.abc import Mapping
@@ -9,12 +11,6 @@ from sqlalchemy import and_, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 
-from shared.models.database.document import (
-    Document,
-    DocumentChunk,
-    DocumentSection,
-    RetrievalServingRevisionManifest,
-)
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.search.section_filters import is_excluded_section
 from shared.services.retrieval.serving_manifest import decode_serving_manifest
@@ -27,18 +23,19 @@ async def count_manifest_chunks(
     revision_pins: Mapping[str, str],
 ) -> int | None:
     """Count chunks exactly from complete pinned manifests when available."""
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(next(iter(revision_pins), ''))
     if not revision_pins:
         return None
     statement = select(
-        RetrievalServingRevisionManifest.document_id,
-        RetrievalServingRevisionManifest.job_result_id,
-        RetrievalServingRevisionManifest.payload_zlib,
-        RetrievalServingRevisionManifest.checksum,
-        RetrievalServingRevisionManifest.format_version,
+        corpusStorage.RetrievalServingRevisionManifest.document_id,
+        corpusStorage.RetrievalServingRevisionManifest.job_result_id,
+        corpusStorage.RetrievalServingRevisionManifest.payload_zlib,
+        corpusStorage.RetrievalServingRevisionManifest.checksum,
+        corpusStorage.RetrievalServingRevisionManifest.format_version,
     ).where(
         tuple_(
-            RetrievalServingRevisionManifest.document_id,
-            RetrievalServingRevisionManifest.job_result_id,
+            corpusStorage.RetrievalServingRevisionManifest.document_id,
+            corpusStorage.RetrievalServingRevisionManifest.job_result_id,
         ).in_(list(revision_pins.items()))
     )
     try:
@@ -82,33 +79,34 @@ async def count_scoped_chunks(
     revision_pins: Mapping[str, str] | None = None,
     max_count: int | None = None,
 ) -> int:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     if revision_pins is None:
         stmt = (
-            select(DocumentChunk.id)
+            select(corpusStorage.DocumentChunk.id)
             .join(
-                Document,
-                (Document.document_id == DocumentChunk.document_id)
-                & (Document.current_job_result_id == DocumentChunk.job_result_id),
+                corpusStorage.Document,
+                (corpusStorage.Document.document_id == corpusStorage.DocumentChunk.document_id)
+                & (corpusStorage.Document.current_job_result_id == corpusStorage.DocumentChunk.job_result_id),
             )
-            .where(Document.user_id == user_id)
-            .where(Document.namespace == namespace)
-            .where(Document.status == 'active')
+            .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
+            .where(corpusStorage.Document.namespace == namespace)
+            .where(corpusStorage.Document.status == 'active')
         )
     else:
         stmt = (
-            select(DocumentChunk.id)
-            .join(Document, Document.document_id == DocumentChunk.document_id)
-            .where(Document.user_id == user_id)
-            .where(Document.namespace == namespace)
+            select(corpusStorage.DocumentChunk.id)
+            .join(corpusStorage.Document, corpusStorage.Document.document_id == corpusStorage.DocumentChunk.document_id)
+            .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
+            .where(corpusStorage.Document.namespace == namespace)
             .where(
-                tuple_(DocumentChunk.document_id, DocumentChunk.job_result_id).in_(
+                tuple_(corpusStorage.DocumentChunk.document_id, corpusStorage.DocumentChunk.job_result_id).in_(
                     list(revision_pins.items())
                 )
             )
         )
-    stmt = stmt.where(document_scope.excluding(exclude_document_ids).predicate(Document.document_id))
+    stmt = stmt.where(document_scope.excluding(exclude_document_ids).predicate(corpusStorage.Document.document_id))
     if allowed_chunk_types is not None:
-        stmt = stmt.where(func.lower(DocumentChunk.chunk_type).in_(list(allowed_chunk_types)))
+        stmt = stmt.where(func.lower(corpusStorage.DocumentChunk.chunk_type).in_(list(allowed_chunk_types)))
 
     if max_count is not None:
         stmt = stmt.limit(max_count)
@@ -132,32 +130,33 @@ async def load_all_scoped_chunks(
     filter_mode: str,
     revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     if revision_pins is None:
         chunk_join = (
-            (DocumentChunk.document_id == Document.document_id)
-            & (DocumentChunk.job_result_id == Document.current_job_result_id)
+            (corpusStorage.DocumentChunk.document_id == corpusStorage.Document.document_id)
+            & (corpusStorage.DocumentChunk.job_result_id == corpusStorage.Document.current_job_result_id)
         )
     else:
         chunk_join = and_(
-            DocumentChunk.document_id == Document.document_id,
-            tuple_(DocumentChunk.document_id, DocumentChunk.job_result_id).in_(
+            corpusStorage.DocumentChunk.document_id == corpusStorage.Document.document_id,
+            tuple_(corpusStorage.DocumentChunk.document_id, corpusStorage.DocumentChunk.job_result_id).in_(
                 list(revision_pins.items())
             ),
         )
     stmt = (
-        select(Document, DocumentChunk, DocumentSection, JobResult)
-        .join(DocumentChunk, chunk_join)
-        .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
-        .join(JobResult, JobResult.id == DocumentChunk.job_result_id)
-        .where(Document.user_id == user_id)
-        .where(Document.namespace == namespace)
-        .order_by(DocumentChunk.sort_order)
+        select(corpusStorage.Document, corpusStorage.DocumentChunk, corpusStorage.DocumentSection, JobResult)
+        .join(corpusStorage.DocumentChunk, chunk_join)
+        .outerjoin(corpusStorage.DocumentSection, corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id)
+        .join(JobResult, JobResult.id == corpusStorage.DocumentChunk.job_result_id)
+        .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
+        .where(corpusStorage.Document.namespace == namespace)
+        .order_by(corpusStorage.DocumentChunk.sort_order)
     )
     if revision_pins is None:
-        stmt = stmt.where(Document.status == 'active')
-    stmt = stmt.where(document_scope.excluding(exclude_document_ids).predicate(Document.document_id))
+        stmt = stmt.where(corpusStorage.Document.status == 'active')
+    stmt = stmt.where(document_scope.excluding(exclude_document_ids).predicate(corpusStorage.Document.document_id))
     if allowed_chunk_types is not None:
-        stmt = stmt.where(func.lower(DocumentChunk.chunk_type).in_(list(allowed_chunk_types)))
+        stmt = stmt.where(func.lower(corpusStorage.DocumentChunk.chunk_type).in_(list(allowed_chunk_types)))
 
     result = await db.execute(stmt)
     rows: list[dict[str, Any]] = []
@@ -190,6 +189,10 @@ async def load_all_scoped_chunks(
             'chunk_metadata': chunk.chunk_metadata or {},
             'job_result_id': chunk.job_result_id,
             'job_id': job_result.job_id if job_result else None,
+            'result_raw_prefix': (
+                (job_result.document_metadata or {}).get('result_raw_prefix')
+                if job_result else None
+            ),
             'sort_order': chunk.sort_order,
         })
     return rows

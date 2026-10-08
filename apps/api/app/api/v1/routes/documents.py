@@ -63,6 +63,7 @@ async def list_documents(
 @router.get("/{document_id}")
 async def get_document(
     document_id: str,
+    job_result_id: str | None = Query(None, max_length=36),
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -70,6 +71,7 @@ async def get_document(
         db,
         user_id=current_user.user_id,
         document_id=document_id,
+        job_result_id=job_result_id,
     )
     if document is None:
         raise NotFoundException(
@@ -83,6 +85,7 @@ async def get_document(
 @router.get("/{document_id}/chunks")
 async def list_document_chunks(
     document_id: str,
+    job_result_id: str | None = Query(None, max_length=36),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=200, description="Items per page"),
     chunk_type: DocumentChunkType | None = Query(None, description="Chunk type filter"),
@@ -97,6 +100,7 @@ async def list_document_chunks(
         db,
         user_id=current_user.user_id,
         document_id=document_id,
+        job_result_id=job_result_id,
         page=page,
         page_size=page_size,
         chunk_type=chunk_type,
@@ -115,6 +119,7 @@ async def list_document_chunks(
 async def get_document_chunk(
     document_id: str,
     document_chunk_id: str,
+    job_result_id: str | None = Query(None, max_length=36),
     include_asset_urls: bool = Query(
         False,
         description="Generate 7-day asset URLs for image/table chunks when true",
@@ -126,6 +131,7 @@ async def get_document_chunk(
         db,
         user_id=current_user.user_id,
         document_id=document_id,
+        job_result_id=job_result_id,
         document_chunk_id=document_chunk_id,
         include_asset_urls=include_asset_urls,
     )

@@ -10,9 +10,6 @@ from loguru import logger
 
 from shared.core.celery_app import celery_app
 from shared.core.logging import setup_logging
-from shared.services.retrieval.publication_strategy import (
-    announce_publication_strategy,
-)
 from shared.services.worker_health import start_worker_heartbeat, stop_worker_heartbeat
 
 _CHILD_PROCESS_TERM_TIMEOUT_SECONDS: float = 5
@@ -47,7 +44,15 @@ def _stop_child_process(
 def init_worker(**kwargs: object) -> None:
     """Initialize structured logging and sync Redis when worker process starts."""
     setup_logging(service_name="knowhere-worker")
-    announce_publication_strategy("knowhere-worker")
+    from shared.core.database_sync import get_sync_db_context
+    from shared.services.retrieval.demo_authorization import verify_runtime_database_role
+    with get_sync_db_context() as database:
+        try:
+            verify_runtime_database_role(database)
+        except RuntimeError as error:
+            # Celery logs and suppresses ordinary signal receiver exceptions.
+            # Exit the process so a bypassing role cannot consume any tasks.
+            raise SystemExit(str(error)) from error
     start_worker_heartbeat()
 
     # Do not cancel gevent tasks from Celery's reconnect or shutdown lifecycle.
@@ -142,6 +147,11 @@ def run_worker() -> None:
     lock, while Kombu's broker mutex protects the restoration transaction.
     """
     from shared.core.config import settings
+    from shared.core.database_sync import get_sync_db_context
+    from shared.services.retrieval.demo_authorization import verify_runtime_database_role
+
+    with get_sync_db_context() as database:
+        verify_runtime_database_role(database)
 
     _register_task_modules()
 

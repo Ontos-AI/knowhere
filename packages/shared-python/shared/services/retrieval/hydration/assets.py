@@ -4,13 +4,56 @@ import asyncio
 from typing import Any
 
 from loguru import logger
+from sqlalchemy import select
+
+from shared.core.database import get_db_context
+from shared.models.database.demo_corpus import DemoDocument, DemoDocumentMapUnitIndex
+from shared.models.database.job_result import JobResult
+from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.storage.demo_asset_signer import DemoAssetSigner
 
 from shared.services.retrieval.hydration.row_utils import MEDIA_CHUNK_TYPES, normalize_chunk_type
 from shared.services.storage.page_pdf_crop import crop_source_pdf_pages
+from shared.services.storage.raw_prefix_arguments import RawPrefixArguments
 from shared.services.storage.result_storage import get_result_storage
 
 AssetUrlValue = str
-PagePdfRequestKey = tuple[str, tuple[int, ...]]
+PagePdfRequestKey = tuple[str, tuple[int, ...], str]
+
+
+async def _load_demo_asset_signers(rows: list[dict[str, Any]]) -> None:
+    revisions: dict[str, str] = {
+        str(row["job_result_id"]): str(row["document_id"])
+        for row in rows
+        if row.get("job_result_id") and CorpusStorage.resolve_document(str(row.get("document_id") or "")).is_demo
+    }
+    if not revisions:
+        return
+    # Load every needed revision in one query. An unpublished or archived
+    # revision never supplies a signing capability; demo RLS enforces this too.
+    async with get_db_context() as db:
+        records = (await db.execute(
+            select(JobResult.id, JobResult.job_id, JobResult.document_metadata)
+            .join(DemoDocument, DemoDocument.document_id == JobResult.demo_document_id)
+            .join(DemoDocumentMapUnitIndex, (DemoDocumentMapUnitIndex.document_id == DemoDocument.document_id) & (DemoDocumentMapUnitIndex.job_result_id == JobResult.id))
+            .where(JobResult.id.in_(revisions), DemoDocument.status == "active")
+        )).all()
+    signers: dict[str, DemoAssetSigner] = {
+        str(revision): DemoAssetSigner(str(job), metadata or {})
+        for revision, job, metadata in records
+    }
+    for row in rows:
+        if CorpusStorage.resolve_document(str(row.get("document_id") or "")).is_demo:
+            row["demo_asset_signer"] = signers.get(str(row.get("job_result_id") or ""))
+
+
+def _is_demo_row(row: dict[str, Any]) -> bool:
+    return CorpusStorage.resolve_document(str(row.get("document_id") or "")).is_demo
+
+
+def _sign_demo_asset(row: dict[str, Any], artifact_ref: str) -> str | None:
+    signer: object = row.get("demo_asset_signer")
+    return signer.generate_url(artifact_ref) if isinstance(signer, DemoAssetSigner) else None
 
 
 def _normalize_artifact_ref(asset_ref: object) -> str | None:
@@ -93,6 +136,8 @@ def _coerce_page_nums(value: object) -> list[int]:
 
 
 def _resolve_page_pdf_request(row: dict[str, Any]) -> PagePdfRequestKey | None:
+    if _is_demo_row(row):
+        return None
     job_id = str(row.get("job_id") or "").strip()
     if not job_id or not _is_page_row(row):
         return None
@@ -107,7 +152,7 @@ def _resolve_page_pdf_request(row: dict[str, Any]) -> PagePdfRequestKey | None:
     normalized_pages = tuple(sorted({page for page in pages if page > 0}))
     if not normalized_pages:
         return None
-    return job_id, normalized_pages
+    return job_id, normalized_pages, str(row.get("result_raw_prefix") or "")
 
 
 async def _generate_retrieval_asset_url(
@@ -120,8 +165,15 @@ async def _generate_retrieval_asset_url(
         return None
 
     job_id, artifact_ref = request
+    if _is_demo_row(row):
+        return _sign_demo_asset(row, str(row.get("file_path") or ""))
     try:
         return get_result_storage().generate_artifact_url(
+            **(
+                RawPrefixArguments(raw_prefix=str(row["result_raw_prefix"]))
+                if row.get("result_raw_prefix")
+                else RawPrefixArguments()
+            ),
             job_id=job_id,
             artifact_ref=artifact_ref,
         )
@@ -135,6 +187,13 @@ async def _generate_page_citation_asset_url(
     row: dict[str, Any],
     log_context: str,
 ) -> str | None:
+    if _is_demo_row(row):
+        for asset in _iter_page_assets(_metadata_for_row(row).get("page_assets")):
+            if url := _sign_demo_asset(row, str(asset.get("artifact_ref") or "")):
+                return url
+        # Readers reuse the normalized PDF uploaded by the Worker. Creating
+        # cropped PDFs here would materialize new shared assets during reads.
+        return _sign_demo_asset(row, "source.pdf") if _is_page_row(row) else None
     direct_url = _resolve_direct_page_citation_asset_url(row)
     if direct_url:
         return direct_url
@@ -146,6 +205,11 @@ async def _generate_page_citation_asset_url(
     job_id, artifact_ref = request
     try:
         return get_result_storage().generate_artifact_url(
+            **(
+                RawPrefixArguments(raw_prefix=str(row["result_raw_prefix"]))
+                if row.get("result_raw_prefix")
+                else RawPrefixArguments()
+            ),
             job_id=job_id,
             artifact_ref=artifact_ref,
         )
@@ -171,11 +235,22 @@ async def _enrich_page_assets(
     job_id = str(row.get("job_id") or "").strip()
     for page_asset in page_assets:
         enriched = dict(page_asset)
+        if _is_demo_row(row):
+            enriched.pop("asset_url", None)
+            if url := _sign_demo_asset(row, str(enriched.get("artifact_ref") or "")):
+                enriched["asset_url"] = url
+            enriched_assets.append(enriched)
+            continue
         if not str(enriched.get("asset_url") or "").strip() and job_id:
             artifact_ref = _normalize_artifact_ref(enriched.get("artifact_ref"))
             if artifact_ref is not None:
                 try:
                     asset_url = get_result_storage().generate_artifact_url(
+                        **(
+                            RawPrefixArguments(raw_prefix=str(row["result_raw_prefix"]))
+                            if row.get("result_raw_prefix")
+                            else RawPrefixArguments()
+                        ),
                         job_id=job_id,
                         artifact_ref=artifact_ref,
                     )
@@ -208,10 +283,15 @@ async def _generate_page_pdf_asset_url_for_request(
     *,
     log_context: str,
 ) -> str | None:
-    job_id, pages = request
+    job_id, pages, raw_prefix = request
     try:
         return await asyncio.to_thread(
             crop_source_pdf_pages,
+            **(
+                RawPrefixArguments(raw_prefix=raw_prefix)
+                if raw_prefix
+                else RawPrefixArguments()
+            ),
             job_id=job_id,
             pages=list(pages),
         )
@@ -254,10 +334,13 @@ async def enrich_rows_with_retrieval_asset_url(
     *,
     log_context: str,
 ) -> list[dict[str, Any]]:
+    rows = [dict(row) for row in rows]
+    await _load_demo_asset_signers(rows)
     page_pdf_urls = await _build_page_pdf_url_lookup(rows, log_context=log_context)
     enriched_rows: list[dict[str, Any]] = []
     for row in rows:
         enriched = dict(row)
+        enriched.pop("demo_asset_signer", None)
         page_assets = await _enrich_page_assets(
             row=row,
             log_context=log_context,
@@ -289,6 +372,8 @@ async def build_retrieval_asset_url_map(
     *,
     log_context: str,
 ) -> dict[str, AssetUrlValue]:
+    rows = [dict(row) for row in rows]
+    await _load_demo_asset_signers(rows)
     page_pdf_urls = await _build_page_pdf_url_lookup(rows, log_context=log_context)
     url_map: dict[str, AssetUrlValue] = {}
     for row in rows:

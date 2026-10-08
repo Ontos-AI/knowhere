@@ -29,6 +29,7 @@ from shared.services.retrieval.hydration.table_grid import (
     load_table_html,
 )
 from shared.services.retrieval.search.lexical_text import split_section_path
+from shared.services.storage.raw_prefix_arguments import RawPrefixArguments
 from shared.services.storage.result_storage import get_result_storage
 
 _IMAGE_MEDIA_TYPES = {
@@ -326,6 +327,11 @@ def _try_read_image_artifact(
         return None
     try:
         temp_path = storage.download_raw_to_temp(
+            **(
+                RawPrefixArguments(raw_prefix=str(row["result_raw_prefix"]))
+                if row.get("result_raw_prefix")
+                else RawPrefixArguments()
+            ),
             job_id=job_id,
             relative_path=normalized,
             suffix=Path(normalized).suffix or ".bin",

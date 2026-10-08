@@ -156,7 +156,7 @@ class DocumentIngestionCreationService:
         scope: ResolvedDocumentIngestionScope,
         source_file_name: str,
     ) -> None:
-        if payload.document_id:
+        if payload.document_id or scope.job_metadata.get("corpus_target") == "DEMO":
             return
         existing = await find_active_document_by_source_file_name(
             db,

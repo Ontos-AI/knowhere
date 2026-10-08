@@ -8,6 +8,9 @@ boundaries and call this service, not define retrieval state construction.
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.demo_job_scope import validate_job_corpus
+
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -40,7 +43,6 @@ from shared.services.retrieval.serving_generation import (
     lock_namespace_generation,
 )
 from shared.services.retrieval.publication_trace_stage import trace_publication_stage
-from shared.services.retrieval.publication_strategy import resolve_publication_strategy
 
 if TYPE_CHECKING:
     from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
@@ -66,21 +68,15 @@ class RetrievalPublicationService:
     def _get_existing_document_scope(
         self, db: Session, *, job_id: str
     ) -> ExistingDocumentScope | None:
-        metadata, document_id, namespace = db.execute(
-            select(
-                Job.job_metadata,
-                Document.document_id,
-                Document.namespace,
-            )
-            .select_from(Job)
-            .outerjoin(
-                Document,
-                Document.document_id == Job.job_metadata["document_id"].as_string(),
-            )
-            .where(Job.job_id == job_id)
-        ).one_or_none() or (None, None, None)
-        if not isinstance(metadata, dict) or not document_id or namespace is None:
+        job: Job | None = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
+        if job is None:
             return None
+        corpusStorage: CorpusStorage = validate_job_corpus(db, job=job)
+        metadata = job.job_metadata or {}
+        document = db.execute(select(corpusStorage.Document).where(corpusStorage.Document.document_id == metadata.get("document_id"), corpusStorage.Document.user_id == corpusStorage.resolve_owner(str(job.user_id)))).scalar_one_or_none()
+        if document is None:
+            return None
+        document_id, namespace = document.document_id, document.namespace
 
         return ExistingDocumentScope(
             document_id=str(document_id),
@@ -125,6 +121,7 @@ class RetrievalPublicationService:
         trace: PublicationTrace | None = None,
     ) -> PublishedDocumentState | None:
 
+        corpusStorage: CorpusStorage = validate_job_corpus(db, job=job)
         job_metadata = job.job_metadata or {}
         namespace = normalize_retrieval_namespace(job_metadata.get("namespace"))
         document_id = job_metadata.get("document_id")
@@ -139,7 +136,7 @@ class RetrievalPublicationService:
         # create another document or rewrite serving state. Locking the row
         # also serializes concurrent replays of the same revision.
         existing_document_id = db.execute(
-            select(JobResult.document_id)
+            select(JobResult.demo_document_id if corpusStorage.is_demo else JobResult.document_id)
             .where(JobResult.id == job_result_id)
             .with_for_update()
         ).scalar_one_or_none()
@@ -156,10 +153,9 @@ class RetrievalPublicationService:
                 skipped_all_duplicate=True,
             )
 
-        if resolve_publication_strategy() == "candidate":
-            # Keep bulk GIN updates inside the publication transaction while
-            # allowing background cleanup between publications.
-            db.execute(text("SET LOCAL gin_pending_list_limit = '64MB'"))
+        # Keep bulk GIN updates inside the publication transaction while
+        # allowing background cleanup between publications.
+        db.execute(text("SET LOCAL gin_pending_list_limit = '64MB'"))
 
         with trace_publication_stage(trace, "chunks_prepare"):
             deduped_chunks = deduplicate_chunks_by_source_path(chunks)
@@ -196,10 +192,11 @@ class RetrievalPublicationService:
                 db,
                 job_result_id=job_result_id,
                 document_id=document.document_id,
+                is_demo=corpusStorage.is_demo,
             )
         namespace = normalize_retrieval_namespace(namespace or document.namespace)
         scope = DocumentPublicationScope(
-            user_id=str(job.user_id),
+            user_id=corpusStorage.resolve_owner(str(job.user_id)),
             namespace=namespace,
             document_id=document.document_id,
             job_result_id=job_result_id,
@@ -214,6 +211,10 @@ class RetrievalPublicationService:
             section_summaries=section_summaries,
             trace=trace,
         )
+
+        if corpusStorage.is_demo:
+            from shared.services.retrieval.demo_examples import bind_demo_examples
+            bind_demo_examples(db, document_id=scope.document_id, job_result_id=job_result_id)
 
         if update_namespace_snapshot:
             self.update_namespace_snapshot(
@@ -297,15 +298,16 @@ class RetrievalPublicationService:
         document_metadata: dict[str, Any],
         trace: PublicationTrace | None = None,
     ) -> tuple[Document | None, str | None]:
+        corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
         document = None
         previous_namespace: str | None = None
         if document_id:
             with trace_publication_stage(trace, "existing_document_lock_wait"):
                 document = db.execute(
-                    select(Document)
+                    select(corpusStorage.Document)
                     .where(
-                        Document.document_id == document_id,
-                        Document.user_id == str(job.user_id),
+                        corpusStorage.Document.document_id == document_id,
+                        corpusStorage.Document.user_id == corpusStorage.resolve_owner(str(job.user_id)),
                     )
                     .with_for_update()
                 ).scalar_one_or_none()
@@ -314,9 +316,9 @@ class RetrievalPublicationService:
 
         with trace_publication_stage(trace, "revision_update"):
             if document is None:
-                document = Document(
+                document = corpusStorage.Document(
                     document_id=document_id or f"doc_{uuid4().hex[:12]}",
-                    user_id=str(job.user_id),
+                    user_id=corpusStorage.resolve_owner(str(job.user_id)),
                     namespace=namespace,
                     status="active",
                     current_job_result_id=job_result_id,
@@ -326,6 +328,8 @@ class RetrievalPublicationService:
                 )
                 db.add(document)
             else:
+                if corpusStorage.is_demo and document.status == "archived":
+                    return None, previous_namespace
                 if self._is_stale_document_completion(
                     db,
                     document=document,
@@ -357,11 +361,12 @@ class RetrievalPublicationService:
         *,
         job_result_id: str,
         document_id: str,
+        is_demo: bool = False,
     ) -> None:
         db.execute(
             update(JobResult)
             .where(JobResult.id == job_result_id)
-            .values(document_id=document_id)
+            .values(**({"demo_document_id": document_id} if is_demo else {"document_id": document_id}))
         )
 
     def publish_document_graph(
@@ -395,12 +400,13 @@ class RetrievalPublicationService:
         trace: PublicationTrace | None = None,
     ) -> None:
 
+        corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace((job.job_metadata or {}).get('namespace'))
         metadata = job.job_metadata or {}
         namespace = normalize_retrieval_namespace(metadata.get("namespace"))
         document_id = metadata.get("document_id")
         if not document_id:
             document = db.execute(
-                select(Document).where(Document.current_job_result_id == job_result_id)
+                select(corpusStorage.Document).where(corpusStorage.Document.current_job_result_id == job_result_id)
             ).scalar_one_or_none()
             document_id = document.document_id if document else None
         if not document_id:

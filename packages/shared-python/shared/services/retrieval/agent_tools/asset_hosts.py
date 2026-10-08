@@ -11,13 +11,16 @@ picks one picks the same one.
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
 
-from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.services.retrieval.agent_tools.registry import ToolContext
 from shared.services.retrieval.agent_tools.scope import ScopeTarget
 from shared.services.retrieval.hydration.row_utils import iter_connected_target_ids
@@ -66,30 +69,31 @@ async def load_asset_hosts(
     ``document_ids=None`` scans every document visible to the caller;
     ``asset_ids`` limits the result to those asset chunk ids.
     """
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
     wanted = set(asset_ids) if asset_ids is not None else None
     stmt = (
         select(
-            DocumentChunk.document_id,
-            DocumentChunk.chunk_id,
-            DocumentChunk.chunk_metadata,
-            DocumentSection.section_path,
-            Document.source_file_name,
+            corpusStorage.DocumentChunk.document_id,
+            corpusStorage.DocumentChunk.chunk_id,
+            corpusStorage.DocumentChunk.chunk_metadata,
+            corpusStorage.DocumentSection.section_path,
+            corpusStorage.Document.source_file_name,
         )
-        .select_from(DocumentChunk)
-        .join(Document, Document.document_id == DocumentChunk.document_id)
-        .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
+        .select_from(corpusStorage.DocumentChunk)
+        .join(corpusStorage.Document, corpusStorage.Document.document_id == corpusStorage.DocumentChunk.document_id)
+        .outerjoin(corpusStorage.DocumentSection, corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id)
         .where(
-            Document.user_id == ctx.user_id,
-            Document.namespace == ctx.namespace,
-            Document.status == "active",
-            Document.current_job_result_id == DocumentChunk.job_result_id,
-            ctx.document_scope.predicate(Document.document_id),
-            DocumentChunk.chunk_type.in_(_BODY_CHUNK_TYPES),
+            corpusStorage.Document.user_id == corpusStorage.resolve_owner(ctx.user_id),
+            corpusStorage.Document.namespace == ctx.namespace,
+            corpusStorage.Document.status == "active",
+            CorpusRevisionContext.build_revision_column(corpusStorage.Document) == corpusStorage.DocumentChunk.job_result_id,
+            ctx.document_scope.predicate(corpusStorage.Document.document_id),
+            corpusStorage.DocumentChunk.chunk_type.in_(_BODY_CHUNK_TYPES),
         )
-        .order_by(DocumentChunk.document_id, DocumentChunk.sort_order, DocumentChunk.chunk_id)
+        .order_by(corpusStorage.DocumentChunk.document_id, corpusStorage.DocumentChunk.sort_order, corpusStorage.DocumentChunk.chunk_id)
     )
     if document_ids is not None:
-        stmt = stmt.where(Document.document_id.in_(sorted(set(document_ids))))
+        stmt = stmt.where(corpusStorage.Document.document_id.in_(sorted(set(document_ids))))
 
     hosts: dict[AssetKey, list[AssetHost]] = {}
     for document_id, chunk_id, metadata, section_path, source_file_name in (

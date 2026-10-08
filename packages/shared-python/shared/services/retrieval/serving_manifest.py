@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 import hashlib
 import json
 import time
@@ -11,12 +13,6 @@ from typing import TYPE_CHECKING, Any, MutableMapping
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from shared.models.database.document import (
-    Document,
-    DocumentChunk,
-    DocumentSection,
-    RetrievalServingRevisionManifest,
-)
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.publication_trace_stage import trace_publication_stage
@@ -38,27 +34,28 @@ def build_revision_serving_payload(
     scope: DocumentPublicationScope,
 ) -> dict[str, Any]:
     """Build ordered metadata for one published document revision."""
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
     document_source_file_name, job_id = db.execute(
-        select(Document.source_file_name, JobResult.job_id)
-        .select_from(Document)
+        select(corpusStorage.Document.source_file_name, JobResult.job_id)
+        .select_from(corpusStorage.Document)
         .join(JobResult, JobResult.id == scope.job_result_id)
-        .where(Document.document_id == scope.document_id)
+        .where(corpusStorage.Document.document_id == scope.document_id)
     ).one()
     sections = list(
         db.scalars(
-            select(DocumentSection)
-            .where(DocumentSection.document_id == scope.document_id)
-            .where(DocumentSection.job_result_id == scope.job_result_id)
-            .order_by(DocumentSection.sort_order, DocumentSection.section_id)
+            select(corpusStorage.DocumentSection)
+            .where(corpusStorage.DocumentSection.document_id == scope.document_id)
+            .where(corpusStorage.DocumentSection.job_result_id == scope.job_result_id)
+            .order_by(corpusStorage.DocumentSection.sort_order, corpusStorage.DocumentSection.section_id)
         )
     )
     chunks = list(
         db.scalars(
-            select(DocumentChunk)
-            .where(DocumentChunk.document_id == scope.document_id)
-            .where(DocumentChunk.job_result_id == scope.job_result_id)
+            select(corpusStorage.DocumentChunk)
+            .where(corpusStorage.DocumentChunk.document_id == scope.document_id)
+            .where(corpusStorage.DocumentChunk.job_result_id == scope.job_result_id)
             .order_by(
-                DocumentChunk.sort_order, DocumentChunk.chunk_id, DocumentChunk.id
+                corpusStorage.DocumentChunk.sort_order, corpusStorage.DocumentChunk.chunk_id, corpusStorage.DocumentChunk.id
             )
         )
     )
@@ -135,6 +132,7 @@ def persist_revision_serving_state(
     Returns the manifest payload so callers can patch the namespace-level MAP
     snapshot without rebuilding it.
     """
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
     byte_counts: dict[str, int] | None = {} if trace is not None else None
     with trace_publication_stage(trace, "serving_manifest_prepare"):
         manifest_payload = build_revision_serving_payload(db, scope=scope)
@@ -146,14 +144,14 @@ def persist_revision_serving_state(
         trace.record_count("manifest_uncompressed_bytes", byte_counts["uncompressed"])
     with trace_publication_stage(trace, "serving_manifest_persist"):
         db.execute(
-            delete(RetrievalServingRevisionManifest)
-            .where(RetrievalServingRevisionManifest.document_id == scope.document_id)
+            delete(corpusStorage.RetrievalServingRevisionManifest)
+            .where(corpusStorage.RetrievalServingRevisionManifest.document_id == scope.document_id)
             .where(
-                RetrievalServingRevisionManifest.job_result_id == scope.job_result_id
+                corpusStorage.RetrievalServingRevisionManifest.job_result_id == scope.job_result_id
             )
         )
         db.add(
-            RetrievalServingRevisionManifest(
+            corpusStorage.RetrievalServingRevisionManifest(
                 user_id=scope.user_id,
                 namespace=scope.namespace,
                 document_id=scope.document_id,

@@ -390,7 +390,7 @@ async def test_grep_subtree_scope_excludes_sibling_sections(map_ctx: ToolContext
         },
     )
     assert result.error is None
-    _assert_shared_search_payload(result, frozenset({"mounted_chunk_ids"}))
+    _assert_shared_search_payload(result)
     chunk_ids = [ref["chunk_id"] for ref in result.refs]
     assert "chunk_findings" in chunk_ids
     assert "chunk_detail" in chunk_ids

@@ -100,12 +100,14 @@ Local development services are ready.
 
 Service endpoints:
   - LocalStack: http://localhost:4566
-  - PostgreSQL: localhost:5432 (root/root123)
+  - PostgreSQL: localhost:5432 (runtime: knowhere_runtime/runtime123; migrations: root/root123)
   - Redis: localhost:6379
 
 Next steps:
-  1. Start the API: cd apps/api && uv run uvicorn main:app --host 0.0.0.0 --port 5005 --reload
-  2. Start the worker: cd apps/worker && uv run python worker.py
+  1. Copy the API/Worker .env.example files to .env and configure your provider keys.
+  2. Migrate: cd apps/api && MIGRATION_DATABASE_URL=postgresql+asyncpg://root:root123@localhost:5432/Knowhere uv run alembic upgrade heads
+  3. Start the API: cd apps/api && uv run uvicorn main:app --host 0.0.0.0 --port 5005 --reload
+  4. Start the worker: cd apps/worker && uv run python worker.py
 
 Stop services:
   ${SCRIPT_DIR}/stop-dev.sh
@@ -120,6 +122,9 @@ main() {
     run_compose -f "${COMPOSE_FILE}" up -d
 
     wait_for_postgres
+    # Init scripts only run on empty volumes. Provision existing volumes as well.
+    docker exec -i knowhere_postgres psql -U root -d Knowhere -v ON_ERROR_STOP=1 \
+        < "${SCRIPT_DIR}/postgres/init/02-runtime-role.sql"
     wait_for_redis
     wait_for_localstack
     print_summary

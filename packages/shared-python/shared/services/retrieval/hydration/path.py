@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+
 from typing import Any
 
 from loguru import logger
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.search.lexical_text import normalize_section_path
 from shared.services.retrieval.search.scoring import get_row_path
@@ -87,24 +89,25 @@ async def _hydrate_outline_paths(
     namespace: str,
     document_id: str | None,
 ) -> list[dict[str, Any]]:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     outline_section_filters = [
-        DocumentSection.section_path == path
+        corpusStorage.DocumentSection.section_path == path
         for path in outline_paths
     ]
     outline_stmt = (
-        select(Document, DocumentSection)
+        select(corpusStorage.Document, corpusStorage.DocumentSection)
         .join(
-            DocumentSection,
-            (DocumentSection.document_id == Document.document_id)
-            & (DocumentSection.job_result_id == Document.current_job_result_id),
+            corpusStorage.DocumentSection,
+            (corpusStorage.DocumentSection.document_id == corpusStorage.Document.document_id)
+            & (corpusStorage.DocumentSection.job_result_id == CorpusRevisionContext.build_revision_column(corpusStorage.Document)),
         )
-        .where(Document.user_id == user_id)
-        .where(Document.namespace == namespace)
-        .where(Document.status == 'active')
+        .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
+        .where(corpusStorage.Document.namespace == namespace)
+        .where(corpusStorage.Document.status == 'active')
         .where(or_(*outline_section_filters))
     )
     if document_id:
-        outline_stmt = outline_stmt.where(Document.document_id == document_id)
+        outline_stmt = outline_stmt.where(corpusStorage.Document.document_id == document_id)
 
     rows: list[dict[str, Any]] = []
     outline_result = await db.execute(outline_stmt)
@@ -146,45 +149,46 @@ async def _hydrate_chunk_paths(
     namespace: str,
     document_id: str | None,
 ) -> list[dict[str, Any]]:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     section_path_filters = []
     self_only_paths = {path for path in chunk_paths if mode_by_path.get(path) == 'self_only'}
     shallow_paths = {path for path in chunk_paths if mode_by_path.get(path) == 'shallow'}
     for path in chunk_paths:
-        section_path_filters.append(DocumentSection.section_path == path)
+        section_path_filters.append(corpusStorage.DocumentSection.section_path == path)
         if path in self_only_paths:
             pass  # exact match only — no descendants
         elif path in shallow_paths:
             # Direct children only: match "path / X" but not "path / X / Y"
             section_path_filters.append(
                 and_(
-                    DocumentSection.section_path.like(f'{path} / %'),
-                    ~DocumentSection.section_path.like(f'{path} / % / %'),
+                    corpusStorage.DocumentSection.section_path.like(f'{path} / %'),
+                    ~corpusStorage.DocumentSection.section_path.like(f'{path} / % / %'),
                 )
             )
         else:
-            section_path_filters.append(DocumentSection.section_path.like(f'{path} / %'))
+            section_path_filters.append(corpusStorage.DocumentSection.section_path.like(f'{path} / %'))
 
     stmt = (
-        select(Document, DocumentChunk, DocumentSection, JobResult)
+        select(corpusStorage.Document, corpusStorage.DocumentChunk, corpusStorage.DocumentSection, JobResult)
         .join(
-            DocumentChunk,
-            (DocumentChunk.document_id == Document.document_id)
-            & (DocumentChunk.job_result_id == Document.current_job_result_id),
+            corpusStorage.DocumentChunk,
+            (corpusStorage.DocumentChunk.document_id == corpusStorage.Document.document_id)
+            & (corpusStorage.DocumentChunk.job_result_id == CorpusRevisionContext.build_revision_column(corpusStorage.Document)),
         )
-        .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
-        .join(JobResult, JobResult.id == DocumentChunk.job_result_id)
-        .where(Document.user_id == user_id)
-        .where(Document.namespace == namespace)
-        .where(Document.status == 'active')
+        .outerjoin(corpusStorage.DocumentSection, corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id)
+        .join(JobResult, JobResult.id == corpusStorage.DocumentChunk.job_result_id)
+        .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
+        .where(corpusStorage.Document.namespace == namespace)
+        .where(corpusStorage.Document.status == 'active')
         .where(
             or_(
                 *section_path_filters,
-                DocumentChunk.source_chunk_path.in_(chunk_paths),
+                corpusStorage.DocumentChunk.source_chunk_path.in_(chunk_paths),
             )
         )
     )
     if document_id:
-        stmt = stmt.where(Document.document_id == document_id)
+        stmt = stmt.where(corpusStorage.Document.document_id == document_id)
     result = await db.execute(stmt)
 
     rows: list[dict[str, Any]] = []
@@ -228,6 +232,10 @@ async def _hydrate_chunk_paths(
             'chunk_metadata': chunk.chunk_metadata or {},
             'job_result_id': chunk.job_result_id,
             'job_id': job_result.job_id if job_result else None,
+            'result_raw_prefix': (
+                (job_result.document_metadata or {}).get('result_raw_prefix')
+                if job_result else None
+            ),
             'source_chunk_path': chunk.source_chunk_path,
             'sort_order': chunk.sort_order,
             'hydrate_mode': path_mode,

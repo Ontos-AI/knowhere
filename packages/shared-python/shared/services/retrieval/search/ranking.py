@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 import math
 from collections.abc import Mapping
 from typing import Any
@@ -8,7 +10,6 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import RetrievalHitStat
 from shared.services.retrieval.stats.service import compute_importance_score
 from shared.services.retrieval.search.scoring import get_row_path
 
@@ -29,6 +30,10 @@ async def load_chunk_importance_scores(
     rows: list[dict[str, Any]],
     revision_pins: Mapping[str, str] | None = None,
 ) -> dict[str, float]:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
+    if corpusStorage.is_demo:
+        from shared.services.retrieval.demo_authorization import authorize_demo_caller
+        await db.run_sync(lambda session: authorize_demo_caller(session, user_id=user_id))
     chunk_ids = sorted(
         {str(row.get("chunk_id") or "").strip() for row in rows if row.get("chunk_id")}
     )
@@ -36,19 +41,19 @@ async def load_chunk_importance_scores(
         return {}
     stmt = (
         select(
-            RetrievalHitStat.chunk_id,
-            RetrievalHitStat.hit_count,
-            RetrievalHitStat.last_hit_at,
-            RetrievalHitStat.created_at,
+            corpusStorage.RetrievalHitStat.chunk_id,
+            corpusStorage.RetrievalHitStat.hit_count,
+            corpusStorage.RetrievalHitStat.last_hit_at,
+            corpusStorage.RetrievalHitStat.created_at,
         )
-        .where(RetrievalHitStat.user_id == user_id)
-        .where(RetrievalHitStat.namespace == namespace)
-        .where(RetrievalHitStat.hit_kind == "chunk")
-        .where(RetrievalHitStat.chunk_id.in_(chunk_ids))
+        .where(corpusStorage.RetrievalHitStat.user_id == user_id)
+        .where(corpusStorage.RetrievalHitStat.namespace == namespace)
+        .where(corpusStorage.RetrievalHitStat.hit_kind == "chunk")
+        .where(corpusStorage.RetrievalHitStat.chunk_id.in_(chunk_ids))
     )
     if revision_pins is not None:
         pinned_document_ids = {str(document_id) for document_id in revision_pins}
-        stmt = stmt.where(RetrievalHitStat.document_id.in_(pinned_document_ids))
+        stmt = stmt.where(corpusStorage.RetrievalHitStat.document_id.in_(pinned_document_ids))
     result = await db.execute(stmt)
     importance_scores: dict[str, float] = {}
     for chunk_id, hit_count, last_hit_at, created_at in result.all():

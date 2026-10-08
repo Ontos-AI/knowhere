@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from collections.abc import Mapping
 from typing import Any
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.hydration.row_utils import (
     ReferenceLookupKey,
@@ -23,6 +24,7 @@ async def hydrate_referenced_chunk_rows(
     score_by_chunk_id: dict[str, float] | None = None,
     revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     if db is None or not refs:
         return []
 
@@ -50,17 +52,17 @@ async def hydrate_referenced_chunk_rows(
         return []
 
     if revision_pins is None:
-        chunk_join = (DocumentChunk.document_id == Document.document_id) & (
-            DocumentChunk.job_result_id == Document.current_job_result_id
+        chunk_join = (corpusStorage.DocumentChunk.document_id == corpusStorage.Document.document_id) & (
+            corpusStorage.DocumentChunk.job_result_id == corpusStorage.Document.current_job_result_id
         )
     else:
         chunk_join = and_(
-            DocumentChunk.document_id == Document.document_id,
+            corpusStorage.DocumentChunk.document_id == corpusStorage.Document.document_id,
             or_(
                 *[
                     and_(
-                        DocumentChunk.document_id == document_id,
-                        DocumentChunk.job_result_id == str(revision_pins[document_id]),
+                        corpusStorage.DocumentChunk.document_id == document_id,
+                        corpusStorage.DocumentChunk.job_result_id == str(revision_pins[document_id]),
                     )
                     for document_id in pinned_document_ids
                 ]
@@ -68,33 +70,36 @@ async def hydrate_referenced_chunk_rows(
         )
 
     stmt = (
-        # Select only the job identifier needed for the public projection.
+        # Select only job and artifact location fields needed for hydration.
         # Selecting the JobResult entity would trigger its ``chunks`` selectin
         # relationship, loading the entire legacy job-chunk collection for
         # every referenced revision during final hydration.
-        select(Document, DocumentChunk, DocumentSection, JobResult.job_id)
-        .join(DocumentChunk, chunk_join)
-        .outerjoin(
-            DocumentSection, DocumentSection.section_id == DocumentChunk.section_id
+        select(
+            corpusStorage.Document, corpusStorage.DocumentChunk, corpusStorage.DocumentSection, JobResult.job_id,
+            JobResult.document_metadata["result_raw_prefix"].as_string(),
         )
-        .join(JobResult, JobResult.id == DocumentChunk.job_result_id)
-        .where(Document.user_id == user_id)
-        .where(Document.namespace == namespace)
+        .join(corpusStorage.DocumentChunk, chunk_join)
+        .outerjoin(
+            corpusStorage.DocumentSection, corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id
+        )
+        .join(JobResult, JobResult.id == corpusStorage.DocumentChunk.job_result_id)
+        .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
+        .where(corpusStorage.Document.namespace == namespace)
         .where(
-            Document.document_id.in_(
+            corpusStorage.Document.document_id.in_(
                 document_ids if revision_pins is None else pinned_document_ids
             )
         )
-        .where(DocumentChunk.chunk_id.in_(chunk_ids))
-        .order_by(DocumentChunk.sort_order)
+        .where(corpusStorage.DocumentChunk.chunk_id.in_(chunk_ids))
+        .order_by(corpusStorage.DocumentChunk.sort_order)
     )
     if revision_pins is None:
-        stmt = stmt.where(Document.status == "active")
+        stmt = stmt.where(corpusStorage.Document.status == "active")
     result = await db.execute(stmt)
 
     rows_by_key: dict[ReferenceLookupKey, dict[str, Any]] = {}
     rows_by_base_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for document, chunk, section, job_id in result.all():
+    for document, chunk, section, job_id, result_raw_prefix in result.all():
         row = {
             "document_id": document.document_id,
             "chunk_id": chunk.chunk_id,
@@ -115,6 +120,7 @@ async def hydrate_referenced_chunk_rows(
             "chunk_metadata": chunk.chunk_metadata or {},
             "job_result_id": chunk.job_result_id,
             "job_id": job_id,
+            "result_raw_prefix": result_raw_prefix,
             "source_chunk_path": chunk.source_chunk_path,
             "sort_order": chunk.sort_order,
         }

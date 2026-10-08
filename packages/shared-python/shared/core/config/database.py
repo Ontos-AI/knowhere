@@ -11,6 +11,8 @@ class DatabaseConfig(BaseModel):
     """Database configuration."""
 
     # Core database settings.
+    MIGRATION_DATABASE_URL: str | None = Field(default=None, description="Privileged migration connection; never used by API/Worker request sessions.")
+
     DATABASE_URL: str = Field(..., description="Database connection URL")
 
     # SSL configuration.

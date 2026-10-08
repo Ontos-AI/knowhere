@@ -9,7 +9,6 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
-from shared.core.config import settings
 from shared.models.database.document import Document
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.publication_service import RetrievalPublicationService
@@ -52,7 +51,7 @@ def _chunks(scope: PublicationScope) -> list[dict[str, object]]:
     ]
 
 
-@pytest.mark.parametrize("strategy", ("baseline", "candidate"))
+@pytest.mark.parametrize("strategy", ("candidate",))
 def test_completed_revision_replay_is_a_no_op(
     strategy: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -60,7 +59,6 @@ def test_completed_revision_replay_is_a_no_op(
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
-    monkeypatch.setattr(settings, "KNOWHERE_PUBLICATION_STRATEGY", strategy)
     database_url = make_url(get_contract_database_url()).set(
         drivername="postgresql+psycopg2"
     )

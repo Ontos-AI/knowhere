@@ -19,11 +19,12 @@ subtrees become placeholders, then the call fails as too large.
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from typing import Any
 
 from sqlalchemy import select
 
-from shared.models.database.document import Document, DocumentSection
 from shared.services.retrieval.agent_tools.map_render import render_map
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
@@ -76,6 +77,7 @@ from shared.services.retrieval.agent_tools.snippet import build_row
     },
 )
 async def outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
     targets, scope_error = await resolve_scope(
         ctx.db,
         user_id=ctx.user_id,
@@ -93,7 +95,7 @@ async def outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     documents = (
         (
             await ctx.db.execute(
-                select(Document).where(Document.document_id.in_(document_ids))
+                select(corpusStorage.Document).where(corpusStorage.Document.document_id.in_(document_ids))
             )
         )
         .scalars()
@@ -106,10 +108,10 @@ async def outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
     for target in targets:
         section_stmt = (
-            select(DocumentSection)
-            .where(DocumentSection.document_id == target.document_id)
-            .where(DocumentSection.job_result_id == target.job_result_id)
-            .order_by(DocumentSection.sort_order, DocumentSection.section_id)
+            select(corpusStorage.DocumentSection)
+            .where(corpusStorage.DocumentSection.document_id == target.document_id)
+            .where(corpusStorage.DocumentSection.job_result_id == target.job_result_id)
+            .order_by(corpusStorage.DocumentSection.sort_order, corpusStorage.DocumentSection.section_id)
         )
         doc_sections = list((await ctx.db.execute(section_stmt)).scalars().all())
 

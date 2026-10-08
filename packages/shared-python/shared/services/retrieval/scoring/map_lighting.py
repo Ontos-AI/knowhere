@@ -17,17 +17,14 @@ unscored fold.
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from dataclasses import dataclass
 from hashlib import sha256
 
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import (
-    DocumentMapUnit,
-    DocumentMapUnitIndex,
-    DocumentMapUnitToken,
-)
 from shared.services.retrieval.scoring.knowhere_hybrid import (
     MAP_UNIT_INDEX_FORMAT_VERSION,
     PersistedScoreCorpus,
@@ -67,6 +64,7 @@ async def load_leaf_unit_scores(
     instead of folding unscored. A section that simply has no unit of its
     own is absent from the mapping and scores ``0.0``.
     """
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(next(iter(revision_by_document), ''))
     query_tokens = tokenize_query_for_ranker(query)
     if not query_tokens or not section_ids or not revision_by_document:
         return None
@@ -75,8 +73,8 @@ async def load_leaf_unit_scores(
     unit_rows = (
         (
             await db.execute(
-                select(DocumentMapUnit).where(
-                    DocumentMapUnit.section_id.in_(section_ids)
+                select(corpusStorage.DocumentMapUnit).where(
+                    corpusStorage.DocumentMapUnit.section_id.in_(section_ids)
                 )
             )
         )
@@ -94,14 +92,14 @@ async def load_leaf_unit_scores(
     map_unit_ids = [row.id for row in unit_rows]
     token_rows = await db.execute(
         select(
-            DocumentMapUnitToken.map_unit_id,
-            DocumentMapUnitToken.channel,
-            DocumentMapUnitToken.token,
-            DocumentMapUnitToken.frequency,
+            corpusStorage.DocumentMapUnitToken.map_unit_id,
+            corpusStorage.DocumentMapUnitToken.channel,
+            corpusStorage.DocumentMapUnitToken.token,
+            corpusStorage.DocumentMapUnitToken.frequency,
         ).where(
-            DocumentMapUnitToken.map_unit_id.in_(map_unit_ids),
-            DocumentMapUnitToken.channel.in_(_SCORE_CHANNELS),
-            DocumentMapUnitToken.token_hash.in_(token_hashes),
+            corpusStorage.DocumentMapUnitToken.map_unit_id.in_(map_unit_ids),
+            corpusStorage.DocumentMapUnitToken.channel.in_(_SCORE_CHANNELS),
+            corpusStorage.DocumentMapUnitToken.token_hash.in_(token_hashes),
         )
     )
     frequencies: dict[tuple[str, str], dict[str, int]] = {}
@@ -114,10 +112,10 @@ async def load_leaf_unit_scores(
     index_rows = (
         (
             await db.execute(
-                select(DocumentMapUnitIndex).where(
+                select(corpusStorage.DocumentMapUnitIndex).where(
                     tuple_(
-                        DocumentMapUnitIndex.document_id,
-                        DocumentMapUnitIndex.job_result_id,
+                        corpusStorage.DocumentMapUnitIndex.document_id,
+                        corpusStorage.DocumentMapUnitIndex.job_result_id,
                     ).in_(revision_pairs)
                 )
             )

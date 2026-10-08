@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
@@ -9,12 +11,6 @@ from sqlalchemy import ARRAY, Text, cast, delete, false, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
-from shared.models.database.document import (
-    Document,
-    DocumentChunk,
-    GraphEdge,
-    GraphNode,
-)
 from shared.services.retrieval.publication_trace_stage import trace_publication_stage
 
 if TYPE_CHECKING:
@@ -84,22 +80,23 @@ class DocumentGraphService:
         top_summary: str | None = None,
         trace: PublicationTrace | None = None,
     ) -> None:
+        corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
         with trace_publication_stage(trace, "graph_prepare"):
             document = db.execute(
-                select(Document).where(Document.document_id == document_id)
+                select(corpusStorage.Document).where(corpusStorage.Document.document_id == document_id)
             ).scalar_one_or_none()
             if document is None:
                 return
-            if document.user_id != user_id or document.namespace != namespace:
+            if document.user_id != corpusStorage.resolve_owner(user_id) or document.namespace != namespace:
                 raise ValueError(
                     "Graph publication scope does not match the document owner"
                 )
 
             chunk_meta_rows = list(
                 db.execute(
-                    select(DocumentChunk.chunk_type, DocumentChunk.chunk_metadata)
-                    .where(DocumentChunk.document_id == document_id)
-                    .where(DocumentChunk.job_result_id == job_result_id)
+                    select(corpusStorage.DocumentChunk.chunk_type, corpusStorage.DocumentChunk.chunk_metadata)
+                    .where(corpusStorage.DocumentChunk.document_id == document_id)
+                    .where(corpusStorage.DocumentChunk.job_result_id == job_result_id)
                 ).all()
             )
         chunk_metadata_list = [row[1] or {} for row in chunk_meta_rows]
@@ -122,13 +119,8 @@ class DocumentGraphService:
 
         # ── Clean up old graph data for this document ──
         with trace_publication_stage(trace, "graph_persist"):
-            self.remove_document_graph(
-                db,
-                # Node IDs are global to a document. A namespace move must
-                # remove the node and its old edges before recreating it.
-                scope=None,
-                document_id=document_id,
-            )
+            if not corpusStorage.is_demo:
+                self.remove_document_graph(db, scope=None, document_id=document_id)
 
         # Serialize typed entities as ["type:text", ...] for storage in node props
         # so peers can reconstruct the set without a separate schema.
@@ -139,12 +131,12 @@ class DocumentGraphService:
             )
 
         # ── Create document-level node (no section nodes — aligned with KB KG) ──
-        document_node_id = f"doc:{document_id}"
+        document_node_id = f"doc:{document_id}:{job_result_id}" if corpusStorage.is_demo else f"doc:{document_id}"
         with trace_publication_stage(trace, "graph_persist"):
             db.add(
-                GraphNode(
+                corpusStorage.GraphNode(
                     node_id=document_node_id,
-                    user_id=user_id,
+                    user_id=corpusStorage.resolve_owner(user_id),
                     namespace=namespace,
                     node_kind="document",
                     owner_document_id=document_id,
@@ -174,18 +166,24 @@ class DocumentGraphService:
         with trace_publication_stage(trace, "graph_prepare"):
             peer_statement = (
                 select(
-                    GraphNode.node_id,
-                    GraphNode.owner_document_id,
-                    GraphNode.properties,
+                    corpusStorage.GraphNode.node_id,
+                    corpusStorage.GraphNode.owner_document_id,
+                    corpusStorage.GraphNode.properties,
                 )
-                .where(GraphNode.user_id == user_id)
-                .where(GraphNode.namespace == namespace)
-                .where(GraphNode.node_kind == "document")
-                .where(GraphNode.owner_document_id != document_id)
+                .where(corpusStorage.GraphNode.user_id == corpusStorage.resolve_owner(user_id))
+                .where(corpusStorage.GraphNode.namespace == namespace)
+                .where(corpusStorage.GraphNode.node_kind == "document")
+                .where(corpusStorage.GraphNode.owner_document_id != document_id)
             )
+            if corpusStorage.is_demo:
+                peer_statement = peer_statement.join(
+                    corpusStorage.Document,
+                    (corpusStorage.Document.document_id == corpusStorage.GraphNode.owner_document_id)
+                    & (corpusStorage.Document.current_job_result_id == corpusStorage.GraphNode.job_result_id),
+                ).where(corpusStorage.Document.status == "active")
             if candidate_terms:
                 term_array = cast(candidate_terms, ARRAY(Text))
-                properties_json = cast(GraphNode.properties, JSONB)
+                properties_json = cast(corpusStorage.GraphNode.properties, JSONB)
                 peer_statement = peer_statement.where(
                     or_(
                         properties_json.op("->")("top_keywords")
@@ -217,9 +215,9 @@ class DocumentGraphService:
 
                 edge_pair = tuple(sorted([document_id, peer_document_id]))
                 db.add(
-                    GraphEdge(
-                        edge_id=f"related:{edge_pair[0]}<->{edge_pair[1]}",
-                        user_id=user_id,
+                    corpusStorage.GraphEdge(
+                        edge_id=f"related:{document_node_id}<->{peer_node_id}" if corpusStorage.is_demo else f"related:{edge_pair[0]}<->{edge_pair[1]}",
+                        user_id=corpusStorage.resolve_owner(user_id),
                         namespace=namespace,
                         edge_kind="related",
                         source_node_id=document_node_id,
@@ -314,25 +312,29 @@ class DocumentGraphService:
     def remove_document_graph(
         self, db: Session, *, scope: GraphScope | None, document_id: str
     ) -> None:
+        corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace) if scope is not None else CorpusStorage.resolve_document(document_id)
+        if corpusStorage.is_demo:
+            # Archived revisions remain stored; RLS hides the archived source.
+            return
         document_node_id = f"doc:{document_id}"
-        edge_delete = delete(GraphEdge).where(
+        edge_delete = delete(corpusStorage.GraphEdge).where(
             or_(
-                GraphEdge.owner_document_id == document_id,
-                GraphEdge.source_node_id == document_node_id,
-                GraphEdge.target_node_id == document_node_id,
+                corpusStorage.GraphEdge.owner_document_id == document_id,
+                corpusStorage.GraphEdge.source_node_id == document_node_id,
+                corpusStorage.GraphEdge.target_node_id == document_node_id,
             )
         )
-        node_delete = delete(GraphNode).where(
-            GraphNode.owner_document_id == document_id
+        node_delete = delete(corpusStorage.GraphNode).where(
+            corpusStorage.GraphNode.owner_document_id == document_id
         )
         if scope is not None:
             edge_delete = edge_delete.where(
-                GraphEdge.user_id == scope.user_id,
-                GraphEdge.namespace == scope.namespace,
+                corpusStorage.GraphEdge.user_id == corpusStorage.resolve_owner(scope.user_id),
+                corpusStorage.GraphEdge.namespace == scope.namespace,
             )
             node_delete = node_delete.where(
-                GraphNode.user_id == scope.user_id,
-                GraphNode.namespace == scope.namespace,
+                corpusStorage.GraphNode.user_id == corpusStorage.resolve_owner(scope.user_id),
+                corpusStorage.GraphNode.namespace == scope.namespace,
             )
         db.execute(edge_delete)
         db.execute(node_delete)

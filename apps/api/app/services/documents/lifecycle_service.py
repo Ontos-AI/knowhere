@@ -7,6 +7,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.repositories.document_repository import DocumentRepository
+from app.services.demo.revision_reader import resolve_demo_revision
+from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.demo_authorization import authorize_demo_transaction
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +29,7 @@ from shared.services.retrieval.serving_generation import (
     lock_namespace_generation,
 )
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
+from shared.services.storage.demo_asset_signer import DemoAssetSigner
 
 _DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS = 7 * 24 * 60 * 60
 _MEDIA_CHUNK_TYPES = frozenset({"image", "table"})
@@ -43,6 +47,7 @@ def _document_chunk_asset_url(
     *,
     chunk_type: str,
     job_id: str | None,
+    raw_prefix: str | None,
     file_path: str | None,
     include_asset_urls: bool,
     result_storage: ResultStorage | None,
@@ -57,8 +62,10 @@ def _document_chunk_asset_url(
         return None
 
     try:
-        return result_storage.generate_artifact_url(
+        return _generate_artifact_url(
+            result_storage,
             job_id=job_id,
+            raw_prefix=raw_prefix,
             artifact_ref=file_path,
             expires_in=_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS,
         )
@@ -71,6 +78,7 @@ def _document_page_assets(
     *,
     metadata: dict[str, Any] | None,
     job_id: str | None,
+    raw_prefix: str | None,
     include_asset_urls: bool,
     result_storage: ResultStorage | None,
 ) -> list[dict[str, Any]]:
@@ -90,6 +98,7 @@ def _document_page_assets(
         if include_asset_urls and job_id and result_storage is not None:
             asset_url = _page_asset_url(
                 job_id=job_id,
+                raw_prefix=raw_prefix,
                 artifact_ref=asset["artifact_ref"],
                 result_storage=result_storage,
             )
@@ -125,6 +134,7 @@ def _normalize_page_asset(raw_asset: dict[str, Any]) -> dict[str, Any] | None:
 def _page_asset_url(
     *,
     job_id: str,
+    raw_prefix: str | None,
     artifact_ref: str,
     result_storage: ResultStorage,
 ) -> str | None:
@@ -132,8 +142,10 @@ def _page_asset_url(
     if not normalized_ref or not normalized_ref.startswith("page_citation_assets/"):
         return None
     try:
-        return result_storage.generate_artifact_url(
+        return _generate_artifact_url(
+            result_storage,
             job_id=job_id,
+            raw_prefix=raw_prefix,
             artifact_ref=normalized_ref,
             expires_in=_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS,
         )
@@ -148,6 +160,76 @@ def _positive_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return number if number > 0 else None
+
+
+def _result_raw_prefix(metadata: object) -> str | None:
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get("result_raw_prefix")
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _generate_artifact_url(
+    storage: ResultStorage,
+    *,
+    job_id: str,
+    raw_prefix: str | None,
+    artifact_ref: str,
+    expires_in: int,
+) -> str | None:
+    if raw_prefix is None:
+        return storage.generate_artifact_url(
+            job_id=job_id,
+            artifact_ref=artifact_ref,
+            expires_in=expires_in,
+        )
+    return storage.generate_artifact_url(
+        job_id=job_id,
+        raw_prefix=raw_prefix,
+        artifact_ref=artifact_ref,
+        expires_in=expires_in,
+    )
+
+
+def _verify_raw_exists(
+    storage: ResultStorage,
+    *,
+    job_id: str,
+    raw_prefix: str | None,
+    relative_path: str,
+) -> bool:
+    if raw_prefix is None:
+        return storage.verify_raw_exists(job_id=job_id, relative_path=relative_path)
+    return storage.verify_raw_exists(
+        job_id=job_id,
+        raw_prefix=raw_prefix,
+        relative_path=relative_path,
+    )
+
+
+def _generate_raw_file_url(
+    storage: ResultStorage,
+    *,
+    job_id: str,
+    raw_prefix: str | None,
+    relative_path: str,
+    expires_in: int,
+) -> str | None:
+    if raw_prefix is None:
+        return storage.generate_raw_file_url(
+            job_id=job_id,
+            relative_path=relative_path,
+            expires_in=expires_in,
+        )
+    return storage.generate_raw_file_url(
+        job_id=job_id,
+        raw_prefix=raw_prefix,
+        relative_path=relative_path,
+        expires_in=expires_in,
+    )
 
 
 def document_payload(document) -> dict[str, Any]:
@@ -216,6 +298,7 @@ class DocumentService:
         *,
         user_id: str,
         document_id: str,
+        job_result_id: str | None = None,
         page: int,
         page_size: int,
         chunk_type: str | None,
@@ -229,7 +312,11 @@ class DocumentService:
         if document is None:
             return None
 
-        job_result_id = document.current_job_result_id
+        if CorpusStorage.resolve_document(document_id).is_demo:
+            _, revision = await resolve_demo_revision(db, document_id=document_id, job_result_id=job_result_id)
+            job_result_id = revision.id
+        else:
+            job_result_id = job_result_id or document.current_job_result_id
         if not job_result_id:
             return {
                 "document_id": document.document_id,
@@ -266,6 +353,8 @@ class DocumentService:
                 chunk=chunk,
                 section=section,
                 job_id=job_result.job_id,
+                raw_prefix=_result_raw_prefix(job_result.document_metadata),
+                revision_metadata=job_result.document_metadata,
                 include_asset_urls=include_asset_urls,
                 result_storage=result_storage,
             )
@@ -293,6 +382,7 @@ class DocumentService:
         *,
         user_id: str,
         document_id: str,
+        job_result_id: str | None = None,
         document_chunk_id: str,
         include_asset_urls: bool,
     ) -> dict[str, Any] | None:
@@ -301,13 +391,20 @@ class DocumentService:
             user_id=user_id,
             document_id=document_id,
         )
-        if document is None or not document.current_job_result_id:
+        if document is None:
             return None
 
+        if CorpusStorage.resolve_document(document_id).is_demo:
+            _, revision = await resolve_demo_revision(db, document_id=document_id, job_result_id=job_result_id)
+            job_result_id = revision.id
+        else:
+            job_result_id = job_result_id or document.current_job_result_id
+        if job_result_id is None:
+            return None
         row = await self._repository.get_current_document_chunk(
             db,
             document_id=document_id,
-            job_result_id=document.current_job_result_id,
+            job_result_id=job_result_id,
             document_chunk_id=document_chunk_id,
         )
         if row is None:
@@ -318,12 +415,14 @@ class DocumentService:
         return {
             "document_id": document.document_id,
             "namespace": document.namespace,
-            "job_result_id": document.current_job_result_id,
+            "job_result_id": job_result_id,
             "job_id": job_result.job_id,
             "chunk": self._chunk_payload(
                 chunk=chunk,
                 section=section,
                 job_id=job_result.job_id,
+                raw_prefix=_result_raw_prefix(job_result.document_metadata),
+                revision_metadata=job_result.document_metadata,
                 include_asset_urls=include_asset_urls,
                 result_storage=result_storage,
             ),
@@ -335,6 +434,7 @@ class DocumentService:
         *,
         user_id: str,
         document_id: str,
+        job_result_id: str | None = None,
     ) -> dict[str, Any] | None:
         document = await self._repository.get_document(
             db,
@@ -343,6 +443,9 @@ class DocumentService:
         )
         if document is None:
             return None
+        if CorpusStorage.resolve_document(document_id).is_demo:
+            _, revision = await resolve_demo_revision(db, document_id=document_id, job_result_id=job_result_id)
+            return {**document_payload(document), "job_result_id": revision.id}
         return document_payload(document)
 
     async def get_document_page_citation_source(
@@ -351,33 +454,51 @@ class DocumentService:
         *,
         user_id: str,
         document_id: str,
+        job_result_id: str | None = None,
     ) -> dict[str, Any] | None:
         row = await self._repository.get_current_document_job_revision(
             db,
             user_id=user_id,
             document_id=document_id,
+            job_result_id=job_result_id,
         )
         if row is None:
             return None
 
         document, job_result, job = row
-        if document.parse_track != _PAGE_MEMORY_PARSE_TRACK:
+        if str((job_result.document_metadata or {}).get("parse_track") or document.parse_track) != _PAGE_MEMORY_PARSE_TRACK:
             return None
 
         result_storage = self._result_storage or get_result_storage()
-        if not result_storage.verify_raw_exists(
-            job_id=job_result.job_id,
-            relative_path=_PAGE_CITATION_SOURCE_FILE_NAME,
-        ):
-            return None
+        raw_prefix = _result_raw_prefix(job_result.document_metadata)
+        try:
+            if not _verify_raw_exists(
+                result_storage,
+                job_id=job_result.job_id,
+                raw_prefix=raw_prefix,
+                relative_path=_PAGE_CITATION_SOURCE_FILE_NAME,
+            ):
+                return None
 
-        source_url = result_storage.generate_raw_file_url(
-            job_id=job_result.job_id,
-            relative_path=_PAGE_CITATION_SOURCE_FILE_NAME,
-            expires_in=_PAGE_CITATION_SOURCE_EXPIRES_SECONDS,
-        )
+            source_url = _generate_raw_file_url(
+                result_storage,
+                job_id=job_result.job_id,
+                raw_prefix=raw_prefix,
+                relative_path=_PAGE_CITATION_SOURCE_FILE_NAME,
+                expires_in=_PAGE_CITATION_SOURCE_EXPIRES_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to generate page citation source URL (ignored): {exc}")
+            return None
         if not source_url:
             return None
+
+        if CorpusStorage.resolve_document(document_id).is_demo:
+            from app.services.demo.shared_document_service import SharedDemoDocumentService
+            source_url = await SharedDemoDocumentService().get_media_url(
+                db, source_id=document.demo_source_id, job_result_id=job_result.id,
+                asset_path=_PAGE_CITATION_SOURCE_FILE_NAME,
+            )
 
         expires_at = datetime.now(timezone.utc) + timedelta(
             seconds=_PAGE_CITATION_SOURCE_EXPIRES_SECONDS,
@@ -400,8 +521,10 @@ class DocumentService:
         chunk: DocumentChunk,
         section: DocumentSection | None,
         job_id: str | None,
+        raw_prefix: str | None,
         include_asset_urls: bool,
         result_storage: ResultStorage | None,
+        revision_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         chunk_type = _normalize_chunk_type(chunk.chunk_type)
         file_path = chunk.file_path
@@ -409,6 +532,7 @@ class DocumentService:
         page_assets = _document_page_assets(
             metadata=raw_metadata,
             job_id=job_id,
+            raw_prefix=raw_prefix,
             include_asset_urls=include_asset_urls,
             result_storage=result_storage,
         )
@@ -429,12 +553,22 @@ class DocumentService:
             "asset_url": _document_chunk_asset_url(
                 chunk_type=chunk_type,
                 job_id=job_id,
+                raw_prefix=raw_prefix,
                 file_path=file_path,
                 include_asset_urls=include_asset_urls,
                 result_storage=result_storage,
             ),
             "created_at": _datetime_payload(chunk.created_at),
         }
+        if include_asset_urls and job_id and CorpusStorage.resolve_document(chunk.document_id).is_demo:
+            signer: DemoAssetSigner = DemoAssetSigner(job_id, revision_metadata or {})
+            payload["asset_url"] = signer.generate_url(file_path) if file_path and chunk_type in _MEDIA_CHUNK_TYPES else None
+            for asset in page_assets:
+                asset.pop("asset_url", None)
+                if url := signer.generate_url(str(asset["artifact_ref"])):
+                    asset["asset_url"] = url
+            if page_assets:
+                metadata["page_assets"] = page_assets
         return payload
 
     async def archive_document(
@@ -444,6 +578,8 @@ class DocumentService:
         user_id: str,
         document_id: str,
     ) -> dict[str, Any] | None:
+        if CorpusStorage.resolve_document(document_id).is_demo:
+            await db.run_sync(lambda session: authorize_demo_transaction(session, user_id=user_id))
         document = await self._repository.get_document(
             db,
             user_id=user_id,

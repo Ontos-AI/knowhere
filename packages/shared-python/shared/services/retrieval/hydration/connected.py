@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from shared.services.retrieval.document_scope import DocumentScope
 
 from collections.abc import Mapping
@@ -8,7 +10,6 @@ from typing import Any
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.hydration.row_utils import (
     filter_excluded_rows,
@@ -26,6 +27,7 @@ async def hydrate_connected_target_rows(
     document_scope: DocumentScope = DocumentScope(),
     revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(str(rows[0].get('document_id') or '') if rows else '')
     if db is None:
         return []
 
@@ -56,9 +58,9 @@ async def hydrate_connected_target_rows(
 
     revision_filters = [
         and_(
-            DocumentChunk.document_id == document_id,
-            DocumentChunk.job_result_id == job_result_id,
-            DocumentChunk.chunk_id.in_(sorted(target_ids)),
+            corpusStorage.DocumentChunk.document_id == document_id,
+            corpusStorage.DocumentChunk.job_result_id == job_result_id,
+            corpusStorage.DocumentChunk.chunk_id.in_(sorted(target_ids)),
         )
         for (document_id, job_result_id), target_ids in target_ids_by_revision.items()
         if target_ids
@@ -67,23 +69,26 @@ async def hydrate_connected_target_rows(
         return []
 
     stmt = (
-        # Select only the job identifier needed for the public projection.
+        # Select only job and artifact location fields needed for hydration.
         # Selecting the JobResult entity triggers its ``chunks`` selectin
         # relationship, loading the entire legacy job-chunk collection for
         # every connected revision during final hydration.
-        select(Document, DocumentChunk, DocumentSection, JobResult.job_id)
+        select(
+            corpusStorage.Document, corpusStorage.DocumentChunk, corpusStorage.DocumentSection, JobResult.job_id,
+            JobResult.document_metadata["result_raw_prefix"].as_string(),
+        )
         .join(
-            DocumentChunk,
+            corpusStorage.DocumentChunk,
             (
-                (DocumentChunk.document_id == Document.document_id)
+                (corpusStorage.DocumentChunk.document_id == corpusStorage.Document.document_id)
                 if revision_pins is None
                 else and_(
-                    DocumentChunk.document_id == Document.document_id,
+                    corpusStorage.DocumentChunk.document_id == corpusStorage.Document.document_id,
                     or_(
                         *[
                             and_(
-                                DocumentChunk.document_id == document_id,
-                                DocumentChunk.job_result_id == job_result_id,
+                                corpusStorage.DocumentChunk.document_id == document_id,
+                                corpusStorage.DocumentChunk.job_result_id == job_result_id,
                             )
                             for document_id, job_result_id in target_ids_by_revision
                         ]
@@ -91,16 +96,16 @@ async def hydrate_connected_target_rows(
                 )
             ),
         )
-        .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
-        .join(JobResult, JobResult.id == DocumentChunk.job_result_id)
-        .where(document_scope.predicate(Document.document_id))
+        .outerjoin(corpusStorage.DocumentSection, corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id)
+        .join(JobResult, JobResult.id == corpusStorage.DocumentChunk.job_result_id)
+        .where(document_scope.predicate(corpusStorage.Document.document_id))
         .where(or_(*revision_filters))
-        .order_by(DocumentChunk.sort_order)
+        .order_by(corpusStorage.DocumentChunk.sort_order)
     )
     result = await db.execute(stmt)
 
     hydrated_rows: list[dict[str, Any]] = []
-    for document, chunk, section, job_id in result.all():
+    for document, chunk, section, job_id, result_raw_prefix in result.all():
         section_path = section.section_path if section else None
         hydrated_rows.append(
             {
@@ -116,6 +121,7 @@ async def hydrate_connected_target_rows(
                 'chunk_metadata': chunk.chunk_metadata or {},
                 'job_result_id': chunk.job_result_id,
                 'job_id': job_id,
+                'result_raw_prefix': result_raw_prefix,
                 'sort_order': chunk.sort_order,
             }
         )

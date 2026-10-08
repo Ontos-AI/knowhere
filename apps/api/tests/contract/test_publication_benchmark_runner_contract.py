@@ -150,7 +150,7 @@ def test_run_publication_refuses_a_missing_frozen_input(tmp_path: Path) -> None:
             owner="sync",
             database_url=DATABASE_URL,
             input_directory=layout.frozen_input_directory(),
-            strategy="baseline",
+            strategy="candidate",
             mode="cold",
             run_id=RUN_ID,
         )
@@ -166,41 +166,22 @@ def test_run_publication_refuses_an_unlisted_clone(tmp_path: Path) -> None:
             owner="sync",
             database_url=DATABASE_URL,
             input_directory=layout.frozen_input_directory(),
-            strategy="baseline",
+            strategy="candidate",
             mode="cold",
             run_id=RUN_ID,
             expectations=expectations_for(payload),
         )
 
 
-def test_run_publication_refuses_a_strategy_that_differs_from_settings(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import importlib
-    import sys
-
+def test_run_publication_refuses_the_removed_baseline(tmp_path: Path) -> None:
     layout = benchmark_layout(tmp_path)
     payload, _ = write_synthetic_frozen_input(layout.frozen_input_directory())
     write_listed_clone(layout, run_id=RUN_ID, database_url=DATABASE_URL)
-    live_config = importlib.import_module("shared.core.config")
-    monkeypatch.setattr(
-        live_config.settings,
-        "KNOWHERE_PUBLICATION_STRATEGY",
-        "candidate",
-    )
-    monkeypatch.setitem(sys.modules, "shared.core.config", live_config)
-
     with pytest.raises(BenchmarkGuardError, match="does not match"):
         run_publication_point(
-            layout=layout,
-            owner="sync",
-            database_url=DATABASE_URL,
-            input_directory=layout.frozen_input_directory(),
-            strategy="baseline",
-            mode="cold",
-            run_id=RUN_ID,
-            expectations=expectations_for(payload),
+            layout=layout, owner="sync", database_url=DATABASE_URL,
+            input_directory=layout.frozen_input_directory(), strategy="baseline",
+            mode="cold", run_id=RUN_ID, expectations=expectations_for(payload),
         )
 
 
@@ -222,7 +203,7 @@ def test_run_publication_refuses_a_cold_sample_on_a_non_fresh_clone(
             owner="sync",
             database_url=DATABASE_URL,
             input_directory=layout.frozen_input_directory(),
-            strategy="baseline",
+            strategy="candidate",
             mode="cold",
             run_id=RUN_ID,
             expectations=expectations_for(payload),
@@ -273,7 +254,7 @@ def test_run_publication_records_a_sample_with_the_owner_executor(
         owner="sync",
         database_url=DATABASE_URL,
         input_directory=layout.frozen_input_directory(),
-        strategy="baseline",
+        strategy="candidate",
         mode="cold",
         run_id=RUN_ID,
         expectations=expectations_for(payload),
@@ -289,7 +270,7 @@ def test_run_publication_records_a_sample_with_the_owner_executor(
     assert result["record"]["outcome"] == "committed"
     assert result["record"]["publication_duration_ms"] == pytest.approx(1234.5)
     assert result["record"]["input_digest"] == manifest.digest
-    assert result["record"]["strategy"] == "baseline"
+    assert result["record"]["strategy"] == "candidate"
     assert result["record"]["source_content_digest"] == SOURCE_CONTENT_DIGEST
     assert result["record"]["publication_attempt_ref"].startswith("attempt-")
     assert read_clone_record(layout.clone_record_path(RUN_ID)).state == "sampled"
@@ -333,7 +314,7 @@ def test_run_publication_rejects_source_drift_without_writing_a_sample(
             owner="sync",
             database_url=DATABASE_URL,
             input_directory=layout.frozen_input_directory(),
-            strategy="baseline",
+            strategy="candidate",
             mode="cold",
             run_id=RUN_ID,
             expectations=expectations_for(payload),
@@ -384,7 +365,7 @@ def test_run_publication_uses_database_bounded_job_and_result_ids(
         owner="sync",
         database_url=DATABASE_URL,
         input_directory=layout.frozen_input_directory(),
-        strategy="baseline",
+        strategy="candidate",
         mode="cold",
         run_id=long_run_id,
         expectations=expectations_for(payload),
@@ -410,7 +391,7 @@ def test_run_publication_explicit_replacement_uses_existing_document_and_new_ref
         owner="sync",
         database_url=DATABASE_URL,
         input_directory=layout.frozen_input_directory(),
-        strategy="baseline",
+        strategy="candidate",
         mode="warm",
         run_id=RUN_ID,
         replacement_document_id="doc_existing_123",
@@ -439,7 +420,7 @@ def test_run_publication_persists_trace_for_enabled_sample(
         owner="sync",
         database_url=DATABASE_URL,
         input_directory=layout.frozen_input_directory(),
-        strategy="baseline",
+        strategy="candidate",
         mode="cold",
         run_id=RUN_ID,
         expectations=expectations_for(payload),
@@ -484,7 +465,7 @@ def test_run_publication_accepts_a_freshly_reset_clone_for_cold_samples(
         owner="async",
         database_url=DATABASE_URL,
         input_directory=layout.frozen_input_directory(),
-        strategy="baseline",
+        strategy="candidate",
         mode="cold",
         run_id=RUN_ID,
         expectations=expectations_for(payload),
@@ -514,7 +495,7 @@ def test_run_publication_refuses_a_clone_already_used_for_a_cold_sample(
             owner="sync",
             database_url=DATABASE_URL,
             input_directory=layout.frozen_input_directory(),
-            strategy="baseline",
+            strategy="candidate",
             mode="cold",
             run_id=RUN_ID,
             expectations=expectations_for(payload),
@@ -539,7 +520,7 @@ def test_run_publication_executes_the_sync_owner_against_a_clone(
         owner="sync",
         database_url=database_url,
         input_directory=layout.frozen_input_directory(),
-        strategy="baseline",
+        strategy="candidate",
         mode="cold",
         run_id=RUN_ID,
         expectations=expectations_for(payload),
@@ -594,7 +575,7 @@ def test_run_publication_executes_the_async_owner_against_a_clone(
         owner="async",
         database_url=database_url,
         input_directory=layout.frozen_input_directory(),
-        strategy="baseline",
+        strategy="candidate",
         mode="cold",
         run_id=RUN_ID,
         expectations=expectations_for(payload),
@@ -642,12 +623,12 @@ def test_run_publication_rejects_shell_alternation_style_inputs() -> None:
             "--input",
             "inputs/spacex-s1-production",
             "--strategy",
-            "baseline",
+            "candidate",
             "--mode",
             "cold",
         ]
     )
-    assert arguments.strategy == "baseline"
+    assert arguments.strategy == "candidate"
     assert arguments.mode == "cold"
     assert arguments.trace == "disabled"
     enabled = parser.parse_args(
@@ -659,7 +640,7 @@ def test_run_publication_rejects_shell_alternation_style_inputs() -> None:
             "--input",
             "inputs/spacex-s1-production",
             "--strategy",
-            "baseline",
+            "candidate",
             "--mode",
             "cold",
             "--trace",
@@ -694,7 +675,6 @@ def test_publication_environment_uses_only_benchmark_placeholders() -> None:
     assert environment["DATABASE_URL"] == (
         "postgresql+psycopg2://postgres:secret@127.0.0.1:55450/db"
     )
-    assert environment["KNOWHERE_PUBLICATION_STRATEGY"] == "candidate"
     assert environment["S3_BUCKET_NAME"] == "knowhere-publication-benchmark"
     assert environment["DS_URL"].endswith(".invalid/v1")
     assert environment["TELEMETRY_ENABLED"] == "false"
@@ -732,7 +712,7 @@ def test_run_publication_applies_benchmark_environment(
         owner="async",
         database_url=DATABASE_URL,
         input_directory=layout.frozen_input_directory(),
-        strategy="baseline",
+        strategy="candidate",
         mode="cold",
         run_id=RUN_ID,
         expectations=expectations_for(payload),

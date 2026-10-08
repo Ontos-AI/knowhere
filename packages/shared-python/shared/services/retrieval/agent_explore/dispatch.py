@@ -25,6 +25,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 
 from shared.services.retrieval.agent_tools import (
     REGISTRY,
@@ -65,13 +66,14 @@ async def dispatch_tool_call(
     """
     try:
         async with db_factory() as db:
+            pins = CorpusRevisionContext.get_pins()
             tool_ctx = ToolContext(
                 db=db,
                 user_id=user_id,
                 namespace=namespace,
                 db_factory=db_factory,
                 budget=budget or ToolBudget(),
-                document_scope=document_scope,
+                document_scope=document_scope.narrow(list(pins)) if pins is not None else document_scope,
                 query=query,
                 readable=readable,
                 decided=decided,

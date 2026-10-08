@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
@@ -8,13 +10,10 @@ from sqlalchemy.orm import Session
 
 from shared.models.database.document import (
     DocumentChunk,
-    DocumentMapUnit,
-    DocumentMapUnitIndex,
     DocumentSection,
 )
 from shared.services.retrieval.map_unit_index import replace_document_map_units
 from shared.services.retrieval.publication_models import DocumentPublicationScope
-from shared.services.retrieval.publication_strategy import resolve_publication_strategy
 from shared.services.retrieval.publication_trace_stage import trace_publication_stage
 from shared.services.retrieval.serving_manifest import persist_revision_serving_state
 from shared.services.retrieval.search.lexical_text import (
@@ -111,15 +110,11 @@ def replace_document_revision_content(
                 )
             )
     with trace_publication_stage(trace, "chunks_persist"):
-        if resolve_publication_strategy() == "candidate":
-            from shared.services.retrieval.publication_chunk_copy import (
-                insert_chunks_with_copy,
-            )
+        from shared.services.retrieval.publication_chunk_copy import (
+            insert_chunks_with_copy,
+        )
 
-            insert_chunks_with_copy(db, chunk_rows)
-        else:
-            db.add_all(chunk_rows)
-            db.flush()
+        insert_chunks_with_copy(db, chunk_rows)
     # The revision cleanup above already removed any derived rows for this
     # immutable job result. Skip the constructor's defensive DELETE pass on
     # the hot publication path; standalone backfills retain the default.
@@ -150,6 +145,7 @@ class DocumentSectionPublisher:
         self._sections_by_path: dict[str, DocumentSection] = {}
 
     def ensure_section(self, section_path: str) -> DocumentSection:
+        corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(self._scope.namespace)
         existing_section = self._sections_by_path.get(section_path)
         if existing_section is not None:
             return existing_section
@@ -160,7 +156,7 @@ class DocumentSectionPublisher:
             if ancestor_path in self._sections_by_path:
                 continue
 
-            ancestor_section = DocumentSection(
+            ancestor_section = corpusStorage.DocumentSection(
                 section_id=f"sec_{uuid4().hex[:12]}",
                 user_id=self._scope.user_id,
                 namespace=self._scope.namespace,
@@ -197,29 +193,30 @@ def _delete_existing_revision_content(
     scope: DocumentPublicationScope,
     trace: PublicationTrace | None = None,
 ) -> None:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
     with trace_publication_stage(trace, "statistics_persist"):
         db.execute(
-            delete(DocumentMapUnitIndex)
-            .where(DocumentMapUnitIndex.document_id == scope.document_id)
-            .where(DocumentMapUnitIndex.job_result_id == scope.job_result_id)
+            delete(corpusStorage.DocumentMapUnitIndex)
+            .where(corpusStorage.DocumentMapUnitIndex.document_id == scope.document_id)
+            .where(corpusStorage.DocumentMapUnitIndex.job_result_id == scope.job_result_id)
         )
     with trace_publication_stage(trace, "map_units_persist"):
         db.execute(
-            delete(DocumentMapUnit)
-            .where(DocumentMapUnit.document_id == scope.document_id)
-            .where(DocumentMapUnit.job_result_id == scope.job_result_id)
+            delete(corpusStorage.DocumentMapUnit)
+            .where(corpusStorage.DocumentMapUnit.document_id == scope.document_id)
+            .where(corpusStorage.DocumentMapUnit.job_result_id == scope.job_result_id)
         )
     with trace_publication_stage(trace, "chunks_persist"):
         db.execute(
-            delete(DocumentChunk)
-            .where(DocumentChunk.document_id == scope.document_id)
-            .where(DocumentChunk.job_result_id == scope.job_result_id)
+            delete(corpusStorage.DocumentChunk)
+            .where(corpusStorage.DocumentChunk.document_id == scope.document_id)
+            .where(corpusStorage.DocumentChunk.job_result_id == scope.job_result_id)
         )
     with trace_publication_stage(trace, "sections_persist"):
         db.execute(
-            delete(DocumentSection)
-            .where(DocumentSection.document_id == scope.document_id)
-            .where(DocumentSection.job_result_id == scope.job_result_id)
+            delete(corpusStorage.DocumentSection)
+            .where(corpusStorage.DocumentSection.document_id == scope.document_id)
+            .where(corpusStorage.DocumentSection.job_result_id == scope.job_result_id)
         )
 
 
@@ -232,11 +229,12 @@ def _build_document_chunk(
     scope: DocumentPublicationScope,
     fallback_sort_order: int,
 ) -> DocumentChunk:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
     section_summary = section.summary
     section_path = section.section_path
     section_title = section.section_title
     path_text = f"{scope.source_file_name or ''} {section_path}".strip()
-    return DocumentChunk(
+    return corpusStorage.DocumentChunk(
         id=f"dchk_{uuid4().hex[:12]}",
         chunk_id=str(chunk.get("chunk_id") or f"chunk_{uuid4().hex[:12]}"),
         user_id=scope.user_id,

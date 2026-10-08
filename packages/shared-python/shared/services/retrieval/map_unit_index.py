@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from collections import Counter
 from hashlib import sha256
 from typing import TYPE_CHECKING
@@ -13,7 +15,6 @@ from sqlalchemy.orm import Session
 from shared.models.database.document import (
     DocumentChunk,
     DocumentMapUnit,
-    DocumentMapUnitIndex,
     DocumentMapUnitToken,
     DocumentSection,
 )
@@ -31,7 +32,7 @@ from shared.services.retrieval.scoring.persisted_score_load import (
 )
 from shared.services.retrieval.scoring.score_units import build_score_units
 from shared.services.retrieval.publication_models import DocumentPublicationScope
-from shared.services.retrieval.publication_strategy import resolve_publication_strategy
+from shared.services.retrieval.publication_preparation_cache import PublicationPreparationCache
 from shared.services.retrieval.publication_token_copy import (
     TokenCopyRow,
     insert_token_records_with_copy,
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
 
 __all__ = ["MAP_UNIT_INDEX_FORMAT_VERSION", "replace_document_map_units"]
 
-_BULK_INSERT_BATCH_SIZE = 5_000
+_BULK_INSERT_BATCH_SIZE = 1_000
 _TOKEN_ID_PREFIX_LENGTH = 12
 _TOKEN_ID_SEQUENCE_WIDTH = 19
 
@@ -56,46 +57,47 @@ def replace_document_map_units(
     clear_existing: bool = True,
 ) -> None:
     """Build the derived index through the authoritative map-unit constructor."""
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
     if clear_existing:
         with trace_publication_stage(trace, "tokens_persist"):
             db.execute(
-                delete(DocumentMapUnitToken).where(
-                    DocumentMapUnitToken.map_unit_id.in_(
-                        select(DocumentMapUnit.id)
-                        .where(DocumentMapUnit.document_id == scope.document_id)
-                        .where(DocumentMapUnit.job_result_id == scope.job_result_id)
+                delete(corpusStorage.DocumentMapUnitToken).where(
+                    corpusStorage.DocumentMapUnitToken.map_unit_id.in_(
+                        select(corpusStorage.DocumentMapUnit.id)
+                        .where(corpusStorage.DocumentMapUnit.document_id == scope.document_id)
+                        .where(corpusStorage.DocumentMapUnit.job_result_id == scope.job_result_id)
                     )
                 )
             )
         with trace_publication_stage(trace, "map_units_persist"):
             db.execute(
-                delete(DocumentMapUnit)
-                .where(DocumentMapUnit.document_id == scope.document_id)
-                .where(DocumentMapUnit.job_result_id == scope.job_result_id)
+                delete(corpusStorage.DocumentMapUnit)
+                .where(corpusStorage.DocumentMapUnit.document_id == scope.document_id)
+                .where(corpusStorage.DocumentMapUnit.job_result_id == scope.job_result_id)
             )
             db.execute(
-                delete(DocumentMapUnitIndex)
-                .where(DocumentMapUnitIndex.document_id == scope.document_id)
-                .where(DocumentMapUnitIndex.job_result_id == scope.job_result_id)
+                delete(corpusStorage.DocumentMapUnitIndex)
+                .where(corpusStorage.DocumentMapUnitIndex.document_id == scope.document_id)
+                .where(corpusStorage.DocumentMapUnitIndex.job_result_id == scope.job_result_id)
             )
     with trace_publication_stage(trace, "serving_index_prepare"):
         section_models = list(
             db.scalars(
-                select(DocumentSection)
-                .where(DocumentSection.document_id == scope.document_id)
-                .where(DocumentSection.job_result_id == scope.job_result_id)
-                .order_by(DocumentSection.sort_order, DocumentSection.section_id)
+                select(corpusStorage.DocumentSection)
+                .where(corpusStorage.DocumentSection.document_id == scope.document_id)
+                .where(corpusStorage.DocumentSection.job_result_id == scope.job_result_id)
+                .order_by(corpusStorage.DocumentSection.sort_order, corpusStorage.DocumentSection.section_id)
             )
         )
         chunk_models = list(
             db.scalars(
-                select(DocumentChunk)
-                .where(DocumentChunk.document_id == scope.document_id)
-                .where(DocumentChunk.job_result_id == scope.job_result_id)
+                select(corpusStorage.DocumentChunk)
+                .where(corpusStorage.DocumentChunk.document_id == scope.document_id)
+                .where(corpusStorage.DocumentChunk.job_result_id == scope.job_result_id)
                 .order_by(
-                    DocumentChunk.sort_order,
-                    DocumentChunk.chunk_id,
-                    DocumentChunk.id,
+                    corpusStorage.DocumentChunk.sort_order,
+                    corpusStorage.DocumentChunk.chunk_id,
+                    corpusStorage.DocumentChunk.id,
                 )
             )
         )
@@ -112,8 +114,6 @@ def replace_document_map_units(
     persisted_count = 0
     token_count = 0
     map_unit_rows: list[dict[str, object]] = []
-    token_rows: list[dict[str, object]] = []
-    use_candidate_strategy = resolve_publication_strategy() == "candidate"
     token_hash_cache: dict[str, str] = {}
     candidate_token_rows: list[TokenCopyRow] = []
     path_unit_df: Counter[str] = Counter()
@@ -130,16 +130,20 @@ def replace_document_map_units(
             if not unit_id or not section_id:
                 continue
             map_unit_id = f"dmu_{uuid4().hex}"
-            path_tokens = str(unit.get("path_search_text") or "").split()
-            content_tokens = str(unit.get("content_search_text") or "").split()
-            if path_tokens:
+            path_frequencies = PublicationPreparationCache.count_tokens(
+                str(unit.get("path_search_text") or "")
+            )
+            content_frequencies = PublicationPreparationCache.count_tokens(
+                str(unit.get("content_search_text") or "")
+            )
+            path_token_count = sum(path_frequencies.values())
+            content_token_count = sum(content_frequencies.values())
+            if path_token_count:
                 path_document_count += 1
-                path_total_length += len(path_tokens)
-            if content_tokens:
+                path_total_length += path_token_count
+            if content_token_count:
                 content_document_count += 1
-                content_total_length += len(content_tokens)
-            path_frequencies = Counter(path_tokens)
-            content_frequencies = Counter(content_tokens)
+                content_total_length += content_token_count
             path_unit_df.update(path_frequencies.keys())
             content_unit_df.update(content_frequencies.keys())
             # ``provider.self_units`` already reflects root-asset remount (assets
@@ -160,8 +164,8 @@ def replace_document_map_units(
                     "unit_id": unit_id,
                     "section_id": section_id,
                     "unit_kind": str(unit.get("kind") or "leaf"),
-                    "path_token_count": len(path_tokens),
-                    "content_token_count": len(content_tokens),
+                    "path_token_count": path_token_count,
+                    "content_token_count": content_token_count,
                     "has_image": "image" in section_types,
                     "has_table": "table" in section_types,
                     "sort_order": sort_order,
@@ -176,49 +180,34 @@ def replace_document_map_units(
                     if token_hash is None:
                         token_hash = sha256(token.encode("utf-8")).hexdigest()
                         token_hash_cache[token] = token_hash
-                    if use_candidate_strategy:
-                        # Keep candidate rows as compact mutable records. Their
-                        # IDs are assigned after locality sorting, so creating a
-                        # dictionary here would only add memory and GC pressure.
-                        candidate_token_rows.append(
-                            [
-                                "dmut_candidate",
-                                map_unit_id,
-                                channel,
-                                token,
-                                token_hash,
-                                frequency,
-                            ]
-                        )
-                    else:
-                        token_rows.append(
-                            {
-                                "id": f"dmut_{uuid4().hex[:31]}",
-                                "map_unit_id": map_unit_id,
-                                "channel": channel,
-                                "token": token,
-                                "token_hash": token_hash,
-                                "frequency": frequency,
-                            }
-                        )
+                    # Keep candidate rows as compact mutable records. Their
+                    # IDs are assigned after locality sorting, so creating a
+                    # dictionary here would only add memory and GC pressure.
+                    candidate_token_rows.append(
+                        [
+                            "dmut_candidate",
+                            map_unit_id,
+                            channel,
+                            token,
+                            token_hash,
+                            frequency,
+                        ]
+                    )
                 token_count += len(frequencies)
             persisted_count += 1
     if trace is not None:
         trace.record_count("map_units", persisted_count)
         trace.record_count("tokens", token_count)
     with trace_publication_stage(trace, "map_units_persist"):
-        _execute_bulk_insert(db, DocumentMapUnit, map_unit_rows)
+        _execute_bulk_insert(db, corpusStorage.DocumentMapUnit, map_unit_rows)
     with trace_publication_stage(trace, "tokens_persist"):
-        if use_candidate_strategy:
-            _prepare_candidate_token_rows(
-                candidate_token_rows,
-                job_result_id=scope.job_result_id,
-            )
-            insert_token_records_with_copy(db, candidate_token_rows)
-        else:
-            _execute_bulk_insert(db, DocumentMapUnitToken, token_rows)
+        _prepare_candidate_token_rows(
+            candidate_token_rows,
+            job_result_id=scope.job_result_id,
+        )
+        insert_token_records_with_copy(db, candidate_token_rows, corpus_storage=corpusStorage)
     with trace_publication_stage(trace, "statistics_prepare"):
-        index = DocumentMapUnitIndex(
+        index = corpusStorage.DocumentMapUnitIndex(
             id=f"dmui_{uuid4().hex}",
             document_id=scope.document_id,
             job_result_id=scope.job_result_id,

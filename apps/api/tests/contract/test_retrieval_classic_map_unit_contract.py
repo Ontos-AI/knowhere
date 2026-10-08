@@ -89,6 +89,7 @@ async def test_classic_route_maps_winning_unit_to_one_chunk(
     assert results[0]["chunk_type"] == "text"
     assert results[0]["source"] == {
         "document_id": first["document_id"],
+        "job_result_id": first["job_result_id"],
         "source_file_name": "first.pdf",
         "section_path": "Root / Hit / body",
     }

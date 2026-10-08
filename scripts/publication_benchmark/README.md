@@ -75,10 +75,9 @@ The example commands show one matrix point. Re-run the runner for the other
 owner (`async`), strategy (`candidate`), mode (`warm`), and case identifiers.
 Shell alternation syntax must not be used in command lines.
 
-Each strategy sample must run in its own Python process. Do not import the
-runner once and switch `KNOWHERE_PUBLICATION_STRATEGY` between samples: the
-shared application settings are process-scoped, and a reused process can
-otherwise report one strategy while executing another.
+The optimized publication implementation is unconditional. Active runners accept
+only `candidate`; baseline labels remain in historical reports for comparison.
+Run each sample in its own process to isolate settings and connection pools.
 
 `formal_campaign_report.py` validates the split 59-round compact-template
 campaign across 236 independent clones. It checks sample identity, frozen

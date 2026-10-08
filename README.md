@@ -222,18 +222,21 @@ full dependency matrix.
 ./deploy/local-dev/start-dev.sh
 ```
 
-5. Start the API and worker in separate terminals:
+5. Run migrations with the local management role. The infrastructure script
+provisions `knowhere_runtime`; the API/Worker environment examples use that
+non-superuser role so shared demo row-level security is enforced.
+
+```bash
+cd apps/api
+MIGRATION_DATABASE_URL=postgresql+asyncpg://root:root123@localhost:5432/Knowhere \
+  uv run alembic upgrade heads
+```
+
+6. Start the API and worker in separate terminals:
 
 ```bash
 cd apps/api && uv run main.py
 cd apps/worker && uv run worker.py
-```
-
-Run API migrations explicitly before starting the API when the database schema needs updating:
-
-```bash
-cd apps/api
-uv run alembic upgrade heads
 ```
 
 For API-only development without the dashboard, create an API-only user/key

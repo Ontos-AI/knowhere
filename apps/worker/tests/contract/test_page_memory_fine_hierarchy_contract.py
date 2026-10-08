@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
+
+import pytest
+from pytest import MonkeyPatch
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
@@ -21,6 +25,212 @@ class _FakeClient:
 
     def chat_completion(self, **_kwargs) -> str:
         return json.dumps(self.response)
+
+
+def test_refine_large_leaf_preserves_headings_when_provider_output_is_truncated(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A bounded provider response must never collapse a whole PDF into Root."""
+
+    class BoundedClient:
+        def chat_completion(self, **kwargs: object) -> str:
+            messages = kwargs["messages"]
+            assert isinstance(messages, list)
+            prompt: str = str(messages[-1]["content"])
+            identifiers: list[int] = [
+                int(value) for value in re.findall(r'"id": (\d+)', prompt)
+            ]
+            response: str = json.dumps(
+                [{"id": identifier, "level": 1} for identifier in identifiers]
+            )
+            # SpaceX's real response stopped mid-object at its completion budget.
+            budget: int = int(str(kwargs["max_tokens"]))
+            return response[: budget * 2]
+
+    monkeypatch.setattr(
+        fine_hierarchy,
+        "get_text_client",
+        lambda requested_model=None: (BoundedClient(), "test-model"),
+    )
+    skeleton: SectionSkeleton = SectionSkeleton(
+        section_path="spacex.pdf/Root",
+        level=1,
+        start_page=1,
+        end_page=407,
+        title="Root",
+        parent_path="spacex.pdf",
+    )
+    tags: list[PageTagResult] = [
+        PageTagResult(
+            page_index=page,
+            observed_titles=[{"text": f"Section {page}", "prominence": 1.0}],
+        )
+        for page in range(1, 408)
+    ]
+
+    refined: list[SectionSkeleton] = fine_hierarchy.refine_fat_leaf_skeletons(
+        coarse_skeletons=[skeleton],
+        tag_results=tags,
+        fat_leaf_pages=set(range(1, 408)),
+        model_name="test-model",
+        max_tokens=2000,
+    )
+
+    assert len(refined) == 407
+    assert [item.start_page for item in refined] == list(range(1, 408))
+    assert all(item.end_page == item.start_page for item in refined)
+
+
+def test_refine_batches_preserve_parent_context_and_recover_incomplete_classification(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    prompts: list[str] = []
+
+    class IncompleteClient:
+        def chat_completion(self, **kwargs: object) -> str:
+            messages = kwargs["messages"]
+            assert isinstance(messages, list)
+            prompt: str = str(messages[-1]["content"])
+            prompts.append(prompt)
+            identifiers: list[int] = [
+                int(value) for value in re.findall(r'"id": (\d+)', prompt)
+            ]
+            # A well-formed but partial array must also trigger smaller requests.
+            if len(identifiers) > 2:
+                identifiers = identifiers[:-1]
+            return json.dumps(
+                [
+                    {
+                        "id": identifier,
+                        "level": 1
+                        if identifier == 1
+                        else (0 if identifier == 4 else 2),
+                    }
+                    for identifier in identifiers
+                ]
+            )
+
+    monkeypatch.setattr(
+        fine_hierarchy,
+        "get_text_client",
+        lambda requested_model=None: (IncompleteClient(), "test-model"),
+    )
+    skeleton: SectionSkeleton = SectionSkeleton(
+        section_path="demo.pdf/Root",
+        level=1,
+        start_page=1,
+        end_page=8,
+        title="Root",
+        parent_path="demo.pdf",
+    )
+    tags: list[PageTagResult] = [
+        PageTagResult(
+            page_index=page,
+            observed_titles=[{"text": f"Heading {page}", "prominence": 1.0}],
+        )
+        for page in range(1, 9)
+    ]
+    refined: list[SectionSkeleton] = fine_hierarchy.refine_fat_leaf_skeletons(
+        coarse_skeletons=[skeleton],
+        tag_results=tags,
+        fat_leaf_pages=set(range(1, 9)),
+        max_tokens=128,
+        model_name="test-model",
+    )
+
+    assert [item.title for item in refined] == [
+        f"Heading {page}" for page in [1, 2, 3, 5, 6, 7, 8]
+    ]
+    assert all(item.parent_path == "demo.pdf/Root/Heading 1" for item in refined[1:])
+    assert any(
+        "level=1, heading=Heading 1" in prompt and '"id": 5' in prompt
+        for prompt in prompts
+    )
+
+
+def test_refine_rejects_exhausted_invalid_output_instead_of_publishing_root(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    class InvalidClient:
+        def chat_completion(self, **kwargs: object) -> str:
+            return '[{"id": 1, "level":'
+
+    monkeypatch.setattr(
+        fine_hierarchy,
+        "get_text_client",
+        lambda requested_model=None: (InvalidClient(), "test-model"),
+    )
+    skeleton: SectionSkeleton = SectionSkeleton(
+        section_path="demo.pdf/Root",
+        level=1,
+        start_page=1,
+        end_page=407,
+        title="Root",
+        parent_path="demo.pdf",
+    )
+    with pytest.raises(ValueError, match="incomplete or malformed"):
+        fine_hierarchy.refine_fat_leaf_skeletons(
+            coarse_skeletons=[skeleton],
+            tag_results=[
+                PageTagResult(
+                    page_index=1,
+                    observed_titles=[
+                        {"text": "Launch capabilities", "prominence": 1.0}
+                    ],
+                )
+            ],
+            fat_leaf_pages={1},
+            model_name="test-model",
+        )
+
+
+def test_refine_preserves_body_pages_before_first_observed_heading(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from app.services.page_memory.node_assembler import identify_leaf_nodes
+
+    monkeypatch.setattr(
+        fine_hierarchy,
+        "get_text_client",
+        lambda requested_model=None: (
+            _FakeClient([{"id": 1, "level": 1}, {"id": 2, "level": 1}]),
+            "test-model",
+        ),
+    )
+    skeleton: SectionSkeleton = SectionSkeleton(
+        section_path="demo.pdf/Root",
+        level=1,
+        start_page=1,
+        end_page=10,
+        title="Root",
+        parent_path="demo.pdf",
+    )
+    refined: list[SectionSkeleton] = fine_hierarchy.refine_fat_leaf_skeletons(
+        coarse_skeletons=[skeleton],
+        tag_results=[
+            PageTagResult(
+                page_index=3,
+                observed_titles=[{"text": "Launch capabilities", "prominence": 1.0}],
+            ),
+            PageTagResult(
+                page_index=7,
+                observed_titles=[{"text": "Financial statements", "prominence": 1.0}],
+            ),
+        ],
+        fat_leaf_pages=set(range(1, 11)),
+        model_name="test-model",
+    )
+    leaves = identify_leaf_nodes(refined)
+    owned_pages: set[int] = {
+        page
+        for leaf in leaves
+        for page in (
+            leaf.body_pages
+            if leaf.body_pages is not None
+            else range(leaf.start_page, leaf.end_page + 1)
+        )
+    }
+    assert owned_pages == set(range(1, 11))
 
 
 def test_compute_fat_leaf_pages_uses_exclusive_boundaries() -> None:
@@ -140,12 +350,13 @@ def test_refine_fat_leaf_skeletons_excludes_next_section_start_when_unordered(
     )
 
     assert [item.title for item in refined] == [
+        "Section A",
         "A.1 Last Heading",
         "Section C",
         "B.1 Boundary Heading",
     ]
-    assert refined[0].parent_path == "demo.pdf/Section A"
-    assert refined[2].parent_path == "demo.pdf/Section B"
+    assert refined[1].parent_path == "demo.pdf/Section A"
+    assert refined[3].parent_path == "demo.pdf/Section B"
 
 
 def test_refine_fat_leaf_skeletons_uses_page_memory_prompt_without_demoting_siblings(
@@ -370,6 +581,6 @@ def test_refine_fat_leaf_drops_boundary_page_on_tail_miss(monkeypatch) -> None:
         model_name="test-model",
     )
 
-    assert [item.title for item in refined] == ["NCC 2022"]
+    assert [item.title for item in refined] == ["History", "NCC 2022"]
     assert all("amendment" not in item.title.casefold() for item in refined)
     assert all(item.start_page != 23 for item in refined)

@@ -5,6 +5,7 @@ import sys
 
 import pytest
 from pytest import MonkeyPatch
+from shared.testing.contract_runtime import PostgreSQLProcess
 
 
 def test_should_register_worker_task_modules_for_celery_consumers(
@@ -187,3 +188,36 @@ def test_should_stop_beat_when_the_watchdog_fails_to_start(
 
     assert beat_process.was_terminated is True
     assert beat_process.wait_timeouts == [5]
+
+
+def test_should_reject_bypassing_database_role_before_starting_consumers(
+    worker_contract_environment: None,
+    monkeypatch: MonkeyPatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    from contextlib import contextmanager
+    from collections.abc import Iterator
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.orm import Session
+    from app.core import worker_bootstrap
+    from shared.core import database_sync
+    from shared.testing.contract_runtime import get_contract_database_url
+
+    engine = create_engine(make_url(get_contract_database_url(postgresql_proc)).set(drivername="postgresql+psycopg2"))
+
+    @contextmanager
+    def use_admin_database() -> Iterator[Session]:
+        with Session(engine) as database:
+            yield database
+
+    def reject_process_spawn(*args: object, **kwargs: object) -> None:
+        raise AssertionError("A bypassing runtime role must not start consumers or sidecars")
+
+    monkeypatch.setattr(database_sync, "get_sync_db_context", use_admin_database)
+    monkeypatch.setattr(worker_bootstrap.subprocess, "Popen", reject_process_spawn)
+    try:
+        with pytest.raises(RuntimeError, match="non-superuser"):
+            worker_bootstrap.run_worker()
+    finally:
+        engine.dispose()

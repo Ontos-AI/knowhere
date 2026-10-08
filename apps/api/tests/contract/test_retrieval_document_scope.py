@@ -529,15 +529,15 @@ async def test_real_harness_provider_loop_scopes_postgresql_tools(
 
         class CompletionClient:
             def chat_completion_raw_with_usage(self, *, messages, **kwargs):
-                tool_messages = [m for m in messages if m["role"] == "tool"]
-                if tool_messages:
-                    for message in tool_messages:
-                        verify_observation(message["content"])
+                user_messages = [m for m in messages if m["role"] == "user"]
+                latest = str(user_messages[-1]["content"]) if user_messages else ""
+                if "latest results" in latest:
+                    verify_observation(latest)
                     calls = [
                         SimpleNamespace(
                             id="finish",
                             function=SimpleNamespace(
-                                name="finish", arguments='{"refs": []}'
+                                name="finish", arguments='{"notes": ""}'
                             ),
                         )
                     ]
@@ -556,33 +556,52 @@ async def test_real_harness_provider_loop_scopes_postgresql_tools(
             yield value
 
         class Run:
-            def __init__(self, tools):
+            def __init__(self, tools, options=None):
                 self.tools = tools
+                self.options = options
 
             async def wait(self):
                 # Cursor invokes callbacks on provider threads; both callbacks
                 # must cross run_coroutine_threadsafe and open their own DB session.
-                contents = await asyncio.gather(
-                    *[
-                        asyncio.to_thread(
+                on_delta = getattr(self.options, "on_delta", None)
+                contents = []
+                for call in tool_calls:
+                    if on_delta is not None:
+                        on_delta(
+                            SimpleNamespace(
+                                type="tool-call-started",
+                                call_id=call.id,
+                                model_call_id="round-1",
+                            )
+                        )
+                    contents.append(
+                        await asyncio.to_thread(
                             self.tools[call.function.name].execute,
                             json.loads(call.function.arguments),
-                            None,
+                            SimpleNamespace(tool_call_id=call.id),
                         )
-                        for call in tool_calls
-                    ]
-                )
+                    )
                 for content in contents:
                     verify_observation(content)
-                self.tools["finish"].execute({"refs": []}, None)
+                if on_delta is not None:
+                    on_delta(
+                        SimpleNamespace(
+                            type="tool-call-started",
+                            call_id="finish",
+                            model_call_id="round-2",
+                        )
+                    )
+                self.tools["finish"].execute(
+                    {"notes": ""}, SimpleNamespace(tool_call_id="finish")
+                )
                 return SimpleNamespace(usage=SimpleNamespace(total_tokens=1))
 
         class Agent:
             def __init__(self, tools):
                 self.tools = tools
 
-            async def send(self, prompt):
-                return Run(self.tools)
+            async def send(self, prompt, options=None):
+                return Run(self.tools, options)
 
         class Agents:
             async def create(self, options):
@@ -609,6 +628,7 @@ async def test_real_harness_provider_loop_scopes_postgresql_tools(
                     CustomTool=SimpleNamespace,
                     AgentOptions=SimpleNamespace,
                     LocalAgentOptions=SimpleNamespace,
+                    SendOptions=SimpleNamespace,
                     AsyncClient=Client,
                 ),
             )
@@ -621,6 +641,6 @@ async def test_real_harness_provider_loop_scopes_postgresql_tools(
             query="scopeprobe",
             budget=EpisodeBudget(),
         )
-        assert len(observed) == 2
+        assert len(observed) == (1 if provider == "openai" else 2)
         assert episode.stop_reason == "finished"
         assert all(step.error is None for step in episode.steps)

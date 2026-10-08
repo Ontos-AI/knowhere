@@ -80,6 +80,8 @@ def _cache_shape_digest(
     llm_vision_model: str | None = None,
     harness: str | None = None,
     include_document_ids: list[str] | None = None,
+    corpus_generation: int | None = None,
+    revision_digest: str | None = None,
 ) -> str:
     normalized_excludes = sorted(exclude_document_ids)
     normalized_sections = _normalize_exclude_sections(exclude_sections)
@@ -97,6 +99,8 @@ def _cache_shape_digest(
             str(llm_text_model or ""),
             str(llm_vision_model or ""),
             str(harness or ""),
+            str(corpus_generation),
+            str(revision_digest or ""),
         ]
     )
     payload = f"{query}|{top_k}|{'|'.join(normalized_excludes)}|{'|'.join(normalized_sections)}|{extra}"

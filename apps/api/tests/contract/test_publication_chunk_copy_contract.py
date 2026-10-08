@@ -6,6 +6,8 @@ import asyncio
 from collections.abc import Iterator
 
 import pytest
+from psycogreen.gevent import patch_psycopg
+from psycopg2.extensions import get_wait_callback, set_wait_callback
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -111,9 +113,17 @@ def _read_rows(connection) -> list[tuple[object, ...]]:
     )
 
 
+@pytest.mark.parametrize("has_cooperative_callback", [False, True])
 def test_candidate_chunk_copy_preserves_null_empty_json_and_rollback(
     contract_database_url: str,
+    has_cooperative_callback: bool,
 ) -> None:
+    original_callback = get_wait_callback()
+    if has_cooperative_callback:
+        patch_psycopg()
+    else:
+        set_wait_callback(None)
+    expected_callback = get_wait_callback()
     url = make_url(contract_database_url).set(drivername="postgresql+psycopg2")
     engine = create_engine(url)
     try:
@@ -122,6 +132,7 @@ def test_candidate_chunk_copy_preserves_null_empty_json_and_rollback(
             connection.commit()
             with Session(bind=connection) as session:
                 insert_chunks_with_copy(session, _build_chunks())
+                assert get_wait_callback() is expected_callback
                 rows = _read_rows(connection)
                 assert rows[0][1:5] == (
                     "",
@@ -135,6 +146,7 @@ def test_candidate_chunk_copy_preserves_null_empty_json_and_rollback(
             assert connection.scalar(text("SELECT count(*) FROM document_chunks")) == 0
     finally:
         engine.dispose()
+        set_wait_callback(original_callback)
 
 
 async def test_candidate_chunk_copy_supports_asyncpg_owner_and_rollback(

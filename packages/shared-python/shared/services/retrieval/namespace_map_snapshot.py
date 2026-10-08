@@ -8,6 +8,8 @@ document's subtree in the payload is left byte-for-byte unchanged.
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
@@ -139,12 +141,13 @@ def _target_generation(
 
     Callers advance the generation after this write, in the same transaction.
     """
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     generation = current_generation
     if generation is None:
         generation = db.execute(
-            select(RetrievalNamespaceGeneration)
-            .where(RetrievalNamespaceGeneration.user_id == user_id)
-            .where(RetrievalNamespaceGeneration.namespace == namespace)
+            select(corpusStorage.RetrievalNamespaceGeneration)
+            .where(corpusStorage.RetrievalNamespaceGeneration.user_id == corpusStorage.resolve_owner(user_id))
+            .where(corpusStorage.RetrievalNamespaceGeneration.namespace == namespace)
             .with_for_update()
         ).scalar_one()
     return int(generation.generation) + 1
@@ -153,10 +156,11 @@ def _target_generation(
 def _load_snapshot_row(
     db: Session, *, user_id: str, namespace: str
 ) -> RetrievalNamespaceMapSnapshot | None:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     return db.execute(
-        select(RetrievalNamespaceMapSnapshot)
-        .where(RetrievalNamespaceMapSnapshot.user_id == user_id)
-        .where(RetrievalNamespaceMapSnapshot.namespace == namespace)
+        select(corpusStorage.RetrievalNamespaceMapSnapshot)
+        .where(corpusStorage.RetrievalNamespaceMapSnapshot.user_id == corpusStorage.resolve_owner(user_id))
+        .where(corpusStorage.RetrievalNamespaceMapSnapshot.namespace == namespace)
     ).scalar_one_or_none()
 
 
@@ -202,10 +206,11 @@ def _write_snapshot(
     format_version: int,
     target_generation: int,
 ) -> None:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     if row is None:
         db.add(
-            RetrievalNamespaceMapSnapshot(
-                user_id=user_id,
+            corpusStorage.RetrievalNamespaceMapSnapshot(
+                user_id=corpusStorage.resolve_owner(user_id),
                 namespace=namespace,
                 generation=target_generation,
                 format_version=format_version,

@@ -427,7 +427,10 @@ def test_should_restore_and_reapply_compact_token_indexes(
     external_connection: bool,
 ) -> None:
     config = _build_alembic_command_config(engine=alembic_engine)
-    _upgrade_to_heads(engine=alembic_engine)
+    # Exercise the reversible token-index chain independently of the retained
+    # demo schema, whose rollback deliberately preserves revisions and assets.
+    tokenIndexRevision: str = "3c4d5e6f7a8b"
+    command.upgrade(config, tokenIndexRevision)
 
     if external_connection:
         with alembic_engine.begin() as connection:
@@ -458,9 +461,9 @@ def test_should_restore_and_reapply_compact_token_indexes(
     if external_connection:
         with alembic_engine.begin() as connection:
             config.attributes["connection"] = connection
-            command.upgrade(config, "heads")
+            command.upgrade(config, tokenIndexRevision)
     else:
-        command.upgrade(config, "heads")
+        command.upgrade(config, tokenIndexRevision)
     with alembic_engine.begin() as connection:
         compact_names = {
             str(row[0])

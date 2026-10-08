@@ -8,11 +8,17 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Protocol, cast
 
+from psycopg2.extensions import cursor as PsycopgCursor
+from psycopg2.extensions import get_wait_callback
+from psycopg2.extras import execute_values
+from sqlalchemy import insert
 from sqlalchemy.orm import Session
+from shared.models.database.demo_corpus import DemoDocumentChunk
 
 from shared.models.database.document import DocumentChunk
 from shared.services.jobs.lifecycle.publication_trace_sql import record_publication_sql
 
+_COPY_BATCH_SIZE: int = 1_000
 _COLUMNS: tuple[str, ...] = (
     "id", "chunk_id", "user_id", "namespace", "document_id", "job_result_id",
     "section_id", "chunk_type", "content", "content_lexical_text", "path_lexical_text",
@@ -100,17 +106,30 @@ def _copy_psycopg(
     connection: _PsycopgConnection,
     records: list[tuple[_CopyValue, ...]],
 ) -> None:
-    buffer = _encode_csv_rows(records)
     cursor = connection.cursor()
     try:
-        cursor.copy_expert(_COPY_SQL, buffer)
+        if get_wait_callback() is not None:
+            # psycogreen uses a process-wide callback that COPY cannot support.
+            # Keep cooperative I/O and the caller's transaction intact.
+            execute_values(
+                cast(PsycopgCursor, cursor),
+                "INSERT INTO document_chunks (" + ", ".join(_COLUMNS) + ") VALUES %s",
+                records,
+                page_size=_COPY_BATCH_SIZE,
+            )
+        else:
+            buffer = _encode_csv_rows(records)
+            buffer.seek(0)
+            cursor.copy_expert(_COPY_SQL, buffer)
     finally:
         cursor.close()
 
 
-def insert_chunks_with_copy(db: Session, chunks: list[DocumentChunk]) -> None:
-    """COPY prepared chunk objects inside the caller's transaction."""
-    if not chunks:
+def _insert_chunk_batch(db: Session, chunks: list[DocumentChunk | DemoDocumentChunk]) -> None:
+    """Persist one bounded statement and record its actual SQL duration."""
+    if chunks and isinstance(chunks[0], DemoDocumentChunk):
+        demoRecords = [{column: (getattr(chunk, column) if column != "created_at" else getattr(chunk, column) or datetime.now(timezone.utc).replace(tzinfo=None)) for column in _COLUMNS} for chunk in chunks]
+        db.execute(insert(DemoDocumentChunk.__table__), demoRecords)
         return
     connection = db.connection()
     raw_connection = connection.connection
@@ -161,3 +180,9 @@ def insert_chunks_with_copy(db: Session, chunks: list[DocumentChunk]) -> None:
             is_manual_write=True,
             write_row_count=len(chunks) if did_succeed else None,
         )
+
+
+def insert_chunks_with_copy(db: Session, chunks: list[DocumentChunk | DemoDocumentChunk]) -> None:
+    """Persist prepared chunks in bounded batches inside the caller's transaction."""
+    for start in range(0, len(chunks), _COPY_BATCH_SIZE):
+        _insert_chunk_batch(db, chunks[start : start + _COPY_BATCH_SIZE])

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 import sqlite3
 from typing import Any
 
 from sqlalchemy import select
 
-from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
@@ -55,6 +58,7 @@ from shared.services.retrieval.settings import QUERY_TABLE_NAME
     },
 )
 async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
     document_id = str(args.get("document_id") or "").strip()
     chunk_id = str(args.get("chunk_id") or "").strip()
     sql = normalize_select_sql(str(args.get("sql") or ""))
@@ -68,34 +72,37 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
     document = (
         await ctx.db.execute(
-            select(Document, JobResult.job_id)
-            .select_from(Document)
-            .outerjoin(JobResult, JobResult.id == Document.current_job_result_id)
-            .where(Document.document_id == document_id)
-            .where(Document.user_id == ctx.user_id)
-            .where(Document.namespace == ctx.namespace)
-            .where(Document.status == "active")
-            .where(ctx.document_scope.predicate(Document.document_id))
+            select(
+                corpusStorage.Document, JobResult.job_id,
+                JobResult.document_metadata["result_raw_prefix"].as_string(),
+            )
+            .select_from(corpusStorage.Document)
+            .outerjoin(JobResult, JobResult.id == CorpusRevisionContext.build_revision_column(corpusStorage.Document))
+            .where(corpusStorage.Document.document_id == document_id)
+            .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(ctx.user_id))
+            .where(corpusStorage.Document.namespace == ctx.namespace)
+            .where(corpusStorage.Document.status == "active")
+            .where(ctx.document_scope.predicate(corpusStorage.Document.document_id))
         )
     ).first()
     if document is None:
         return ToolResult(text="", error=f"unknown document_id: {document_id}")
-    doc, job_id = document
-    if not doc.current_job_result_id:
+    doc, job_id, result_raw_prefix = document
+    if not CorpusRevisionContext.resolve_revision(doc.document_id, doc.current_job_result_id):
         return ToolResult(text="", error=f"unknown document_id: {document_id}")
 
     row = (
         await ctx.db.execute(
-            select(DocumentChunk, DocumentSection.section_path)
-            .select_from(DocumentChunk)
+            select(corpusStorage.DocumentChunk, corpusStorage.DocumentSection.section_path)
+            .select_from(corpusStorage.DocumentChunk)
             .outerjoin(
-                DocumentSection,
-                DocumentSection.section_id == DocumentChunk.section_id,
+                corpusStorage.DocumentSection,
+                corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id,
             )
-            .where(DocumentChunk.document_id == document_id)
-            .where(DocumentChunk.job_result_id == doc.current_job_result_id)
-            .where(DocumentChunk.chunk_id == chunk_id)
-            .where(DocumentChunk.chunk_type == "table")
+            .where(corpusStorage.DocumentChunk.document_id == document_id)
+            .where(corpusStorage.DocumentChunk.job_result_id == CorpusRevisionContext.resolve_revision(doc.document_id, doc.current_job_result_id))
+            .where(corpusStorage.DocumentChunk.chunk_id == chunk_id)
+            .where(corpusStorage.DocumentChunk.chunk_type == "table")
         )
     ).first()
     if row is None:
@@ -107,6 +114,7 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 "content": chunk.content,
                 "file_path": chunk.file_path,
                 "job_id": job_id,
+                "result_raw_prefix": result_raw_prefix,
             }
         )
     except TableDownloadError as exc:

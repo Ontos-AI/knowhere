@@ -26,6 +26,7 @@ from typing import Any, cast
 
 from loguru import logger
 from sqlalchemy import text
+from shared.services.retrieval.corpus_storage import CorpusStorage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
@@ -239,6 +240,7 @@ async def map_unit_discovery(
     **_kwargs: Any,
 ) -> DiscoveryResult:
     """Score the whole in-scope corpus via the persisted map-unit BM25 scorer."""
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     t0 = time.monotonic()
     if db is None:
         raise ValueError("database session required for map_unit_discovery")
@@ -261,7 +263,7 @@ async def map_unit_discovery(
         signal_paths or [], filter_mode
     )
     section_clause, section_params = _build_section_subtree_clause(section_targets)
-    params: dict[str, Any] = {"user_id": user_id, "namespace": namespace}
+    params: dict[str, Any] = {"user_id": corpusStorage.resolve_owner(user_id), "namespace": namespace}
     params.update(revision_params)
     params.update(document_scope_params)
     params.update(type_params)
@@ -275,7 +277,9 @@ async def map_unit_discovery(
             section_clause,
             exclude_sections,
             exclude_document_ids,
-            document_scope.include is not None,
+            document_scope.include is not None and (
+                revision_pins is None or set(document_scope.include) != set(revision_pins)
+            ),
             document_scope.exclude,
         )
     )
@@ -308,7 +312,7 @@ async def map_unit_discovery(
             "token_hashes": query_token_hashes,
         }
     stage_started = time.monotonic()
-    unit_result = await db.execute(text(unit_statement), params)
+    unit_result = await db.execute(text(corpusStorage.compile_sql(unit_statement)), params)
     unit_rows = [dict(row._mapping) for row in unit_result.all()]
     unit_rows = [
         row
@@ -332,7 +336,7 @@ async def map_unit_discovery(
         type_clause=type_clause,
     )
     frequency_query = text(
-        "WITH matching_tokens AS MATERIALIZED ("
+        corpusStorage.compile_sql("WITH matching_tokens AS MATERIALIZED ("
         "SELECT map_unit_id, channel, token, frequency "
         "FROM document_map_unit_tokens "
         "WHERE channel = ANY(:channels) "
@@ -345,7 +349,7 @@ async def map_unit_discovery(
                 FROM matching_tokens
                 JOIN scoped_units
                     ON scoped_units.map_unit_id = matching_tokens.map_unit_id
-                """
+                """)
     )
     stage_started = time.monotonic()
     frequency_result = await db.execute(
@@ -417,7 +421,7 @@ async def map_unit_discovery(
                 """
         )
     stage_started = time.monotonic()
-    index_result = await db.execute(text(index_statement), params)
+    index_result = await db.execute(text(corpusStorage.compile_sql(index_statement)), params)
     index_parts = [
         (
             float(path_idf or 0.0),
@@ -461,7 +465,7 @@ async def map_unit_discovery(
         else:
             stage_started = time.monotonic()
             revision_result = await db.execute(
-                text(cte + "SELECT DISTINCT document_id, job_result_id FROM scoped_units"),
+                text(corpusStorage.compile_sql(cte + "SELECT DISTINCT document_id, job_result_id FROM scoped_units")),
                 params,
             )
             expected_revisions = {
@@ -488,7 +492,7 @@ async def map_unit_discovery(
             (
                 await db.execute(
                     text(
-                        _SCOPED_UNIT_IDS_CTE.format(
+                        corpusStorage.compile_sql(_SCOPED_UNIT_IDS_CTE.format(
                             revision_join=revision_join,
                             revision_clause=revision_clause,
                             document_scope_clause=document_scope_clause,
@@ -503,7 +507,7 @@ async def map_unit_discovery(
                                 JOIN scoped_units
                                     ON scoped_units.map_unit_id = tokens.map_unit_id
                             ) AS token_count
-                        """
+                        """)
                     ),
                     params,
                 )
@@ -609,7 +613,7 @@ async def map_unit_discovery(
             if key not in {"channels", "token_hashes"}
         }
         full_unit_result = await db.execute(
-            text(cte + "SELECT * FROM scoped_units"), full_unit_params
+            text(corpusStorage.compile_sql(cte + "SELECT * FROM scoped_units")), full_unit_params
         )
         unit_rows = [dict(row._mapping) for row in full_unit_result.all()]
         unit_rows = [
@@ -784,6 +788,7 @@ async def _hydrate_winning_units(
     revision_pins: Mapping[str, str] | None,
 ) -> list[dict[str, Any]]:
     """Map each winning leaf to its one chunk; asset requests follow connect_to."""
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(str(next(iter(rows_by_unit_id.values()), {}).get("document_id") or ""))
     if not ranked_unit_ids:
         return []
 
@@ -799,10 +804,11 @@ async def _hydrate_winning_units(
 
     result = await session.execute(
         text(
-            "SELECT dc.chunk_id, dc.document_id, dc.section_id, dc.chunk_type, "
+            corpusStorage.compile_sql("SELECT dc.chunk_id, dc.document_id, dc.section_id, dc.chunk_type, "
             "dc.content, dc.source_chunk_path, dc.file_path, dc.chunk_metadata, "
             "dc.job_result_id, dc.sort_order, ds.section_path, d.source_file_name, "
-            "jr.job_id "
+            "jr.job_id, "
+            "jr.document_metadata ->> 'result_raw_prefix' AS result_raw_prefix "
             "FROM document_chunks dc "
             "JOIN documents d ON d.document_id = dc.document_id "
             "LEFT JOIN document_sections ds ON ds.section_id = dc.section_id "
@@ -810,7 +816,7 @@ async def _hydrate_winning_units(
             "WHERE dc.document_id = ANY(:document_ids) "
             "AND dc.job_result_id = ANY(:job_result_ids) "
             "AND dc.section_id = ANY(:section_ids) "
-            "ORDER BY dc.sort_order, dc.chunk_id"
+            "ORDER BY dc.sort_order, dc.chunk_id")
         ),
         {
             "document_ids": document_ids,

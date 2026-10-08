@@ -21,13 +21,16 @@ use, so a model reads one shape regardless of which tool produced it.
 
 from __future__ import annotations
 
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+
+from shared.services.retrieval.corpus_storage import CorpusStorage
+
 import re
 from collections import defaultdict
 from typing import Any
 
 from sqlalchemy import func, or_, select
 
-from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.services.retrieval.agent_tools.asset_hosts import host_paths_for_hits
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
@@ -65,12 +68,12 @@ def _terms_from_args(args: dict[str, Any]) -> list[str]:
     return terms
 
 
-def _indexed_term_search_text() -> Any:
+def _indexed_term_search_text(namespace: str = "default") -> Any:
     """Haystack expression for ``idx_document_chunks_term_trgm``."""
-    return func.lower(func.coalesce(DocumentChunk.term_search_text, ""))
+    return func.lower(func.coalesce(CorpusStorage.resolve_namespace(namespace).DocumentChunk.term_search_text, ""))
 
 
-def _term_search(terms: list[str]) -> tuple[re.Pattern[str], Any]:
+def _term_search(terms: list[str], namespace: str = "default") -> tuple[re.Pattern[str], Any]:
     """Build the Python matcher and the SQL term predicate.
 
     Every term uses ``LIKE`` on the indexed lowercased haystack. Several
@@ -82,7 +85,7 @@ def _term_search(terms: list[str]) -> tuple[re.Pattern[str], Any]:
     )
     return compiled, or_(
         *(
-            _indexed_term_search_text().like(f"%{term.lower()}%")
+            _indexed_term_search_text(namespace).like(f"%{term.lower()}%")
             for term in terms
         )
     )
@@ -206,6 +209,7 @@ def _build_hit_row(
     },
 )
 async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
     terms = _terms_from_args(args)
     if not terms:
         return ToolResult(text="", error="grep requires pattern or patterns")
@@ -230,41 +234,41 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             return ToolResult(text="", error=f"grep: {scope_error}")
         scope_filter = scope_orm_clause(
             scope,
-            document_id_col=DocumentChunk.document_id,
-            section_path_col=DocumentSection.section_path,
+            document_id_col=corpusStorage.DocumentChunk.document_id,
+            section_path_col=corpusStorage.DocumentSection.section_path,
         )
 
-    _compiled, term_filter = _term_search(terms)
+    _compiled, term_filter = _term_search(terms, ctx.namespace)
     # Match the indexed haystack first so PostgreSQL can use
     # idx_document_chunks_term_trgm. Section is joined here (not later) so a
     # scope's section-subtree condition can apply inside this same CTE.
     matched = (
         select(
-            DocumentChunk.id,
-            DocumentChunk.chunk_id,
-            DocumentChunk.document_id,
-            DocumentChunk.job_result_id,
-            DocumentChunk.chunk_type,
-            DocumentChunk.term_search_text,
-            DocumentChunk.section_id,
-            DocumentChunk.sort_order,
-            DocumentSection.section_path,
+            corpusStorage.DocumentChunk.id,
+            corpusStorage.DocumentChunk.chunk_id,
+            corpusStorage.DocumentChunk.document_id,
+            corpusStorage.DocumentChunk.job_result_id,
+            corpusStorage.DocumentChunk.chunk_type,
+            corpusStorage.DocumentChunk.term_search_text,
+            corpusStorage.DocumentChunk.section_id,
+            corpusStorage.DocumentChunk.sort_order,
+            corpusStorage.DocumentSection.section_path,
         )
-        .select_from(DocumentChunk)
-        .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
+        .select_from(corpusStorage.DocumentChunk)
+        .outerjoin(corpusStorage.DocumentSection, corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id)
         .where(
-            DocumentChunk.term_search_text.is_not(None),
+            corpusStorage.DocumentChunk.term_search_text.is_not(None),
             term_filter,
-            DocumentChunk.user_id == ctx.user_id,
-            DocumentChunk.namespace == ctx.namespace,
-            ctx.document_scope.predicate(DocumentChunk.document_id),
+            corpusStorage.DocumentChunk.user_id == corpusStorage.resolve_owner(ctx.user_id),
+            corpusStorage.DocumentChunk.namespace == ctx.namespace,
+            ctx.document_scope.predicate(corpusStorage.DocumentChunk.document_id),
         )
     )
     if scope_filter is not None:
         matched = matched.where(scope_filter)
     if chunk_types:
         matched = matched.where(
-            func.lower(DocumentChunk.chunk_type).in_(sorted(chunk_types))
+            func.lower(corpusStorage.DocumentChunk.chunk_type).in_(sorted(chunk_types))
         )
     matched = matched.cte("matched").prefix_with("MATERIALIZED")
 
@@ -276,15 +280,15 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             matched.c.term_search_text,
             matched.c.sort_order,
             matched.c.section_path,
-            Document.source_file_name,
+            corpusStorage.Document.source_file_name,
         )
         .select_from(matched)
-        .join(Document, Document.document_id == matched.c.document_id)
+        .join(corpusStorage.Document, corpusStorage.Document.document_id == matched.c.document_id)
         .where(
-            Document.user_id == ctx.user_id,
-            Document.namespace == ctx.namespace,
-            Document.status == "active",
-            Document.current_job_result_id == matched.c.job_result_id,
+            corpusStorage.Document.user_id == corpusStorage.resolve_owner(ctx.user_id),
+            corpusStorage.Document.namespace == ctx.namespace,
+            corpusStorage.Document.status == "active",
+            CorpusRevisionContext.build_revision_column(corpusStorage.Document) == matched.c.job_result_id,
         )
         .order_by(matched.c.document_id, matched.c.sort_order, matched.c.chunk_id)
     )

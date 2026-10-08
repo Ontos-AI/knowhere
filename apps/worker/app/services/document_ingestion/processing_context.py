@@ -12,6 +12,7 @@ from shared.core.exceptions.domain_exceptions import (
     NotFoundException,
 )
 from shared.models.database.job import Job
+from shared.services.retrieval.demo_job_scope import validate_job_corpus
 from shared.services.redis.redis_sync_service import (
     SyncJobInfoRedisService,
     SyncJobMetadataService,
@@ -57,6 +58,12 @@ def load_parse_job_context(
     requested_user_id: str | None,
     redis_service: Any,
 ) -> ParseJobContext:
+    with get_sync_db_context() as authorizationDb:
+        durableJob: Job | None = authorizationDb.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
+        if durableJob is None:
+            raise NotFoundException(resource="Job", resource_id=job_id)
+        validate_job_corpus(authorizationDb, job=durableJob)
+        durableScope: dict[str, object] = {key: value for key, value in (durableJob.job_metadata or {}).items() if key in ("namespace", "document_id", "demo_source_id", "corpus_target")}
     job_info_service = SyncJobInfoRedisService(redis_service)
     job_info = job_info_service.get_job_info(job_id)
     job_row: Job | None = None
@@ -120,6 +127,7 @@ def load_parse_job_context(
                 internal_message=f"Job metadata not found for job_id={job_id}",
             )
 
+    raw_job_metadata.update(durableScope)
     return ParseJobContext(
         job_metadata=dict(raw_job_metadata),
         job_user_id=job_user_id,

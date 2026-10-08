@@ -12,6 +12,7 @@ from pytest_postgresql import factories
 from pytest import MonkeyPatch
 from tests.support.import_environment import configure_import_environment, ensure_import_paths
 from shared.testing.contract_runtime import (
+    configure_runtime_database_role,
     CONTRACT_POSTGRESQL_PORT_RANGE,
     PostgreSQLProcess,
     clear_application_modules,
@@ -23,6 +24,7 @@ from shared.testing.contract_runtime import (
     seed_contract_developer,
 )
 from shared.testing.postgresql_environment import find_executable
+from shared.testing.contract_runtime import get_contract_database_url
 
 configure_import_environment()
 ensure_import_paths()
@@ -76,9 +78,13 @@ async def _load_api_module(
 ) -> ModuleType:
     configure_contract_environment(monkeypatch, postgresql_process)
     await prepare_contract_storage()
+    adminUrl: str = get_contract_database_url(postgresql_process)
+    await configure_runtime_database_role(monkeypatch, adminUrl)
     _ensure_import_paths()
     clear_application_modules()
     return importlib.import_module("main")
+
+
 
 
 @asynccontextmanager
