@@ -1,7 +1,7 @@
 """``corpus.list_documents`` — namespace-level document overview.
 
-Joins ``documents`` with the document-level ``graph_nodes`` row (§4 of
-``CORPUS_SCHEMA.md``) to surface per-document keywords/summary/type-mix
+Joins ``documents`` with the document-level ``graph_nodes`` row
+to surface per-document keywords/summary/type-mix
 without reading any chunk content.
 """
 
@@ -24,9 +24,8 @@ from shared.services.retrieval.agent_tools.registry import (
 @register_tool(
     name="corpus.list_documents",
     description=(
-        "List every active document in the namespace with its parse_track "
-        "and, when available, document-level graph metadata (top_keywords, "
-        "top_summary, chunk type mix). Use only when explicitly asked to "
+        "List every active document in the namespace with its summary, "
+        "top keywords and chunk count. Use only when explicitly asked to "
         "inventory the namespace's documents, not as a first step for "
         "question answering."
     ),
@@ -63,7 +62,6 @@ async def list_documents(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
             "document_id": document.document_id,
             "job_result_id": CorpusRevisionContext.resolve_revision(document.document_id, document.current_job_result_id),
             "source_file_name": document.source_file_name,
-            "parse_track": document.parse_track,
             "top_keywords": props.get("top_keywords") or [],
             "top_summary": props.get("top_summary") or "",
             "types": props.get("types") or {},
@@ -72,7 +70,7 @@ async def list_documents(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
         documents.append(entry)
         summary_line = (
             f"- {entry['source_file_name']} ({entry['document_id']}, "
-            f"track={entry['parse_track']}, chunks={entry['chunks_count']})"
+            f"chunks={entry['chunks_count']})"
         )
         if entry["top_summary"]:
             summary_line += f"\n  summary: {entry['top_summary']}"

@@ -106,8 +106,8 @@ from shared.services.retrieval.scoring.node_filter_predicates import (
             },
             "chunk_types": chunk_types_schema(
                 "Narrow matched sections to those owning a chunk of one of "
-                "these types (e.g. ['page'] to filter to page-track leaves "
-                "only). Omit for no narrowing."
+                "these types (e.g. ['page'] to keep only sections whose "
+                "body is PDF pages). Omit for no narrowing."
             ),
         },
         "required": ["scope", "predicates"],

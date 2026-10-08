@@ -8,8 +8,6 @@ codebase's OpenAI-compatible client.
 
 from __future__ import annotations
 
-from shared.services.retrieval.agent_tools.registry import REF_ADDRESS_ONE_OF, REF_ADDRESS_RULE
-
 AGENT_EXPLORE_MODEL = "deepseek-v4-flash"
 
 # Model for AGENT_EXPLORE_HARNESS=cursor_sdk (harness/cursor_harness.py) —
@@ -22,11 +20,11 @@ AGENT_EXPLORE_MODEL = "deepseek-v4-flash"
 AGENT_EXPLORE_CURSOR_MODEL = "composer-2.5"
 
 # One LLM turn = one round-trip that may contain several parallel tool calls
-# (see episode.py).
-AGENT_EXPLORE_MAX_STEPS = 12
+# (see episode.py). Both harnesses count one explore turn as one step.
+AGENT_EXPLORE_MAX_STEPS = 15
 
 # Wall-clock ceiling for the whole episode (LLM round-trips + tool
-# dispatch), independent of the token budget. New constant, not tuned yet.
+# dispatch). A service-level guard, never shown to the model.
 AGENT_EXPLORE_WALL_CLOCK_SECONDS = 180.0
 
 # Max tokens requested per LLM completion turn (thinking disabled — see
@@ -38,104 +36,43 @@ FINISH_TOOL_NAME = "finish"
 FINISH_TOOL_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
-        "refs": {
-            "type": "array",
-            "description": (
-                "Final cited evidence, in priority order. Each item "
-                "identifies one section or chunk you have already looked at "
-                "via corpus.read, corpus.assets, or corpus.query_table."
-            ),
-            "items": {
-                "type": "object",
-                "properties": {
-                    "document_id": {
-                        "type": "string",
-                        "description": "Document that owns the cited section or chunk.",
-                    },
-                    "section_path": {
-                        "type": "string",
-                        "description": "Cited section. Omit when chunk_id is set.",
-                    },
-                    "chunk_id": {
-                        "type": "string",
-                        "description": "Cited chunk. Omit when section_path is set.",
-                    },
-                },
-                "required": ["document_id"],
-                "oneOf": REF_ADDRESS_ONE_OF,
-                "additionalProperties": False,
-                "description": REF_ADDRESS_RULE,
-            },
-        },
         "notes": {
             "type": "string",
             "description": (
-                "Optional short note on why these refs answer the query, "
-                "or why none were found."
+                "Optional short note for the answer writer, or why nothing "
+                "was found."
             ),
         },
     },
-    "required": ["refs"],
+    "required": [],
     "additionalProperties": False,
 }
 
 FINISH_TOOL_DESCRIPTION = (
-    "Call this when you have gathered enough evidence to answer the query, "
-    "or when you are certain the corpus does not contain an answer. This "
-    "ends the exploration — do not answer in plain text; the final answer "
-    "is synthesized downstream from the refs you cite here."
+    "End the exploration now. The evidence pool becomes the final evidence."
 )
 
-# Appended after the verbatim CORPUS_SCHEMA.md text (schema_doc.py) to form
-# this harness's system prompt. Kept out of CORPUS_SCHEMA.md itself because
-# the finish-tool loop contract is agent_explore-specific, not something the
-# MCP-facing harnesses (Cursor/Codex/Claude) need — see that file's own
-# "single source... do not duplicate" header.
-LOOP_CONTRACT_SUFFIX = f"""
+# Harness-level tool, not in agent_tools.REGISTRY, so MCP never exposes it.
+PICK_TOOL_NAME = "corpus.pick"
 
----
+PICK_TOOL_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "pick": {
+            "type": "array",
+            "items": {"type": "string", "pattern": r"^(R\d+\.\d+|O\d+)$"},
+            "uniqueItems": True,
+            "description": (
+                "Ids from your latest corpus.read / corpus.outline results to "
+                "keep. Pass an empty list to keep none."
+            ),
+        },
+    },
+    "required": ["pick"],
+    "additionalProperties": False,
+}
 
-## Exploration loop contract
-
-You are exploring this corpus autonomously to answer one query. Tool
-names in this prompt are the registered names (`corpus.read`). This
-function-calling loop exposes the same tools with `.` replaced by `_`
-(`corpus_read`); use that underscore form when calling. Logs keep the
-dotted name.
-
-Use the tools above to navigate; you may call several tools in one turn
-when they are independent. If a call's arguments depend on another
-call's result, do not issue them in the same turn. In particular: do
-not call `corpus.grep` in the same turn as `corpus.recall`,
-`corpus.read`, `corpus.list_documents`, `corpus.outline`,
-`corpus.node_filter`, or `corpus.assets` unless `pattern` / `patterns`
-is already known — those calls produce the term; a grep with no term is
-an empty call. Wait for the result, then grep. `corpus.list_documents`
-enumerates the entire namespace: use it only if the user explicitly
-asks to list or inventory the corpus's documents, never as the starting
-step for a content question. When you have enough evidence, call
-`{FINISH_TOOL_NAME}`
-with the `refs` you want cited as the answer — do not write the final answer
-as plain text yourself, it is synthesized downstream from your cited refs.
-If you exhaust your tool budget without a confident answer, call
-`{FINISH_TOOL_NAME}` with your best-effort `refs` (or an empty list plus a
-`notes` explanation of why nothing was found) rather than continuing to
-call other tools.
-
-`refs` is REQUIRED and must not be omitted or left empty if you called
-`corpus.read`, `corpus.assets`, or `corpus.query_table` even once during
-this exploration: copy the `document_id` and `chunk_id`/`section_path` of
-every section/chunk you looked at that supports your answer into `refs`
-before calling `{FINISH_TOOL_NAME}`. Calling `{FINISH_TOOL_NAME}` with no
-`refs` after having already read relevant content discards that evidence.
-
-Before calling `{FINISH_TOOL_NAME}`, if you have not called `corpus.read`,
-`corpus.assets`, or `corpus.query_table` even once this exploration, you
-have not actually verified anything yet — a search tool returning
-candidates is not the same as having read them. In that case, either read
-your best candidate section first, or — only if you have positively
-confirmed there is nothing to read (e.g. a structural check came back
-with zero matching sections) — say so explicitly in `notes`. Repeatedly
-rephrasing the same search instead of reading a candidate you already
-found is not a substitute for reading it.
-"""
+PICK_TOOL_DESCRIPTION = (
+    "Pick which of your latest corpus.read / corpus.outline results join the "
+    "evidence pool. Body text you read but do not pick cannot be read again."
+)

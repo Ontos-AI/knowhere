@@ -1,7 +1,7 @@
 """``corpus.assets`` — forward asset search and reverse asset -> hosts lookup.
 
 Image/table chunks are parked under their document's synthetic ``Root``
-section in the DB (§3 of ``CORPUS_SCHEMA.md``); the real association to a
+section in the DB; the real association to a
 body section lives in ``chunk_metadata.connect_to`` on the *body* chunk.
 Both directions resolve hosts through ``agent_tools.asset_hosts`` (keyed by
 document + chunk, current revision only), the same resolver ``corpus.grep``
@@ -54,16 +54,13 @@ from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 @register_tool(
     name="corpus.assets",
     description=(
-        "Forward search for image/table chunks by type/query, or reverse "
-        "lookup: given asset chunk_ids (host_of), find which body "
-        "section(s) embed or reference them via connect_to. Rows show the "
-        "hosting section_path; an asset no body section embeds keeps Root "
-        "and is marked '(no host section)'. A forward search alone only "
-        "lists candidate assets — it does not tell you which ones matter "
-        "for the current question. Pair it with a prior corpus.recall/"
-        "corpus.grep hit: scope this call to that hit's section, or "
-        "reverse-resolve the hit's own connect_to targets via host_of "
-        "instead of browsing every asset in a document."
+        "Find image and table chunks by type or query, or, given asset "
+        "chunk_ids (host_of), list the sections that contain them. Rows "
+        "show the containing section_path; an asset that no section "
+        "contains is marked (not in any section). A plain listing does not "
+        "tell you which assets matter: scope it to a section from a prior "
+        "corpus.grep/corpus.recall hit, or use host_of on chunk_ids you "
+        "already have."
     ),
     json_schema={
         "type": "object",
@@ -243,7 +240,7 @@ async def _reverse_lookup(
 
     lines = [format_row(row) for row in rows]
     lines.extend(
-        f"- {target_id}: no host section found in this scope (asset stays under Root)"
+        f"- {target_id}: not contained in any section within this scope"
         for target_id in unhosted
     )
     return ToolResult(

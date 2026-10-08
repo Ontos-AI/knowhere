@@ -121,17 +121,25 @@ class RetrievalQueryResponse(BaseModel):
     router_used: str
     evidence: list[dict] = Field(
         default_factory=list,
-        description="Composed evidence parts (text and inline images) for downstream agents.",
+        description=(
+            "Grouped evidence blocks. Each group starts with "
+            "[E1] [§ source_file_name / parent_path]. Text and table HTML "
+            "stay as text parts; images stay as image parts at their "
+            "placeholder positions."
+        ),
     )
     evidence_text: str = Field(
         default="",
-        description="Text projection of evidence. Tables stay as HTML; images are data URLs.",
+        description=(
+            "DEPRECATED. Always empty. Knowhere no longer projects evidence "
+            "into a string. Use evidence."
+        ),
     )
     answer_text: str = Field(
         default="",
         description=(
             "DEPRECATED. Always empty; KNOWHERE no longer generates answers. "
-            "Use evidence_text and synthesize answers downstream."
+            "Use evidence and synthesize answers downstream."
         ),
     )
     referenced_chunks: list[dict] = Field(default_factory=list)

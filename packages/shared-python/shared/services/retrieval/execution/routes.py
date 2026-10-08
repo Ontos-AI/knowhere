@@ -14,8 +14,7 @@ from shared.services.retrieval.execution.route_types import (
     RetrievalRouteOutcome,
 )
 from shared.services.retrieval.hydration.evidence_compose import (
-    collect_evidence,
-    flatten_parts,
+    group_evidence_units,
 )
 from shared.services.retrieval.hydration.result_assembly import (
     assemble_retrieval_results,
@@ -50,12 +49,24 @@ def open_agent_explore_database_context() -> AbstractAsyncContextManager[AsyncSe
 
 
 def _evidence_fields(rows: list[dict]) -> dict:
-    # TODO: 后面用 TypeSafe JEV 补结果重排/筛选。现在没有这一步。
-    # 无论怎么做，发出去的 evidence 和 results 都是已经筛过或重排过的完整列表，不在 Knowhere 外面做。
-    evidence = collect_evidence(rows)
+    # TODO: later use TypeSafe JEV for result rerank/filter. This step does not exist yet.
+    evidence = group_evidence_units(
+        [
+            {
+                "document_id": row["document_id"],
+                "source_file_name": row["source_file_name"],
+                "section_path": row["section_path"],
+                "sort_order": row["sort_order"],
+                "parts": row["composed"],
+                "kind": "read",
+            }
+            for row in rows
+            if row["composed"]
+        ]
+    )
     return {
         "evidence": evidence,
-        "evidence_text": flatten_parts(evidence),
+        "evidence_text": "",
     }
 
 
@@ -202,14 +213,15 @@ async def _run_agent_explore_route(
     ``AGENT_EXPLORE_HARNESS`` switch resolved by ``resolve_harness()``.
     """
     from shared.services.retrieval.agent_explore.bridge import (
-        attach_ref_provenance,
+        attach_evidence_pool,
         build_decision_trace,
     )
     from shared.services.retrieval.agent_explore.budget import EpisodeBudget
-    from shared.services.retrieval.agent_explore.harness import resolve_harness
-    from shared.services.retrieval.agent_explore.ref_resolution import (
-        resolve_finish_refs,
+    from shared.services.retrieval.agent_explore.evidence_pool import (
+        compose_pool_evidence,
+        pool_chunk_refs,
     )
+    from shared.services.retrieval.agent_explore.harness import resolve_harness
     from shared.services.retrieval.trace import TraceRecorder
 
     # End any read transaction created by the route's pre-episode work before
@@ -229,37 +241,21 @@ async def _run_agent_explore_route(
         document_scope=context.document_scope,
     )
     logger.info(
-        "retrieval agent_explore stage=episode seconds={:.3f} refs={} "
+        "retrieval agent_explore stage=episode seconds={:.3f} pool={} "
         "steps={} tokens={} stop_reason={}".format(
             time.perf_counter() - episode_started,
-            len(episode.refs),
+            len(episode.pool),
             len(episode.steps),
             episode.tokens_used,
             episode.stop_reason,
         )
     )
 
-    # episode.refs are document_id + section_path (what the agent actually
-    # sees in tool text); resolve_workflow_references requires chunk_id —
-    # see ref_resolution.py's module docstring for why this bridge exists.
     decision_steps = build_decision_trace(episode.steps)
+    chunk_refs = pool_chunk_refs(episode.pool)
+    decision_steps = attach_evidence_pool(decision_steps, episode.pool)
 
     async with open_fresh_database_context() as final_db:
-        finish_resolution = await resolve_finish_refs(
-            final_db,
-            user_id=context.user_id,
-            namespace=context.namespace,
-            refs=episode.refs,
-            document_scope=context.document_scope,
-        )
-        chunk_refs = finish_resolution.resolved
-        decision_steps = attach_ref_provenance(
-            decision_steps,
-            agent_selected_refs=episode.agent_selected_refs,
-            fallback_refs=episode.fallback_refs,
-            resolved_refs=chunk_refs,
-            dropped_refs=finish_resolution.dropped,
-        )
         resolved = await resolve_workflow_references(
             db=final_db,
             user_id=context.user_id,
@@ -275,7 +271,13 @@ async def _run_agent_explore_route(
             exclude_sections=context.exclude_sections,
             allowed_chunk_types=context.allowed_chunk_types,
             revision_pins=context.revision_pins,
+            queried_tables=episode.queried_tables,
         )
+        evidence = compose_pool_evidence(episode.pool, assembled_rows)
+        evidence_fields = {
+            "evidence": evidence,
+            "evidence_text": "",
+        }
 
         selected_doc_ids = list(
             {row.get("document_id", "") for row in resolved.rows if row.get("document_id")}
@@ -303,7 +305,6 @@ async def _run_agent_explore_route(
         )
 
     decision_trace = [step.to_dict() for step in decision_steps]
-    evidence_fields = _evidence_fields(assembled_rows)
     response = {
         "namespace": context.namespace,
         "query": context.query,
@@ -321,6 +322,6 @@ async def _run_agent_explore_route(
         completion_label="AGENT EXPLORE RETRIEVAL",
         completion_count=len(resolved.refs),
         completion_detail=(
-            f"chunks | evidence={len(evidence_fields['evidence_text'])} chars | router=agent_explore"
+            f"chunks | evidence={len(evidence)} parts | router=agent_explore"
         ),
     )

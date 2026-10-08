@@ -14,7 +14,7 @@ provider-specific (MCP / OpenAI tool-calling) concerns.
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Set
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -73,14 +73,14 @@ class ToolBudget:
     below, and notes it in ``ToolResult.text`` when the request was clamped.
     Tools that promise a complete, non-truncated set by contract
     (``node_filter``, ``outline``) do not apply this budget to their
-    matched-set cardinality — see ``CORPUS_SCHEMA.md`` §6.
+    matched-set cardinality.
 
     ``max_chars`` caps the rendered ``ToolResult.text`` before it enters LLM
     context. Applied in ``agent_explore.shared.tool_message_content`` (not
     inside individual tools) so ``read`` can return full body text from the
     tool while the harness still bounds what the model sees per turn. Aligned
     with final evidence packing via ``EVIDENCE_TEXT_CHAR_BUDGET``
-    (12_000).
+    (15_000).
     """
 
     max_chars: int = EVIDENCE_TEXT_CHAR_BUDGET
@@ -94,6 +94,20 @@ def capped_limit(requested: int, budget: ToolBudget) -> int:
     request fails validation instead of being raised to 1 here.
     """
     return min(requested, budget.max_items)
+
+
+# ``(document_id, section_path)`` and ``(document_id, chunk_id)`` addresses
+# an ``agent_explore`` episode received in results of earlier rounds.
+ReadableAddresses = Set[tuple[str, str]]
+
+
+@dataclass(frozen=True)
+class Decision:
+    """One body chunk an ``agent_explore`` episode read and then picked or not."""
+
+    read_round: int
+    picked_handle: str | None
+    handle: str
 
 
 @dataclass
@@ -116,6 +130,10 @@ class ToolContext:
     # dropping summaries does not fit then fails that one call as "too
     # large to map" instead of guessing.
     query: str = ""
+    # ``corpus.read`` gates, set only by ``agent_explore``. ``None`` means no
+    # gate: an external MCP client calling one tool has no episode.
+    readable: ReadableAddresses | None = None
+    decided: Mapping[tuple[str, str], Decision] | None = None
 
 
 @dataclass
@@ -208,7 +226,7 @@ def validate_tool_args(spec: ToolSpec, args: dict[str, Any]) -> str | None:
 
     Every tool schema declares ``additionalProperties: false`` at every
     object level (registered tools are expected to keep this true — see
-    ``CORPUS_SCHEMA.md`` §6), so an unknown key anywhere in the argument
+    each tool schema), so an unknown key anywhere in the argument
     tree fails here instead of being silently dropped or ignored downstream.
     The returned message names the offending path, the tool's legal
     top-level argument names, and — for an unknown-key error — the exact

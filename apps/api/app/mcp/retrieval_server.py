@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any, AsyncContextManager, Callable
 
 from app.services.auth.current_user_authentication_service import (
@@ -7,13 +8,14 @@ from app.services.auth.current_user_authentication_service import (
 )
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import ImageContent, TextContent
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.mcp.dynamic_tools import register_corpus_tools
 from shared.core.database import get_db_context
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
-from shared.services.retrieval.agent_tools import load_corpus_schema_text
+from shared.services.retrieval.agent_tools import load_corpus_overview_text
 from shared.services.retrieval.app_service import run_retrieval_query
 from shared.services.retrieval.settings import DEFAULT_TOP_K
 
@@ -53,26 +55,37 @@ def resolve_mcp_namespace(*, ctx: Context | None) -> str:
     return normalize_retrieval_namespace(namespace)
 
 
-def to_mcp_query_response(response: dict[str, Any]) -> dict[str, Any]:
-    """Project the public retrieval response to the MCP agent contract.
+def to_mcp_query_response(response: dict[str, Any]) -> list[TextContent | ImageContent]:
+    """Project the public retrieval response to MCP content blocks.
 
-    MCP returns the same Knowhere package the HTTP query emits:
-    - evidence: composed parts (text/HTML and inline images)
-    - evidence_text: text projection of those parts
-    - results: raw path chunks for debug
-    - referenced_chunks: structured chunk references for citation / follow-up
-    - decision_trace: navigation decisions including terminal stop/failure
+    Each evidence part becomes ``TextContent`` or ``ImageContent``. A final
+    text block is JSON for query, router_used, failure_reason,
+    referenced_chunks, decision_trace, and results. That JSON does not
+    repeat evidence or evidence_text.
     """
-    return {
-        "query": response.get("query"),
-        "router_used": response.get("router_used"),
-        "failure_reason": response.get("failure_reason"),
-        "evidence": response.get("evidence") or [],
-        "evidence_text": response.get("evidence_text") or "",
-        "results": response.get("results") or [],
-        "referenced_chunks": response.get("referenced_chunks") or [],
-        "decision_trace": response.get("decision_trace") or [],
-    }
+    blocks: list[TextContent | ImageContent] = [
+        ImageContent(type="image", data=part["data"], mimeType=part["media_type"])
+        if part["type"] == "image"
+        else TextContent(type="text", text=part["text"])
+        for part in response.get("evidence") or []
+    ]
+    blocks.append(
+        TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "query": response.get("query"),
+                    "router_used": response.get("router_used"),
+                    "failure_reason": response.get("failure_reason"),
+                    "referenced_chunks": response.get("referenced_chunks") or [],
+                    "decision_trace": response.get("decision_trace") or [],
+                    "results": response.get("results") or [],
+                },
+                ensure_ascii=False,
+            ),
+        )
+    )
+    return blocks
 
 
 async def resolve_mcp_user_id(*, ctx: Context | None, db: AsyncSession) -> str:
@@ -95,8 +108,8 @@ def create_retrieval_mcp_server(
         instructions=(
             "retrieval.query is a one-shot legacy search tool retained for "
             "backward compatibility (see its own tool description below). "
-            "Prefer the corpus.* tools for exploration; the schema below "
-            "describes what they operate on.\n\n" + load_corpus_schema_text()
+            "Prefer the corpus.* tools for exploration; the overview below "
+            "describes the corpus they operate on.\n\n" + load_corpus_overview_text()
         ),
         streamable_http_path=streamable_http_path,
         stateless_http=True,
@@ -108,14 +121,14 @@ def create_retrieval_mcp_server(
         name="retrieval.query",
         description=(
             "Search published documents. Compose already happened in Knowhere. "
-            "Returns evidence (composed parts for LLM consumption), "
-            "results (raw path chunks for debug), "
-            "evidence_text (text projection of evidence), "
-            "referenced_chunks (cited chunk metadata for follow-up queries), "
-            "and decision_trace (navigation decisions including stop/failure reasons). "
-            "Include navigation intent directly in your query text — the "
-            "engine will automatically locate the right documents and sections."
+            "Returns grouped evidence as text and image content blocks, then "
+            "a JSON text block with query, router_used, failure_reason, "
+            "referenced_chunks, decision_trace, and results (raw path chunks "
+            "for debug). Include navigation intent directly in your query "
+            "text — the engine will automatically locate the right documents "
+            "and sections."
         ),
+        structured_output=False,
     )
     async def query_documents(
         query: Annotated[
@@ -149,7 +162,7 @@ def create_retrieval_mcp_server(
             )),
         ] = [],
         ctx: Context | None = None,
-    ) -> dict:
+    ) -> list[TextContent | ImageContent]:
         # TODO(intent-step): When the Intent Understanding step is
         # implemented, it will parse `query` here to extract structured
         # hints (document_hint, scope_hint, content_type_hint) and set

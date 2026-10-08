@@ -343,9 +343,6 @@ async def test_demo_agent_tools_pin_history_and_private_isolation(
             CorpusRevisionContext,
         )
         from shared.services.retrieval.agent_explore.dispatch import dispatch_tool_call
-        from shared.services.retrieval.agent_explore.ref_resolution import (
-            resolve_finish_refs,
-        )
 
         async with get_db_context() as db:
             pins = await capture_revision_pins(
@@ -406,19 +403,23 @@ async def test_demo_agent_tools_pin_history_and_private_isolation(
                     assert "reusable rockets" in result.text
                 if name == "corpus.grep":
                     assert result.payload.get("total_matches", 0) > 0 or result.refs
-            async with get_db_context() as db:
-                refs = await resolve_finish_refs(
-                    db,
-                    user_id="reader-two",
-                    namespace="__knowhere_demo__",
-                    refs=[
+            by_path = await dispatch_tool_call(
+                "corpus.read",
+                {
+                    "refs": [
                         {"document_id": job["document_id"], "section_path": sectionPath}
-                    ],
-                )
-                assert (
-                    refs.resolved
-                    and refs.resolved[0]["chunk_id"] == "body-" + revision[:8]
-                )
+                    ]
+                },
+                db_factory=get_db_context,
+                user_id="reader-two",
+                namespace="__knowhere_demo__",
+            )
+            assert by_path.error is None, by_path.error
+            assert "reusable rockets" in by_path.text
+            assert "Updated orbital" not in by_path.text
+            assert any(
+                ref.get("chunk_id") == "body-" + revision[:8] for ref in by_path.refs
+            ), by_path.refs
         private = await client.post(
             "/api/v2/jobs",
             json={

@@ -60,15 +60,9 @@ class _GrepRows:
                 DOC_ID,
                 "table",
                 "dose table 30 mg",
-                "<table><tr><td>30 mg</td></tr></table>",
-                TABLE_FILE,
-                {"summary": "dose table"},
-                REV_ID,
-                JOB_ID,
-                None,
+                1,
                 PATH_ROOT,
                 FILE_NAME,
-                1,
             )
         ]
 
@@ -203,7 +197,6 @@ def _read_kwargs(refs: list[dict[str, str]]) -> dict:
         "refs": refs,
         "mode": "self",
         "include_assets": False,
-        "resolve_same_as": False,
     }
 
 
@@ -215,7 +208,8 @@ def _asset_refs_from_text(text: str) -> list[dict[str, str]]:
     return [
         {"document_id": document_id, "chunk_id": chunk_id}
         for document_id, chunk_id in re.findall(
-            r"document_id=(\S+) section_path=.+? chunk_id=(\S+)", text
+            r"document_id=(\S+)(?: section_path=.+?| \(not in any section\)) chunk_id=(\S+)",
+            text,
         )
     ]
 
@@ -260,7 +254,10 @@ async def test_grep_table_visible_chunk_id_reads(discovery_ctx: ToolContext) -> 
         db_factory=_unused_db_factory,
     )
     listed = await grep(grep_ctx, {"pattern": "30 mg"})
-    match = re.search(r"document_id=(\S+) section_path=.+? chunk_id=(\S+)", listed.text)
+    match = re.search(
+        r"document_id=(\S+)(?: section_path=.+?| \(not in any section\)) chunk_id=(\S+)",
+        listed.text,
+    )
     assert match is not None
     result = await read(
         discovery_ctx,

@@ -122,9 +122,11 @@ def format_row(row: Mapping[str, Any]) -> str:
     header = f"{indent}- [{row['kind']}]"
     if row["title"]:
         header += f" {row['title']}"
-    header += f" | document_id={row['document_id']} section_path={row['section_path']}"
+    header += f" | document_id={row['document_id']}"
     if row["hosted"] is False:
-        header += " (no host section)"
+        header += " (not in any section)"
+    else:
+        header += f" section_path={row['section_path']}"
     if row["chunk_id"]:
         header += f" chunk_id={row['chunk_id']}"
     if row["score"] is not None:

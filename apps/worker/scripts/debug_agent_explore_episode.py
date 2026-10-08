@@ -1,17 +1,16 @@
 """Audit-only: dump every step of one ``agent_explore`` episode.
 
 Prints, for each LLM turn / tool call: tool name, args, elapsed ms,
-tokens_used_delta (turn-level, attributed to the first tool step — see
-``harness/openai_harness.py``), tokens_used_total (cumulative), observation
-length (chars sent back into the LLM's context), and error. Also prints the
-final ``EpisodeResult`` (refs/notes/stop_reason).
+observation length (chars sent back into the LLM's context), and error.
+Also prints the final ``EpisodeResult`` (pool/stop_reason/episode
+token total).
 
 Read-only diagnostic; does not modify any behavior.
 
 Usage:
   cd apps/worker
   uv run python scripts/debug_agent_explore_episode.py --query-id q04
-  uv run python scripts/debug_agent_explore_episode.py --query "..." --token-limit 200000
+  uv run python scripts/debug_agent_explore_episode.py --query "..."
   uv run python scripts/debug_agent_explore_episode.py --query-id q04 --harness cursor_sdk
 """
 
@@ -44,7 +43,6 @@ async def main() -> None:
     parser.add_argument("--query", default=None)
     parser.add_argument("--user-id", default="debug_local_user")
     parser.add_argument("--namespace", default="default")
-    parser.add_argument("--token-limit", type=int, default=None)
     parser.add_argument("--harness", default=None, choices=["openai", "cursor_sdk"])
     parser.add_argument(
         "--model",
@@ -65,7 +63,7 @@ async def main() -> None:
     from shared.services.retrieval.agent_explore.budget import EpisodeBudget
     from shared.services.retrieval.agent_explore.harness import resolve_harness
 
-    budget = EpisodeBudget(token_limit=args.token_limit) if args.token_limit else EpisodeBudget()
+    budget = EpisodeBudget()
     harness = resolve_harness(args.harness, cursor_model=args.model)
 
     print(f"query: {query!r}")
@@ -79,16 +77,29 @@ async def main() -> None:
 
     print(f"\nstop_reason={episode.stop_reason} tokens_used={episode.tokens_used} "
           f"model={episode.model_name}")
-    print(f"final refs ({len(episode.refs)}): {json.dumps(episode.refs, ensure_ascii=False)}")
-    print(f"final notes: {episode.notes!r}")
-    print(f"\n{'#':>3} {'tool':<28} {'ms':>6} {'delta':>7} {'total':>7} {'obs_chars':>9} err")
+    print(
+        f"final pool ({len(episode.pool)}): "
+        + json.dumps(
+            [
+                {
+                    "handle": item.handle,
+                    "kind": item.kind,
+                    "document_id": item.document_id,
+                    "section_path": item.section_path,
+                    "chunk_ids": list(item.chunk_ids),
+                }
+                for item in episode.pool
+            ],
+            ensure_ascii=False,
+        )
+    )
+    print(f"\n{'#':>3} {'tool':<28} {'ms':>6} {'obs_chars':>9} err")
     for step in episode.steps:
         args_preview = json.dumps(step.tool_args, ensure_ascii=False)[:80]
         err = step.error or ""
         print(
             f"{step.step_index:>3} {step.tool_name or '(none)':<28} "
-            f"{step.elapsed_ms:>6} {step.tokens_used_delta:>7} "
-            f"{step.tokens_used_total:>7} {len(step.observation_text):>9} {err}"
+            f"{step.elapsed_ms:>6} {len(step.observation_text):>9} {err}"
         )
         print(f"      args: {args_preview}")
 

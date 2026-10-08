@@ -1,4 +1,4 @@
-"""Regression coverage for ``corpus.grep`` scope and exact-count query."""
+"""Regression coverage for ``corpus.grep`` scope, term blocks, and folding."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ import pytest
 
 from sqlalchemy.dialects import postgresql
 
+from shared.services.retrieval.agent_explore.evidence_pool import EvidencePool
 from shared.services.retrieval.agent_tools.registry import REGISTRY, ToolContext
 from shared.services.retrieval.agent_tools.snippet import build_row, format_row
 from shared.services.retrieval.agent_tools.tools.grep import (
@@ -34,22 +35,16 @@ def _text_row(
     term: str,
     section_path: str,
     source_file_name: str,
-    total: int,
+    sort_order: int = 0,
 ) -> tuple[object, ...]:
     return (
         chunk_id,
         document_id,
         "text",
         term,
-        term,
-        None,
-        None,
-        "jr_a",
-        "job_a",
-        None,
+        sort_order,
         section_path,
         source_file_name,
-        total,
     )
 
 
@@ -62,7 +57,7 @@ class _RowsResult:
                 term="alpha HFrEF body",
                 section_path="guide.pdf / Intro",
                 source_file_name="guide.pdf",
-                total=2,
+                sort_order=1,
             ),
             _text_row(
                 chunk_id="chunk_b",
@@ -70,22 +65,8 @@ class _RowsResult:
                 term="other HFrEF note",
                 section_path="notes.pdf / Leaf",
                 source_file_name="notes.pdf",
-                total=2,
+                sort_order=2,
             ),
-        ]
-
-
-class _LimitedRowsResult:
-    def all(self) -> list[tuple[object, ...]]:
-        return [
-            _text_row(
-                chunk_id="chunk_a",
-                document_id="doc_a",
-                term="alpha HFrEF body",
-                section_path="guide.pdf / Intro",
-                source_file_name="guide.pdf",
-                total=2,
-            )
         ]
 
 
@@ -141,26 +122,33 @@ def _scoped_document(document_id: str, job_result_id: str = "jr_a") -> SimpleNam
     return SimpleNamespace(document_id=document_id, current_job_result_id=job_result_id)
 
 
-@pytest.mark.asyncio
-async def test_grep_runs_one_scoped_query_with_exact_total() -> None:
-    db = _SequencedDb([_RowsResult()])
-
+def _unused_factory():
     @asynccontextmanager
-    async def rows_factory():
+    async def factory():
         raise AssertionError("grep must not open a second database connection")
         yield  # pragma: no cover
 
+    return factory
+
+
+@pytest.mark.asyncio
+async def test_grep_one_term_lists_section_rows() -> None:
+    db = _SequencedDb([_RowsResult()])
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
-        db_factory=rows_factory,
+        db_factory=_unused_factory(),
     )
     result = await grep(ctx, {"pattern": "HFrEF"})
 
     assert result.error is None
-    assert result.payload["details"]["total_matches"] == 2
+    assert result.payload["details"] == {}
     assert [row["document_id"] for row in result.payload["rows"]] == ["doc_a", "doc_a"]
+    assert [row["section_path"] for row in result.payload["rows"]] == [
+        "guide.pdf / Intro",
+        "notes.pdf / Leaf",
+    ]
     assert [row["chunk_id"] for row in result.payload["rows"]] == [None, None]
     assert result.refs == [
         {"document_id": "doc_a", "chunk_id": "chunk_a"},
@@ -174,7 +162,8 @@ async def test_grep_runs_one_scoped_query_with_exact_total() -> None:
         )
     )
     matched_sql = sql.split(")\n SELECT", 1)[0]
-    assert "count(*) OVER ()" in sql
+    assert "count(*) OVER ()" not in sql
+    assert " LIMIT " not in sql
     assert "term_search_text" in matched_sql
     assert "document_chunks.user_id = 'user_grep'" in matched_sql
     assert "document_chunks.namespace = 'default'" in matched_sql
@@ -184,25 +173,21 @@ async def test_grep_runs_one_scoped_query_with_exact_total() -> None:
     assert "ilike" not in matched_sql.lower()
     assert "~*" not in matched_sql
     assert "%hfref%" in matched_sql.lower()
-    assert result.text.startswith("total_matches=2 returned=2")
+    assert result.text.startswith("HFrEF\n")
+    assert "total_matches=" not in result.text
     assert "- [text] guide.pdf | document_id=doc_a section_path=guide.pdf / Intro" in result.text
     assert "chunk_id=" not in result.text
+    assert "还有" not in result.text
 
 
 @pytest.mark.asyncio
 async def test_grep_scope_narrows_to_document_and_subtree() -> None:
     db = _SequencedDb([_ScalarsResult([_scoped_document("doc_a")]), _RowsResult()])
-
-    @asynccontextmanager
-    async def unused_factory():
-        raise AssertionError("grep must not open a second database connection")
-        yield  # pragma: no cover
-
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
-        db_factory=unused_factory,
+        db_factory=_unused_factory(),
     )
     result = await grep(
         ctx, {"pattern": "HFrEF", "scope": [{"document_id": "doc_a"}]}
@@ -223,17 +208,11 @@ async def test_grep_scope_narrows_to_document_and_subtree() -> None:
 @pytest.mark.asyncio
 async def test_grep_unknown_scope_document_fails_the_call() -> None:
     db = _SequencedDb([_ScalarsResult([])])
-
-    @asynccontextmanager
-    async def unused_factory():
-        raise AssertionError("grep must not open a second database connection")
-        yield  # pragma: no cover
-
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
-        db_factory=unused_factory,
+        db_factory=_unused_factory(),
     )
     result = await grep(
         ctx, {"pattern": "HFrEF", "scope": [{"document_id": "doc_missing"}]}
@@ -245,61 +224,49 @@ async def test_grep_unknown_scope_document_fails_the_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_grep_exact_total_survives_row_limit() -> None:
-    db = _SequencedDb([_LimitedRowsResult()])
-
-    @asynccontextmanager
-    async def unused_factory():
-        raise AssertionError("grep must not open a second database connection")
-        yield  # pragma: no cover
-
+async def test_grep_limit_folds_leftover_sections_per_document() -> None:
+    db = _SequencedDb([_RowsResult()])
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
-        db_factory=unused_factory,
+        db_factory=_unused_factory(),
     )
     result = await grep(ctx, {"pattern": "HFrEF", "limit": 1})
 
-    assert result.payload["details"]["total_matches"] == 2
-    assert len(result.payload["rows"]) == 1
-    assert result.text.startswith("total_matches=2 returned=1")
+    assert [row["section_path"] for row in result.payload["rows"]] == [
+        "guide.pdf / Intro"
+    ]
+    assert result.refs == [{"document_id": "doc_a", "chunk_id": "chunk_a"}]
+    assert result.text.startswith("HFrEF\n")
+    assert "notes.pdf / Leaf" not in result.text
+    assert "notes.pdf 还有 1 节命中 — scope=[{document_id: doc_a}]" in result.text
 
 
 @pytest.mark.asyncio
-async def test_grep_empty_result_reports_zero_total() -> None:
+async def test_grep_empty_result_is_blank() -> None:
     db = _SequencedDb([_EmptyRowsResult()])
-
-    @asynccontextmanager
-    async def unused_factory():
-        raise AssertionError("grep must not open a second database connection")
-        yield  # pragma: no cover
-
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
-        db_factory=unused_factory,
+        db_factory=_unused_factory(),
     )
     result = await grep(ctx, {"pattern": "missing"})
 
     assert result.payload["rows"] == []
-    assert result.payload["details"]["total_matches"] == 0
+    assert result.payload["details"] == {}
     assert result.refs == []
-    assert result.text == "total_matches=0 returned=0"
+    assert result.text == ""
 
 
 @pytest.mark.asyncio
 async def test_grep_requires_pattern_or_patterns() -> None:
-    @asynccontextmanager
-    async def rows_factory():
-        yield _SequencedDb([_RowsResult()])
-
     ctx = ToolContext(
         db=_SequencedDb([_RowsResult()]),  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
-        db_factory=rows_factory,
+        db_factory=_unused_factory(),
     )
     result = await grep(ctx, {})
     assert result.error == "grep requires pattern or patterns"
@@ -383,117 +350,49 @@ class _TableRowsResult:
                 "doc_a",
                 "table",
                 "dose table summary 30 mg",
-                "tables/dose.html",
-                "tables/dose.html",
-                {"summary": "dose table summary 30 mg"},
-                "jr_a",
-                "job_a",
-                None,
+                1,
                 "guide.pdf / Root",
                 "guide.pdf",
-                1,
             )
         ]
 
 
 @pytest.mark.asyncio
-async def test_grep_table_hit_text_includes_chunk_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_grep_table_hit_is_address_and_snippet() -> None:
     db = _SequencedDb([_TableRowsResult(), _EmptyRowsResult()])
-
-    @asynccontextmanager
-    async def unused_factory():
-        raise AssertionError("grep must not open a second database connection")
-        yield  # pragma: no cover
-
-    monkeypatch.setattr(
-        "shared.services.retrieval.hydration.table_grid.load_table_html",
-        lambda _row: "<table><tr><td>30 mg</td></tr></table>",
-    )
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
-        db_factory=unused_factory,
+        db_factory=_unused_factory(),
     )
     result = await grep(ctx, {"pattern": "30 mg"})
 
     assert result.error is None
     assert (
-        "- [table] guide.pdf | document_id=doc_a section_path=guide.pdf / Root "
-        "(no host section) chunk_id=chunk_table"
+        "- [table] guide.pdf | document_id=doc_a (not in any section) chunk_id=chunk_table"
         in result.text
     )
-    assert "<table>" in result.text
     assert "30 mg" in result.text
-    assert "tables/dose.html" not in result.text.split("\n", 1)[-1]
+    assert "<table>" not in result.text
+    assert result.text.startswith("30 mg\n")
 
 
 @pytest.mark.asyncio
-async def test_grep_table_download_failure_does_not_fail_whole_call(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A table download error must not crash the grep call — grep still
-    returns its total_matches/text; only that hit's rendering becomes a
-    warning note instead of raising."""
-    from shared.services.retrieval.hydration.table_grid import TableDownloadError
-
+async def test_grep_matches_table_via_term_search_text_not_content_path() -> None:
     db = _SequencedDb([_TableRowsResult(), _EmptyRowsResult()])
-
-    @asynccontextmanager
-    async def unused_factory():
-        raise AssertionError("grep must not open a second database connection")
-        yield  # pragma: no cover
-
-    def _raise_download_error(_row):
-        raise TableDownloadError("S3 301: PermanentRedirect")
-
-    monkeypatch.setattr(
-        "shared.services.retrieval.hydration.table_grid.load_table_html",
-        _raise_download_error,
-    )
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
-        db_factory=unused_factory,
-    )
-    result = await grep(ctx, {"pattern": "30 mg"})
-
-    assert result.error is None
-    assert result.payload["details"]["total_matches"] == 1
-    assert "table unavailable" in result.text
-    assert "download failed" in result.text
-
-
-@pytest.mark.asyncio
-async def test_grep_matches_table_via_term_search_text_not_content_path(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    db = _SequencedDb([_TableRowsResult(), _EmptyRowsResult()])
-
-    @asynccontextmanager
-    async def unused_factory():
-        raise AssertionError("grep must not open a second database connection")
-        yield  # pragma: no cover
-
-    monkeypatch.setattr(
-        "shared.services.retrieval.hydration.table_grid.load_table_html",
-        lambda _row: "<table><tr><td>30 mg</td></tr></table>",
-    )
-    ctx = ToolContext(
-        db=db,  # type: ignore[arg-type]
-        user_id="user_grep",
-        namespace="default",
-        db_factory=unused_factory,
+        db_factory=_unused_factory(),
     )
     result = await grep(ctx, {"pattern": "dose table summary"})
 
     assert result.error is None
-    assert result.payload["details"]["total_matches"] == 1
     assert result.payload["rows"][0]["chunk_id"] == "chunk_table"
     assert "dose table summary" in result.text
+    assert "<table>" not in result.text
 
 
 def test_format_row_body_omits_chunk_id() -> None:
@@ -553,56 +452,151 @@ async def test_grep_matches_image_description() -> None:
                     "doc_a",
                     "image",
                     "a chart of dose",
-                    "a chart of dose\n[images/x.png]",
-                    "images/x.png",
-                    None,
-                    "jr_a",
-                    "job_a",
-                    None,
+                    1,
                     "guide.pdf / Root",
                     "guide.pdf",
-                    1,
                 )
             ]
 
     db = _SequencedDb([_ImageRows(), _EmptyRowsResult()])
-
-    @asynccontextmanager
-    async def unused_factory():
-        raise AssertionError("grep must not open a second database connection")
-        yield  # pragma: no cover
-
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
-        db_factory=unused_factory,
+        db_factory=_unused_factory(),
     )
     result = await grep(ctx, {"pattern": "chart of dose"})
     assert result.error is None
     assert result.payload["rows"][0]["chunk_id"] == "chunk_image"
     assert "chart of dose" in result.text
-    assert "[Image:" in result.text
+    assert "[Image:" not in result.text
 
 
 @pytest.mark.asyncio
 async def test_grep_scope_does_not_scan_table_cells() -> None:
     db = _SequencedDb([_ScalarsResult([_scoped_document("doc_a")]), _EmptyRowsResult()])
-
-    @asynccontextmanager
-    async def unused_factory():
-        raise AssertionError("grep must not open a second database connection")
-        yield  # pragma: no cover
-
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
         user_id="user_grep",
         namespace="default",
-        db_factory=unused_factory,
+        db_factory=_unused_factory(),
     )
     result = await grep(
         ctx, {"pattern": "30 mg", "scope": [{"document_id": "doc_a"}]}
     )
     assert db.execute_count == 2
-    assert result.payload["details"]["total_matches"] == 0
+    assert result.payload["rows"] == []
+    assert result.text == ""
     assert "cell=" not in result.text
+
+
+class _DrownRows:
+    def all(self) -> list[tuple[object, ...]]:
+        generic = [
+            _text_row(
+                chunk_id=f"chunk_g{i}",
+                document_id="doc_bbb",
+                term=f"body 血管紧张素 {i}",
+                section_path=f"HTN_Guide.pdf / {i}",
+                source_file_name="HTN_Guide.pdf",
+                sort_order=i,
+            )
+            for i in range(4)
+        ]
+        rare = [
+            _text_row(
+                chunk_id="chunk_rare",
+                document_id="doc_aaa",
+                term="Surgery TGFBR2 pathogenic variant",
+                section_path="ESC_Marfan.pdf / 4.7.1 Marfan syndrome",
+                source_file_name="ESC_Marfan.pdf",
+                sort_order=1,
+            )
+        ]
+        return generic + rare
+
+
+@pytest.mark.asyncio
+async def test_grep_rare_term_is_listed_before_generic_and_generic_folds() -> None:
+    db = _SequencedDb([_DrownRows()])
+    ctx = ToolContext(
+        db=db,  # type: ignore[arg-type]
+        user_id="user_grep",
+        namespace="default",
+        db_factory=_unused_factory(),
+    )
+    result = await grep(
+        ctx, {"patterns": ["TGFBR2", "血管紧张素"], "limit": 2}
+    )
+
+    assert result.error is None
+    assert result.text.startswith("TGFBR2\n")
+    assert "ESC_Marfan.pdf / 4.7.1 Marfan syndrome" in result.text
+    assert [row["section_path"] for row in result.payload["rows"]] == [
+        "ESC_Marfan.pdf / 4.7.1 Marfan syndrome",
+        "HTN_Guide.pdf / 0",
+    ]
+    assert "HTN_Guide.pdf / 1" not in result.text
+    assert "HTN_Guide.pdf 还有 3 节命中 — scope=[{document_id: doc_bbb}]" in result.text
+    tgf_at = result.text.index("TGFBR2")
+    ang_at = result.text.index("血管紧张素")
+    assert tgf_at < ang_at
+
+
+@pytest.mark.asyncio
+async def test_grep_visible_rows_are_readable_folded_rows_are_not() -> None:
+    db = _SequencedDb([_DrownRows()])
+    ctx = ToolContext(
+        db=db,  # type: ignore[arg-type]
+        user_id="user_grep",
+        namespace="default",
+        db_factory=_unused_factory(),
+    )
+    result = await grep(
+        ctx, {"patterns": ["TGFBR2", "血管紧张素"], "limit": 2}
+    )
+    pool = EvidencePool()
+    assert pool.issue("corpus.grep", result) == []
+    pool.begin_round()
+    readable = pool.readable()
+    assert ("doc_aaa", "ESC_Marfan.pdf / 4.7.1 Marfan syndrome") in readable
+    assert ("doc_bbb", "HTN_Guide.pdf / 0") in readable
+    assert ("doc_bbb", "HTN_Guide.pdf / 1") not in readable
+    assert ("doc_bbb", "HTN_Guide.pdf / 3") not in readable
+
+
+@pytest.mark.asyncio
+async def test_grep_same_section_two_chunks_keeps_first() -> None:
+    class _DupSection:
+        def all(self) -> list[tuple[object, ...]]:
+            return [
+                _text_row(
+                    chunk_id="chunk_first",
+                    document_id="doc_a",
+                    term="first TGFBR2 line",
+                    section_path="guide.pdf / Intro",
+                    source_file_name="guide.pdf",
+                    sort_order=1,
+                ),
+                _text_row(
+                    chunk_id="chunk_second",
+                    document_id="doc_a",
+                    term="second TGFBR2 line",
+                    section_path="guide.pdf / Intro",
+                    source_file_name="guide.pdf",
+                    sort_order=2,
+                ),
+            ]
+
+    db = _SequencedDb([_DupSection()])
+    ctx = ToolContext(
+        db=db,  # type: ignore[arg-type]
+        user_id="user_grep",
+        namespace="default",
+        db_factory=_unused_factory(),
+    )
+    result = await grep(ctx, {"pattern": "TGFBR2"})
+    assert len(result.payload["rows"]) == 1
+    assert result.refs == [{"document_id": "doc_a", "chunk_id": "chunk_first"}]
+    assert "first TGFBR2 line" in result.text
+    assert "second TGFBR2 line" not in result.text

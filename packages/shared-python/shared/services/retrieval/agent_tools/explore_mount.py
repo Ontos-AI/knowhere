@@ -1,8 +1,9 @@
-"""Shared explore-phase mounting for ``corpus.grep`` and ``corpus.recall`` hits.
+"""Shared explore-phase mounting for ``corpus.recall`` hits.
 
 Table/image hits are rendered with the same explore table/image functions
 ``corpus.read`` uses. Body hits that already list ``connect_to`` targets get
 those assets rendered and labeled as mounted, not as the body match itself.
+Each returned row lists the asset ids it rendered in ``mounted_chunk_ids``.
 """
 
 from __future__ import annotations
@@ -101,6 +102,7 @@ async def mount_explore_hits(
         chunk_id = str(row.get("chunk_id") or "")
         chunk_type = normalize_chunk_type(row.get("chunk_type"))
         enriched_self = by_id.get(chunk_id, row)
+        mounted_ids: list[str] = []
         if chunk_type == "table":
             row["rendered"] = render_explore_table(
                 enriched_self, char_budget=char_budget
@@ -119,11 +121,14 @@ async def mount_explore_hits(
                     body = render_explore_table(target, char_budget=char_budget)
                     if body:
                         parts.append(f"mounted table chunk_id={target_id}:\n{body}")
+                        mounted_ids.append(target_id)
                 elif target_type == "image":
                     body = _image_display_content(target)
                     if body:
                         parts.append(f"mounted image chunk_id={target_id}:\n{body}")
+                        mounted_ids.append(target_id)
                     _append_image_media(target, media, seen_urls)
             row["rendered"] = "\n\n".join(parts)
+        row["mounted_chunk_ids"] = mounted_ids
         mounted.append(row)
     return mounted, media
