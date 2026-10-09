@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional, Sequence
 
 from loguru import logger
-from sqlalchemy import and_, desc, select, update
+from sqlalchemy import and_, desc, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -12,6 +12,21 @@ from sqlalchemy.orm import selectinload
 from shared.core.state_machine.service import AsyncStateMachineService
 from shared.models.database.job import Job
 from shared.models.database.job_state_history import JobStateHistory
+from shared.models.schemas.retrieval_namespace import DEFAULT_RETRIEVAL_NAMESPACE
+from shared.utils.utc_now import utc_now_naive
+
+
+def _namespace_matches(namespace: str):
+    """Build the namespace predicate for job listing.
+
+    ``namespace`` is expected to already be normalized. Jobs written before
+    the namespace was recorded in ``job_metadata`` have no key at all; those
+    belong to the default namespace, so the default filter must match them too.
+    """
+    stored_namespace = Job.job_metadata.op("->>")("namespace")
+    if namespace == DEFAULT_RETRIEVAL_NAMESPACE:
+        return or_(stored_namespace == namespace, stored_namespace.is_(None))
+    return stored_namespace == namespace
 
 
 class JobRepository:
@@ -92,13 +107,14 @@ class JobRepository:
         created_before: Optional[datetime] = None,
         job_type: Optional[str] = None,
         job_status: Optional[str] = None,
+        namespace: Optional[str] = None,
     ) -> Sequence[Job]:
         """Get jobs for a user."""
         try:
             stmt = (
                 select(Job)
                 .options(selectinload(Job.job_result))
-                .where(Job.user_id == user_id)
+                .where(Job.user_id == user_id, Job.deleted_at.is_(None))
                 .order_by(desc(Job.created_at))
                 .limit(limit)
                 .offset(offset)
@@ -111,6 +127,8 @@ class JobRepository:
                 stmt = stmt.where(Job.job_type == job_type)
             if job_status:
                 stmt = stmt.where(Job.status == job_status)
+            if namespace:
+                stmt = stmt.where(_namespace_matches(namespace))
             result = await db.execute(stmt)
             return result.scalars().all()
         except Exception as e:
@@ -125,12 +143,17 @@ class JobRepository:
         created_before: Optional[datetime] = None,
         job_type: Optional[str] = None,
         job_status: Optional[str] = None,
+        namespace: Optional[str] = None,
     ) -> int:
         """Count jobs for a user."""
         try:
             from sqlalchemy import func
 
-            stmt = select(func.count()).select_from(Job).where(Job.user_id == user_id)
+            stmt = (
+                select(func.count())
+                .select_from(Job)
+                .where(Job.user_id == user_id, Job.deleted_at.is_(None))
+            )
             if created_after:
                 stmt = stmt.where(Job.created_at >= created_after)
             if created_before:
@@ -139,10 +162,63 @@ class JobRepository:
                 stmt = stmt.where(Job.job_type == job_type)
             if job_status:
                 stmt = stmt.where(Job.status == job_status)
+            if namespace:
+                stmt = stmt.where(_namespace_matches(namespace))
             result = await db.execute(stmt)
             return result.scalar() or 0
         except Exception as e:
             logger.error(f"Failed to count jobs for user {user_id}: {e}")
+            return 0
+
+    async def soft_delete_job(self, db: AsyncSession, job_id: str) -> bool:
+        """Mark a Job as deleted.
+
+        Returns True when this call performed the deletion, False when the job
+        was already deleted (or no longer exists), which makes the operation
+        idempotent for retrying clients.
+        """
+        try:
+            stmt = (
+                update(Job)
+                .where(Job.job_id == job_id, Job.deleted_at.is_(None))
+                .values(deleted_at=utc_now_naive())
+            )
+            result = await db.execute(stmt)
+            await db.commit()
+            return (result.rowcount or 0) > 0
+        except Exception as e:
+            logger.error(f"Failed to soft-delete job {job_id}: {e}")
+            await db.rollback()
+            raise
+
+    async def count_active_jobs_for_document(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        document_id: str,
+        exclude_job_id: Optional[str] = None,
+    ) -> int:
+        """Count a user's non-deleted jobs that target the given document."""
+        try:
+            from sqlalchemy import func
+
+            stmt = (
+                select(func.count())
+                .select_from(Job)
+                .where(
+                    Job.user_id == user_id,
+                    Job.deleted_at.is_(None),
+                    Job.job_metadata.op("->>")("document_id") == document_id,
+                )
+            )
+            if exclude_job_id:
+                stmt = stmt.where(Job.job_id != exclude_job_id)
+            result = await db.execute(stmt)
+            return result.scalar() or 0
+        except Exception as e:
+            logger.error(
+                f"Failed to count active jobs for document {document_id}: {e}"
+            )
             return 0
 
     async def update_job_state(
