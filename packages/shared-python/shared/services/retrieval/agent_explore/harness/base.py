@@ -12,11 +12,14 @@ from __future__ import annotations
 
 from shared.services.retrieval.document_scope import DocumentScope
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
 from shared.services.retrieval.agent_explore.dispatch import DbFactory
 from shared.services.retrieval.agent_explore.types import EpisodeResult
+
+if TYPE_CHECKING:
+    from shared.services.retrieval.agent_explore.evidence_review import EvidenceReviewSession
 
 
 @runtime_checkable
@@ -32,6 +35,7 @@ class Harness(Protocol):
         document_scope: DocumentScope = DocumentScope(),
         query: str,
         budget: EpisodeBudget,
+        evidence_review: EvidenceReviewSession | None = None,
     ) -> EpisodeResult:
         """Explore the corpus for ``query`` and return the cited evidence.
 
@@ -41,5 +45,7 @@ class Harness(Protocol):
         call goes through ``dispatch.dispatch_tool_call(..., db_factory=db_factory)``
         so concurrent tool calls (a real Cursor SDK behavior, not just a
         theoretical one — see ``harness/cursor_harness.py``) are always safe.
+        ``evidence_review`` optionally checks selected evidence at a natural
+        finish boundary and can request one bounded retrieval continuation.
         """
         raise NotImplementedError

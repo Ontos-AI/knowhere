@@ -445,6 +445,7 @@ def test_compose_pool_evidence_keeps_pick_order_and_outline_fragment() -> None:
     ]
     assembled = [
         {
+            "document_id": "doc_a",
             "chunk_id": "c1",
             "sort_order": 4,
             "composed": [{"type": "text", "text": "treatment body"}],
@@ -548,7 +549,7 @@ def test_queried_table_reaches_pool_evidence() -> None:
                 chunk_ids=("c1",),
             )
         ],
-        [{"chunk_id": "c1", "sort_order": 1, "composed": parts}],
+        [{"document_id": "doc_a", "chunk_id": "c1", "sort_order": 1, "composed": parts}],
     )
     text = "".join(part["text"] for part in evidence if part["type"] == "text")
     assert "sub" in text

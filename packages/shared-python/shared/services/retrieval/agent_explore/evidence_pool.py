@@ -201,7 +201,7 @@ class EvidencePool:
             return []
         chunk_rows = chunks if isinstance(chunks, list) else []
         rows_by_id = {
-            str(row.get("chunk_id") or ""): row
+            (str(row.get("document_id") or ""), str(row.get("chunk_id") or "")): row
             for row in chunk_rows
             if isinstance(row, dict) and row.get("chunk_id")
         }
@@ -212,8 +212,8 @@ class EvidencePool:
             chunk_ids = tuple(
                 str(item) for item in (entry.get("chunk_ids") or []) if str(item)
             )
-            first = rows_by_id.get(chunk_ids[0]) if chunk_ids else None
             document_id = str(entry.get("document_id") or "")
+            first = rows_by_id.get((document_id, chunk_ids[0])) if chunk_ids else None
             section_path = str(entry.get("section_path") or "").strip() or None
             if first and not section_path:
                 section_path = str(first.get("section_path") or "").strip() or None
@@ -297,7 +297,7 @@ def compose_pool_evidence(
     assembled_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     rows_by_id = {
-        str(row.get("chunk_id") or ""): row
+        (str(row.get("document_id") or ""), str(row.get("chunk_id") or "")): row
         for row in assembled_rows
         if row.get("chunk_id")
     }
@@ -319,7 +319,9 @@ def compose_pool_evidence(
             )
             continue
         chunk_rows = sorted(
-            (rows_by_id[chunk_id] for chunk_id in candidate.chunk_ids if chunk_id in rows_by_id),
+            (rows_by_id[(candidate.document_id, chunk_id)]
+             for chunk_id in candidate.chunk_ids
+             if (candidate.document_id, chunk_id) in rows_by_id),
             key=lambda row: row["sort_order"],
         )
         parts = [part for row in chunk_rows for part in row["composed"]]

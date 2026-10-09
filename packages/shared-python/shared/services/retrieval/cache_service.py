@@ -75,6 +75,7 @@ def _cache_shape_digest(
     threshold: float = 0.0,
     internal_recall_k: int | None = None,
     use_agentic: bool | None = None,
+    review_evidence: bool = False,
     agent_explore_model: str | None = None,
     llm_text_model: str | None = None,
     llm_vision_model: str | None = None,
@@ -107,6 +108,8 @@ def _cache_shape_digest(
     payload += "|document_scope_v1|" + repr(
         None if include_document_ids is None else sorted(set(include_document_ids))
     )
+    if review_evidence:
+        payload += "|evidence_review_v1"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 

@@ -1,0 +1,908 @@
+{
+  "schema_version": "evidence-review-cases/1",
+  "description": "Synthetic frozen source packets. Scripted reviewer outputs are predetermined transport fixtures, not model judgments. Gold requirements are evaluator-only.",
+  "cases": [
+    {
+      "case_id": "complete_control",
+      "query": "For the Harbor pilot, who signs approval and what is the export retention limit?",
+      "corpus": [
+        {
+          "chunk_id": "harbor-owner",
+          "text": "Harbor pilot approval is signed by Operations.",
+          "chunk_type": "text",
+          "summary": ""
+        },
+        {
+          "chunk_id": "harbor-retention",
+          "text": "Harbor export files are retained for 30 days.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [
+          "harbor-owner",
+          "harbor-retention"
+        ],
+        []
+      ],
+      "gold_requirements": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ]
+      ],
+      "answerable": true,
+      "scripted_reviews": [
+        {
+          "status": "sufficient",
+          "reason": "Both requirements have source evidence.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "Who signs Harbor pilot approval?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E1",
+                  "quote": "Harbor pilot approval is signed by Operations."
+                }
+              ]
+            },
+            {
+              "facet_id": "F2",
+              "requirement": "What is the export retention limit?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E2",
+                  "quote": "Harbor export files are retained for 30 days."
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "expected_review_calls": 1,
+      "expected_repairs": 0,
+      "expected_status": "sufficient"
+    },
+    {
+      "case_id": "multi_dimension",
+      "query": "For the Harbor pilot, who signs approval and what is the export retention limit?",
+      "corpus": [
+        {
+          "chunk_id": "harbor-owner",
+          "text": "Harbor pilot approval is signed by Operations.",
+          "chunk_type": "text",
+          "summary": ""
+        },
+        {
+          "chunk_id": "harbor-retention",
+          "text": "Harbor export files are retained for 30 days.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ]
+      ],
+      "gold_requirements": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ]
+      ],
+      "answerable": true,
+      "scripted_reviews": [
+        {
+          "status": "insufficient",
+          "reason": "The selected source does not give the retention limit.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "Who signs Harbor pilot approval?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E1",
+                  "quote": "Harbor pilot approval is signed by Operations."
+                }
+              ]
+            },
+            {
+              "facet_id": "F2",
+              "requirement": "What is the export retention limit?",
+              "status": "missing",
+              "citations": []
+            }
+          ]
+        },
+        {
+          "status": "sufficient",
+          "reason": "Both requirements have source evidence.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "Who signs Harbor pilot approval?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E1",
+                  "quote": "Harbor pilot approval is signed by Operations."
+                }
+              ]
+            },
+            {
+              "facet_id": "F2",
+              "requirement": "What is the export retention limit?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E2",
+                  "quote": "Harbor export files are retained for 30 days."
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "expected_review_calls": 2,
+      "expected_repairs": 1,
+      "expected_status": "sufficient"
+    },
+    {
+      "case_id": "missing_comparison_side",
+      "query": "Compare monthly per-seat prices for Orion and Lyra.",
+      "corpus": [
+        {
+          "chunk_id": "orion-price",
+          "text": "Orion costs EUR 4 per active seat each month.",
+          "chunk_type": "text",
+          "summary": ""
+        },
+        {
+          "chunk_id": "lyra-price",
+          "text": "Lyra costs EUR 7 per active seat each month.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [
+          "orion-price"
+        ],
+        [
+          "lyra-price"
+        ]
+      ],
+      "gold_requirements": [
+        [
+          "orion-price"
+        ],
+        [
+          "lyra-price"
+        ]
+      ],
+      "answerable": true,
+      "scripted_reviews": [
+        {
+          "status": "insufficient",
+          "reason": "Lyra is absent.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "What is the monthly Orion price?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E1",
+                  "quote": "Orion costs EUR 4 per active seat each month."
+                }
+              ]
+            },
+            {
+              "facet_id": "F2",
+              "requirement": "What is the monthly Lyra price?",
+              "status": "missing",
+              "citations": []
+            }
+          ]
+        },
+        {
+          "status": "sufficient",
+          "reason": "Both prices have evidence.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "What is the monthly Orion price?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E1",
+                  "quote": "Orion costs EUR 4 per active seat each month."
+                }
+              ]
+            },
+            {
+              "facet_id": "F2",
+              "requirement": "What is the monthly Lyra price?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E2",
+                  "quote": "Lyra costs EUR 7 per active seat each month."
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "expected_review_calls": 2,
+      "expected_repairs": 1,
+      "expected_status": "sufficient"
+    },
+    {
+      "case_id": "missing_table",
+      "query": "What are the West and East region fees in EUR?",
+      "corpus": [
+        {
+          "chunk_id": "tariff-intro",
+          "text": "Regional route fees appear in the tariff table. All prices exclude tax.",
+          "chunk_type": "text",
+          "summary": "The route fees are complete here."
+        },
+        {
+          "chunk_id": "tariff-table",
+          "text": "<table><tr><th>Region</th><th>Fee EUR</th></tr><tr><td>West</td><td>12</td></tr><tr><td>East</td><td>18</td></tr></table>",
+          "chunk_type": "table",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [
+          "tariff-intro"
+        ],
+        [
+          "tariff-table"
+        ]
+      ],
+      "gold_requirements": [
+        [
+          "tariff-table"
+        ]
+      ],
+      "answerable": true,
+      "scripted_reviews": [
+        {
+          "status": "insufficient",
+          "reason": "The table with fee values was not selected.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "What is the West region fee?",
+              "status": "missing",
+              "citations": []
+            },
+            {
+              "facet_id": "F2",
+              "requirement": "What is the East region fee?",
+              "status": "missing",
+              "citations": []
+            }
+          ]
+        },
+        {
+          "status": "sufficient",
+          "reason": "The table provides both values.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "What is the West region fee?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E2",
+                  "quote": "<td>West</td><td>12</td>"
+                }
+              ]
+            },
+            {
+              "facet_id": "F2",
+              "requirement": "What is the East region fee?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E2",
+                  "quote": "<td>East</td><td>18</td>"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "expected_review_calls": 2,
+      "expected_repairs": 1,
+      "expected_status": "sufficient"
+    },
+    {
+      "case_id": "unresolved_conflict",
+      "query": "What is the authoritative shuttle departure time on 9 October 2026?",
+      "corpus": [
+        {
+          "chunk_id": "bulletin-a",
+          "text": "Bulletin A, issued 8 October 2026: the shuttle departs at 09:00.",
+          "chunk_type": "text",
+          "summary": ""
+        },
+        {
+          "chunk_id": "bulletin-b",
+          "text": "Bulletin B, issued 8 October 2026: the shuttle departs at 10:00.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [
+          "bulletin-a",
+          "bulletin-b"
+        ],
+        []
+      ],
+      "gold_requirements": [
+        [
+          "bulletin-a"
+        ],
+        [
+          "bulletin-b"
+        ]
+      ],
+      "answerable": false,
+      "scripted_reviews": [
+        {
+          "status": "insufficient",
+          "reason": "The equally dated bulletins conflict and neither supersedes the other.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "What is the authoritative shuttle departure time?",
+              "status": "conflicting",
+              "citations": [
+                {
+                  "evidence_id": "E1",
+                  "quote": "Bulletin A, issued 8 October 2026: the shuttle departs at 09:00."
+                },
+                {
+                  "evidence_id": "E2",
+                  "quote": "Bulletin B, issued 8 October 2026: the shuttle departs at 10:00."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "status": "insufficient",
+          "reason": "The equally dated bulletins conflict and neither supersedes the other.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "What is the authoritative shuttle departure time?",
+              "status": "conflicting",
+              "citations": [
+                {
+                  "evidence_id": "E1",
+                  "quote": "Bulletin A, issued 8 October 2026: the shuttle departs at 09:00."
+                },
+                {
+                  "evidence_id": "E2",
+                  "quote": "Bulletin B, issued 8 October 2026: the shuttle departs at 10:00."
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "expected_review_calls": 2,
+      "expected_repairs": 1,
+      "expected_status": "insufficient"
+    },
+    {
+      "case_id": "outdated_evidence",
+      "query": "What trial export retention limit is effective on 9 October 2026?",
+      "corpus": [
+        {
+          "chunk_id": "policy-2024",
+          "text": "Policy effective 2024: trial exports are retained for 90 days.",
+          "chunk_type": "text",
+          "summary": ""
+        },
+        {
+          "chunk_id": "policy-2026",
+          "text": "Policy effective 1 January 2026, superseding the 2024 policy: trial exports are retained for 30 days.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [
+          "policy-2024"
+        ],
+        [
+          "policy-2026"
+        ]
+      ],
+      "gold_requirements": [
+        [
+          "policy-2026"
+        ]
+      ],
+      "answerable": true,
+      "scripted_reviews": [
+        {
+          "status": "insufficient",
+          "reason": "A 2024 policy alone cannot establish the requested 2026 limit.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "What retention limit is effective on 9 October 2026?",
+              "status": "missing",
+              "citations": []
+            }
+          ]
+        },
+        {
+          "status": "sufficient",
+          "reason": "The current policy states the limit and supersession.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "What retention limit is effective on 9 October 2026?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E2",
+                  "quote": "Policy effective 1 January 2026, superseding the 2024 policy: trial exports are retained for 30 days."
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "expected_review_calls": 2,
+      "expected_repairs": 1,
+      "expected_status": "sufficient"
+    },
+    {
+      "case_id": "no_answer",
+      "query": "What is the Harbor patent registration number?",
+      "corpus": [
+        {
+          "chunk_id": "harbor-overview",
+          "text": "Harbor is an internal export scheduling pilot. No patent information is recorded in this corpus.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [
+          "harbor-overview"
+        ],
+        []
+      ],
+      "gold_requirements": [],
+      "answerable": false,
+      "scripted_reviews": [
+        {
+          "status": "insufficient",
+          "reason": "The corpus supplies no registration number.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "What is the Harbor patent registration number?",
+              "status": "missing",
+              "citations": []
+            }
+          ]
+        },
+        {
+          "status": "insufficient",
+          "reason": "The corpus supplies no registration number.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "What is the Harbor patent registration number?",
+              "status": "missing",
+              "citations": []
+            }
+          ]
+        }
+      ],
+      "expected_review_calls": 2,
+      "expected_repairs": 1,
+      "expected_status": "insufficient"
+    },
+    {
+      "case_id": "empty_pool",
+      "query": "Who signs Harbor pilot approval?",
+      "corpus": [
+        {
+          "chunk_id": "harbor-owner",
+          "text": "Harbor pilot approval is signed by Operations.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [],
+        [
+          "harbor-owner"
+        ]
+      ],
+      "gold_requirements": [
+        [
+          "harbor-owner"
+        ]
+      ],
+      "answerable": true,
+      "scripted_reviews": [
+        {
+          "status": "sufficient",
+          "reason": "The source names the approval owner.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "Who signs Harbor pilot approval?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E1",
+                  "quote": "Harbor pilot approval is signed by Operations."
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "expected_review_calls": 1,
+      "expected_repairs": 1,
+      "expected_status": "sufficient"
+    },
+    {
+      "case_id": "reviewer_outage",
+      "query": "For the Harbor pilot, who signs approval and what is the export retention limit?",
+      "corpus": [
+        {
+          "chunk_id": "harbor-owner",
+          "text": "Harbor pilot approval is signed by Operations.",
+          "chunk_type": "text",
+          "summary": ""
+        },
+        {
+          "chunk_id": "harbor-retention",
+          "text": "Harbor export files are retained for 30 days.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ]
+      ],
+      "gold_requirements": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ]
+      ],
+      "answerable": true,
+      "scripted_reviews": [
+        {
+          "raise": "connection_error"
+        }
+      ],
+      "expected_review_calls": 1,
+      "expected_repairs": 0,
+      "expected_status": "unverified",
+      "scripted_reviewer_tokens": 0
+    },
+    {
+      "case_id": "malformed_verdict",
+      "query": "For the Harbor pilot, who signs approval and what is the export retention limit?",
+      "corpus": [
+        {
+          "chunk_id": "harbor-owner",
+          "text": "Harbor pilot approval is signed by Operations.",
+          "chunk_type": "text",
+          "summary": ""
+        },
+        {
+          "chunk_id": "harbor-retention",
+          "text": "Harbor export files are retained for 30 days.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ]
+      ],
+      "gold_requirements": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ]
+      ],
+      "answerable": true,
+      "scripted_reviews": [
+        {
+          "raw": "{\"status\":\"sufficient\", \"coverage\":"
+        }
+      ],
+      "expected_review_calls": 1,
+      "expected_repairs": 0,
+      "expected_status": "unverified",
+      "scripted_reviewer_tokens": 47
+    },
+    {
+      "case_id": "exhausted_steps",
+      "query": "For the Harbor pilot, who signs approval and what is the export retention limit?",
+      "corpus": [
+        {
+          "chunk_id": "harbor-owner",
+          "text": "Harbor pilot approval is signed by Operations.",
+          "chunk_type": "text",
+          "summary": ""
+        },
+        {
+          "chunk_id": "harbor-retention",
+          "text": "Harbor export files are retained for 30 days.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ]
+      ],
+      "gold_requirements": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ]
+      ],
+      "answerable": true,
+      "scripted_reviews": [],
+      "expected_review_calls": 0,
+      "expected_repairs": 0,
+      "expected_status": "unverified",
+      "max_steps": 3
+    },
+    {
+      "case_id": "exhausted_wall_clock",
+      "query": "Who signs Harbor pilot approval?",
+      "corpus": [
+        {
+          "chunk_id": "harbor-owner",
+          "text": "Harbor pilot approval is signed by Operations.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [],
+        [
+          "harbor-owner"
+        ]
+      ],
+      "gold_requirements": [
+        [
+          "harbor-owner"
+        ]
+      ],
+      "answerable": true,
+      "scripted_reviews": [],
+      "expected_review_calls": 0,
+      "expected_repairs": 0,
+      "expected_status": "unverified",
+      "wall_clock_seconds": 0
+    },
+    {
+      "case_id": "one_repair_still_incomplete",
+      "query": "For Harbor, who signs approval, what is the export retention limit, and where are archived exports stored?",
+      "corpus": [
+        {
+          "chunk_id": "harbor-owner",
+          "text": "Harbor pilot approval is signed by Operations.",
+          "chunk_type": "text",
+          "summary": ""
+        },
+        {
+          "chunk_id": "harbor-retention",
+          "text": "Harbor export files are retained for 30 days.",
+          "chunk_type": "text",
+          "summary": ""
+        },
+        {
+          "chunk_id": "harbor-archive",
+          "text": "Harbor archived exports are stored in vault H7.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ]
+      ],
+      "gold_requirements": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ],
+        [
+          "harbor-archive"
+        ]
+      ],
+      "answerable": true,
+      "scripted_reviews": [
+        {
+          "status": "insufficient",
+          "reason": "Retention and archive destination are missing.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "Who signs Harbor pilot approval?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E1",
+                  "quote": "Harbor pilot approval is signed by Operations."
+                }
+              ]
+            },
+            {
+              "facet_id": "F2",
+              "requirement": "What is the export retention limit?",
+              "status": "missing",
+              "citations": []
+            },
+            {
+              "facet_id": "F3",
+              "requirement": "Where are archived exports stored?",
+              "status": "missing",
+              "citations": []
+            }
+          ]
+        },
+        {
+          "status": "insufficient",
+          "reason": "The archive destination is still missing.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "Who signs Harbor pilot approval?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E1",
+                  "quote": "Harbor pilot approval is signed by Operations."
+                }
+              ]
+            },
+            {
+              "facet_id": "F2",
+              "requirement": "What is the export retention limit?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E2",
+                  "quote": "Harbor export files are retained for 30 days."
+                }
+              ]
+            },
+            {
+              "facet_id": "F3",
+              "requirement": "Where are archived exports stored?",
+              "status": "missing",
+              "citations": []
+            }
+          ]
+        }
+      ],
+      "expected_review_calls": 2,
+      "expected_repairs": 1,
+      "expected_status": "insufficient"
+    },
+    {
+      "case_id": "false_sufficiency_negative_control",
+      "query": "For the Harbor pilot, who signs approval and what is the export retention limit?",
+      "corpus": [
+        {
+          "chunk_id": "harbor-owner",
+          "text": "Harbor pilot approval is signed by Operations.",
+          "chunk_type": "text",
+          "summary": ""
+        },
+        {
+          "chunk_id": "harbor-retention",
+          "text": "Harbor export files are retained for 30 days.",
+          "chunk_type": "text",
+          "summary": ""
+        }
+      ],
+      "retrieval_pages": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ]
+      ],
+      "gold_requirements": [
+        [
+          "harbor-owner"
+        ],
+        [
+          "harbor-retention"
+        ]
+      ],
+      "answerable": true,
+      "scripted_reviews": [
+        {
+          "status": "sufficient",
+          "reason": "Intentionally flawed fixture reviewer omits the retention requirement.",
+          "coverage": [
+            {
+              "facet_id": "F1",
+              "requirement": "Who signs Harbor pilot approval?",
+              "status": "supported",
+              "citations": [
+                {
+                  "evidence_id": "E1",
+                  "quote": "Harbor pilot approval is signed by Operations."
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "expected_review_calls": 1,
+      "expected_repairs": 0,
+      "expected_status": "sufficient",
+      "negative_control": true,
+      "expected_false_sufficient": true
+    }
+  ]
+}
