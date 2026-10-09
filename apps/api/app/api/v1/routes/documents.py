@@ -60,6 +60,17 @@ async def list_documents(
     return response
 
 
+@router.get("/namespaces")
+async def list_namespaces(
+    current_user: CurrentUser = Depends(with_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _document_service.list_namespaces(
+        db,
+        user_id=current_user.user_id,
+    )
+
+
 @router.get("/{document_id}")
 async def get_document(
     document_id: str,
