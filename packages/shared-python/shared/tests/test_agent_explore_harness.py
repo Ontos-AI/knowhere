@@ -926,6 +926,72 @@ async def test_openai_review_obeys_episode_deadline(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("timeout_kind", ["transport", "episode"])
+async def test_openai_tool_timeout_ends_episode_before_more_calls(
+    monkeypatch: pytest.MonkeyPatch, timeout_kind: str,
+) -> None:
+    import asyncio
+
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import openai_harness as openai_mod
+
+    client = _ScriptedOpenAIClient([
+        [("corpus_grep", {"pattern": "first"}), ("corpus_grep", {"pattern": "sibling"})],
+        [("finish", {"notes": "must not run after timeout"})],
+    ])
+    review = _HarnessReviewSession()
+    dispatched: list[str] = []
+
+    async def dispatch(_name: str, args: dict[str, object], **_kwargs: object) -> ToolResult:
+        dispatched.append(str(args["pattern"]))
+        if timeout_kind == "transport":
+            raise TimeoutError("tool transport timed out before the episode deadline")
+        await asyncio.Event().wait()
+        raise AssertionError("the episode deadline must cancel this tool")
+
+    monkeypatch.setattr(openai_mod, "_resolve_client_and_model", lambda **_: (client, "test-model"))
+    monkeypatch.setattr(openai_mod, "dispatch_tool_call", dispatch)
+    budget = EpisodeBudget(wall_clock_seconds=30 if timeout_kind == "transport" else 0.05)
+    episode = await openai_mod.OpenAIHarness().run_episode(
+        db_factory=lambda: None,  # type: ignore[arg-type]
+        user_id="u", namespace="ns", query="q", budget=budget,
+        evidence_review=review,  # type: ignore[arg-type]
+    )
+
+    expected_reason = "tool_timeout" if timeout_kind == "transport" else "budget_wall_clock"
+    assert episode.stop_reason == expected_reason
+    assert dispatched == ["first"]
+    assert len(client.seen) == 1
+    assert review.snapshots == []
+    assert review.stops == [expected_reason]
+    assert episode.pool == []
+    if timeout_kind == "transport":
+        assert budget.remaining_seconds() > 0
+
+
+@pytest.mark.asyncio
+async def test_openai_tool_timeout_without_review_still_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import openai_harness as openai_mod
+
+    client = _ScriptedOpenAIClient([[("corpus_grep", {"pattern": "q"})]])
+
+    async def dispatch(*_args: object, **_kwargs: object) -> ToolResult:
+        raise TimeoutError("tool transport timed out")
+
+    monkeypatch.setattr(openai_mod, "_resolve_client_and_model", lambda **_: (client, "test-model"))
+    monkeypatch.setattr(openai_mod, "dispatch_tool_call", dispatch)
+    with pytest.raises(TimeoutError, match="tool transport timed out"):
+        await openai_mod.OpenAIHarness().run_episode(
+            db_factory=lambda: None,  # type: ignore[arg-type]
+            user_id="u", namespace="ns", query="q", budget=EpisodeBudget(),
+        )
+    assert len(client.seen) == 1
+
+
+@pytest.mark.asyncio
 async def test_cursor_review_serializes_finish_and_preserves_gates_and_revision_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1039,7 +1105,8 @@ async def test_cancelling_episode_cancels_pending_review(
     await asyncio.wait_for(review.started.wait(), timeout=1)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=1)
+    assert task.cancelled()
     await asyncio.wait_for(review.cancelled.wait(), timeout=1)
     assert review.stops == ["cancelled"]
 

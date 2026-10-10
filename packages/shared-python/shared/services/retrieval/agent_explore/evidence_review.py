@@ -62,7 +62,8 @@ class SnapshotLoader(Protocol):
         *,
         pool: list[Candidate],
         queried_tables: Mapping[tuple[str, str], str],
-    ) -> Awaitable[EvidenceSnapshot]: ...
+    ) -> Awaitable[EvidenceSnapshot]:
+        raise NotImplementedError
 
 
 ReviewLLM = Callable[

@@ -493,7 +493,8 @@ async def test_external_cancellation_propagates_even_when_reviewer_suppresses_it
     await started.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=1)
+    assert task.cancelled()
     assert session.report["status"] == "unverified"
     assert session.report["repairs"] == 0
 
