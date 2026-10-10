@@ -126,6 +126,12 @@ class Job(Base):
 
     # Indexes
     __table_args__ = (
+        Index(
+            "idx_jobs_user_source_content_hash",
+            "user_id",
+            text("(job_metadata ->> 'source_content_sha256')"),
+            postgresql_where=text("job_metadata ->> 'source_content_sha256' IS NOT NULL"),
+        ),
         Index("idx_job_status", "status"),
         Index("idx_job_type", "job_type"),
         Index("idx_job_created_at", "created_at"),

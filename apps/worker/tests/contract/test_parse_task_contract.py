@@ -467,14 +467,14 @@ def test_parse_task_should_charge_user_when_billing_is_enabled(
     ]
 
 
-def test_parse_task_should_export_full_result_when_same_content_was_already_published(
+def test_parse_task_should_reject_identical_source_before_billing_or_parsing(
     worker_contract_environment: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     contract = WorkerParseContract.create()
     contract.use_workspace_root(monkeypatch, tmp_path)
-    contract.use_billing(monkeypatch, is_enabled=False)
+    contract.use_billing(monkeypatch, is_enabled=True)
 
     user_id = f"worker-contract-user-{uuid4().hex[:12]}"
     first_job = contract.create_file_job(
@@ -487,6 +487,29 @@ def test_parse_task_should_export_full_result_when_same_content_was_already_publ
         source_file_name="contract-duplicate.xlsx",
         job_id_prefix="job_parse_duplicate",
     )
+    published_events: list[str] = []
+
+    class CapturedWebhookPublisher:
+        def publish_event(self, event_id: str) -> str:
+            published_events.append(event_id)
+            return "contract-webhook-message"
+
+    from sqlalchemy import text
+    import shared.services.webhook.qstash_publisher as publisher_module
+
+    monkeypatch.setattr(
+        publisher_module,
+        "get_qstash_webhook_publisher",
+        lambda: CapturedWebhookPublisher(),
+    )
+    with contract.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE jobs SET webhook_enabled = true, webhook_url = :url "
+                "WHERE job_id = :job_id"
+            ),
+            {"job_id": second_job["job_id"], "url": "https://example.com/duplicate-hook"},
+        )
     for job in [first_job, second_job]:
         contract.upload_source_file(
             local_file_path=_SAMPLE_XLSX_PATH,
@@ -497,28 +520,80 @@ def test_parse_task_should_export_full_result_when_same_content_was_already_publ
         job_id=first_job["job_id"],
         user_id=user_id,
     )
+    assert first_result.successful()
+    billing_before_duplicate = contract.observe_user_billing(user_id)
     second_result = contract.enqueue_parse_task(
         job_id=second_job["job_id"],
         user_id=user_id,
     )
 
-    assert first_result.successful()
-    assert second_result.successful()
+    assert second_result.failed()
+    observed = contract.observe_job_status(second_job["job_id"])
+    assert observed["status"] == "failed"
+    assert observed["error_code"] == "ALREADY_EXISTS"
+    assert observed["credits_charged"] == 0
+    assert observed["page_count"] is None
+    assert contract.observe_user_billing(user_id) == billing_before_duplicate
+    with contract.engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT count(*) FROM job_results WHERE job_id = :job_id"),
+            {"job_id": second_job["job_id"]},
+        ).scalar_one() == 0
+        webhook = connection.execute(
+            text("SELECT id, payload FROM webhook_events WHERE job_id = :job_id"),
+            {"job_id": second_job["job_id"]},
+        ).mappings().one()
+    assert webhook["payload"]["event"] == "job.failed"
+    assert webhook["payload"]["error"]["code"] == "ALREADY_EXISTS"
+    assert webhook["payload"]["error"]["details"]["resource"] == "Document"
+    assert published_events == [webhook["id"]]
+    assert contract.find_task_workspaces(tmp_path, second_job["job_id"]) == []
 
-    observed = contract.observe_successful_job(second_job["job_id"])
-    result_row = observed["result"]
-    job_chunks = observed["job_chunks"]
-    document_chunks = observed["document_chunks"]
-    result_zip = contract.read_result_zip(
-        result_s3_key=result_row["result_s3_key"],
-        tmp_path=tmp_path,
-    )
 
-    assert len(job_chunks) > 0
-    assert len(document_chunks) == len(job_chunks)
-    assert len(result_zip["chunks"]["chunks"]) == len(job_chunks)
-    assert any(member.startswith("tables/") for member in result_zip["members"])
-    assert "chunk_overlap" not in dict(result_row["document_metadata"] or {})
+def test_parse_task_should_export_full_results_for_distinct_bytes_with_same_content(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    contract: WorkerParseContract = WorkerParseContract.create()
+    contract.use_workspace_root(monkeypatch, tmp_path)
+    contract.use_billing(monkeypatch, is_enabled=False)
+    user_id: str = f"worker-contract-user-{uuid4().hex[:12]}"
+    jobs: list[dict[str, object]] = [
+        contract.create_file_job(
+            user_id=user_id,
+            source_file_name="same-name.xlsx",
+        )
+        for _ in range(2)
+    ]
+    chunk_identifier_groups: list[list[str]] = []
+    for index, job in enumerate(jobs):
+        source_path: Path = tmp_path / f"distinct-bytes-{index}.xlsx"
+        source_path.write_bytes(_SAMPLE_XLSX_PATH.read_bytes())
+        with zipfile.ZipFile(source_path, mode="a") as archive:
+            archive.comment = f"distinct-bytes-{index}".encode("utf-8")
+        contract.upload_source_file(
+            local_file_path=source_path,
+            s3_key=str(job["s3_key"]),
+        )
+        result = contract.enqueue_parse_task(
+            job_id=str(job["job_id"]),
+            user_id=user_id,
+        )
+        assert result.successful()
+        observed = contract.observe_successful_job(str(job["job_id"]))
+        chunk_identifier_groups.append(
+            [str(chunk["chunk_id"]) for chunk in observed["job_chunks"]]
+        )
+        result_zip = contract.read_result_zip(
+            result_s3_key=observed["result"]["result_s3_key"],
+            tmp_path=tmp_path,
+        )
+        assert len(observed["job_chunks"]) > 0
+        assert len(observed["document_chunks"]) == len(observed["job_chunks"])
+        assert len(result_zip["chunks"]["chunks"]) == len(observed["job_chunks"])
+        assert any(member.startswith("tables/") for member in result_zip["members"])
+    assert chunk_identifier_groups[0] == chunk_identifier_groups[1]
 
 
 def test_parse_task_should_initialize_billing_once_for_concurrent_parse_tasks(
@@ -539,9 +614,13 @@ def test_parse_task_should_initialize_billing_once_for_concurrent_parse_tasks(
         )
         for index in range(2)
     ]
-    for job in jobs:
+    for index, job in enumerate(jobs):
+        source_path: Path = tmp_path / f"concurrent-source-{index}.xlsx"
+        source_path.write_bytes(_SAMPLE_XLSX_PATH.read_bytes())
+        with zipfile.ZipFile(source_path, mode="a") as archive:
+            archive.comment = f"concurrent-source-{index}".encode("utf-8")
         contract.upload_source_file(
-            local_file_path=_SAMPLE_XLSX_PATH,
+            local_file_path=source_path,
             s3_key=job["s3_key"],
         )
 

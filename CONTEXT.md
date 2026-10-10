@@ -69,6 +69,18 @@ state, and starts parsing work.
 The API-side handoff that advances an uploaded file Job to pending state and
 enqueues the worker parse task with the user-aware Celery queue policy.
 
+### Source Content Admission
+
+The check that rejects identical original file bytes within one User and
+Namespace before parsing or billing, including unchanged Document updates.
+Filenames do not determine duplicates. Only current active Document revisions
+and in-progress Jobs participate; failed Jobs and archived or superseded
+revisions do not block retries. The check happens after source upload or URL
+download, so a duplicate is reported through the normal Job failure contract.
+Demo Corpus publication retains its separate admission policy.
+Existing sources without recorded fingerprints do not participate, and their
+original files are not fetched for comparison.
+
 ### Worker Document Parsing
 
 The worker-side workflow that turns a source file into parsed DataFrame rows,
