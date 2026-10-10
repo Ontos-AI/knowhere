@@ -29,7 +29,14 @@ A separate, tool-free model call receives the immutable original question and
 the actual composed text/table evidence. Executor reasoning, finish notes and
 candidate summaries are excluded. Its assessment names the required facets,
 marks each supported, missing or conflicting, and cites exact text spans from
-known evidence IDs. The parser checks the schema and citations. A second review
+known evidence IDs. The reviewer selects IDs from a lossless partition of each
+source (with inclusive `start_span`/`end_span` ranges), and the service extracts
+the exact continuous original quote, including all whitespace and table columns.
+It never joins disjoint passages or fuzzily matches text. Public citations remain
+`{evidence_id, quote}`; legacy injected reviewer quotes still require exact matching.
+The reviewer contract explicitly limits `reason` to 400 Unicode characters
+(a 200-character target), 24 facets and eight citations per facet. The parser
+checks the schema and citations. A second review
 must preserve all the first review's facet IDs and requirements.
 
 An insufficient assessment can request one corrective continuation in the same
@@ -45,6 +52,9 @@ The service continues to return evidence: `answer_text` remains empty.
 ## Response
 
 The optional `evidence_review` field includes:
+
+The review contract/cache version is `evidence-review-v2`; the public citation
+and source structures are unchanged.
 
 | Field | Meaning |
 | --- | --- |

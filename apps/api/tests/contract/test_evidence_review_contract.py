@@ -206,7 +206,9 @@ def _supported_assessment(payload: dict[str, Any]) -> tuple[str, dict[str, int]]
         "coverage": [{
             "facet_id": "F1", "requirement": payload["original_query"],
             "status": "supported", "citations": [{
-                "evidence_id": item["evidence_id"], "quote": item["text"],
+                "evidence_id": item["evidence_id"],
+                "start_span": item["citation_spans"][0]["span_id"],
+                "end_span": item["citation_spans"][-1]["span_id"],
             }],
         }],
     }), {"total_tokens": 17}
@@ -260,7 +262,7 @@ async def test_changed_final_hydration_invalidates_a_successful_review(
     outcome = await routes._run_agent_explore_route(_context(review_evidence=True))
 
     assert len(captured) == 1
-    assert captured[0]["evidence"][0]["text"] == "Payload: 23 tonnes to LEO."
+    assert "".join(span["text"] for span in captured[0]["evidence"][0]["citation_spans"]) == "Payload: 23 tonnes to LEO."
     assert harness.reviewed_report is not None
     assert harness.reviewed_report["status"] == "sufficient"
     report = outcome.response["evidence_review"]
@@ -341,18 +343,19 @@ async def test_seeded_review_sees_only_selected_evidence_surviving_scope_and_fil
     assert len(captured) == 1
     assert len(captured[0]["evidence"]) == 1
     reviewed = captured[0]["evidence"][0]
-    assert reviewed["text"] == "Payload: 23 tonnes to LEO."
+    reviewed_text = "".join(span["text"] for span in reviewed["citation_spans"])
+    assert reviewed_text == "Payload: 23 tonnes to LEO."
     assert reviewed["document_id"] == target["document_id"]
     assert reviewed["chunk_id"] == target["chunk_id"]
     assert reviewed["revision"] == target["job_result_id"]
     assert reviewed["page_nums"] == [4]
     assert len(body["results"]) == 1
-    assert body["results"][0]["content"] == reviewed["text"]
-    assert reviewed["text"] in str(body["evidence"])
+    assert body["results"][0]["content"] == reviewed_text
+    assert reviewed_text in str(body["evidence"])
     report = body["evidence_review"]
     assert report["status"] == "sufficient"
     assert report["attempts"] == 1 and report["reviewer_tokens"] == 17
-    assert report["sources"] == [{key: value for key, value in reviewed.items() if key != "text"}]
+    assert report["sources"] == [{key: value for key, value in reviewed.items() if key != "citation_spans"}]
     assert harness.reviewed_report is not None
     assert report["evidence_fingerprint"] == harness.reviewed_report["evidence_fingerprint"]
     assert body["answer_text"] == ""

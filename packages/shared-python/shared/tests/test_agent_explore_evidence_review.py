@@ -138,7 +138,7 @@ async def test_complete_evidence_is_reviewed_once_with_isolated_original_query()
     payload = json.loads(messages[1]["content"])
     assert payload["original_query"] == "What is the price of A?"
     assert payload["frozen_requirements"] is None
-    assert payload["evidence"][0]["text"] == snapshot.items[0].text
+    assert "".join(span["text"] for span in payload["evidence"][0]["citation_spans"]) == snapshot.items[0].text
     assert "SECRET EXECUTOR SUMMARY" not in json.dumps(messages)
     assert payload["evidence"][0]["revision"] == "rev-1"
     assert payload["evidence"][0]["page_nums"] == [2]
@@ -688,3 +688,73 @@ async def test_pooled_or_mock_backend_fails_closed_without_credential_fallback(
     assert session.report["status"] == "unverified"
     assert session.report["reason"] == "The configured reviewer backend is unavailable."
     assert session.report["usage_complete"] is False
+
+
+@pytest.mark.parametrize("text", [
+    "A costs $5.\r\n  B costs $7.\n", "first\n\nsecond\tthird", "inter-\nnational",
+    "2025 | 10 USD | 20 kg\n2026 | 30 USD | 40 kg", "重复🙂e\u0301 " * 180,
+    "same text\nsame text\n", "",
+])
+def test_citation_spans_are_a_lossless_unicode_partition(text):
+    spans = review_module._citation_spans(text)
+    assert "".join(span["text"] for span in spans) == text
+    assert [span["span_id"] for span in spans] == [f"S{i}" for i in range(1, len(spans) + 1)]
+    assert all(0 < len(span["text"]) <= 256 for span in spans)
+
+
+def _span_verdict(first="S1", last="S1", evidence_id="E1"):
+    facet = _facet()
+    facet["citations"] = [{"evidence_id": evidence_id, "start_span": first, "end_span": last}]
+    return _verdict(facet)
+
+
+@pytest.mark.parametrize("first,last,quote", [
+    ("S1", "S1", "Price A: 5 USD\r\n"),
+    ("S1", "S3", "Price A: 5 USD\r\n  intervening column: 20 kg\nPrice B: 7 USD"),
+    ("S3", "S3", "Price B: 7 USD"),
+])
+def test_span_ranges_resolve_only_to_contiguous_original_quotes(first, last, quote):
+    snapshot = _snapshot("Price A: 5 USD\r\n  intervening column: 20 kg\nPrice B: 7 USD")
+    status, _, coverage = review_module._parse_review(_span_verdict(first, last), snapshot, ())
+    assert status == "sufficient"
+    assert coverage[0]["citations"] == [{"evidence_id": "E1", "quote": quote}]
+
+
+@pytest.mark.parametrize("first,last,evidence_id", [
+    ("S0", "S1", "E1"), ("S1", "S99", "E1"), ("S2", "S1", "E1"),
+    ("S01", "S1", "E1"), (True, "S1", "E1"), ({}, "S1", "E1"),
+    ("S1", [], "E1"), ("S1", "S1", "wrong-source"),
+])
+def test_invalid_span_ranges_and_evidence_ids_fail_closed(first, last, evidence_id):
+    with pytest.raises(review_module._InvalidReview):
+        review_module._parse_review(_span_verdict(first, last, evidence_id), _snapshot("A\nB"), ())
+
+
+@pytest.mark.parametrize("text,quote", [
+    ("A  5\nB  7", "A 5 B 7"), ("inter-\nnational", "international"),
+    ("Revenue | 10 USD | 20 kg | 30 USD", "Revenue | 10 USD | 30 USD"),
+    ("2025 | 10 USD", "2026 | 10 USD"), ("10 USD", "10 kg"),
+])
+def test_legacy_quotes_never_normalize_or_delete_source_columns(text, quote):
+    with pytest.raises(review_module._InvalidReview):
+        review_module._parse_review(_verdict(_facet(quote=quote)), _snapshot(text), ())
+
+
+@pytest.mark.asyncio
+async def test_span_citation_is_invalidated_by_revision_or_source_change():
+    original = _snapshot("A costs $5.\nA costs $5.")
+    loader = _Loader(original)
+    session = EvidenceReviewSession("Price of A", loader, _Script(_span_verdict("S2", "S2")))
+    await _finish(session)
+    assert session.report["coverage"][0]["citations"][0]["quote"] == "A costs $5."
+    session.on_stop("finished")
+    changed = replace(original, items=(replace(original.items[0], revision="rev-2"),))
+    session.finalize(changed)
+    assert session.report["status"] == "unverified"
+
+
+def test_reason_limit_is_explicit_and_not_relaxed():
+    assert "400 Unicode characters" in review_module._SYSTEM_PROMPT
+    assert "at most 200 characters" in review_module._SYSTEM_PROMPT
+    with pytest.raises(review_module._InvalidReview, match="invalid reason"):
+        review_module._parse_review(_verdict(reason="x" * 401), _snapshot(), ())

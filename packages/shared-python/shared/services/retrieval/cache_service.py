@@ -109,7 +109,7 @@ def _cache_shape_digest(
         None if include_document_ids is None else sorted(set(include_document_ids))
     )
     if review_evidence:
-        payload += "|evidence_review_v1"
+        payload += "|evidence_review_v2"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
