@@ -49,6 +49,12 @@ class JobMetadataBase(BaseModel):
     # Source-file fields.
     source_type: Optional[str] = Field(None, description="Source type")
     source_file_name: Optional[str] = Field(None, description="Source file name")
+    source_content_sha256: Optional[str] = Field(
+        None, pattern=r"^[0-9a-f]{64}$", description="SHA-256 of the original source bytes"
+    )
+    source_size_bytes: Optional[int] = Field(
+        None, ge=0, description="Original source file size in bytes"
+    )
     source_url: Optional[str] = Field(None, description="Source URL")
     file_url: Optional[str] = Field(None, description="File URL")
 
