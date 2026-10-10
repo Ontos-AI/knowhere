@@ -458,7 +458,6 @@ class OpenAIHarness:
             decided = pool.decided()
             first_step_recorded = False
             turn_results: list[str] = []
-            tool_timed_out = False
             for requested_name, call_args, parse_error in parsed_calls:
                 tool_started = time.perf_counter()
                 canonical_name = tool_name_map.get(requested_name, requested_name)
@@ -492,7 +491,9 @@ class OpenAIHarness:
                     except asyncio.TimeoutError:
                         if evidence_review is None:
                             raise
-                        tool_timed_out = True
+                        stop_reason = (
+                            "budget_wall_clock" if budget.remaining_seconds() <= 0 else "tool_timeout"
+                        )
                         break
                     trace_result = tool_result
                 tool_elapsed_ms = int((time.perf_counter() - tool_started) * 1000)
@@ -531,14 +532,12 @@ class OpenAIHarness:
                     )
                 )
                 first_step_recorded = True
-
-            if tool_timed_out:
-                stop_reason = (
-                    "budget_wall_clock" if budget.remaining_seconds() <= 0 else "tool_timeout"
-                )
-                break
-            latest_results = turn_results
-            latest_turn = turn_index
+            else:
+                latest_results = turn_results
+                latest_turn = turn_index
+                continue
+            # A tool timeout terminates the entire episode.
+            break
 
         if evidence_review is not None:
             evidence_review.on_stop(stop_reason)
