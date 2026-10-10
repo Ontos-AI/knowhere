@@ -207,7 +207,6 @@ class OpenAIHarness:
         steps: list[AgentStep] = []
         result_notes = ""
         turn_index = 0
-        stop_reason = "finished"
         review_feedback = ""
 
         async def _within_deadline(work: Awaitable[Any], *, usage_in_flight: bool = False) -> Any:
