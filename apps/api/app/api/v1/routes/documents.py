@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db
-from shared.core.exceptions.domain_exceptions import NotFoundException
+from shared.core.exceptions.domain_exceptions import NotFoundException, ValidationException
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 
 router = APIRouter(tags=["Documents"])
@@ -44,12 +44,20 @@ async def _archive_document_response(
 @router.get("")
 async def list_documents(
     namespace: str | None = Query(None, max_length=255),
+    all_namespaces: bool = Query(
+        False, description="List user-owned documents across all namespaces",
+    ),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=200, description="Items per page"),
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    effective_namespace = normalize_retrieval_namespace(namespace)
+    if all_namespaces and namespace is not None:
+        raise ValidationException(
+            user_message="namespace cannot be combined with all_namespaces",
+            violations=[{"field": "namespace", "description": "Omit when all_namespaces is true"}],
+        )
+    effective_namespace = None if all_namespaces else normalize_retrieval_namespace(namespace)
     response = await _document_service.list_documents(
         db,
         user_id=current_user.user_id,
@@ -57,6 +65,27 @@ async def list_documents(
         page=page,
         page_size=page_size,
     )
+    return response
+
+
+@router.get("/{document_id}/jobs")
+async def list_document_jobs(
+    document_id: str,
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=200, description="Items per page"),
+    current_user: CurrentUser = Depends(with_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read processing history, including failed attempts and archived documents."""
+    response = await _document_service.list_document_jobs(
+        db, user_id=current_user.user_id, document_id=document_id,
+        page=page, page_size=page_size,
+    )
+    if response is None:
+        raise NotFoundException(
+            resource="Document", resource_id=document_id,
+            internal_message="Document not found",
+        )
     return response
 
 
