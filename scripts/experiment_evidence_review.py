@@ -205,7 +205,11 @@ class ScriptedReviewer:
         # without inspecting gold labels or choosing a verdict from its content.
         payload = json.loads(messages[1]["content"])
         expected_sources = {item.chunk_id: item.text for item in self.corpus.latest_snapshot.items}
-        received_sources = {item["chunk_id"]: item["text"] for item in payload["evidence"]}
+        # v2 sends a lossless partition rather than a second copy of the text.
+        # Reconstruct the whole received source solely for the input-isolation
+        # audit; the fixture verdict and citations stay predetermined.
+        received_sources = {item["chunk_id"]: "".join(span["text"] for span in item["citation_spans"])
+                            for item in payload["evidence"]}
         source_only = (
             [message["role"] for message in messages] == ["system", "user"]
             and set(payload) == {"original_query", "frozen_requirements", "evidence"}

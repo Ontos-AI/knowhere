@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import os
 from dataclasses import FrozenInstanceError, replace
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -150,6 +152,35 @@ async def test_complete_evidence_is_reviewed_once_with_isolated_original_query()
     assert session.report["status"] == "sufficient"
     await _finish(session, budget)
     assert len(reviewer.messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_controlled_experiment_audits_lossless_span_input_without_changing_scripted_verdict():
+    path = Path(__file__).resolve().parents[4] / "scripts/experiment_evidence_review.py"
+    spec = importlib.util.spec_from_file_location("controlled_evidence_review", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    text = "Price A: 5 USD | intervening column: 20 kg | 表🙂\r\n" + "long\t" * 100
+    scripted = json.loads(_verdict(_facet(quote="Price A: 5 USD")))
+    case = {"case_id": "span-audit", "query": "Price of A?", "retrieval_pages": [["chunk-1"]],
+            "corpus": [{"chunk_id": "chunk-1", "chunk_type": "text", "text": text,
+                        "summary": "SECRET SUMMARY MUST NOT LEAK"}],
+            "scripted_reviews": [scripted, scripted]}
+    corpus = module.FrozenCorpus(case)
+    corpus.latest_snapshot = _snapshot(text)
+    reviewer = module.ScriptedReviewer(case, corpus)
+    messages = review_module._messages(case["query"], corpus.latest_snapshot, ())
+    raw, usage = await reviewer(messages, MAX_REVIEW_OUTPUT_TOKENS)
+    assert reviewer.source_only_prompts == [True]
+    assert json.loads(raw) == scripted
+    assert usage == {"total_tokens": module.REVIEWER_TOKENS}
+    # Removing a real table column is not a lossless input adaptation.
+    payload = json.loads(messages[1]["content"])
+    payload["evidence"][0]["citation_spans"][0]["text"] = payload["evidence"][0]["citation_spans"][0]["text"].replace("20 kg", "")
+    messages[1]["content"] = json.dumps(payload)
+    await reviewer(messages, MAX_REVIEW_OUTPUT_TOKENS)
+    assert reviewer.source_only_prompts == [True, False]
 
 
 @pytest.mark.asyncio
