@@ -32,6 +32,8 @@ MAX_REVIEW_CALLS = 2
 MAX_REVIEW_SECONDS = 30.0
 MAX_REVIEW_INPUT_BYTES = 64 * 1024
 MAX_REVIEW_OUTPUT_TOKENS = 1024
+MAX_REVIEW_ASSESSMENT_BYTES = 16 * 1024
+MAX_REVIEW_CITATION_BYTES = 16 * 1024
 MAX_CORRECTION_STEPS = 4
 
 
@@ -89,7 +91,7 @@ Each evidence item provides citation_spans, an ordered, lossless partition of it
 Schema (all fields required, no additional fields):
 {"status":"sufficient|insufficient|unverified","reason":"brief explanation, at most 400 characters","coverage":[{"facet_id":"F1","requirement":"one original-query requirement","status":"supported|missing|conflicting","citations":[{"evidence_id":"E1","start_span":"S1","end_span":"S2"}]}]}
 
-Return 1 to 24 facets, with at most 8 citations per facet. Every supported or conflicting facet needs citations; cite both sides of a conflict. missing facets may have no citations. sufficient is allowed only when every original requirement is supported and no conflict remains. Otherwise return insufficient, or unverified if you cannot assess. reason MUST contain no more than 400 Unicode characters; aim for at most 200 characters. Do not summarize every facet in reason. Keep the response within 1024 tokens.
+Return 1 to 24 facets, with at most 8 citations per facet. Every supported or conflicting facet needs citations; cite both sides of a conflict. missing facets may have no citations. sufficient is allowed only when every original requirement is supported and no conflict remains. Otherwise return insufficient, or unverified if you cannot assess. reason MUST contain no more than 400 Unicode characters; aim for at most 200 characters. Do not summarize every facet in reason. The total reconstructed citation text must not exceed 16384 UTF-8 bytes; select concise supporting ranges and avoid repeating long passages. Keep the response within 1024 tokens.
 """
 
 
@@ -182,7 +184,7 @@ def _parse_review(
     requirements: tuple[tuple[str, str], ...],
 ) -> tuple[str, str, list[dict[str, Any]]]:
     """Validate shape, frozen requirements and exact citation support spans."""
-    if not isinstance(raw, str) or len(raw.encode("utf-8")) > 16 * 1024:
+    if not isinstance(raw, str) or len(raw.encode("utf-8")) > MAX_REVIEW_ASSESSMENT_BYTES:
         raise _InvalidReview("invalid output size")
     try:
         value = json.loads(raw, object_pairs_hook=_json_without_duplicates)
@@ -199,6 +201,7 @@ def _parse_review(
         raise _InvalidReview("invalid coverage")
     items = {item.evidence_id: item for item in snapshot.items}
     facets: dict[str, dict[str, Any]] = {}
+    citation_bytes = 0
     for facet in coverage:
         if not isinstance(facet, dict) or set(facet) != {
             "facet_id",
@@ -248,13 +251,19 @@ def _parse_review(
                     or positions[first] > positions[last]
                 ):
                     raise _InvalidReview("invalid citation span range")
-                quote = "".join(span["text"] for span in spans[positions[first]:positions[last] + 1])
+                selected = spans[positions[first]:positions[last] + 1]
+                if citation_bytes + sum(len(span["text"].encode("utf-8")) for span in selected) > MAX_REVIEW_CITATION_BYTES:
+                    raise _InvalidReview("resolved citations exceed the output size limit")
+                quote = "".join(span["text"] for span in selected)
             if (
                 not isinstance(quote, str)
                 or not quote.strip()
                 or quote not in text
             ):
                 raise _InvalidReview("citation is not an exact evidence quote")
+            citation_bytes += len(quote.encode("utf-8"))
+            if citation_bytes > MAX_REVIEW_CITATION_BYTES:
+                raise _InvalidReview("resolved citations exceed the output size limit")
             resolved_citations.append({"evidence_id": evidence_id, "quote": quote})
         facet = {**facet, "citations": resolved_citations}
         facets[facet_id] = facet

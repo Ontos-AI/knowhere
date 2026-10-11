@@ -34,6 +34,10 @@ source (with inclusive `start_span`/`end_span` ranges), and the service extracts
 the exact continuous original quote, including all whitespace and table columns.
 It never joins disjoint passages or fuzzily matches text. Public citations remain
 `{evidence_id, quote}`; legacy injected reviewer quotes still require exact matching.
+The reconstructed quotations have a total 16 KiB UTF-8 ceiling across all facets,
+including repeated citations. Oversized ranges fail closed before concatenation;
+they are never silently shortened or given partial semantic credit. This preserves
+bounded public responses when compact span IDs name very long passages.
 The reviewer contract explicitly limits `reason` to 400 Unicode characters
 (a 200-character target), 24 facets and eight citations per facet. The parser
 checks the schema and citations. A second review

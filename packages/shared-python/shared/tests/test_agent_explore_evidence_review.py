@@ -758,3 +758,37 @@ def test_reason_limit_is_explicit_and_not_relaxed():
     assert "at most 200 characters" in review_module._SYSTEM_PROMPT
     with pytest.raises(review_module._InvalidReview, match="invalid reason"):
         review_module._parse_review(_verdict(reason="x" * 401), _snapshot(), ())
+
+
+def test_small_span_payload_cannot_amplify_reconstructed_public_quotes():
+    snapshot = _snapshot("x" * 40000)
+    spans = review_module._citation_spans(snapshot.items[0].text)
+    raw = json.loads(_span_verdict(spans[0]["span_id"], spans[-1]["span_id"]))
+    raw["coverage"][0]["citations"] *= 8
+    serialized = json.dumps(raw)
+    assert len(serialized.encode()) < 1024
+    with pytest.raises(review_module._InvalidReview, match="resolved citations exceed"):
+        review_module._parse_review(serialized, snapshot, ())
+
+
+@pytest.mark.parametrize("mode", ["spans", "legacy"])
+def test_canonical_quote_limit_counts_all_facets_and_utf8_bytes(monkeypatch, mode):
+    monkeypatch.setattr(review_module, "MAX_REVIEW_CITATION_BYTES", 6)
+    snapshot = _snapshot("表🙂")  # two code points, seven UTF-8 bytes
+    raw = _span_verdict() if mode == "spans" else _verdict(_facet(quote="表🙂"))
+    with pytest.raises(review_module._InvalidReview, match="resolved citations exceed"):
+        review_module._parse_review(raw, snapshot, ())
+    snapshot = _snapshot("abcd")
+    facet = json.loads(_span_verdict())["coverage"][0]
+    if mode == "legacy":
+        facet["citations"] = [{"evidence_id": "E1", "quote": "abcd"}]
+    raw = json.loads(_verdict(facet))
+    raw["coverage"].append({**facet, "facet_id": "F2"})
+    with pytest.raises(review_module._InvalidReview, match="resolved citations exceed"):
+        review_module._parse_review(json.dumps(raw), snapshot, ())
+
+
+def test_canonical_quote_byte_boundary_is_inclusive(monkeypatch):
+    monkeypatch.setattr(review_module, "MAX_REVIEW_CITATION_BYTES", 7)
+    _, _, coverage = review_module._parse_review(_span_verdict(), _snapshot("表🙂"), ())
+    assert coverage[0]["citations"][0]["quote"] == "表🙂"
