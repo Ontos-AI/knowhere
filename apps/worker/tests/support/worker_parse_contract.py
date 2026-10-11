@@ -142,6 +142,8 @@ class WorkerParseContract:
                         "summary_image": False,
                         "summary_table": False,
                         "summary_txt": False,
+                        "summary_use_llm": False,
+                        "top_summary_use_llm": False,
                     },
                 },
                 billing_status=billing_status,

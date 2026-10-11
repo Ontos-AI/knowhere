@@ -5,6 +5,7 @@ from shared.core.exceptions.domain_exceptions import (
     ConflictException,
     FileSystemException,
     LibreOfficeServiceException,
+    ParseResultContractException,
     NotFoundException,
     PermissionDeniedException,
     QuotaExceededException,
@@ -39,6 +40,7 @@ __all__ = [
     "UnknownException",
     "FileSystemException",
     "LibreOfficeServiceException",
+    "ParseResultContractException",
     # Webhook Exceptions
     "WebhookException",
     "WebhookConfigException",

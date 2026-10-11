@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "version": "1.0",
+  "file_name": "sample.pdf",
+  "top_summary": "Preserve enriched extra fields",
+  "stats": {
+    "total_chunks": 4,
+    "text_chunks": 1,
+    "image_chunks": 1,
+    "table_chunks": 1,
+    "page_chunks": 1,
+    "max_depth": 1
+  },
+  "sections": [
+    {
+      "title": "Intro",
+      "path": "sample.pdf/Intro",
+      "level": 1,
+      "summary": "hello",
+      "chunk_count": 1,
+      "children": []
+    }
+  ],
+  "resources": {
+    "images": [
+      {
+        "path": "images/picture.png",
+        "summary": "picture"
+      }
+    ],
+    "tables": [
+      {
+        "path": "tables/table.html",
+        "summary": "table"
+      }
+    ]
+  }
+}

@@ -1,0 +1,249 @@
+{
+  "$defs": {
+    "Hierarchy": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Hierarchy"
+      },
+      "title": "Hierarchy",
+      "type": "object"
+    },
+    "ManifestStatistics": {
+      "additionalProperties": true,
+      "properties": {
+        "image_chunks": {
+          "minimum": 0,
+          "title": "Image Chunks",
+          "type": "integer"
+        },
+        "page_chunks": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Page Chunks",
+          "type": "integer"
+        },
+        "table_chunks": {
+          "minimum": 0,
+          "title": "Table Chunks",
+          "type": "integer"
+        },
+        "text_chunks": {
+          "minimum": 0,
+          "title": "Text Chunks",
+          "type": "integer"
+        },
+        "total_chunks": {
+          "minimum": 0,
+          "title": "Total Chunks",
+          "type": "integer"
+        },
+        "total_pages": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Pages"
+        }
+      },
+      "required": [
+        "total_chunks",
+        "text_chunks",
+        "image_chunks",
+        "table_chunks"
+      ],
+      "title": "ManifestStatistics",
+      "type": "object"
+    },
+    "Processing": {
+      "additionalProperties": true,
+      "properties": {
+        "billing_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Billing Status"
+        },
+        "cost": {
+          "$ref": "#/$defs/ProcessingCost"
+        },
+        "page_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Page Count"
+        },
+        "stages": {
+          "additionalProperties": true,
+          "title": "Stages",
+          "type": "object"
+        },
+        "timing": {
+          "$ref": "#/$defs/ProcessingTiming"
+        }
+      },
+      "required": [
+        "page_count",
+        "billing_status",
+        "cost",
+        "timing",
+        "stages"
+      ],
+      "title": "Processing",
+      "type": "object"
+    },
+    "ProcessingCost": {
+      "additionalProperties": true,
+      "properties": {
+        "credits": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Credits"
+        },
+        "micro_dollars": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Micro Dollars"
+        }
+      },
+      "required": [
+        "micro_dollars",
+        "credits"
+      ],
+      "title": "ProcessingCost",
+      "type": "object"
+    },
+    "ProcessingTiming": {
+      "additionalProperties": true,
+      "properties": {
+        "completed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        },
+        "duration_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Duration Ms"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Started At"
+        }
+      },
+      "required": [
+        "started_at",
+        "completed_at",
+        "duration_ms"
+      ],
+      "title": "ProcessingTiming",
+      "type": "object"
+    }
+  },
+  "$id": "https://knowhereto.ai/contracts/parse_result/v1/manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "HIERARCHY": {
+      "$ref": "#/$defs/Hierarchy"
+    },
+    "data_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Data Id"
+    },
+    "job_id": {
+      "minLength": 1,
+      "title": "Job Id",
+      "type": "string"
+    },
+    "processing": {
+      "$ref": "#/$defs/Processing"
+    },
+    "processing_date": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T.+Z$",
+      "title": "Processing Date",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_file_name": {
+      "title": "Source File Name",
+      "type": "string"
+    },
+    "statistics": {
+      "$ref": "#/$defs/ManifestStatistics"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "version",
+    "job_id",
+    "data_id",
+    "source_file_name",
+    "processing_date",
+    "processing",
+    "statistics",
+    "HIERARCHY"
+  ],
+  "title": "Manifest",
+  "type": "object"
+}

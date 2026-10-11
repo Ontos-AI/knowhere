@@ -12,6 +12,8 @@ from typing import Any
 
 from loguru import logger
 
+from shared.contracts.parse_result import SCHEMA_VERSION, validate_parse_result_archive
+from shared.core.exceptions.domain_exceptions import ParseResultContractException
 from shared.services.storage.zip_result_resources import ZipResourceFileInfo
 
 
@@ -46,52 +48,85 @@ class ZipPackageWriter:
         os.makedirs(effective_temp_dir, exist_ok=True)
         zip_file_path = os.path.join(effective_temp_dir, f"result_{request.job_id}.zip")
 
-        with zipfile.ZipFile(zip_file_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            chunks_json = json.dumps(
-                {"chunks": request.formatted_chunks},
-                ensure_ascii=False,
-                indent=2,
+        written_resources: dict[str, str] = {}
+        try:
+            with zipfile.ZipFile(zip_file_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                chunks_json = json.dumps(
+                    {
+                        "schema_version": SCHEMA_VERSION,
+                        "chunks": request.formatted_chunks,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                zip_file.writestr("chunks.json", chunks_json.encode("utf-8"))
+
+                self._write_optional_file(zip_file, request.add_dir, "full.md")
+                if request.include_toc_hierarchies and self._write_optional_file(
+                    zip_file,
+                    request.add_dir,
+                    "toc_hierarchies.json",
+                ):
+                    logger.info("Added toc_hierarchies.json to ZIP")
+                if self._write_optional_json_file(
+                    zip_file,
+                    request.add_dir,
+                    "_doc_agent/trace.json",
+                    "debug/trace.json",
+                    compact_trace=True,
+                ):
+                    logger.info("Added debug/trace.json to ZIP")
+                if self._write_optional_json_file(
+                    zip_file,
+                    request.add_dir,
+                    "_doc_agent/anatomy_map.json",
+                    "debug/anatomy_map.json",
+                ):
+                    logger.info("Added debug/anatomy_map.json to ZIP")
+
+                self._write_resource_files(
+                    zip_file,
+                    request.image_files,
+                    label="Image",
+                    written=written_resources,
+                )
+                self._write_resource_files(
+                    zip_file,
+                    request.table_files,
+                    label="Table",
+                    written=written_resources,
+                )
+                self._write_resource_files(
+                    zip_file,
+                    request.page_citation_files,
+                    label="Page citation asset",
+                    written=written_resources,
+                )
+
+                if request.doc_nav is not None:
+                    doc_nav_json = json.dumps(
+                        {"schema_version": SCHEMA_VERSION, **request.doc_nav},
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    zip_file.writestr("doc_nav.json", doc_nav_json.encode("utf-8"))
+                    logger.info("Added doc_nav.json")
+
+                manifest_json = json.dumps(
+                    {"schema_version": SCHEMA_VERSION, **request.manifest},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                zip_file.writestr("manifest.json", manifest_json.encode("utf-8"))
+
+            validate_parse_result_archive(
+                zip_file_path, allow_legacy=False, max_json_bytes=None
             )
-            zip_file.writestr("chunks.json", chunks_json.encode("utf-8"))
-
-            self._write_optional_file(zip_file, request.add_dir, "full.md")
-            if request.include_toc_hierarchies and self._write_optional_file(
-                zip_file,
-                request.add_dir,
-                "toc_hierarchies.json",
-            ):
-                logger.info("Added toc_hierarchies.json to ZIP")
-            if self._write_optional_json_file(
-                zip_file,
-                request.add_dir,
-                "_doc_agent/trace.json",
-                "debug/trace.json",
-                compact_trace=True,
-            ):
-                logger.info("Added debug/trace.json to ZIP")
-            if self._write_optional_json_file(
-                zip_file,
-                request.add_dir,
-                "_doc_agent/anatomy_map.json",
-                "debug/anatomy_map.json",
-            ):
-                logger.info("Added debug/anatomy_map.json to ZIP")
-
-            self._write_resource_files(zip_file, request.image_files, label="Image")
-            self._write_resource_files(zip_file, request.table_files, label="Table")
-            self._write_resource_files(
-                zip_file,
-                request.page_citation_files,
-                label="Page citation asset",
-            )
-
-            if request.doc_nav is not None:
-                doc_nav_json = json.dumps(request.doc_nav, ensure_ascii=False, indent=2)
-                zip_file.writestr("doc_nav.json", doc_nav_json.encode("utf-8"))
-                logger.info("Added doc_nav.json")
-
-            manifest_json = json.dumps(request.manifest, ensure_ascii=False, indent=2)
-            zip_file.writestr("manifest.json", manifest_json.encode("utf-8"))
+        except Exception:
+            # Invalid packages must never be returned to the upload/finalization path.
+            if os.path.exists(zip_file_path):
+                os.remove(zip_file_path)
+            raise
 
         checksum_value = _calculate_zip_checksum(zip_file_path)
         zip_size = os.path.getsize(zip_file_path)
@@ -145,11 +180,30 @@ class ZipPackageWriter:
         resources: tuple[ZipResourceFileInfo, ...],
         *,
         label: str,
+        written: dict[str, str],
     ) -> None:
         for resource in resources:
             source_path = resource["source_path"]
             if os.path.exists(source_path):
-                zip_file.write(source_path, resource["zip_path"])
+                zip_path = resource["zip_path"]
+                previous = written.get(zip_path)
+                if previous is not None:
+                    if previous != source_path and _calculate_zip_checksum(
+                        previous
+                    ) != _calculate_zip_checksum(source_path):
+                        raise ParseResultContractException(
+                            violations=[
+                                {
+                                    "artifact": "ZIP",
+                                    "field": "members",
+                                    "reason": "conflicting_asset_path",
+                                }
+                            ],
+                            schema_version=SCHEMA_VERSION,
+                        )
+                    continue
+                zip_file.write(source_path, zip_path)
+                written[zip_path] = source_path
             else:
                 logger.warning(f"{label} file not found: {source_path}")
 

@@ -114,6 +114,10 @@ class KnowhereException(Exception):
         original_exception: Wrapped exception for logging (NOT sent to client)
     """
 
+    # Sensitive domain exceptions can keep structured fields without allowing
+    # diagnostic log sinks to render the original traceback's local variables.
+    log_traceback: bool = True
+
     def __init__(
         self,
         code: ErrorCode,
@@ -241,7 +245,7 @@ class KnowhereException(Exception):
         - Reads current log context (request_id, task_id, job_id, etc.)
         - Merges exception fields from to_log()
         - Logs at appropriate level (ERROR for 5xx, WARNING for 4xx)
-        - Includes stacktrace for 5xx errors
+        - Includes stacktrace for 5xx errors unless the domain opts out
         - Ensures user_message is present in exception logs
 
         Usage:
@@ -274,9 +278,9 @@ class KnowhereException(Exception):
 
         # Log at appropriate level with appropriate event
         if self.http_status_code >= 500:
-            # 5xx: ERROR level with stacktrace
+            # 5xx: ERROR level; sensitive domains suppress diagnostic locals.
             logger.bind(event=LogEvent.EXCEPTION_SYSTEM.value, **log_data).opt(
-                exception=self
+                exception=self if self.log_traceback else None
             ).error(self.internal_message)
         else:
             # 4xx: WARNING level without stacktrace

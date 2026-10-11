@@ -134,6 +134,9 @@ def test_parse_task_should_process_uploaded_file_through_real_contract_boundarie
     )
 
     manifest_payload = result_zip["manifest"]
+    assert manifest_payload["schema_version"] == chunks_payload["schema_version"] == 1
+    with zipfile.ZipFile(result_zip["path"]) as archive:
+        assert json.loads(archive.read("doc_nav.json"))["schema_version"] == 1
     assert manifest_payload["source_file_name"] == job["source_file_name"]
     assert manifest_payload["statistics"]["total_chunks"] == len(job_chunks)
 
@@ -1357,3 +1360,29 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
         "oversized.pdf/Chapter 1",
         "oversized.pdf/Chapter 2",
     ]
+
+
+def test_parse_task_rejects_invalid_result_contract_before_upload(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from shared.services.storage.zip_result_schema import ZipResultSchemaBuilder
+
+    contract = WorkerParseContract.create()
+    contract.use_workspace_root(monkeypatch, tmp_path)
+    contract.use_billing(monkeypatch, is_enabled=False)
+    job = contract.create_file_job(source_file_name="malformed.xlsx", job_id_prefix="job_bad_contract")
+    contract.upload_source_file(local_file_path=_SAMPLE_XLSX_PATH, s3_key=job["s3_key"])
+    monkeypatch.setattr(
+        ZipResultSchemaBuilder, "format_chunks",
+        lambda *args, **kwargs: [{"chunk_id": "bad", "type": "unsupported"}],
+    )
+    result = contract.enqueue_parse_task(job_id=job["job_id"], user_id=job["user_id"])
+    assert result.failed()
+    assert result.result.details["reason"] == "PARSE_RESULT_CONTRACT_VIOLATION"
+    assert contract.get_task_status(job["job_id"]) == "failed"
+    assert contract.observe_job_status(job["job_id"])["status"] == "failed"
+    assert contract.count_job_results(job["job_id"]) == 0
+    result_key = contract.storage.build_result_zip_key(job_id=job["job_id"])
+    assert contract.verify_result_zip_object(result_key)["exists"] is False

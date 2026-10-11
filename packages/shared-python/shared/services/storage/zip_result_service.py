@@ -14,8 +14,11 @@ from loguru import logger
 
 import pandas as pd
 
+from shared.contracts.parse_result import SCHEMA_VERSION, validate_parse_result
+
 from shared.core.exceptions.domain_exceptions import (
     KnowhereException,
+    ParseResultContractException,
     StorageServiceException,
 )
 from shared.services.storage.zip_package_writer import (
@@ -85,6 +88,15 @@ class ZipResultService:
                 hierarchy=hierarchy,
             )
             manifest = strip_manifest_cost_fields(manifest)
+            manifest = {"schema_version": SCHEMA_VERSION, **manifest}
+            if doc_nav is not None:
+                doc_nav = {"schema_version": SCHEMA_VERSION, **doc_nav}
+            validate_parse_result(
+                manifest,
+                {"schema_version": SCHEMA_VERSION, "chunks": formatted_chunks},
+                doc_nav,
+                allow_legacy=False,
+            )
             parse_track = str((job_metadata or {}).get("parse_track") or "")
             artifact = self._writer.write(
                 ZipPackageWriteRequest(
@@ -144,6 +156,8 @@ class ZipResultService:
             doc_nav = self._schema.build_doc_nav(formatted_chunks, source_file_name)
             hierarchy = self._schema.build_hierarchy_dict(doc_nav.get("sections", []))
             return doc_nav, hierarchy
+        except ParseResultContractException:
+            raise
         except Exception as exc:
             logger.warning(f"generate doc_nav.json fail {exc}")
             return None, {}
@@ -163,6 +177,17 @@ class ZipResultService:
             return None
         if not isinstance(payload, dict):
             return None
+        if "schema_version" in payload:
+            version = payload["schema_version"]
+            if type(version) is not int or version != SCHEMA_VERSION:
+                raise ParseResultContractException(
+                    violations=[{
+                        "artifact": "doc_nav.json",
+                        "field": "schema_version",
+                        "reason": "unsupported_schema_version",
+                    }],
+                    schema_version=SCHEMA_VERSION,
+                ) from None
         if not isinstance(payload.get("sections"), list):
             return None
         return payload
