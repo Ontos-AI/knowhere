@@ -205,7 +205,7 @@ cp apps/worker/.env.example apps/worker/.env
 
 - database and Redis connection settings
 - S3-compatible storage credentials
-- at least one LLM provider key: `DS_KEY`, `ALI_API_KEYS`, `GPT_API_KEY`, or `GLM_API_KEY`
+- LLM credentials matching your selected models: defaults use `DS_KEY`; Qwen, GLM, and Ark overrides use `ALI_API_KEYS`, `GLM_API_KEY`, and `ARK_API_KEY`, respectively
 - a vision-capable model provider for V2 PDF/PowerPoint parsing, page understanding, image summaries, OCR, atlas classification, or image-aware retrieval
 - `MINERU_API_KEYS` only if you use the V1 chunk-based PDF/PowerPoint pipeline
 - any optional billing or webhook providers you want to enable
