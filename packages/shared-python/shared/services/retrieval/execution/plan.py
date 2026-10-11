@@ -51,6 +51,7 @@ async def run_retrieval_query(
     threshold: float = 0.0,
     internal_recall_k: int | None = None,
     use_agentic: bool | None = None,
+    review_evidence: bool = False,
     agent_explore_model: str | None = None,
     conversation_id: str | None = None,
     llm_config: LLMConfig | None = None,
@@ -73,6 +74,7 @@ async def run_retrieval_query(
             threshold=threshold,
             internal_recall_k=internal_recall_k,
             use_agentic=use_agentic,
+            review_evidence=review_evidence,
             agent_explore_model=agent_explore_model,
             conversation_id=conversation_id,
             llm_config=llm_config,
@@ -188,7 +190,9 @@ class RetrievalExecutionPlan:
                 replace(route_context, revision_pins=revision_pins, document_scope=route_context.document_scope.narrow(list(revision_pins)))
             )
 
-        if cache_version is not None:
+        review = outcome.response.get("evidence_review")
+        cacheable_review = not isinstance(review, dict) or review.get("status") != "unverified"
+        if cache_version is not None and cacheable_review:
             await _write_cached_response(
                 user_id=request.user_id,
                 namespace=request.namespace,

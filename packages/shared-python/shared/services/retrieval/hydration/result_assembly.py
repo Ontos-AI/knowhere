@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from shared.services.retrieval.document_scope import DocumentScope
 
 from collections.abc import Mapping
@@ -28,6 +29,7 @@ async def assemble_retrieval_results(
     allowed_chunk_types: set[str] | None = None,
     revision_pins: Mapping[str, str] | None = None,
     queried_tables: Mapping[tuple[str, str], str] | None = None,
+    offload_composition: bool = False,
 ) -> list[dict[str, Any]]:
     scoped_rows = filter_excluded_rows(
         rows,
@@ -76,11 +78,19 @@ async def assemble_retrieval_results(
         else:
             assembled_row['content'] = base_content
             assembled_row['content_source'] = 'content'
-        assembled_row['composed'] = compose_evidence_parts(
-            assembled_row,
-            rows_by_chunk_id,
-            queried_tables=queried_tables,
-        )
+        if offload_composition:
+            # Asset reads are synchronous storage calls. Review deadlines must
+            # remain cancellable while table/image content is being loaded.
+            assembled_row['composed'] = await asyncio.to_thread(
+                compose_evidence_parts, assembled_row, rows_by_chunk_id,
+                queried_tables=queried_tables,
+            )
+        else:
+            assembled_row['composed'] = compose_evidence_parts(
+                assembled_row,
+                rows_by_chunk_id,
+                queried_tables=queried_tables,
+            )
         assembled.append(assembled_row)
     return assembled
 

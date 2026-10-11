@@ -20,6 +20,12 @@ step. Tokens are only summed for the episode total.
 Tool calls within one turn are dispatched sequentially through
 ``dispatch.dispatch_tool_call`` (fresh DB session per call). No import from
 archived map-nav modules.
+
+An optional evidence-review session intercepts a valid natural finish. Its
+feedback is carried separately from the original query, and correction keeps
+the same evidence pool and read/pick gates. Enabled episodes bound every await
+by the remaining wall clock and send that timeout to the provider; cancelling
+the await cannot forcibly interrupt an already-running synchronous SDK request.
 """
 
 from __future__ import annotations
@@ -29,7 +35,8 @@ from shared.services.retrieval.document_scope import DocumentScope
 import asyncio
 import json
 import time
-from typing import Any
+from collections.abc import Awaitable
+from typing import TYPE_CHECKING, Any
 
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
 from shared.services.retrieval.agent_explore.config import (
@@ -64,6 +71,9 @@ from shared.services.retrieval.agent_explore.shared import (
 from shared.services.retrieval.agent_explore.types import AgentStep, EpisodeResult
 from shared.services.retrieval.agent_tools import REGISTRY, ToolBudget, ToolResult
 
+if TYPE_CHECKING:
+    from shared.services.retrieval.agent_explore.evidence_review import EvidenceReviewSession
+
 _PICK_WIRE_NAME = wire_safe_tool_name(PICK_TOOL_NAME)
 
 _PICK_PHASE_INSTRUCTION = (
@@ -72,7 +82,7 @@ _PICK_PHASE_INSTRUCTION = (
 )
 
 
-def _resolve_client_and_model() -> tuple[Any, str]:
+def _resolve_client_and_model(*, max_retries: int | None = None) -> tuple[Any, str]:
     """Resolve the OpenAI-compatible client and ``AGENT_EXPLORE_MODEL``."""
     from shared.services.ai.llm_overrides import resolve_text
     from shared.services.ai.openai_compatible_client_sync import get_openai_client
@@ -80,7 +90,8 @@ def _resolve_client_and_model() -> tuple[Any, str]:
     requested = AGENT_EXPLORE_MODEL
     effective_model, api_key, api_url = resolve_text(requested)
     model = effective_model or requested
-    client = get_openai_client(model=model, api_key=api_key, api_url=api_url)
+    options = {} if max_retries is None else {"max_retries": max_retries}
+    client = get_openai_client(model=model, api_key=api_key, api_url=api_url, **options)
     return client, model
 
 
@@ -180,9 +191,13 @@ class OpenAIHarness:
         document_scope: DocumentScope = DocumentScope(),
         query: str,
         budget: EpisodeBudget,
+        evidence_review: EvidenceReviewSession | None = None,
     ) -> EpisodeResult:
         tool_budget = ToolBudget()
-        client, model = _resolve_client_and_model()
+        client, model = (
+            _resolve_client_and_model(max_retries=0)
+            if evidence_review is not None else _resolve_client_and_model()
+        )
         openai_tools, tool_name_map = _build_openai_tools()
         pick_tool = _build_pick_tool()
         pool = EvidencePool()
@@ -192,13 +207,33 @@ class OpenAIHarness:
         steps: list[AgentStep] = []
         result_notes = ""
         turn_index = 0
-        stop_reason = "finished"
+        review_feedback = ""
+
+        async def _within_deadline(work: Awaitable[Any], *, usage_in_flight: bool = False) -> Any:
+            try:
+                return await asyncio.wait_for(work, timeout=max(0, budget.remaining_seconds()))
+            except asyncio.TimeoutError:
+                if usage_in_flight:
+                    budget.usage_complete = False
+                raise
+            except asyncio.CancelledError:
+                if usage_in_flight:
+                    budget.usage_complete = False
+                if evidence_review is not None:
+                    evidence_review.on_stop("cancelled")
+                raise
 
         while True:
+            if evidence_review is not None and budget.remaining_seconds() <= 0:
+                stop_reason = "budget_wall_clock"
+                break
             turn_index += 1
             pool.begin_round()
             pick_turn = pool.pick_phase
             forced_reason = None if pick_turn else budget.exhausted()
+            if evidence_review is not None and forced_reason is not None:
+                stop_reason = f"budget_{forced_reason}"
+                break
             if pick_turn:
                 tools = [pick_tool]
                 tool_choice: Any = {"type": "function", "function": {"name": _PICK_WIRE_NAME}}
@@ -218,13 +253,22 @@ class OpenAIHarness:
                         latest_turn=latest_turn,
                         pool=pool,
                         budget=budget,
-                        instruction=_PICK_PHASE_INSTRUCTION if pick_turn else "",
+                        instruction="\n\n".join(
+                            part for part in (
+                                review_feedback,
+                                _PICK_PHASE_INSTRUCTION if pick_turn else "",
+                            ) if part
+                        ),
                     ),
                 },
             ]
 
             turn_started = time.perf_counter()
-            response, usage = await asyncio.to_thread(
+            request_options = (
+                {"timeout": max(0.001, budget.remaining_seconds())}
+                if evidence_review is not None else {}
+            )
+            completion = asyncio.to_thread(
                 client.chat_completion_raw_with_usage,
                 messages=messages,
                 model=model,
@@ -232,7 +276,19 @@ class OpenAIHarness:
                 max_tokens=AGENT_EXPLORE_MAX_COMPLETION_TOKENS,
                 tools=tools,
                 tool_choice=tool_choice,
+                **request_options,
             )
+            try:
+                response, usage = (
+                    await _within_deadline(completion, usage_in_flight=True)
+                    if evidence_review is not None
+                    else await completion
+                )
+            except asyncio.TimeoutError:
+                if evidence_review is None:
+                    raise
+                stop_reason = "budget_wall_clock"
+                break
             budget.record_usage(usage)
             if not pick_turn:
                 budget.record_step()
@@ -345,6 +401,38 @@ class OpenAIHarness:
                         round_index=pool.round_index,
                     )
                 )
+                if evidence_review is not None:
+                    exhausted = budget.exhausted()
+                    if exhausted is not None:
+                        stop_reason = f"budget_{exhausted}"
+                        break
+                    review_started = time.perf_counter()
+                    try:
+                        decision = await _within_deadline(
+                            evidence_review.on_finish(
+                                pool=list(pool.entries),
+                                queried_tables=dict(pool.queried_tables()),
+                                budget=budget,
+                            ),
+                            usage_in_flight=True,
+                        )
+                    except asyncio.TimeoutError:
+                        stop_reason = "budget_wall_clock"
+                        break
+                    steps.append(
+                        AgentStep(
+                            step_index=len(steps),
+                            tool_name="evidence_review",
+                            tool_args={},
+                            observation_text=json.dumps(evidence_review.report, ensure_ascii=False),
+                            error=None,
+                            elapsed_ms=int((time.perf_counter() - review_started) * 1000),
+                            round_index=pool.round_index,
+                        )
+                    )
+                    if decision.continue_retrieval:
+                        review_feedback = decision.instruction
+                        continue
                 break
 
             if forced_reason is not None:
@@ -381,7 +469,7 @@ class OpenAIHarness:
                     tool_result = ToolResult(text="", error=parse_error)
                     trace_result = tool_result
                 else:
-                    tool_result = await dispatch_tool_call(
+                    dispatch = dispatch_tool_call(
                         canonical_name,
                         call_args,
                         db_factory=db_factory,
@@ -393,6 +481,19 @@ class OpenAIHarness:
                         readable=readable,
                         decided=decided,
                     )
+                    try:
+                        tool_result = (
+                            await _within_deadline(dispatch)
+                            if evidence_review is not None
+                            else await dispatch
+                        )
+                    except asyncio.TimeoutError:
+                        if evidence_review is None:
+                            raise
+                        stop_reason = (
+                            "budget_wall_clock" if budget.remaining_seconds() <= 0 else "tool_timeout"
+                        )
+                        break
                     trace_result = tool_result
                 tool_elapsed_ms = int((time.perf_counter() - tool_started) * 1000)
                 content = tool_message_content(
@@ -430,10 +531,15 @@ class OpenAIHarness:
                     )
                 )
                 first_step_recorded = True
+            else:
+                latest_results = turn_results
+                latest_turn = turn_index
+                continue
+            # A tool timeout terminates the entire episode.
+            break
 
-            latest_results = turn_results
-            latest_turn = turn_index
-
+        if evidence_review is not None:
+            evidence_review.on_stop(stop_reason)
         return EpisodeResult(
             pool=list(pool.entries),
             steps=steps,

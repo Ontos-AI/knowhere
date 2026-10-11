@@ -110,6 +110,21 @@ jobs:
         run: uv run python apps/api/scripts/ensure_test_environment.py --install
 
       # api/worker both expose top-level `app`; run separately to avoid module shadowing.
+      - name: Run shared evidence review tests
+        run: >-
+          uv run pytest
+          packages/shared-python/shared/tests/test_agent_explore*.py
+          packages/shared-python/shared/tests/test_evidence_review_projection.py -q
+
+      - name: Run controlled evidence review experiment
+        run: uv run python scripts/experiment_evidence_review.py --repeats 3 --output evidence-review-results.json
+
+      - name: Upload controlled experiment results
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-review-results
+          path: evidence-review-results.json
+
       - name: Run API tests
         run: uv run pytest apps/api/tests -q
 

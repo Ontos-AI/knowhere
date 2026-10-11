@@ -43,6 +43,12 @@ Budget dimensions:
   On timeout, best-effort ``await run.cancel()``.
 - **tokens**: not limited; ``budget.tokens_used`` is only the episode total
   from the terminal ``RunResult.usage``.
+
+When evidence review is enabled, the original deadline also covers SDK setup,
+tool waits and the independent finish review; judge usage is added to the same
+episode budget. Review freezes callbacks, and an accepted finish closes them.
+A requested correction resumes in a new round using the existing read/pick
+gates and request-scoped revision context.
 """
 
 from __future__ import annotations
@@ -51,11 +57,13 @@ from shared.services.retrieval.document_scope import DocumentScope
 
 import asyncio
 import contextlib
+import contextvars
 import json
 import os
 import threading
 import time
-from typing import Any
+from concurrent.futures import Future
+from typing import TYPE_CHECKING, Any
 
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
 from shared.services.retrieval.agent_explore.config import (
@@ -87,6 +95,9 @@ from shared.services.retrieval.agent_explore.shared import (
 from shared.services.retrieval.agent_explore.types import AgentStep, EpisodeResult
 from shared.services.retrieval.agent_tools import REGISTRY, ToolBudget, ToolResult
 
+if TYPE_CHECKING:
+    from shared.services.retrieval.agent_explore.evidence_review import EvidenceReviewSession
+
 # Grace period for the underlying agent run to actually stop, after a
 # best-effort run.cancel() following a wall_clock timeout, before this
 # process gives up waiting for a terminal RunResult.
@@ -108,6 +119,9 @@ _PICK_PHASE_INSTRUCTION = (
 )
 
 _ROUND_TAG_MISSING = "round tag missing"
+_REVIEW_PENDING = "Evidence review is in progress; wait for the finish result."
+_EPISODE_CLOSED = "The episode has ended; no further corpus tools are accepted."
+_FINISH_ROUND_CLOSED = "Finish requested a continuation; start a new turn before retrieving."
 
 
 def _require_cursor_sdk() -> Any:
@@ -143,6 +157,7 @@ class CursorHarness:
         document_scope: DocumentScope = DocumentScope(),
         query: str,
         budget: EpisodeBudget,
+        evidence_review: EvidenceReviewSession | None = None,
     ) -> EpisodeResult:
         cursor_sdk = _require_cursor_sdk()
 
@@ -157,10 +172,60 @@ class CursorHarness:
         state = threading.Condition()
         pool = EvidencePool()
         round_of: dict[str, str] = {}
-        current_round: dict[str, Any] = {"id": None, "pick_phase": False}
+        current_round: dict[str, Any] = {
+            "id": None, "pick_phase": False, "step_recorded": False,
+        }
+        request_context = contextvars.copy_context()
+        review_state: dict[str, Any] = {
+            "pending": False, "closed": False, "continued_round": None, "in_flight": 0,
+            "stop_recorded": None,
+        }
+        pending_futures: set[Future[Any]] = set()
 
         steps: list[AgentStep] = []
         stop_reason = "finished"
+
+        def _review_rejection(*, check_round: bool = True) -> str | None:
+            if evidence_review is None:
+                return None
+            if review_state["closed"]:
+                return _EPISODE_CLOSED
+            if review_state["pending"]:
+                return _REVIEW_PENDING
+            if (
+                check_round
+                and review_state["continued_round"] is not None
+                and review_state["continued_round"] == current_round["id"]
+            ):
+                return _FINISH_ROUND_CLOSED
+            return None
+
+        def _submit(work: Any) -> Future[Any]:
+            if evidence_review is None:
+                return asyncio.run_coroutine_threadsafe(work, loop)
+            with state:
+                if review_state["closed"]:
+                    work.close()
+                    future: Future[Any] = Future()
+                    future.cancel()
+                    return future
+                future = request_context.copy().run(asyncio.run_coroutine_threadsafe, work, loop)
+                pending_futures.add(future)
+            return future
+
+        def _close_review_episode(reason: str) -> None:
+            if evidence_review is None:
+                return
+            with state:
+                review_state["closed"] = True
+                if reason in {"budget_wall_clock", "cancelled", "review_error"}:
+                    budget.usage_complete = False
+                if review_state["stop_recorded"] != reason:
+                    evidence_review.on_stop(reason)
+                    review_state["stop_recorded"] = reason
+                for future in tuple(pending_futures):
+                    future.cancel()
+                state.notify_all()
 
         def _on_delta(update: Any) -> None:
             if getattr(update, "type", None) != "tool-call-started":
@@ -177,14 +242,20 @@ class CursorHarness:
             """
             call_id = ctx.tool_call_id
             if not state.wait_for(
-                lambda: call_id in round_of, timeout=budget.remaining_seconds()
+                lambda: call_id in round_of or (
+                    evidence_review is not None and review_state["closed"]
+                ),
+                timeout=max(0, budget.remaining_seconds()),
             ):
+                return None, False
+            if call_id not in round_of:
                 return None, False
             model_call_id = round_of[call_id]
             if model_call_id != current_round["id"]:
                 pool.begin_round()
                 current_round["id"] = model_call_id
                 current_round["pick_phase"] = pool.pick_phase
+                current_round["step_recorded"] = False
                 return current_round["pick_phase"], True
             return current_round["pick_phase"], False
 
@@ -205,33 +276,53 @@ class CursorHarness:
             tool_name: str, args: dict[str, Any], ctx: Any
         ) -> str | list[dict[str, Any]]:
             with state:
+                rejected = _review_rejection(check_round=False)
+                if rejected is not None:
+                    _reject(tool_name, args, rejected)
+                    return rejected
                 pick_round, new_round = _enter_round(ctx)
                 round_index = pool.round_index
+                rejected = _review_rejection()
+                if rejected is not None:
+                    _reject(tool_name, args, rejected)
+                    return rejected
                 if pick_round is None:
                     _reject(tool_name, args, _ROUND_TAG_MISSING)
                     return f"error: {_ROUND_TAG_MISSING}"
                 if pick_round:
                     _reject(tool_name, args, _PICK_PHASE_REJECTION)
                     return _PICK_PHASE_REJECTION
-                if new_round:
-                    if budget.steps_used >= budget.max_steps:
+                if new_round or (
+                    evidence_review is not None and not current_round["step_recorded"]
+                ):
+                    exhausted = budget.exhausted() if evidence_review is not None else (
+                        "max_steps" if budget.steps_used >= budget.max_steps else None
+                    )
+                    if exhausted is not None:
                         observation = (
-                            _BUDGET_EXHAUSTED_MESSAGE + "\n" + _state_tail(pool, budget)
+                            (
+                                _BUDGET_EXHAUSTED_MESSAGE if exhausted == "max_steps"
+                                else "error: wall-clock budget exhausted for this episode; call finish now."
+                            )
+                            + "\n" + _state_tail(pool, budget)
                         )
                         _append_step(
                             tool_name=tool_name,
                             tool_args=args,
                             observation_text=observation,
-                            error="budget_max_steps",
+                            error=f"budget_{exhausted}",
                             elapsed_ms=0,
                             round_index=round_index,
                         )
                         return observation
                     budget.record_step()
+                    current_round["step_recorded"] = True
                 readable = pool.readable()
                 decided = pool.decided()
+                if evidence_review is not None:
+                    review_state["in_flight"] += 1
             tool_started = time.perf_counter()
-            future = asyncio.run_coroutine_threadsafe(
+            future = _submit(
                 dispatch_tool_call(
                     tool_name,
                     args,
@@ -244,11 +335,14 @@ class CursorHarness:
                     readable=readable,
                     decided=decided,
                 ),
-                loop,
             )
             try:
-                tool_result = future.result(timeout=180)
+                tool_result = future.result(
+                    timeout=max(0, budget.remaining_seconds()) if evidence_review is not None else 180
+                )
             except Exception as exc:  # noqa: BLE001 - one broken tool must not kill the episode
+                if evidence_review is not None:
+                    future.cancel()
                 tool_result = ToolResult(text="", error=f"{type(exc).__name__}: {exc}")
             elapsed_ms = int((time.perf_counter() - tool_started) * 1000)
             content = tool_message_content(
@@ -257,6 +351,12 @@ class CursorHarness:
                 max_chars=tool_budget.max_chars,
             )
             with state:
+                if evidence_review is not None:
+                    pending_futures.discard(future)
+                    review_state["in_flight"] -= 1
+                    if review_state["closed"]:
+                        _reject(tool_name, args, _EPISODE_CLOSED)
+                        return _EPISODE_CLOSED
                 candidates = pool.issue(tool_name, tool_result)
                 tail = _state_tail(pool, budget)
             text = content
@@ -301,7 +401,15 @@ class CursorHarness:
         def pick_execute(args: dict[str, Any], ctx: Any) -> str:
             args = dict(args or {})
             with state:
+                rejected = _review_rejection(check_round=False)
+                if rejected is not None:
+                    _reject(PICK_TOOL_NAME, args, rejected)
+                    return rejected
                 pick_round, _new_round = _enter_round(ctx)
+                rejected = _review_rejection()
+                if rejected is not None:
+                    _reject(PICK_TOOL_NAME, args, rejected)
+                    return rejected
                 if pick_round is None:
                     _reject(PICK_TOOL_NAME, args, _ROUND_TAG_MISSING)
                     return f"error: {_ROUND_TAG_MISSING}"
@@ -331,9 +439,18 @@ class CursorHarness:
         )
 
         def finish_execute(args: dict[str, Any], ctx: Any) -> str:
+            nonlocal stop_reason
             args = dict(args or {})
             with state:
+                rejected = _review_rejection(check_round=False)
+                if rejected is not None:
+                    _reject(FINISH_TOOL_NAME, args, rejected)
+                    return json.dumps({"status": "error", "error": rejected})
                 pick_round, _new_round = _enter_round(ctx)
+                rejected = _review_rejection()
+                if rejected is not None:
+                    _reject(FINISH_TOOL_NAME, args, rejected)
+                    return json.dumps({"status": "error", "error": rejected})
                 if pick_round is None or pick_round:
                     message = _ROUND_TAG_MISSING if pick_round is None else _PICK_PHASE_REJECTION
                     _reject(FINISH_TOOL_NAME, args, message)
@@ -347,6 +464,10 @@ class CursorHarness:
                             "error": invalid_finish_message(validation_error),
                         }
                     )
+                if evidence_review is not None and review_state["in_flight"]:
+                    message = "Wait for in-flight corpus tools and the required pick phase before finish."
+                    _reject(FINISH_TOOL_NAME, args, message)
+                    return json.dumps({"status": "error", "error": message})
                 notes = str(args.get("notes") or "")
                 _append_step(
                     tool_name=FINISH_TOOL_NAME,
@@ -356,6 +477,48 @@ class CursorHarness:
                     elapsed_ms=0,
                     round_index=pool.round_index,
                 )
+                if evidence_review is not None:
+                    exhausted = budget.exhausted()
+                    if exhausted is not None:
+                        stop_reason = f"budget_{exhausted}"
+                        review_state["closed"] = True
+                        return json.dumps({"status": "finished", "stop_reason": stop_reason, "pool": len(pool.entries)})
+                    review_state["pending"] = True
+                    reviewed_pool = list(pool.entries)
+                    queried_tables = dict(pool.queried_tables())
+                    review_round = pool.round_index
+            if evidence_review is not None:
+                review_started = time.perf_counter()
+                future = _submit(evidence_review.on_finish(
+                    pool=reviewed_pool, queried_tables=queried_tables, budget=budget,
+                ))
+                try:
+                    decision = future.result(timeout=max(0, budget.remaining_seconds()))
+                except Exception:  # noqa: BLE001 - preserve selected evidence if review cannot complete
+                    future.cancel()
+                    with state:
+                        stop_reason = "budget_wall_clock" if budget.remaining_seconds() <= 0 else "review_error"
+                        review_state["pending"] = False
+                        review_state["closed"] = True
+                    return json.dumps({"status": "finished", "stop_reason": stop_reason, "pool": len(pool.entries)})
+                finally:
+                    with state:
+                        pending_futures.discard(future)
+                with state:
+                    review_state["pending"] = False
+                    if review_state["closed"]:
+                        return json.dumps({"status": "finished", "stop_reason": stop_reason, "pool": len(pool.entries)})
+                    _append_step(
+                        tool_name="evidence_review", tool_args={},
+                        observation_text=json.dumps(evidence_review.report, ensure_ascii=False),
+                        error=None,
+                        elapsed_ms=int((time.perf_counter() - review_started) * 1000),
+                        round_index=review_round,
+                    )
+                    if decision.continue_retrieval:
+                        review_state["continued_round"] = current_round["id"]
+                        return json.dumps({"status": "continue", "instruction": decision.instruction, "pool": len(pool.entries)})
+                    review_state["closed"] = True
             return json.dumps({"status": "finished", "pool": len(pool.entries)})
 
         custom_tools[FINISH_TOOL_NAME] = cursor_sdk.CustomTool(
@@ -367,39 +530,68 @@ class CursorHarness:
         user_prompt = f"{AGENT_SYSTEM_PROMPT}\n\n---\n\nUser query:\n{query}"
 
         result: Any = None
-        async with await cursor_sdk.AsyncClient.launch_bridge(
-            workspace=os.getcwd(),
-        ) as client:
-            async with await client.agents.create(
-                cursor_sdk.AgentOptions(
-                    api_key=api_key,
-                    model=self._model,
-                    local=cursor_sdk.LocalAgentOptions(
-                        cwd=os.getcwd(),
-                        custom_tools=custom_tools,
-                    ),
-                )
-            ) as agent:
-                run = await agent.send(
-                    user_prompt, cursor_sdk.SendOptions(on_delta=_on_delta)
-                )
-                try:
-                    result = await asyncio.wait_for(
-                        run.wait(), timeout=budget.wall_clock_seconds
-                    )
-                except asyncio.TimeoutError:
-                    stop_reason = "budget_wall_clock"
-                    with contextlib.suppress(Exception):
-                        await asyncio.wait_for(run.cancel(), timeout=10)
-                    with contextlib.suppress(Exception):
-                        result = await asyncio.wait_for(
-                            run.wait(), timeout=_CANCEL_GRACE_SECONDS
+        try:
+            async with asyncio.timeout(
+                max(0, budget.remaining_seconds()) if evidence_review is not None else None
+            ) as lifecycle_deadline:
+                async with await cursor_sdk.AsyncClient.launch_bridge(
+                    workspace=os.getcwd(),
+                ) as client:
+                    async with await client.agents.create(
+                        cursor_sdk.AgentOptions(
+                            api_key=api_key,
+                            model=self._model,
+                            local=cursor_sdk.LocalAgentOptions(
+                                cwd=os.getcwd(),
+                                custom_tools=custom_tools,
+                            ),
                         )
+                    ) as agent:
+                        run = await agent.send(
+                            user_prompt, cursor_sdk.SendOptions(on_delta=_on_delta)
+                        )
+                        try:
+                            result = await asyncio.wait_for(
+                                run.wait(), timeout=(
+                                    max(0, budget.remaining_seconds())
+                                    if evidence_review is not None else budget.wall_clock_seconds
+                                )
+                            )
+                        except asyncio.TimeoutError:
+                            stop_reason = "budget_wall_clock"
+                            _close_review_episode(stop_reason)
+                            with contextlib.suppress(Exception):
+                                await asyncio.wait_for(run.cancel(), timeout=0.1 if evidence_review is not None else 10)
+                            with contextlib.suppress(Exception):
+                                result = await asyncio.wait_for(
+                                    run.wait(), timeout=0.1 if evidence_review is not None else _CANCEL_GRACE_SECONDS
+                                )
+                        except asyncio.CancelledError:
+                            _close_review_episode(
+                                "budget_wall_clock" if lifecycle_deadline.expired() else "cancelled"
+                            )
+                            if evidence_review is not None:
+                                with contextlib.suppress(Exception):
+                                    await asyncio.wait_for(run.cancel(), timeout=0.1)
+                            raise
+        except asyncio.TimeoutError:
+            if evidence_review is None:
+                raise
+            stop_reason = "budget_wall_clock"
+            _close_review_episode(stop_reason)
+        except asyncio.CancelledError:
+            _close_review_episode("cancelled")
+            raise
 
-        result_usage_total_tokens = 0
-        if result is not None and result.usage is not None:
-            result_usage_total_tokens = result.usage.total_tokens
-        budget.record_usage({"total_tokens": result_usage_total_tokens})
+        if evidence_review is not None:
+            if stop_reason == "finished" and not review_state["closed"]:
+                stop_reason = "no_tool_call"
+            _close_review_episode(stop_reason)
+
+        usage = getattr(result, "usage", None)
+        budget.record_usage(
+            {"total_tokens": usage.total_tokens} if usage is not None else None
+        )
 
         return EpisodeResult(
             pool=list(pool.entries),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager
 
 from loguru import logger
@@ -75,11 +76,18 @@ async def run_retrieval_route(
 ) -> RetrievalRouteOutcome:
     small_corpus_outcome = await _try_run_small_corpus_route(context)
     if small_corpus_outcome is not None:
+        if context.review_evidence:
+            from shared.services.retrieval.execution.evidence_review import unreviewed_route
+            small_corpus_outcome.response["evidence_review"] = unreviewed_route("small_corpus_route")
         return small_corpus_outcome
 
     # Explicit False → classic map-unit BM25 top-K. None/True → agent_explore.
     if context.use_agentic is False:
-        return await _run_classic_topk_route(context)
+        outcome = await _run_classic_topk_route(context)
+        if context.review_evidence:
+            from shared.services.retrieval.execution.evidence_review import unreviewed_route
+            outcome.response["evidence_review"] = unreviewed_route("classic_route")
+        return outcome
     return await _run_agent_explore_route(context)
 
 
@@ -218,11 +226,21 @@ async def _run_agent_explore_route(
     )
     from shared.services.retrieval.agent_explore.budget import EpisodeBudget
     from shared.services.retrieval.agent_explore.evidence_pool import (
+        Candidate,
         compose_pool_evidence,
         pool_chunk_refs,
     )
+    from shared.services.retrieval.agent_explore.evidence_review import (
+        EvidenceReviewSession,
+        EvidenceSnapshot,
+    )
+    from shared.services.retrieval.execution.evidence_review import (
+        assemble_review_rows,
+        build_review_snapshot,
+        review_sources,
+    )
     from shared.services.retrieval.agent_explore.harness import resolve_harness
-    from shared.services.retrieval.trace import TraceRecorder
+    from shared.services.retrieval.trace import DecisionTraceStep, TraceRecorder
 
     # End any read transaction created by the route's pre-episode work before
     # handing control to the external agent/LLM. The episode can outlive
@@ -230,16 +248,41 @@ async def _run_agent_explore_route(
     # be reused for post-episode database work.
     await context.db.rollback()
 
+    async def load_snapshot(
+        *, pool: list[Candidate], queried_tables: Mapping[tuple[str, str], str],
+    ) -> EvidenceSnapshot:
+        # Use explicit request pins/scope, including for threaded SDK callbacks.
+        # Release this short transaction before the independent reviewer waits.
+        async with open_fresh_database_context() as review_db:
+            review_resolved = await resolve_workflow_references(
+                db=review_db, user_id=context.user_id, namespace=context.namespace,
+                refs=pool_chunk_refs(pool), revision_pins=context.revision_pins,
+            )
+            review_rows = await assemble_review_rows(
+                context=context, db=review_db, rows=review_resolved.rows,
+                queried_tables=queried_tables,
+            )
+            evidence = compose_pool_evidence(pool, review_rows)
+        return build_review_snapshot(
+            query=context.query, pool=pool, rows=review_rows, evidence=evidence,
+        )
+
+    review = EvidenceReviewSession(query=context.query, load_snapshot=load_snapshot) if context.review_evidence else None
     harness = resolve_harness(cursor_model=context.agent_explore_model)
     episode_started = time.perf_counter()
-    episode = await harness.run_episode(
-        db_factory=open_agent_explore_database_context,
-        user_id=context.user_id,
-        namespace=context.namespace,
-        query=context.query,
-        budget=EpisodeBudget(),
-        document_scope=context.document_scope,
-    )
+    budget = EpisodeBudget()
+    if review is None:
+        episode = await harness.run_episode(
+            db_factory=open_agent_explore_database_context,
+            user_id=context.user_id, namespace=context.namespace, query=context.query,
+            budget=budget, document_scope=context.document_scope,
+        )
+    else:
+        episode = await harness.run_episode(
+            db_factory=open_agent_explore_database_context,
+            user_id=context.user_id, namespace=context.namespace, query=context.query,
+            budget=budget, document_scope=context.document_scope, evidence_review=review,
+        )
     logger.info(
         "retrieval agent_explore stage=episode seconds={:.3f} pool={} "
         "steps={} tokens={} stop_reason={}".format(
@@ -253,7 +296,10 @@ async def _run_agent_explore_route(
 
     decision_steps = build_decision_trace(episode.steps)
     chunk_refs = pool_chunk_refs(episode.pool)
-    decision_steps = attach_evidence_pool(decision_steps, episode.pool)
+    decision_steps = attach_evidence_pool(
+        decision_steps, episode.pool,
+        stop_reason=episode.stop_reason if review is not None else None,
+    )
 
     async with open_fresh_database_context() as final_db:
         resolved = await resolve_workflow_references(
@@ -263,21 +309,47 @@ async def _run_agent_explore_route(
             refs=chunk_refs,
             revision_pins=context.revision_pins,
         )
-        assembled_rows = await assemble_retrieval_results(
-            db=final_db,
-            rows=resolved.rows,
-            exclude_document_ids=context.exclude_document_ids,
-            document_scope=context.document_scope,
-            exclude_sections=context.exclude_sections,
-            allowed_chunk_types=context.allowed_chunk_types,
-            revision_pins=context.revision_pins,
-            queried_tables=episode.queried_tables,
-        )
+        if review is None:
+            assembled_rows = await assemble_retrieval_results(
+                db=final_db,
+                rows=resolved.rows,
+                exclude_document_ids=context.exclude_document_ids,
+                document_scope=context.document_scope,
+                exclude_sections=context.exclude_sections,
+                allowed_chunk_types=context.allowed_chunk_types,
+                revision_pins=context.revision_pins,
+                queried_tables=episode.queried_tables,
+            )
+        else:
+            assembled_rows = await assemble_review_rows(
+                context=context, db=final_db, rows=resolved.rows,
+                queried_tables=episode.queried_tables,
+            )
         evidence = compose_pool_evidence(episode.pool, assembled_rows)
         evidence_fields = {
             "evidence": evidence,
             "evidence_text": "",
         }
+        if review is not None:
+            final_snapshot = build_review_snapshot(
+                query=context.query, pool=episode.pool, rows=assembled_rows, evidence=evidence,
+            )
+            review.finalize(final_snapshot)
+            review_report = review.report
+            evidence_fields["evidence_review"] = {
+                **review_report,
+                "sources": review_sources(final_snapshot),
+                "reviewer_usage_complete": review_report["usage_complete"],
+                "usage_complete": review_report["usage_complete"] and budget.usage_complete,
+                "episode_tokens": episode.tokens_used,
+            }
+            decision_steps.append(DecisionTraceStep(
+                step_index=len(decision_steps), agent="evidence_review", phase="evidence_review_final",
+                observation={"evidence_fingerprint": final_snapshot.fingerprint},
+                decision={"action": "verify_returned_evidence"},
+                result=evidence_fields["evidence_review"],
+                budget={"steps_used": budget.steps_used, "tokens_used": episode.tokens_used},
+            ))
 
         selected_doc_ids = list(
             {row.get("document_id", "") for row in resolved.rows if row.get("document_id")}

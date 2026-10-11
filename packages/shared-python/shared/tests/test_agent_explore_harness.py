@@ -1,11 +1,6 @@
-"""Unit tests for the Phase 3.5 ``agent_explore`` harness layer.
+"""Pure helpers and both harness loops with deterministic provider/tool fakes.
 
-Covers only the pure functions and the ``AGENT_EXPLORE_HARNESS`` switch
-resolution — none of these need a real DB or LLM. Does not cover
-``dispatch.dispatch_tool_call`` (needs a DB session) or a full
-``Harness.run_episode`` loop (needs an LLM/Cursor SDK backend) — those stay
-integration-level, exercised via the debug scripts and
-``eval-cursor-harness``, not here.
+Live provider and DB behavior remains covered by integration/debug runs.
 """
 
 from __future__ import annotations
@@ -475,7 +470,7 @@ async def test_openai_harness_runs_pick_phase_after_read_without_counting_it(
         raise AssertionError(f"unexpected dispatch {name}")
 
     client = _Client()
-    monkeypatch.setattr(openai_mod, "_resolve_client_and_model", lambda: (client, "test-model"))
+    monkeypatch.setattr(openai_mod, "_resolve_client_and_model", lambda **_: (client, "test-model"))
     monkeypatch.setattr(openai_mod, "dispatch_tool_call", _fake_dispatch)
 
     budget = EpisodeBudget(max_steps=12, wall_clock_seconds=180)
@@ -488,6 +483,7 @@ async def test_openai_harness_runs_pick_phase_after_read_without_counting_it(
     )
 
     assert len(client.seen) == 4
+    assert all("timeout" not in call for call in client.seen)
     user_texts: list[str] = []
     for call in client.seen:
         messages = call["messages"]
@@ -725,3 +721,498 @@ async def test_cursor_harness_rounds_follow_model_call_id_and_pick_phase_rejects
     assert sorted(by_round[1]) == ["corpus.grep", "corpus.read"]
     assert sorted(by_round[2]) == ["corpus.pick", "corpus.read", "finish"]
     assert by_round[3] == ["finish"]
+
+
+class _ScriptedOpenAIClient:
+    def __init__(self, turns: list[list[tuple[str, dict[str, object]]]]) -> None:
+        self.turns = turns
+        self.seen: list[dict[str, object]] = []
+
+    def chat_completion_raw_with_usage(self, **kwargs: object) -> tuple[object, dict[str, int]]:
+        import json
+        from types import SimpleNamespace
+
+        self.seen.append(dict(kwargs))
+        calls = [
+            SimpleNamespace(function=SimpleNamespace(name=name, arguments=json.dumps(args)))
+            for name, args in self.turns.pop(0)
+        ]
+        message = SimpleNamespace(tool_calls=calls, content="provider prose is not evidence")
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)]), {"total_tokens": 10}
+
+
+class _HarnessReviewSession:
+    """Session double: harness tests cover routing/gates, not review policy."""
+
+    def __init__(self, *, continue_once: bool = False, delay: float = 0) -> None:
+        import asyncio
+
+        self.continue_once = continue_once
+        self.delay = delay
+        self.snapshots: list[list[Candidate]] = []
+        self.pins: list[object] = []
+        self.stops: list[str] = []
+        self.report: dict[str, object] = {}
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    async def on_finish(self, *, pool: list[Candidate], queried_tables: object, budget: object) -> object:
+        import asyncio
+        from types import SimpleNamespace
+
+        from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+
+        self.snapshots.append(pool)
+        self.pins.append(CorpusRevisionContext.get_pins())
+        self.started.set()
+        try:
+            await asyncio.sleep(self.delay)
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+        budget.record_step()  # type: ignore[attr-defined]
+        budget.record_usage({"total_tokens": 5})  # type: ignore[attr-defined]
+        should_continue = self.continue_once and len(self.snapshots) == 1
+        self.report = {"status": "insufficient" if should_continue else "sufficient"}
+        if should_continue:
+            budget.max_steps = min(budget.max_steps, budget.steps_used + 4)  # type: ignore[attr-defined]
+        return SimpleNamespace(
+            continue_retrieval=should_continue,
+            instruction="Retrieve evidence for the missing facet of the original query.",
+        )
+
+    def on_stop(self, reason: str) -> None:
+        self.stops.append(reason)
+
+
+def _read_one_result(section: str) -> ToolResult:
+    result = _read_ab_result()
+    wanted = "c1" if section.endswith("A") else "c2"
+    result.payload["refs"] = [ref for ref in result.payload["refs"] if ref["section_path"] == section]
+    result.payload["chunks"] = [chunk for chunk in result.payload["chunks"] if chunk["chunk_id"] == wanted]
+    return result
+
+
+@pytest.mark.asyncio
+async def test_openai_review_continues_with_original_query_and_picked_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import openai_harness as openai_mod
+
+    read_a = {"refs": [{"document_id": "doc_a", "section_path": "guide.pdf / A"}]}
+    read_b = {"refs": [{"document_id": "doc_a", "section_path": "guide.pdf / B"}]}
+    client = _ScriptedOpenAIClient([
+        [("corpus_grep", {"pattern": "both facets"})],
+        [("corpus_read", read_a)],
+        [("corpus_pick", {"pick": ["R1.1"]})],
+        [("finish", {"notes": "partial retrieval"})],
+        [("corpus_read", read_b)],
+        [("corpus_pick", {"pick": ["R2.1"]})],
+        [("finish", {"notes": "done"})],
+    ])
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    async def dispatch(name: str, args: dict[str, object], **kwargs: object) -> ToolResult:
+        calls.append((name, kwargs))
+        if name == "corpus.grep":
+            return _grep_hit_result()
+        refs = args["refs"]
+        return _read_one_result(refs[0]["section_path"])  # type: ignore[index]
+
+    review = _HarnessReviewSession(continue_once=True)
+    monkeypatch.setattr(openai_mod, "_resolve_client_and_model", lambda **_: (client, "test-model"))
+    monkeypatch.setattr(openai_mod, "dispatch_tool_call", dispatch)
+    budget = EpisodeBudget(max_steps=12, wall_clock_seconds=30)
+    episode = await openai_mod.OpenAIHarness().run_episode(
+        db_factory=lambda: None,  # type: ignore[arg-type]
+        user_id="u", namespace="ns", query="Original question with two facets", budget=budget,
+        evidence_review=review,  # type: ignore[arg-type]
+    )
+
+    assert [[item.handle for item in pool] for pool in review.snapshots] == [["R1.1"], ["R1.1", "R2.1"]]
+    assert [item.handle for item in episode.pool] == ["R1.1", "R2.1"]
+    assert all(kwargs["query"] == "Original question with two facets" for _, kwargs in calls)
+    assert calls[2][1]["readable"] == {("doc_a", "guide.pdf / A"), ("doc_a", "guide.pdf / B"), ("doc_a", "c1")}
+    assert calls[2][1]["decided"][("doc_a", "c1")].picked_handle == "R1.1"  # type: ignore[index]
+    correction_prompt = str(client.seen[4]["messages"])
+    assert "User query: Original question with two facets" in correction_prompt
+    assert "missing facet of the original query" in correction_prompt
+    assert sum(step.tool_name == "evidence_review" for step in episode.steps) == 2
+    assert episode.tokens_used == 80
+    assert budget.steps_used == 7
+    assert all(0 < call["timeout"] <= 30 for call in client.seen)  # type: ignore[operator]
+    assert review.stops == ["finished"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_steps, turns, expected_reason", [
+    (12, [[]], "no_tool_call"),
+    (0, [], "budget_max_steps"),
+    (1, [[("finish", {"notes": "done"})]], "budget_max_steps"),
+])
+async def test_openai_abnormal_or_budget_stop_does_not_review(
+    monkeypatch: pytest.MonkeyPatch,
+    max_steps: int,
+    turns: list[list[tuple[str, dict[str, object]]]],
+    expected_reason: str,
+) -> None:
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import openai_harness as openai_mod
+
+    client = _ScriptedOpenAIClient(turns)
+    review = _HarnessReviewSession()
+    monkeypatch.setattr(openai_mod, "_resolve_client_and_model", lambda **_: (client, "test-model"))
+    episode = await openai_mod.OpenAIHarness().run_episode(
+        db_factory=lambda: None,  # type: ignore[arg-type]
+        user_id="u", namespace="ns", query="q", budget=EpisodeBudget(max_steps=max_steps),
+        evidence_review=review,  # type: ignore[arg-type]
+    )
+    assert episode.stop_reason == expected_reason
+    assert review.snapshots == []
+    assert review.stops == [expected_reason]
+
+
+@pytest.mark.asyncio
+async def test_openai_finish_cannot_skip_the_pick_phase_before_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import openai_harness as openai_mod
+
+    client = _ScriptedOpenAIClient([
+        [("corpus_read", {"refs": []})],
+        [("finish", {"notes": "skip pick"})],
+        [("corpus_pick", {"pick": ["R1.1"]})],
+        [("finish", {"notes": "done"})],
+    ])
+    review = _HarnessReviewSession()
+
+    async def dispatch(*_args: object, **_kwargs: object) -> ToolResult:
+        return _read_one_result("guide.pdf / A")
+
+    monkeypatch.setattr(openai_mod, "_resolve_client_and_model", lambda **_: (client, "test-model"))
+    monkeypatch.setattr(openai_mod, "dispatch_tool_call", dispatch)
+    episode = await openai_mod.OpenAIHarness().run_episode(
+        db_factory=lambda: None,  # type: ignore[arg-type]
+        user_id="u", namespace="ns", query="q", budget=EpisodeBudget(),
+        evidence_review=review,  # type: ignore[arg-type]
+    )
+    assert len(review.snapshots) == 1
+    assert [item.handle for item in review.snapshots[0]] == ["R1.1"]
+    assert episode.steps[1].tool_name == "corpus.pick"
+    assert episode.steps[1].error
+
+
+@pytest.mark.asyncio
+async def test_openai_review_obeys_episode_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import openai_harness as openai_mod
+
+    client = _ScriptedOpenAIClient([[("finish", {"notes": "done"})]])
+    review = _HarnessReviewSession(delay=1)
+    monkeypatch.setattr(openai_mod, "_resolve_client_and_model", lambda **_: (client, "test-model"))
+    episode = await openai_mod.OpenAIHarness().run_episode(
+        db_factory=lambda: None,  # type: ignore[arg-type]
+        user_id="u", namespace="ns", query="q", budget=EpisodeBudget(wall_clock_seconds=0.05),
+        evidence_review=review,  # type: ignore[arg-type]
+    )
+    assert episode.stop_reason == "budget_wall_clock"
+    assert review.cancelled.is_set()
+    assert review.stops == ["budget_wall_clock"]
+    assert len(client.seen) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timeout_kind", ["transport", "episode"])
+async def test_openai_tool_timeout_ends_episode_before_more_calls(
+    monkeypatch: pytest.MonkeyPatch, timeout_kind: str,
+) -> None:
+    import asyncio
+
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import openai_harness as openai_mod
+
+    client = _ScriptedOpenAIClient([
+        [("corpus_grep", {"pattern": "first"}), ("corpus_grep", {"pattern": "sibling"})],
+        [("finish", {"notes": "must not run after timeout"})],
+    ])
+    review = _HarnessReviewSession()
+    dispatched: list[str] = []
+
+    async def dispatch(_name: str, args: dict[str, object], **_kwargs: object) -> ToolResult:
+        dispatched.append(str(args["pattern"]))
+        if timeout_kind == "transport":
+            raise TimeoutError("tool transport timed out before the episode deadline")
+        await asyncio.Event().wait()
+        raise AssertionError("the episode deadline must cancel this tool")
+
+    monkeypatch.setattr(openai_mod, "_resolve_client_and_model", lambda **_: (client, "test-model"))
+    monkeypatch.setattr(openai_mod, "dispatch_tool_call", dispatch)
+    budget = EpisodeBudget(wall_clock_seconds=30 if timeout_kind == "transport" else 0.05)
+    episode = await openai_mod.OpenAIHarness().run_episode(
+        db_factory=lambda: None,  # type: ignore[arg-type]
+        user_id="u", namespace="ns", query="q", budget=budget,
+        evidence_review=review,  # type: ignore[arg-type]
+    )
+
+    expected_reason = "tool_timeout" if timeout_kind == "transport" else "budget_wall_clock"
+    assert episode.stop_reason == expected_reason
+    assert dispatched == ["first"]
+    assert len(client.seen) == 1
+    assert review.snapshots == []
+    assert review.stops == [expected_reason]
+    assert episode.pool == []
+    if timeout_kind == "transport":
+        assert budget.remaining_seconds() > 0
+
+
+@pytest.mark.asyncio
+async def test_openai_tool_timeout_without_review_still_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import openai_harness as openai_mod
+
+    client = _ScriptedOpenAIClient([[("corpus_grep", {"pattern": "q"})]])
+
+    async def dispatch(*_args: object, **_kwargs: object) -> ToolResult:
+        raise TimeoutError("tool transport timed out")
+
+    monkeypatch.setattr(openai_mod, "_resolve_client_and_model", lambda **_: (client, "test-model"))
+    monkeypatch.setattr(openai_mod, "dispatch_tool_call", dispatch)
+    with pytest.raises(TimeoutError, match="tool transport timed out"):
+        await openai_mod.OpenAIHarness().run_episode(
+            db_factory=lambda: None,  # type: ignore[arg-type]
+            user_id="u", namespace="ns", query="q", budget=EpisodeBudget(),
+        )
+    assert len(client.seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_cursor_review_serializes_finish_and_preserves_gates_and_revision_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import cursor_harness as cursor_mod
+    from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+
+    read_a = {"refs": [{"document_id": "doc_a", "section_path": "guide.pdf / A"}]}
+    read_b = {"refs": [{"document_id": "doc_a", "section_path": "guide.pdf / B"}]}
+    script = [
+        ("m1", [("c1", "corpus_grep", {"pattern": "two facets"})]),
+        ("m2", [("c2", "corpus_read", read_a)]),
+        ("m3", [("c3", "corpus_pick", {"pick": ["R1.1"]})]),
+        ("m4", [("c4", "finish", {"notes": "partial"}), ("c5", "finish", {"notes": "duplicate"})]),
+        ("m5", [("c6", "corpus_read", read_b)]),
+        ("m6", [("c7", "corpus_pick", {"pick": ["R2.1"]})]),
+        ("m7", [("c8", "finish", {"notes": "done"})]),
+        ("m8", [("c9", "corpus_grep", {"pattern": "after finish"})]),
+    ]
+    outputs: dict[str, object] = {}
+    calls: list[dict[str, object]] = []
+
+    async def dispatch(name: str, args: dict[str, object], **kwargs: object) -> ToolResult:
+        assert CorpusRevisionContext.get_pins() == {"doc_a": "rev_original"}
+        calls.append(kwargs)
+        if name == "corpus.grep":
+            return _grep_hit_result()
+        return _read_one_result(args["refs"][0]["section_path"])  # type: ignore[index]
+
+    review = _HarnessReviewSession(continue_once=True, delay=0.02)
+    monkeypatch.setenv("CURSOR_API_KEY", "test-key")
+    monkeypatch.setattr(cursor_mod, "_require_cursor_sdk", lambda: _fake_cursor_sdk(script, outputs))
+    monkeypatch.setattr(cursor_mod, "dispatch_tool_call", dispatch)
+    with CorpusRevisionContext.bind({"doc_a": "rev_original"}):
+        episode = await cursor_mod.CursorHarness(model="test-model").run_episode(
+            db_factory=lambda: None,  # type: ignore[arg-type]
+            user_id="u", namespace="ns", query="original query", budget=EpisodeBudget(),
+            evidence_review=review,  # type: ignore[arg-type]
+        )
+
+    assert [[item.handle for item in pool] for pool in review.snapshots] == [["R1.1"], ["R1.1", "R2.1"]]
+    assert review.pins == [{"doc_a": "rev_original"}, {"doc_a": "rev_original"}]
+    assert len(calls) == 3
+    assert all(kwargs["query"] == "original query" for kwargs in calls)
+    assert calls[2]["decided"][("doc_a", "c1")].picked_handle == "R1.1"  # type: ignore[index]
+    assert any('"status": "continue"' in str(outputs[key]) for key in ("c4", "c5"))
+    assert any("review is in progress" in str(outputs[key]) for key in ("c4", "c5"))
+    assert "episode has ended" in str(outputs["c9"])
+    assert [item.handle for item in episode.pool] == ["R1.1", "R2.1"]
+    assert episode.tokens_used == 87
+    assert review.stops == ["finished"]
+
+
+@pytest.mark.asyncio
+async def test_cursor_budget_exhaustion_blocks_same_round_siblings_without_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import cursor_harness as cursor_mod
+
+    script = [
+        ("m1", [("c1", "corpus_grep", {"pattern": "a"}), ("c2", "corpus_grep", {"pattern": "b"})]),
+        ("m2", [("c3", "finish", {"notes": "done"})]),
+    ]
+    outputs: dict[str, object] = {}
+    review = _HarnessReviewSession()
+
+    async def dispatch(*_args: object, **_kwargs: object) -> ToolResult:
+        raise AssertionError("exhausted callbacks must not dispatch")
+
+    monkeypatch.setenv("CURSOR_API_KEY", "test-key")
+    monkeypatch.setattr(cursor_mod, "_require_cursor_sdk", lambda: _fake_cursor_sdk(script, outputs))
+    monkeypatch.setattr(cursor_mod, "dispatch_tool_call", dispatch)
+    episode = await cursor_mod.CursorHarness(model="test-model").run_episode(
+        db_factory=lambda: None,  # type: ignore[arg-type]
+        user_id="u", namespace="ns", query="q", budget=EpisodeBudget(max_steps=0),
+        evidence_review=review,  # type: ignore[arg-type]
+    )
+    assert all("budget exhausted" in str(outputs[key]) for key in ("c1", "c2"))
+    assert episode.stop_reason == "budget_max_steps"
+    assert review.snapshots == []
+    assert review.stops == ["budget_max_steps"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("harness_name", ["openai", "cursor"])
+async def test_cancelling_episode_cancels_pending_review(
+    monkeypatch: pytest.MonkeyPatch, harness_name: str,
+) -> None:
+    import asyncio
+
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import cursor_harness as cursor_mod
+    from shared.services.retrieval.agent_explore.harness import openai_harness as openai_mod
+
+    review = _HarnessReviewSession(delay=30)
+    if harness_name == "openai":
+        client = _ScriptedOpenAIClient([[("finish", {"notes": "done"})]])
+        monkeypatch.setattr(openai_mod, "_resolve_client_and_model", lambda **_: (client, "test-model"))
+        harness = openai_mod.OpenAIHarness()
+    else:
+        script = [("m1", [("c1", "finish", {"notes": "done"})])]
+        monkeypatch.setenv("CURSOR_API_KEY", "test-key")
+        monkeypatch.setattr(cursor_mod, "_require_cursor_sdk", lambda: _fake_cursor_sdk(script, {}))
+        harness = cursor_mod.CursorHarness(model="test-model")
+    task = asyncio.create_task(harness.run_episode(
+        db_factory=lambda: None,  # type: ignore[arg-type]
+        user_id="u", namespace="ns", query="q", budget=EpisodeBudget(),
+        evidence_review=review,  # type: ignore[arg-type]
+    ))
+    await asyncio.wait_for(review.started.wait(), timeout=1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=1)
+    assert task.cancelled()
+    await asyncio.wait_for(review.cancelled.wait(), timeout=1)
+    assert review.stops == ["cancelled"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["bridge", "create", "send"])
+async def test_cursor_setup_obeys_episode_deadline(
+    monkeypatch: pytest.MonkeyPatch, stage: str,
+) -> None:
+    import asyncio
+
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import cursor_harness as cursor_mod
+
+    sdk = _fake_cursor_sdk([], {})
+    original_launch = sdk.AsyncClient.launch_bridge  # type: ignore[attr-defined]
+
+    async def stall(*_args: object, **_kwargs: object) -> object:
+        await asyncio.Event().wait()
+        raise AssertionError("deadline should cancel setup")
+
+    async def launch(**kwargs: object) -> object:
+        if stage == "bridge":
+            return await stall()
+        client = await original_launch(**kwargs)
+        original_create = client.agents.create
+
+        async def create(options: object) -> object:
+            if stage == "create":
+                return await stall()
+            agent = await original_create(options)
+            agent.send = stall
+            return agent
+
+        client.agents.create = create
+        return client
+
+    monkeypatch.setattr(sdk.AsyncClient, "launch_bridge", launch)  # type: ignore[attr-defined]
+    monkeypatch.setenv("CURSOR_API_KEY", "test-key")
+    monkeypatch.setattr(cursor_mod, "_require_cursor_sdk", lambda: sdk)
+    review = _HarnessReviewSession()
+    budget = EpisodeBudget(wall_clock_seconds=0.03)
+    episode = await cursor_mod.CursorHarness(model="test-model").run_episode(
+        db_factory=lambda: None,  # type: ignore[arg-type]
+        user_id="u", namespace="ns", query="q", budget=budget,
+        evidence_review=review,  # type: ignore[arg-type]
+    )
+    assert episode.stop_reason == "budget_wall_clock"
+    assert review.stops == ["budget_wall_clock"]
+    assert review.snapshots == []
+    assert budget.usage_complete is False
+
+
+@pytest.mark.asyncio
+async def test_cursor_terminal_without_finish_does_not_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import cursor_harness as cursor_mod
+
+    monkeypatch.setenv("CURSOR_API_KEY", "test-key")
+    monkeypatch.setattr(cursor_mod, "_require_cursor_sdk", lambda: _fake_cursor_sdk([], {}))
+    review = _HarnessReviewSession()
+    episode = await cursor_mod.CursorHarness(model="test-model").run_episode(
+        db_factory=lambda: None,  # type: ignore[arg-type]
+        user_id="u", namespace="ns", query="q", budget=EpisodeBudget(),
+        evidence_review=review,  # type: ignore[arg-type]
+    )
+    assert episode.stop_reason == "no_tool_call"
+    assert review.snapshots == []
+    assert review.stops == ["no_tool_call"]
+
+
+@pytest.mark.asyncio
+async def test_cursor_timeout_cancels_tools_and_ignores_late_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import cursor_harness as cursor_mod
+
+    script = [("m1", [("c1", "corpus_read", {"refs": []})])]
+    cancelled = asyncio.Event()
+
+    async def dispatch(*_args: object, **_kwargs: object) -> ToolResult:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            return _read_one_result("guide.pdf / A")
+        raise AssertionError("deadline should cancel dispatch")
+
+    monkeypatch.setenv("CURSOR_API_KEY", "test-key")
+    monkeypatch.setattr(cursor_mod, "_require_cursor_sdk", lambda: _fake_cursor_sdk(script, {}))
+    monkeypatch.setattr(cursor_mod, "dispatch_tool_call", dispatch)
+    review = _HarnessReviewSession()
+    budget = EpisodeBudget(wall_clock_seconds=0.1)
+    episode = await cursor_mod.CursorHarness(model="test-model").run_episode(
+        db_factory=lambda: None,  # type: ignore[arg-type]
+        user_id="u", namespace="ns", query="q", budget=budget,
+        evidence_review=review,  # type: ignore[arg-type]
+    )
+    await asyncio.wait_for(cancelled.wait(), timeout=1)
+    assert episode.stop_reason == "budget_wall_clock"
+    assert episode.pool == []
+    assert all(not step.candidates for step in episode.steps)
+    assert review.snapshots == []
+    assert budget.usage_complete is False
