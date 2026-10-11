@@ -14,7 +14,9 @@ from shared.core.config import settings
 
 DEFAULT_TOKEN_PRICING_TABLE: dict[str, dict[str, Any]] = {
     # DeepSeek official (peak/off-peak since 2026-08-16 16:00 UTC).
-    # Defaults use OFF-PEAK; peak rates are 2x (01:00-04:00 & 06:00-10:00 UTC).
+    # Defaults use OFF-PEAK; peak rates are 2x and run 01:00-04:00 & 06:00-10:00 UTC,
+    # Monday through Friday, excluding Chinese public holidays.
+    # Weekends and Chinese public holidays are off-peak all day.
     "deepseek-v4-flash": {
         "currency": "USD",
         "unit": "per_1m_tokens",
