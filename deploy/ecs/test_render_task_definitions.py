@@ -97,6 +97,39 @@ def test_staging_templates_render_without_long_lived_s3_keys(
 
 
 @pytest.mark.parametrize(
+    "template_name",
+    ["task-definition-api.staging.json", "task-definition-worker.staging.json"],
+)
+def test_production_templates_publish_webhooks_in_the_token_region(
+    tmp_path: Path,
+    template_name: str,
+) -> None:
+    """Both production containers keep the approved QStash region on release."""
+    output_path: Path = tmp_path / template_name
+    render_template(
+        TEMPLATE_DIRECTORY / template_name,
+        output_path,
+        {
+            **RENDER_VARIABLES,
+            "DEPLOYMENT_ENVIRONMENT": "prod",
+            "RUNTIME_ENVIRONMENT": "production",
+            "APP_ENV": "production",
+            "QSTASH_BASE_URL": "https://qstash-us-east-1.upstash.io",
+        },
+    )
+    rendered: dict[str, object] = json.loads(output_path.read_text(encoding="utf-8"))
+    containers: list[dict[str, object]] = rendered["containerDefinitions"]
+    for container in containers:
+        environment: list[dict[str, str]] = container["environment"]
+        region_entries: list[dict[str, str]] = [
+            entry for entry in environment if entry["name"] == "QSTASH_BASE_URL"
+        ]
+        assert region_entries == [
+            {"name": "QSTASH_BASE_URL", "value": "https://qstash-us-east-1.upstash.io"}
+        ]
+
+
+@pytest.mark.parametrize(
     ("template_name", "container_name", "expected_environment"),
     [
         (
