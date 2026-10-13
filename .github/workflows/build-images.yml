@@ -774,6 +774,7 @@ jobs:
           API_WEBHOOK_ENDPOINT: https://api.knowhereto.ai/v1/internal/s3-events
           SNS_TOPIC_ARN: arn:aws:sns:us-east-1:107424103509:knowhere-prod-s3-events
           QSTASH_CALLBACK_BASE_URL: https://api.knowhereto.ai/api/v1
+          QSTASH_BASE_URL: https://qstash-us-east-1.upstash.io
           API_CPU: "512"
           API_MEMORY: "2048"
           WORKER_CPU: "2048"

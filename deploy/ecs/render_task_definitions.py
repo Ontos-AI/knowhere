@@ -95,6 +95,20 @@ def render_template(template_path: Path, output_path: Path, variables: dict[str,
     """Render one JSON template to a deployment-only output path."""
     definition = json.loads(template_path.read_text(encoding="utf-8"))
     rendered = replace_placeholders(definition, variables)
+    qstash_base_url: str = variables.get("QSTASH_BASE_URL", "")
+    if qstash_base_url:
+        if not isinstance(rendered, dict):
+            raise ValueError("Task definition must be an object")
+        containers: object = rendered.get("containerDefinitions")
+        if not isinstance(containers, list):
+            raise ValueError("Task definition must contain containerDefinitions")
+        for container in containers:
+            if not isinstance(container, dict):
+                raise ValueError("Task container must be an object")
+            environment: object = container.get("environment")
+            if not isinstance(environment, list):
+                raise ValueError("Task container must contain environment entries")
+            environment.append({"name": "QSTASH_BASE_URL", "value": qstash_base_url})
     validate_rendered_definition(rendered)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(rendered, indent=2) + "\n", encoding="utf-8")
@@ -119,6 +133,9 @@ def load_variables() -> dict[str, str]:
     missing = [name for name, value in variables.items() if not value]
     if missing:
         raise ValueError(f"Missing required renderer variables: {', '.join(missing)}")
+    # Preserve the SDK default when no override is supplied, while production
+    # explicitly selects the region that owns its existing QStash token.
+    variables["QSTASH_BASE_URL"] = os.environ.get("QSTASH_BASE_URL", "")
     return variables
 
 
