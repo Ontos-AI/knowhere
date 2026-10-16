@@ -6,6 +6,24 @@ Remove `KNOWHERE_PUBLICATION_STRATEGY` from deployment settings; no switch enabl
 the new demo path. Historical benchmark baseline/candidate labels are retained.
 This document defines the rollout contract for the shared demo backend.
 
+## Deployment and recovery snapshot — 2026-10-05
+
+The shared demo backend was deployed in staging and production. The production
+recovery completed on 2026-10-05 with all 27 catalog sources READY, 2,562 demo
+chunks, generation 27, and 25.26 credits charged for parsing. The runtime
+database role is neither a superuser nor a `BYPASSRLS` role, and all twelve demo
+tables use FORCE RLS. HTTP checks covered catalog, classic retrieval, agent
+retrieval for Tesla/SpaceX/Microsoft, document and chunk reads, originals,
+assets, and page-citation sources. Evidence is retained in the ignored local
+directory `.demo-originals/production-restoration-20261005/`; it is not a source
+artifact and must not be committed.
+
+The restored sources use `/api/v2/jobs`: PDF and PPTX inputs follow the
+`page_memory` track, while DOCX inputs follow the `chunk` track. `/api/v1/demo/catalog`
+is the read-only catalog endpoint. The old materialization endpoint returns 410.
+Notebook/client migration remains a separate follow-up before the complete
+end-user Add Demo workflow is considered finished.
+
 ## Storage and access
 
 The existing PostgreSQL database gains twelve dedicated `demo_*` tables.
@@ -57,15 +75,14 @@ invalid. Resume reruns reuse only objects whose size and source ETag still match
 Do not switch with an incomplete inventory. These S3 originals have no versioned
 recovery copy, so preserve an independent persistent backup.
 
-The 2026-10-03 backup contains 27 verified originals totaling 225,749,274 bytes.
-The prior backup run copied them to
-`/Users/ontosai/knowhere-demo-originals/20261003` and independently verified remote
-SHA-256 values. The local validation copy is
-`/tmp/knowhere-demo-originals/20261003`; this temporary copy is not the persistent
-backup. The current local run also copied and independently rehashed all originals
-into `.demo-originals/20261003` in this checkout. That directory is Git-ignored
-and survives removal of temporary validation files. Preserve it before deleting
-the checkout. Mac availability was not reverified after the prior backup run.
+The original backup inventory contains 27 verified originals totaling
+225,749,274 bytes. Use a persistent operator backup directory; a temporary
+validation copy is not a recovery backup. The production restoration used the
+verified inventory and retained its validation report under
+`.demo-originals/production-restoration-20261005/`.
+That evidence directory is Git-ignored; preserve the original-file backup and
+evidence independently before deleting the checkout. The helpers can run on any
+host with the required credentials and persistent storage.
 SpaceX is 153,808,384 bytes / 407 pages. Ensure **both** API and Worker
 configure `MAX_FILE_SIZE=314572800`; older local configurations may still have
 a 100 MiB limit.
@@ -78,7 +95,7 @@ Stop if this preflight returns rows:
 SELECT document_id, user_id FROM documents
 WHERE namespace = '__knowhere_demo__';
 SELECT current_user, rolsuper, rolbypassrls FROM pg_roles
-WHERE rolname = current_user;
+WHERE rolname = current_user AND (rolsuper OR rolbypassrls);
 ```
 
 Migration `4d5e6f7a8b9c` repeats the reserved-namespace conflict check. It is
@@ -137,7 +154,8 @@ that password has already been changed.
 5. Stop old materialization admission and drain its tasks before updating API and
    Worker together. Old tasks must not execute new publication code.
 6. Verify private upload/retrieval, catalog preparing state and materialization
-   410 before manually restoring sources. Demo downtime is expected.
+   410 before manually restoring sources. Demo downtime is expected during the
+   initial cutover; this step is complete for the current deployment.
 7. Restore Tesla first as a smoke test, then SpaceX, then remaining inventory.
 
 No service startup automatically parses demos. A failed source does not block
@@ -267,4 +285,9 @@ pair is running. Production deployment and Notebook changes are separate from
 this backend implementation.
 
 See [the local verification report](shared-demo-validation-20261003.md) for
-measured results, the SpaceX hierarchy/agent fixes and validation scope.
+the historical local measurements and SpaceX hierarchy/agent fixes. That local
+run covered all 407 SpaceX pages; the production recovery snapshot indexed
+388/407 pages. Production READY means a complete publication of the parser's
+output, not full physical-page coverage. The page-memory hierarchy/TOC scope
+limitation remains a separate parser follow-up. The production snapshot above
+comes from the retained restoration evidence, not the local validation report.
