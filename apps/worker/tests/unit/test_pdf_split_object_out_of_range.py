@@ -50,13 +50,12 @@ def test_split_pdf_copies_pages(tmp_path: Path) -> None:
     work_dir = tmp_path / "shards"
     work_dir.mkdir()
 
-    paths, remap = split_pdf(
+    paths = split_pdf(
         str(source),
         [MergedShard(0, 1, 2), MergedShard(1, 3, 3)],
         str(work_dir),
     )
 
-    assert remap is None
     assert [Path(path).name for path in paths] == ["shard_0.pdf", "shard_1.pdf"]
     assert _page_count(paths[0]) == 2
     assert _page_count(paths[1]) == 1
@@ -82,13 +81,12 @@ def test_split_pdf_rewrites_once_on_object_out_of_range(
 
     monkeypatch.setattr(pymupdf.Document, "insert_pdf", _insert_pdf)
 
-    paths, remap = split_pdf(
+    paths = split_pdf(
         str(source),
         [MergedShard(0, 1, 2)],
         str(work_dir),
     )
 
-    assert remap is None
     assert calls["n"] == 3  # fail once, then copy both pages from rewritten source
     assert (work_dir / "_rewritten_source.pdf").exists()
     assert len(paths) == 1
@@ -119,13 +117,12 @@ def test_split_incremental_quartz_pdf_around_failing_page(tmp_path: Path) -> Non
     work_dir = tmp_path / "shards"
     work_dir.mkdir()
 
-    paths, remap = split_pdf(
+    paths = split_pdf(
         str(_CUSTOMER_PDF),
         [MergedShard(0, 40, 50)],
         str(work_dir),
     )
 
-    assert remap is None
     assert len(paths) == 1
     assert _page_count(paths[0]) == 11
     assert (work_dir / "_rewritten_source.pdf").exists()

@@ -125,8 +125,8 @@ def _parse_pdf_via_shards(
     )
     from app.services.document_parser.formats.pdf.shard_splitter import (
         map_agent_shards,
-        shard_page_numbers,
         split_pdf,
+        split_pdf_page_numbers,
     )
     from shared.services.ai.token_tracking import (
         bind_token_tracker,
@@ -190,7 +190,7 @@ def _parse_pdf_via_shards(
             work_dir = os.path.join(output_dir, "_shards")
             os.makedirs(work_dir, exist_ok=True)
             with stage_timer("pdf.split", filename=filename):
-                shard_pdf_paths, _page_remap = split_pdf(
+                shard_pdf_paths = split_pdf(
                     pdf_path, merged_shards, work_dir,
                     exclude_pages=toc_pages if toc_pages else None,
                 )
@@ -359,7 +359,7 @@ def _parse_pdf_via_shards(
         shard_page_maps = (
             [None]
             if fast_path_original_pdf
-            else [shard_page_numbers(shard, toc_pages) for shard in merged_shards]
+            else split_pdf_page_numbers(merged_shards, toc_pages)
         )
         image_regions = load_shard_image_regions(shard_output_dirs, shard_page_maps)
 

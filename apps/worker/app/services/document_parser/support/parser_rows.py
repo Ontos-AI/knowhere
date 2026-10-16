@@ -26,6 +26,11 @@ def _resolve_parser_columns() -> tuple[str, ...]:
 
 PARSER_ROW_COLUMNS: tuple[str, ...] = _resolve_parser_columns()
 
+# ``extra_metadata`` is the trailing JSON-string column merged into chunk
+# metadata by ``dataframe_to_chunks``. It is not part of the env-configurable
+# ``ALL_DF_COLS`` list, the same way the page track appends it.
+PARSER_DF_COLUMNS: tuple[str, ...] = (*PARSER_ROW_COLUMNS, "extra_metadata")
+
 
 def serialize_entities(entities: Any) -> str:
     """Serialize typed entities (§4.4) into the JSON string stored in the row.
@@ -65,6 +70,7 @@ class ParsedRow:
     length: int | None = None
     entities: str = ""
     asset_title: str = ""
+    extra_metadata: str = ""
 
     def to_list(self) -> list[object]:
         content_length = self.length if self.length is not None else len(self.content)
@@ -82,10 +88,11 @@ class ParsedRow:
             self.page_nums,
             self.entities,
             self.asset_title,
+            self.extra_metadata,
         ]
 
     def to_dict(self) -> dict[str, object]:
-        return dict(zip(PARSER_ROW_COLUMNS, self.to_list()))
+        return dict(zip(PARSER_DF_COLUMNS, self.to_list()))
 
 
 class ParsedRowsBuilder:
@@ -101,7 +108,7 @@ class ParsedRowsBuilder:
     def to_dataframe(self) -> pd.DataFrame:
         return pd.DataFrame(
             [row.to_list() for row in self._rows],
-            columns=Index(PARSER_ROW_COLUMNS),
+            columns=Index(PARSER_DF_COLUMNS),
         )
 
 
@@ -141,5 +148,5 @@ def apply_asset_summary(row: list[Any], result: Any) -> None:
 
 def _ensure_row_width(row: list[Any]) -> None:
     """Pad a legacy 11-column row out to the current schema width in place."""
-    while len(row) < len(PARSER_ROW_COLUMNS):
+    while len(row) < len(PARSER_DF_COLUMNS):
         row.append("")

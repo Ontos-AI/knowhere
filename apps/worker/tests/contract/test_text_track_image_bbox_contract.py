@@ -19,9 +19,12 @@ from app.services.document_parser.formats.markdown.layout_bbox_index import (  #
     load_shard_image_regions,
 )
 from app.services.document_parser.formats.markdown.parser import parse_md  # noqa: E402
+import pytest  # noqa: E402
+
 from app.services.document_parser.formats.pdf.shard_splitter import (  # noqa: E402
     MergedShard,
     shard_page_numbers,
+    split_pdf_page_numbers,
 )
 from shared.core.constants.processing import ProcessingConstants  # noqa: E402
 from shared.services.chunks.dataframe_chunk_converter import (  # noqa: E402
@@ -72,7 +75,6 @@ def _region(page_num: int, bbox: list[int]) -> dict[str, Any]:
         "coord_system": "mineru_layout",
         "page_width": 960,
         "page_height": 540,
-        "crop_margin_px": 0,
     }
 
 
@@ -173,6 +175,22 @@ def test_shard_page_numbers_skip_excluded_pages() -> None:
     assert shard_page_numbers(shard, {7, 8, 100}) == [5, 6, 9]
 
 
+def test_split_pdf_page_numbers_drop_shards_without_a_pdf() -> None:
+    shards = [
+        MergedShard(shard_index=0, page_start=1, page_end=2),
+        MergedShard(shard_index=1, page_start=3, page_end=4),
+        MergedShard(shard_index=2, page_start=5, page_end=6),
+    ]
+
+    # Shard 1 is entirely excluded, so split_pdf writes no PDF for it.
+    assert split_pdf_page_numbers(shards, {3, 4, 5}) == [[1, 2], [6]]
+
+
+def test_shard_regions_reject_misaligned_page_maps(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        load_shard_image_regions([str(tmp_path / "shard_0")], [[1], [2]])
+
+
 def _write_jpeg(path: Path, *, seed: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     width = height = 640
@@ -244,6 +262,26 @@ def test_parse_md_attaches_asset_region_to_image_chunks_only(tmp_path: Path) -> 
     zip_by_type = {str(chunk["type"]): chunk for chunk in zip_chunks}
     assert zip_by_type["image"]["metadata"]["asset_region"] == region
     assert "asset_region" not in zip_by_type["table"]["metadata"]
+
+
+def test_parse_md_attaches_asset_region_to_table_embedded_images(
+    tmp_path: Path,
+) -> None:
+    hash_name = "e" * 64 + ".jpg"
+    _write_jpeg(tmp_path / "images" / hash_name, seed=59)
+    lines = [
+        "# Results",
+        "<table><tr><td>Flow</td></tr>"
+        f'<tr><td><img src="images/{hash_name}"/></td></tr></table>',
+    ]
+    region = _region(9, [5, 6, 200, 300])
+
+    df = _parse_phase_b(tmp_path, lines, {hash_name: region})
+    chunks = dataframe_to_chunks(df)
+
+    by_type = {str(chunk["type"]): chunk for chunk in chunks}
+    assert by_type["image"]["metadata"]["asset_region"] == region
+    assert "asset_region" not in by_type["table"]["metadata"]
 
 
 def test_parse_md_without_image_regions_writes_no_asset_region(tmp_path: Path) -> None:

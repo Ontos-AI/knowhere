@@ -88,7 +88,7 @@ def test_shard_pipeline_uploads_before_mineru(
         events.append("split")
         shard_path = Path(work_dir) / "shard_0.pdf"
         shard_path.write_bytes(b"%PDF-1.4")
-        return [str(shard_path)], None
+        return [str(shard_path)]
 
     class _FakeStorage:
         def upload_source_file(
@@ -158,7 +158,7 @@ def test_failed_shard_upload_does_not_start_mineru(
     def fake_split_pdf(pdf_path, shards, work_dir, exclude_pages=None):
         shard_path = Path(work_dir) / "shard_0.pdf"
         shard_path.write_bytes(b"%PDF-1.4")
-        return [str(shard_path)], None
+        return [str(shard_path)]
 
     class _FailingStorage:
         def upload_source_file(
@@ -202,7 +202,7 @@ def test_unverified_shard_upload_does_not_start_mineru(
     def fake_split_pdf(pdf_path, shards, work_dir, exclude_pages=None):
         shard_path = Path(work_dir) / "shard_0.pdf"
         shard_path.write_bytes(b"%PDF-1.4")
-        return [str(shard_path)], None
+        return [str(shard_path)]
 
     class _InvisibleStorage:
         def upload_source_file(

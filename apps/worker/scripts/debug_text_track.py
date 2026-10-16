@@ -396,7 +396,7 @@ def _stage_mineru_pdf(
         parse_via_full(pdf_path, filename, shard_out)
         shard_output_dirs = [shard_out]
     else:
-        shard_pdf_paths, _page_remap = split_pdf(
+        shard_pdf_paths = split_pdf(
             pdf_path, merged_shards, work_dir,
             exclude_pages=toc_pages if toc_pages else None,
         )
@@ -672,7 +672,7 @@ def _stage_full_pdf(
     from app.services.document_parser.formats.markdown.parser import parse_md
     from app.services.document_parser.formats.pdf.shard_splitter import (
         map_agent_shards,
-        shard_page_numbers,
+        split_pdf_page_numbers,
     )
     from app.services.document_parser.orchestration.postprocess import apply_parse_postprocess
 
@@ -684,10 +684,10 @@ def _stage_full_pdf(
     shard_page_maps = (
         [None]
         if fast_path
-        else [shard_page_numbers(shard, toc_pages) for shard in merged_shards]
+        else split_pdf_page_numbers(merged_shards, toc_pages)
     )
     image_regions = load_shard_image_regions(
-        [str(out_dir / "_shards" / f"shard_{i}") for i in range(len(merged_shards))],
+        [str(out_dir / "_shards" / f"shard_{i}") for i in range(len(shard_page_maps))],
         shard_page_maps,
     )
 

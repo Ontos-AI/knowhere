@@ -1275,7 +1275,7 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
             shard_path = Path(work_dir) / f"shard_{shard.shard_index}.pdf"
             shard_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
             paths.append(str(shard_path))
-        return paths, None
+        return paths
 
     def _fake_parse_via_full(shard_pdf, shard_filename, shard_out, s3_key=None):
         parse_s3_keys.append(s3_key)
@@ -1441,7 +1441,7 @@ def test_sharded_pdf_image_bbox_page_numbers_are_original_pages_after_toc_remova
             shard_path = Path(work_dir) / f"shard_{shard.shard_index}.pdf"
             shard_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
             paths.append(str(shard_path))
-        return paths, None
+        return paths
 
     def _fake_parse_via_full(shard_pdf, shard_filename, shard_out, s3_key=None):
         shard_index = 0 if "shard0" in shard_filename else 1

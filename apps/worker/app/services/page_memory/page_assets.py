@@ -681,15 +681,6 @@ def _is_meaningful_frame(frame: pd.DataFrame) -> bool:
     return bool(non_empty.values.sum() >= 2)
 
 
-def _normalize_keywords(value: object) -> list[str]:
-    if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
-    if isinstance(value, str):
-        delimiter = ";" if ";" in value else ","
-        return [item.strip() for item in value.split(delimiter) if item.strip()]
-    return []
-
-
 def _safe_float(value: object, *, default: float) -> float:
     try:
         return float(str(value))

@@ -71,9 +71,6 @@ def load_layout_image_regions(
                     "coord_system": COORD_SYSTEM_MINERU_LAYOUT,
                     "page_width": page_width,
                     "page_height": page_height,
-                    # The ZIP/API asset_region contract requires this field.
-                    # MinerU crops the figure at its layout bbox, no margin.
-                    "crop_margin_px": 0,
                 },
             )
     return regions
@@ -87,10 +84,13 @@ def load_shard_image_regions(
 
     ``shard_page_numbers[i]`` is the page map of ``shard_output_dirs[i]`` (see
     ``load_layout_image_regions``). When the same image file name appears in
-    several shards, the earliest shard wins, matching document order.
+    several shards, the earliest shard wins, matching document order. The two
+    sequences must be aligned one-to-one; a length mismatch raises.
     """
     merged: dict[str, AssetRegion] = {}
-    for shard_dir, page_numbers in zip(shard_output_dirs, shard_page_numbers):
+    for shard_dir, page_numbers in zip(
+        shard_output_dirs, shard_page_numbers, strict=True
+    ):
         if shard_dir is None:
             continue
         shard_regions = load_layout_image_regions(
@@ -101,13 +101,22 @@ def load_shard_image_regions(
     return merged
 
 
-def image_region_metadata(
-    image_regions: Mapping[str, AssetRegion],
+def image_region_extra_metadata(
+    image_regions: Mapping[str, AssetRegion] | None,
     image_path: str,
-) -> dict[str, AssetRegion] | None:
-    """``extra_metadata`` for the image row of a markdown image reference."""
+) -> str:
+    """Serialized ``extra_metadata`` row value for a markdown image reference.
+
+    ``image_path`` is the reference as written in the markdown (hash file name,
+    before ``build_markdown_image_asset`` renames the file). Returns ``""`` when
+    the image has no indexed region.
+    """
+    if not image_regions:
+        return ""
     region = image_regions.get(os.path.basename(image_path))
-    return {"asset_region": region} if region is not None else None
+    if region is None:
+        return ""
+    return json.dumps({"asset_region": region}, ensure_ascii=False)
 
 
 def _resolve_page_num(page_idx: int, page_numbers: Sequence[int] | None) -> int | None:

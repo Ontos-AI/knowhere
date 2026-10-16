@@ -15,7 +15,7 @@ from app.services.document_agent.visual import (
 )
 from app.services.document_parser.profiling.doc_profiler import profile_document
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
-from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
+from app.services.document_parser.support.parser_rows import PARSER_DF_COLUMNS
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.page_memory.normalizer import normalize_to_pdf
 from app.services.page_memory._utils import (
@@ -231,7 +231,7 @@ def _build_page_dataframe(
     anatomy = getattr(profile, "anatomy", None)
     page_count = max(int(profile.page_count or 0), 0)
     if page_count <= 0:
-        return pd.DataFrame(columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+        return pd.DataFrame(columns=pd.Index(PARSER_DF_COLUMNS))
 
     asset_extraction_enabled = page_memory_config.asset_extraction_enabled
 
@@ -465,7 +465,7 @@ def _build_page_dataframe(
             "page_to_node": _page_to_node_map(rows),
         },
     )
-    return pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+    return pd.DataFrame(rows, columns=pd.Index(PARSER_DF_COLUMNS))
 
 
 def _build_hierarchy_scopes(
@@ -854,7 +854,7 @@ def _build_whole_doc_dataframe(
         page_info=page_scope_info(pages),
         variables={"summary": summary, "verdict": verdict},
     )
-    return pd.DataFrame([row], columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+    return pd.DataFrame([row], columns=pd.Index(PARSER_DF_COLUMNS))
 
 
 def _build_summary(*, filename: str, page_count: int, raw_text: str) -> str:

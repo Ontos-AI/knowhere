@@ -57,6 +57,18 @@ def shard_page_numbers(shard: MergedShard, exclude_pages: set[int]) -> list[int]
     ]
 
 
+def split_pdf_page_numbers(
+    shards: list[MergedShard], exclude_pages: set[int]
+) -> list[list[int]]:
+    """Page map of each shard PDF ``split_pdf`` writes, in the same order.
+
+    A shard whose pages are all excluded produces no PDF, so it has no entry
+    here either; index ``i`` therefore lines up with ``split_pdf``'s ``i``-th path.
+    """
+    page_maps = [shard_page_numbers(shard, exclude_pages) for shard in shards]
+    return [page_map for page_map in page_maps if page_map]
+
+
 def _is_source_object_out_of_range(exc: BaseException) -> bool:
     """True only for MuPDF xref copy failure during insert_pdf."""
     return isinstance(exc, RuntimeError) and _SOURCE_OBJECT_OUT_OF_RANGE in str(exc)
@@ -67,7 +79,7 @@ def split_pdf(
     shards: list[MergedShard],
     work_dir: str,
     exclude_pages: set[int] | None = None,
-) -> tuple[list[str], dict[int, int] | None]:
+) -> list[str]:
     """Physically split PDF into sub-PDFs using PyMuPDF.
 
     Args:
@@ -78,11 +90,8 @@ def split_pdf(
             (e.g. TOC pages detected during PROFILE).
 
     Returns:
-        (shard_paths, page_remap)
-        - shard_paths: one temp PDF path per shard.
-        - page_remap: when pages are excluded, maps each shard's local
-          0-based page index to the original 1-based page number.
-          ``None`` when no pages are excluded.
+        One temp PDF path per shard that kept at least one page. Page ``i`` of
+        each PDF maps to the original page ``split_pdf_page_numbers`` reports.
     """
     doc = pymupdf.open(pdf_path)
     rewritten_path: str | None = None
@@ -114,18 +123,15 @@ def _extract_shards(
     shards: list[MergedShard],
     work_dir: str,
     exclude_pages: set[int] | None,
-) -> tuple[list[str], dict[int, int] | None]:
+) -> list[str]:
     paths: list[str] = []
-    page_remap: dict[int, int] | None = None
 
     if exclude_pages:
-        page_remap = {}
         logger.info(
             f"📌 Excluding {len(exclude_pages)} pages from PDF: "
             f"{sorted(exclude_pages)}"
         )
 
-    global_new_idx = 0  # running counter across all shards
     for shard in shards:
         sub_doc = pymupdf.open()
         try:
@@ -136,9 +142,6 @@ def _extract_shards(
                     from_page=page_num - 1,
                     to_page=page_num - 1,
                 )
-                if page_remap is not None:
-                    page_remap[global_new_idx] = page_num
-                global_new_idx += 1
                 shard_included += 1
 
             shard_path = os.path.join(work_dir, f"shard_{shard.shard_index}.pdf")
@@ -159,4 +162,4 @@ def _extract_shards(
             f"({shard_included} included"
             f"{f', {excluded_in_shard} excluded' if excluded_in_shard else ''})"
         )
-    return paths, page_remap
+    return paths
