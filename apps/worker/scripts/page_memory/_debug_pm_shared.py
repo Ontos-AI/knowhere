@@ -358,11 +358,13 @@ def _build_debug_coordinator(
 
 def _document_profile_from_dict(data: dict[str, Any] | None):
     from app.services.document_agent.manifest import DocumentProfile
+    from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
 
     raw = data or {}
     return DocumentProfile(
         is_scanned=bool(raw.get("is_scanned", False)),
-        category=str(raw.get("category") or "unknown"),
+        category=list(raw.get("category") or [OTHER_CODE]),
+        category_label=str(raw.get("category_label") or "unknown"),
         routing_category=str(raw.get("routing_category") or "generic"),
         language=str(raw.get("language") or "unknown"),
         header_y=raw.get("header_y"),
@@ -537,6 +539,8 @@ def run_stage0_bootstrap(
             payload={
                 "page_count": coordinator.blackboard.page_count,
                 "is_scanned": bool(getattr(profile, "is_scanned", False)),
+                "category": getattr(profile, "category", None),
+                "category_label": getattr(profile, "category_label", None),
                 "routing_category": getattr(profile, "routing_category", None),
                 "text_pages": len(coordinator.blackboard.page_full_text_cache or {}),
                 "assets_probed": bool(
@@ -551,8 +555,9 @@ def run_stage0_bootstrap(
 
     logger.info(f"   stage0 done in {time.time() - t0:.1f}s → {state_path}")
     logger.info(
-        "   category={} routing={} page_count={} is_scanned={} has_asset_pages={}",
+        "   category={} label={!r} routing={} page_count={} is_scanned={} has_asset_pages={}",
         getattr(profile, "category", None),
+        getattr(profile, "category_label", None),
         getattr(profile, "routing_category", None),
         coordinator.blackboard.page_count,
         getattr(profile, "is_scanned", None),

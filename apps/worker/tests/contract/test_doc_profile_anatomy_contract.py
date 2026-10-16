@@ -94,10 +94,15 @@ def test_toc_anchor_text_scan_line_contains_keyword_and_split_repair() -> None:
         "The basic contents of a typical contract document are shown below:",
     ]
 
-    late_matches = toc_anchor_tool._find_toc_text_matches(late_lines)  # noqa: SLF001
-    split_matches = toc_anchor_tool._find_toc_text_matches(split_lines)  # noqa: SLF001
+    keywords = toc_anchor_tool.TOC_KEYWORDS
+    late_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
+        late_lines, keywords=keywords
+    )
+    split_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
+        split_lines, keywords=keywords
+    )
     contains_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
-        contains_lines
+        contains_lines, keywords=keywords
     )
 
     assert late_matches[0]["line_index"] == 60
@@ -149,7 +154,7 @@ def test_run_lightweight_anatomy_builds_single_shard_without_coarse_vlm(
     _seed_preprobed_pages(coordinator, page_count=2)
     coordinator.blackboard.document_profile = DocumentProfile(
         is_scanned=False,
-        category="Research Report",
+        category=["OTHER"], category_label="Research Report",
         routing_category=PdfRoutingCategory.GENERIC.value,
     )
     coordinator.blackboard.toc_result = TocResult(method="none")
@@ -196,7 +201,7 @@ def test_run_coarse_runs_asset_probe_after_coarse_profile(monkeypatch, tmp_path:
         return (
             DocumentProfile(
                 is_scanned=False,
-                category="Research Report",
+                category=["OTHER"], category_label="Research Report",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             ),
             ToolResult(status="ok", payload={}),
@@ -227,7 +232,8 @@ def test_run_coarse_runs_asset_probe_after_coarse_profile(monkeypatch, tmp_path:
 
     profile = coordinator.run_coarse()
 
-    assert profile.category == "Research Report"
+    assert profile.category == ["OTHER"]
+    assert profile.category_label == "Research Report"
     assert calls == [
         "coarse_profile",
         "text_scan",
@@ -243,7 +249,8 @@ def test_parse_run_recorder_doc_profile_uses_final_anatomy_toc() -> None:
     recorder.set_doc_profile(
         ParserDocumentProfile(
             file_type="pdf",
-            category="Financial Prospectus",
+            category=["04000000"],
+            category_label="Financial Prospectus",
             routing_category=PdfRoutingCategory.GENERIC,
             page_count=0,
         )
@@ -266,7 +273,8 @@ def test_parse_run_recorder_doc_profile_uses_final_anatomy_toc() -> None:
     doc_profile = recorder._doc_profile_for_plan()  # noqa: SLF001
 
     assert doc_profile is not None
-    assert doc_profile["category"] == "Financial Prospectus"
+    assert doc_profile["category"] == ["04000000"]
+    assert doc_profile["category_label"] == "Financial Prospectus"
     assert doc_profile["routing_category"] == PdfRoutingCategory.GENERIC.value
     assert doc_profile["page_count"] == 2
     assert doc_profile["toc"]["method"] == "vlm_batch"
@@ -293,14 +301,16 @@ def test_parse_run_recorder_profile_only_row_is_updated_by_anatomy_flush() -> No
     recorder.persist_doc_profile(
         ParserDocumentProfile(
             file_type="pdf",
-            category="Atlas",
+            category=["OTHER"],
+            category_label="Atlas",
             routing_category=PdfRoutingCategory.ATLAS,
             page_count=12,
         )
     )
 
     assert len(db.rows) == 1
-    assert db.rows[0].doc_profile["category"] == "Atlas"
+    assert db.rows[0].doc_profile["category"] == ["OTHER"]
+    assert db.rows[0].doc_profile["category_label"] == "Atlas"
     assert db.rows[0].shard_plan is None
 
     recorder._anatomy = PageAnatomyMap(  # noqa: SLF001
@@ -334,7 +344,7 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
     _seed_preprobed_pages(coordinator, page_count=3, pages=[1, 2])
     coordinator.blackboard.document_profile = DocumentProfile(
         is_scanned=False,
-        category="Prospectus",
+        category=["OTHER"], category_label="Prospectus",
         routing_category=PdfRoutingCategory.GENERIC.value,
     )
     coordinator.blackboard.toc_result = TocResult(
@@ -419,7 +429,7 @@ def test_run_structural_skip_shard_plan_uses_placeholder_without_finalize(
     _seed_preprobed_pages(coordinator, page_count=4)
     coordinator.blackboard.document_profile = DocumentProfile(
         is_scanned=False,
-        category="Prospectus",
+        category=["OTHER"], category_label="Prospectus",
         routing_category=PdfRoutingCategory.GENERIC.value,
     )
     coordinator.blackboard.toc_result = TocResult(
@@ -482,7 +492,7 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
     _seed_preprobed_pages(coordinator, page_count=3, pages=[1, 2])
     coordinator.blackboard.document_profile = DocumentProfile(
         is_scanned=False,
-        category="Prospectus",
+        category=["OTHER"], category_label="Prospectus",
         routing_category=PdfRoutingCategory.GENERIC.value,
     )
     coordinator.blackboard.toc_result = TocResult(
@@ -586,7 +596,7 @@ def test_run_coarse_runs_coarse_profile_then_text_scan_then_toc(
         return (
             DocumentProfile(
                 is_scanned=False,
-                category="Prospectus",
+                category=["OTHER"], category_label="Prospectus",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             ),
             ToolResult(status="ok", payload={}),
@@ -642,7 +652,7 @@ def test_run_text_scan_native_uses_read_page_text_bands(
     coordinator.blackboard.page_count = 2
     coordinator.blackboard.document_profile = DocumentProfile(
         is_scanned=False,
-        category="Report",
+        category=["OTHER"], category_label="Report",
         routing_category=PdfRoutingCategory.GENERIC.value,
         header_y=0.06,
         footer_y=0.95,
@@ -697,7 +707,7 @@ def test_run_text_scan_scanned_dispatches_ocr_pages(
     coordinator.blackboard.page_count = 2
     coordinator.blackboard.document_profile = DocumentProfile(
         is_scanned=True,
-        category="Report",
+        category=["OTHER"], category_label="Report",
         routing_category=PdfRoutingCategory.GENERIC.value,
     )
 
@@ -791,7 +801,7 @@ def test_standard_pdf_profile_builds_page_toc_and_lightweight_anatomy_by_default
             self.blackboard.toc_result = TocResult(method="none")
             return DocumentProfile(
                 is_scanned=False,
-                category="Research Report",
+                category=["OTHER"], category_label="Research Report",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
@@ -842,7 +852,7 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
             self.calls.append("run_coarse")
             return DocumentProfile(
                 is_scanned=False,
-                category="Research Report",
+                category=["OTHER"], category_label="Research Report",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
@@ -899,7 +909,7 @@ def test_page_memory_forces_toc_profiling_despite_kill_switch(
             self.blackboard.toc_result = TocResult(method="none")
             return DocumentProfile(
                 is_scanned=False,
-                category="Research Report",
+                category=["OTHER"], category_label="Research Report",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
@@ -950,7 +960,7 @@ def test_page_memory_profile_bypasses_chunk_oversized_gate(
             self.calls.append("run_coarse")
             return DocumentProfile(
                 is_scanned=False,
-                category="Research Report",
+                category=["OTHER"], category_label="Research Report",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
@@ -1013,7 +1023,7 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
             ]
             return DocumentProfile(
                 is_scanned=False,
-                category="Research Report",
+                category=["OTHER"], category_label="Research Report",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
@@ -1084,7 +1094,7 @@ def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
             ]
             return DocumentProfile(
                 is_scanned=False,
-                category="Engineering Atlas",
+                category=["OTHER"], category_label="Engineering Atlas",
                 routing_category=PdfRoutingCategory.ATLAS.value,
             )
 

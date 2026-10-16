@@ -114,10 +114,6 @@ class ZipChunkSchemaBuilder:
                 metadata["keywords"] = existing_metadata.get("keywords") or chunk.get(
                     "keywords", []
                 )
-                if asset_region := _normalize_asset_region(
-                    existing_metadata.get("asset_region")
-                ):
-                    metadata["asset_region"] = asset_region
                 metadata["connect_to"] = _build_embed_connect_to(
                     chunk=chunk,
                     chunk_type_str=chunk_type_str,
@@ -250,7 +246,6 @@ def _normalize_asset_region(value: Any) -> dict[str, Any] | None:
     coord_system = str(value.get("coord_system") or "").strip()
     page_width = _positive_int_or_none(value.get("page_width"))
     page_height = _positive_int_or_none(value.get("page_height"))
-    crop_margin_px = _non_negative_int_or_none(value.get("crop_margin_px"))
     if (
         page_num is None
         or bbox is None
@@ -258,18 +253,20 @@ def _normalize_asset_region(value: Any) -> dict[str, Any] | None:
         or not coord_system
         or page_width is None
         or page_height is None
-        or crop_margin_px is None
     ):
         return None
-    return {
+    region: dict[str, Any] = {
         "page_num": page_num,
         "bbox": bbox,
         "coord_origin": coord_origin,
         "coord_system": coord_system,
         "page_width": page_width,
         "page_height": page_height,
-        "crop_margin_px": crop_margin_px,
     }
+    # Only the page track crops with a margin; the text track does not crop.
+    if (crop_margin_px := _non_negative_int_or_none(value.get("crop_margin_px"))) is not None:
+        region["crop_margin_px"] = crop_margin_px
+    return region
 
 
 def _bbox_or_none(value: Any) -> list[int] | None:

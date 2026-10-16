@@ -74,6 +74,7 @@ def main() -> int:
         variables={
             "source": "stop_after_asset_probe",
             "category": getattr(profile, "category", None),
+            "category_label": getattr(profile, "category_label", None),
             "routing_category": getattr(profile, "routing_category", None),
             "is_scanned": bool(getattr(profile, "is_scanned", False)),
             "text_pages": text_pages,

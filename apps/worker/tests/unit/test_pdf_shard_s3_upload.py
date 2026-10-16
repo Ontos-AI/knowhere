@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, call
@@ -23,6 +24,10 @@ from app.services.document_agent.manifest import (
     TocResult,
 )
 from app.services.document_parser.formats.pdf import parser as pdf_parser
+from app.services.document_parser.formats.pdf.shard_splitter import (
+    LiveShard,
+    select_live_shards,
+)
 from shared.core.exceptions.domain_exceptions import StorageServiceException
 
 
@@ -34,7 +39,10 @@ def test_upload_temp_shard_pdfs_writes_each_local_file(
     monkeypatch.setattr(pdf_parser, "JobFileStorage", Mock(return_value=storage))
 
     pdf_parser._upload_temp_shard_pdfs(
-        ["/tmp/shard_0.pdf", "/tmp/shard_1.pdf"],
+        [
+            LiveShard(0, 1, 1, [1], "/tmp/shard_0.pdf"),
+            LiveShard(1, 2, 2, [2], "/tmp/shard_1.pdf"),
+        ],
         [
             "tmp/mineru-shards/job_abc/shard_0.pdf",
             "tmp/mineru-shards/job_abc/shard_1.pdf",
@@ -86,9 +94,12 @@ def test_shard_pipeline_uploads_before_mineru(
 
     def fake_split_pdf(pdf_path, shards, work_dir, exclude_pages=None):
         events.append("split")
-        shard_path = Path(work_dir) / "shard_0.pdf"
-        shard_path.write_bytes(b"%PDF-1.4")
-        return [str(shard_path)], None
+        live = []
+        for planned in select_live_shards(shards, exclude_pages):
+            shard_path = Path(work_dir) / f"shard_{planned.shard_index}.pdf"
+            shard_path.write_bytes(b"%PDF-1.4")
+            live.append(replace(planned, pdf_path=str(shard_path)))
+        return live
 
     class _FakeStorage:
         def upload_source_file(
@@ -156,9 +167,12 @@ def test_failed_shard_upload_does_not_start_mineru(
     parse_via_full = Mock()
 
     def fake_split_pdf(pdf_path, shards, work_dir, exclude_pages=None):
-        shard_path = Path(work_dir) / "shard_0.pdf"
-        shard_path.write_bytes(b"%PDF-1.4")
-        return [str(shard_path)], None
+        live = []
+        for planned in select_live_shards(shards, exclude_pages):
+            shard_path = Path(work_dir) / f"shard_{planned.shard_index}.pdf"
+            shard_path.write_bytes(b"%PDF-1.4")
+            live.append(replace(planned, pdf_path=str(shard_path)))
+        return live
 
     class _FailingStorage:
         def upload_source_file(
@@ -200,9 +214,12 @@ def test_unverified_shard_upload_does_not_start_mineru(
     parse_via_full = Mock()
 
     def fake_split_pdf(pdf_path, shards, work_dir, exclude_pages=None):
-        shard_path = Path(work_dir) / "shard_0.pdf"
-        shard_path.write_bytes(b"%PDF-1.4")
-        return [str(shard_path)], None
+        live = []
+        for planned in select_live_shards(shards, exclude_pages):
+            shard_path = Path(work_dir) / f"shard_{planned.shard_index}.pdf"
+            shard_path.write_bytes(b"%PDF-1.4")
+            live.append(replace(planned, pdf_path=str(shard_path)))
+        return live
 
     class _InvisibleStorage:
         def upload_source_file(

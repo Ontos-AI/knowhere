@@ -9,10 +9,16 @@ from app.services.document_agent.pdf_text import (
     line_fingerprint,
 )
 from app.services.document_agent.tools.find_toc_anchor_pages import (
+    HEAD_WINDOW_MAX_PAGES,
     MAX_ANCHOR_CANDIDATES,
     _filter_edge_anchored,
+    _head_window_pages,
+    _prefix_toc_keywords_for_categories,
     _scan_toc_matches,
     _select_anchor_pages,
+)
+from app.services.document_parser.profiling.domain_taxonomy import (
+    ECONOMY_BUSINESS_FINANCE_CODE,
 )
 
 
@@ -139,6 +145,13 @@ def test_under_cap_does_not_apply_edge_or_body() -> None:
     assert "after_body" not in narrowing
 
 
+def test_head_window_is_at_most_ten_pages() -> None:
+    assert _head_window_pages(0) == set()
+    assert _head_window_pages(5) == {1, 2, 3, 4, 5}
+    assert _head_window_pages(10) == set(range(1, 11))
+    assert _head_window_pages(200) == set(range(1, HEAD_WINDOW_MAX_PAGES + 1))
+
+
 def test_scan_uses_stage0_lines() -> None:
     bands = {
         1: build_page_text_bands((LineDraft(text="General table of contents"),)),
@@ -147,3 +160,49 @@ def test_scan_uses_stage0_lines() -> None:
     matches = _scan_toc_matches(bands, page_count=2)
     assert [item["page"] for item in matches] == [1]
     assert matches[0]["region"] == "body"
+
+
+def test_economy_category_adds_finance_prefix_toc_keywords() -> None:
+    assert _prefix_toc_keywords_for_categories(
+        [ECONOMY_BUSINESS_FINANCE_CODE]
+    ) == frozenset({"index to", "index of", "exhibit index"})
+
+
+def test_exhibit_index_prefix_keyword_applies_to_every_domain() -> None:
+    assert _prefix_toc_keywords_for_categories(["13000000"]) == frozenset(
+        {"exhibit index"}
+    )
+    assert _prefix_toc_keywords_for_categories(None) == frozenset({"exhibit index"})
+
+
+def test_finance_prefix_keywords_match_only_at_line_start_when_enabled() -> None:
+    bands = {
+        1: build_page_text_bands(
+            (LineDraft(text="INDEX TO FINANCIAL STATEMENTS"),)
+        ),
+        2: build_page_text_bands(
+            (LineDraft(text="INDEX OF FINANCIAL STATEMENTS"),)
+        ),
+        3: build_page_text_bands((LineDraft(text="EXHIBIT INDEX"),)),
+        4: build_page_text_bands((LineDraft(text="INDEX TO EXHIBITS"),)),
+        5: build_page_text_bands(
+            (LineDraft(text="See the index to financial statements below."),)
+        ),
+        6: build_page_text_bands(
+            (LineDraft(text="See the exhibit index below."),)
+        ),
+        7: build_page_text_bands((LineDraft(text="No keyword here"),)),
+    }
+    without = _scan_toc_matches(bands, page_count=7)
+    assert without == []
+    with_prefix = _scan_toc_matches(
+        bands,
+        page_count=7,
+        prefix_keywords=frozenset({"index to", "index of", "exhibit index"}),
+    )
+    assert [(item["page"], item["match_kind"]) for item in with_prefix] == [
+        (1, "keyword:index to"),
+        (2, "keyword:index of"),
+        (3, "keyword:exhibit index"),
+        (4, "keyword:index to"),
+    ]

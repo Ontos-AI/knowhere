@@ -544,6 +544,8 @@ def build_asset_rows(
 
 
 def _asset_extra_metadata(asset: PageAsset) -> dict[str, Any]:
+    if asset.kind == "table":
+        return {}
     # bbox is the detected (VLM) box on the rendered page image, not the cropped box.
     return {
         "asset_region": {
@@ -677,15 +679,6 @@ def _is_meaningful_frame(frame: pd.DataFrame) -> bool:
         return False
     non_empty = frame.fillna("").astype(str).map(lambda text: bool(text.strip()))
     return bool(non_empty.values.sum() >= 2)
-
-
-def _normalize_keywords(value: object) -> list[str]:
-    if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
-    if isinstance(value, str):
-        delimiter = ";" if ";" in value else ","
-        return [item.strip() for item in value.split(delimiter) if item.strip()]
-    return []
 
 
 def _safe_float(value: object, *, default: float) -> float:

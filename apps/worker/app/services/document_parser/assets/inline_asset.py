@@ -13,6 +13,7 @@ def build_image_asset_row(
     keywords: str = "",
     entities: str = "",
     asset_title: str = "",
+    extra_metadata: str = "",
 ) -> ParsedRow:
     return ParsedRow(
         content=content,
@@ -26,6 +27,7 @@ def build_image_asset_row(
         addtime=addtime,
         entities=entities,
         asset_title=asset_title,
+        extra_metadata=extra_metadata,
     )
 
 
