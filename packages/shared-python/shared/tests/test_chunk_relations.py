@@ -7,10 +7,21 @@ import asyncio
 import pandas as pd
 
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
+from shared.services.retrieval.execution.response_projection import (
+    project_public_retrieval_response,
+)
+from shared.services.retrieval.graph.keywords import (
+    extract_keywords_from_chunk_metadata,
+)
 from shared.services.retrieval.hydration.result_assembly import (
     assemble_retrieval_results,
 )
 from shared.services.retrieval.hydration.row_utils import iter_connected_target_ids
+from shared.services.retrieval.search.lexical_text import (
+    build_content_lexical_text,
+    build_content_search_text,
+    build_term_search_text,
+)
 from shared.services.storage.zip_chunk_schema import ZipChunkSchemaBuilder
 
 _COLUMNS = [
@@ -131,3 +142,60 @@ def test_mutually_linked_body_and_asset_are_not_both_dropped() -> None:
     )
 
     assert [row["chunk_id"] for row in assembled] == ["body-1"]
+
+
+def test_public_retrieval_projection_exposes_importance() -> None:
+    response = asyncio.run(
+        project_public_retrieval_response(
+            {
+                "status": "success",
+                "results": [
+                    {
+                        "document_id": "doc_a",
+                        "chunk_id": "body-1",
+                        "chunk_type": "text",
+                        "content": "hello",
+                        "score": 0.85,
+                        "importance": 0.42,
+                        "source_file_name": "a.pdf",
+                        "section_path": "a.pdf / Intro",
+                    }
+                ],
+            }
+        )
+    )
+
+    assert response["results"][0]["importance"] == 0.42
+
+
+def test_metadata_consumers_prefer_entities_and_computed_tokens() -> None:
+    meta = {
+        "entities": [{"text": "Knowhere", "type": "product"}],
+        "keywords": ["legacy-kw"],
+        "tokens": ["legacy-token"],
+    }
+    assert extract_keywords_from_chunk_metadata(meta) == ["Knowhere"]
+
+    table_chunk = {
+        "type": "table",
+        "content": "<table><tr><td>Revenue</td></tr></table>",
+        "metadata": {
+            "summary": "Revenue breakdown",
+            "asset_title": "Table 1",
+            "entities": [{"text": "ARR", "type": "metric"}],
+        },
+    }
+    table_bm25 = build_content_search_text(table_chunk) or ""
+    table_term = build_term_search_text(table_chunk, path_text="Finance") or ""
+    assert "arr" in table_bm25.lower()
+    assert "table" in table_bm25.lower()
+    assert "arr" in table_term.lower()
+
+    text_chunk_no_tokens = {
+        "type": "text",
+        "content": "Revenue growth accelerated in Q4.",
+        "metadata": {},
+    }
+    lexical = build_content_lexical_text(text_chunk_no_tokens) or ""
+    assert "revenue" in lexical.lower()
+

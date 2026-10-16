@@ -358,7 +358,7 @@ chunk objects. Three chunk types exist:
 | `path` | `str` | Hierarchical path: `{kb}/{file}/{section1}/{section2}/...` for text; `images/...` or `tables/...` for assets |
 | `metadata.length` | `int` | Character count of content |
 | `metadata.summary` | `str` | LLM summary (images/tables: `"image-N\n{description}"`) |
-| `metadata.tokens` | `list[str]` | Pre-tokenized Chinese terms for BM25 retrieval |
+| `metadata.entities` | `list[{text, type}]` | Typed entities extracted from content or asset VLM/LLM analysis |
 | `metadata.keywords` | `list[str]` | LLM-extracted keywords (semicolon-split from DataFrame) |
 | `metadata.page_nums` | `list[int]` | Source page numbers (PDF only) |
 | `metadata.file_path` | `str` | Relative asset path for images/tables |

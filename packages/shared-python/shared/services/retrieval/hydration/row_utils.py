@@ -18,6 +18,7 @@ PUBLIC_RESULT_FIELDS = {
     'content',
     'content_source',
     'score',
+    'importance',
     'asset_url',
     'source_chunk_path',
     'file_path',

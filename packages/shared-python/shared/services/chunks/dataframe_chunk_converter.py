@@ -49,7 +49,6 @@ class ChunkMetadata(TypedDict, total=False):
     asset_title: str
     summary: str
     length: int
-    tokens: list[str]
     connect_to: list[ConnectionValue]
     page_nums: list[int]
     file_path: str
@@ -136,26 +135,6 @@ def _safe_parse_entities(value: object) -> list[dict[str, str]]:
             {"text": entity_text, "type": str(item.get("type", "")).strip()}
         )
     return entities
-
-
-def _safe_parse_tokens(value: object) -> list[str]:
-    if _is_missing(value):
-        return []
-    token_text = str(value).strip()
-    if not token_text:
-        return []
-    if token_text.startswith("[") and token_text.endswith("]"):
-        inner_text = token_text[1:-1].strip()
-        if (inner_text.startswith("'") and inner_text.endswith("'")) or (
-            inner_text.startswith('"') and inner_text.endswith('"')
-        ):
-            inner_text = inner_text[1:-1]
-        token_text = inner_text
-    if ";" in token_text:
-        return [token.strip() for token in token_text.split(";") if token.strip()]
-    if "->" in token_text:
-        return [token.strip() for token in token_text.split("->") if token.strip()]
-    return []
 
 
 def _normalize_resource_ref(ref: RelationshipRef) -> str:
@@ -324,8 +303,6 @@ def dataframe_to_chunks(df: _ParserDataFrame | None) -> list[Dict[str, JsonValue
         asset_title = str(row.get("asset_title", "") or "").strip()
         if asset_title:
             metadata["asset_title"] = asset_title
-        if chunk_type != "page":
-            metadata["tokens"] = _safe_parse_tokens(row.get("tokens"))
         _merge_extra_metadata(metadata, _parse_extra_metadata(row.get("extra_metadata")))
 
         if chunk_type == "image":

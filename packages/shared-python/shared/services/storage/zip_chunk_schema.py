@@ -79,7 +79,6 @@ class ZipChunkSchemaBuilder:
             if chunk_type == "text":
                 metadata.update(
                     {
-                        "tokens": existing_metadata.get("tokens") or [],
                         "keywords": existing_metadata.get("keywords")
                         or chunk.get("keywords", []),
                         "connect_to": _build_embed_connect_to(
@@ -99,7 +98,6 @@ class ZipChunkSchemaBuilder:
                 metadata["keywords"] = existing_metadata.get("keywords") or chunk.get(
                     "keywords", []
                 )
-                metadata["tokens"] = existing_metadata.get("tokens") or []
                 metadata["connect_to"] = existing_metadata.get("connect_to") or []
                 if asset_region := _normalize_asset_region(
                     existing_metadata.get("asset_region")
@@ -116,7 +114,6 @@ class ZipChunkSchemaBuilder:
                 metadata["keywords"] = existing_metadata.get("keywords") or chunk.get(
                     "keywords", []
                 )
-                metadata["tokens"] = existing_metadata.get("tokens") or []
                 if asset_region := _normalize_asset_region(
                     existing_metadata.get("asset_region")
                 ):

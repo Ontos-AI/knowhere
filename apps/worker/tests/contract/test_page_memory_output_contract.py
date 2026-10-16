@@ -83,7 +83,6 @@ def test_asset_region_and_metadata_match_between_chunks_and_zip() -> None:
             "asset_region",
             "entities",
             "asset_title",
-            "tokens",
             "keywords",
             "summary",
             "page_nums",
@@ -121,7 +120,7 @@ def test_zip_chunk_schema_omits_malformed_asset_region() -> None:
     assert "asset_region" not in formatted[0]["metadata"]
 
 
-def test_zip_text_tokens_stay_a_list_when_empty() -> None:
+def test_zip_text_omits_legacy_tokens_field() -> None:
     chunks = dataframe_to_chunks(
         pd.DataFrame(
             [
@@ -146,8 +145,8 @@ def test_zip_text_tokens_stay_a_list_when_empty() -> None:
         chunks, image_files_map={}, table_files_map={}
     )
 
-    assert chunks[0]["metadata"]["tokens"] == []
-    assert formatted[0]["metadata"]["tokens"] == []
+    assert "tokens" not in chunks[0]["metadata"]
+    assert "tokens" not in formatted[0]["metadata"]
 
 
 def test_dataframe_converter_accepts_page_chunks_with_extra_metadata() -> None:

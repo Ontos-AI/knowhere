@@ -153,10 +153,24 @@ async def _forward_search(
             continue
         metadata = chunk.chunk_metadata if isinstance(chunk.chunk_metadata, dict) else {}
         summary = str(metadata.get("summary") or "").strip()
-        keywords = metadata.get("keywords") or []
+        asset_title = str(metadata.get("asset_title") or "").strip()
+        entities = metadata.get("entities")
+        if isinstance(entities, list) and entities:
+            entity_terms = [
+                str(item.get("text", "")).strip()
+                for item in entities
+                if isinstance(item, dict) and str(item.get("text", "")).strip()
+            ]
+        else:
+            entity_terms = []
+        keywords = entity_terms or (metadata.get("keywords") or [])
         if query:
             haystack = " ".join(
-                [summary.lower(), " ".join(str(k).lower() for k in keywords)]
+                [
+                    summary.lower(),
+                    asset_title.lower(),
+                    " ".join(str(k).lower() for k in keywords),
+                ]
             )
             if query not in haystack:
                 continue
