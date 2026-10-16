@@ -43,7 +43,7 @@ def test_parse_profile_reads_classification_fields() -> None:
     raw = json.dumps(
         {
             "is_scanned": True,
-            "domain_ids": [_menu_id("6612"), _menu_id("29")],
+            "domain_ids": [_menu_id("04000000"), _menu_id("13000000")],
             "category_label": "Feasibility Study Report",
             "routing_category": "generic",
             "language": "zh",
@@ -53,7 +53,7 @@ def test_parse_profile_reads_classification_fields() -> None:
     )
     profile = _parse_profile(raw)
     assert profile.is_scanned is True
-    assert profile.category == ["6612", "29"]
+    assert profile.category == ["04000000", "13000000"]
     assert profile.category_label == "Feasibility Study Report"
     assert profile.routing_category == "generic"
     assert profile.language == "zh"
@@ -64,10 +64,10 @@ def test_parse_profile_reads_classification_fields() -> None:
     [
         None,
         [],
-        "6612",
+        "04000000",
         [0],
         [10_000],
-        ["12"],
+        ["5"],
         [True],
         [1, 1],
         [_menu_id(OTHER_CODE), 1],

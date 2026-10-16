@@ -50,7 +50,7 @@ class PageLabel:
 class DocumentProfile:
     is_scanned: bool
     category: list[str]
-    """Domain codes picked from the domain taxonomy (e.g. ``["6612"]``)."""
+    """IPTC Media Topic codes picked from the domain taxonomy (e.g. ``["04000000"]``)."""
     category_label: str
     routing_category: str = "generic"
     language: str = "unknown"

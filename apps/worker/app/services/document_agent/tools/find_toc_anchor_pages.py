@@ -16,6 +16,9 @@ from app.services.document_agent.pdf_text import (
     page_bands_map,
 )
 from app.services.document_agent.registry import has_page_full_text, has_page_labels, register_tool
+from app.services.document_parser.profiling.domain_taxonomy import (
+    ECONOMY_BUSINESS_FINANCE_CODE,
+)
 from app.services.document_parser.structure.body_boundary import normalize_match_text
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
@@ -25,6 +28,10 @@ from loguru import logger
 
 # CJK and English TOC keywords used for first-pass anchor detection.
 TOC_KEYWORDS = frozenset({"目录", "目次", "contents", "table of contents"})
+# Domain extras: only when that IPTC category was picked; match line-start only.
+DOMAIN_PREFIX_TOC_KEYWORDS: dict[str, frozenset[str]] = {
+    ECONOMY_BUSINESS_FINANCE_CODE: frozenset({"index to"}),
+}
 
 MAX_ANCHOR_CANDIDATES = 20
 HEAD_WINDOW_MAX_PAGES = 10
@@ -32,28 +39,50 @@ HEAD_WINDOW_MAX_PAGES = 10
 EDGE_ANCHORED_KEYWORDS = frozenset({"contents", "table of contents"})
 MIN_CONSECUTIVE_DUPLICATE_RUN = 2
 
-# Upper bound on consecutive lines joined when repairing a keyword split by
-# newlines (e.g. 目\\n录). Derived from the longest keyword character length.
-_MAX_KEYWORD_SPLIT_LINES = max(len(keyword) for keyword in TOC_KEYWORDS)
+
+def _prefix_toc_keywords_for_categories(categories: object) -> frozenset[str]:
+    if not isinstance(categories, list):
+        return frozenset()
+    codes = {str(code) for code in categories}
+    keywords: set[str] = set()
+    for code, extras in DOMAIN_PREFIX_TOC_KEYWORDS.items():
+        if code in codes:
+            keywords.update(extras)
+    return frozenset(keywords)
 
 
-def _match_toc_keyword_parts(parts: list[str]) -> str | None:
+def _all_scan_keywords(
+    *,
+    prefix_keywords: frozenset[str] = frozenset(),
+) -> frozenset[str]:
+    return TOC_KEYWORDS | prefix_keywords
+
+
+def _max_keyword_split_lines(keywords: frozenset[str]) -> int:
+    return max((len(keyword) for keyword in keywords), default=1)
+
+
+def _match_toc_keyword_parts(
+    parts: list[str],
+    keywords: frozenset[str],
+) -> str | None:
     candidates = {normalize_match_text(parts[0])} if parts else set()
     for part in parts[1:]:
         next_candidates: set[str] = set()
         for prefix in candidates:
             for separator in ("", " "):
                 candidate = normalize_match_text(f"{prefix}{separator}{part}")
-                if any(keyword.startswith(candidate) for keyword in TOC_KEYWORDS):
+                if any(keyword.startswith(candidate) for keyword in keywords):
                     next_candidates.add(candidate)
         candidates = next_candidates
         if not candidates:
             return None
-    return next((candidate for candidate in candidates if candidate in TOC_KEYWORDS), None)
+    return next((candidate for candidate in candidates if candidate in keywords), None)
 
 
 def _merge_keyword_split_lines(
     lines: list[str],
+    keywords: frozenset[str],
 ) -> list[tuple[str, int, int]]:
     """Merge consecutive lines that together exactly equal one TOC keyword.
 
@@ -62,12 +91,13 @@ def _merge_keyword_split_lines(
     """
     merged: list[tuple[str, int, int]] = []
     index = 0
+    max_parts = _max_keyword_split_lines(keywords)
     while index < len(lines):
         joined: tuple[str, int, int] | None = None
-        upper = min(_MAX_KEYWORD_SPLIT_LINES, len(lines) - index)
+        upper = min(max_parts, len(lines) - index)
         for part_count in range(upper, 1, -1):
             parts = [lines[index + offset].strip() for offset in range(part_count)]
-            keyword = _match_toc_keyword_parts(parts)
+            keyword = _match_toc_keyword_parts(parts, keywords)
             if keyword is None:
                 continue
             joined = (keyword, index, index + part_count - 1)
@@ -81,29 +111,59 @@ def _merge_keyword_split_lines(
     return merged
 
 
-def _match_toc_keyword_in_line(normalized_line: str) -> str | None:
-    """Return the longest TOC keyword contained in a normalized line."""
+def _match_toc_keyword_in_line(
+    normalized_line: str,
+    *,
+    keywords: frozenset[str],
+    prefix_keywords: frozenset[str],
+) -> str | None:
+    """Return the longest matching TOC keyword for a normalized line.
+
+    Base keywords use containment; domain extras require a line-start prefix.
+    """
     if not normalized_line:
         return None
-    return next(
+    contained = next(
         (
             keyword
-            for keyword in sorted(TOC_KEYWORDS, key=len, reverse=True)
+            for keyword in sorted(keywords - prefix_keywords, key=len, reverse=True)
             if keyword in normalized_line
         ),
         None,
     )
+    prefixed = next(
+        (
+            keyword
+            for keyword in sorted(prefix_keywords, key=len, reverse=True)
+            if normalized_line.startswith(keyword)
+        ),
+        None,
+    )
+    if contained is None:
+        return prefixed
+    if prefixed is None:
+        return contained
+    return contained if len(contained) >= len(prefixed) else prefixed
 
 
-def _find_toc_text_matches(lines: list[str]) -> list[dict[str, Any]]:
-    """Match TOC keywords as line-level containment after keyword-split repair.
+def _find_toc_text_matches(
+    lines: list[str],
+    *,
+    keywords: frozenset[str],
+    prefix_keywords: frozenset[str] = frozenset(),
+) -> list[dict[str, Any]]:
+    """Match TOC keywords after keyword-split repair.
 
-    Cross-line handling stays keyword-internal only (e.g. 目+录). Hit rule is
-    ``keyword in normalized_line`` (longest match wins), not whole-line equality.
+    Cross-line handling stays keyword-internal only (e.g. 目+录). Base keywords
+    use ``keyword in normalized_line``; domain extras require line-start only.
     """
     matches: list[dict[str, Any]] = []
-    for raw_line, start_idx, end_idx in _merge_keyword_split_lines(lines):
-        keyword = _match_toc_keyword_in_line(normalize_match_text(raw_line))
+    for raw_line, start_idx, end_idx in _merge_keyword_split_lines(lines, keywords):
+        keyword = _match_toc_keyword_in_line(
+            normalize_match_text(raw_line),
+            keywords=keywords,
+            prefix_keywords=prefix_keywords,
+        )
         if keyword is None:
             continue
         matches.append(
@@ -121,14 +181,20 @@ def _scan_toc_matches(
     bands_by_page: dict[int, PageTextBands],
     *,
     page_count: int,
+    prefix_keywords: frozenset[str] = frozenset(),
 ) -> list[dict[str, Any]]:
+    keywords = _all_scan_keywords(prefix_keywords=prefix_keywords)
     matches: list[dict[str, Any]] = []
     for page in range(1, page_count + 1):
         bands = bands_by_page.get(page)
         if bands is None:
             continue
         texts = [" ".join(line.text.split()) for line in bands.lines]
-        for match in _find_toc_text_matches(texts):
+        for match in _find_toc_text_matches(
+            texts,
+            keywords=keywords,
+            prefix_keywords=prefix_keywords,
+        ):
             covered = bands.lines[match["line_index"] : match["line_end_index"] + 1]
             matches.append(
                 {
@@ -277,9 +343,19 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
     start = time.monotonic()
     total_pages = ctx.blackboard.page_count
 
+    profile = ctx.blackboard.document_profile
+    prefix_keywords = _prefix_toc_keywords_for_categories(
+        getattr(profile, "category", None)
+    )
+    if prefix_keywords:
+        logger.info(
+            "[find.toc_anchor_pages] domain prefix TOC keywords enabled: {}",
+            sorted(prefix_keywords),
+        )
     keyword_matches = _scan_toc_matches(
         page_bands_map(ctx.blackboard.page_full_text_cache),
         page_count=total_pages,
+        prefix_keywords=prefix_keywords,
     )
     anchor_pages, narrowing = _select_anchor_pages(keyword_matches)
     if not anchor_pages and narrowing.get("raw") == 0:

@@ -26,10 +26,13 @@ from app.services.document_parser.profiling.domain_taxonomy import (
 _LEAVES = [leaf for section in DOMAIN_SECTIONS for leaf in section.leaves]
 
 
-def test_leaf_codes_are_unique_and_digit_or_other() -> None:
+def test_leaf_codes_are_unique_iptc_or_other() -> None:
     codes = [leaf.code for leaf in _LEAVES]
     assert len(codes) == len(set(codes))
-    assert all(code == OTHER_CODE or code.isdigit() for code in codes)
+    assert all(
+        code == OTHER_CODE or (code.isdigit() and len(code) == 8) for code in codes
+    )
+    assert len(_LEAVES) == 18  # 17 IPTC top-level + OTHER
 
 
 def test_every_section_has_leaves_and_other_is_last() -> None:

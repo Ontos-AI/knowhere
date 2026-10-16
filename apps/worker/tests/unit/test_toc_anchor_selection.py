@@ -13,8 +13,12 @@ from app.services.document_agent.tools.find_toc_anchor_pages import (
     MAX_ANCHOR_CANDIDATES,
     _filter_edge_anchored,
     _head_window_pages,
+    _prefix_toc_keywords_for_categories,
     _scan_toc_matches,
     _select_anchor_pages,
+)
+from app.services.document_parser.profiling.domain_taxonomy import (
+    ECONOMY_BUSINESS_FINANCE_CODE,
 )
 
 
@@ -156,3 +160,32 @@ def test_scan_uses_stage0_lines() -> None:
     matches = _scan_toc_matches(bands, page_count=2)
     assert [item["page"] for item in matches] == [1]
     assert matches[0]["region"] == "body"
+
+
+def test_economy_category_enables_index_to_prefix_keyword() -> None:
+    assert _prefix_toc_keywords_for_categories(
+        [ECONOMY_BUSINESS_FINANCE_CODE]
+    ) == frozenset({"index to"})
+    assert _prefix_toc_keywords_for_categories(["13000000"]) == frozenset()
+    assert _prefix_toc_keywords_for_categories(None) == frozenset()
+
+
+def test_index_to_matches_only_at_line_start_when_enabled() -> None:
+    bands = {
+        1: build_page_text_bands(
+            (LineDraft(text="INDEX TO FINANCIAL STATEMENTS"),)
+        ),
+        2: build_page_text_bands(
+            (LineDraft(text="See the index to financial statements below."),)
+        ),
+        3: build_page_text_bands((LineDraft(text="No keyword here"),)),
+    }
+    without = _scan_toc_matches(bands, page_count=3)
+    assert without == []
+    with_prefix = _scan_toc_matches(
+        bands,
+        page_count=3,
+        prefix_keywords=frozenset({"index to"}),
+    )
+    assert [item["page"] for item in with_prefix] == [1]
+    assert with_prefix[0]["match_kind"] == "keyword:index to"

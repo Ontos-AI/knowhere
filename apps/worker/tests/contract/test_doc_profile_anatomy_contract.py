@@ -244,7 +244,7 @@ def test_parse_run_recorder_doc_profile_uses_final_anatomy_toc() -> None:
     recorder.set_doc_profile(
         ParserDocumentProfile(
             file_type="pdf",
-            category=["6612"],
+            category=["04000000"],
             category_label="Financial Prospectus",
             routing_category=PdfRoutingCategory.GENERIC,
             page_count=0,
@@ -268,7 +268,7 @@ def test_parse_run_recorder_doc_profile_uses_final_anatomy_toc() -> None:
     doc_profile = recorder._doc_profile_for_plan()  # noqa: SLF001
 
     assert doc_profile is not None
-    assert doc_profile["category"] == ["6612"]
+    assert doc_profile["category"] == ["04000000"]
     assert doc_profile["category_label"] == "Financial Prospectus"
     assert doc_profile["routing_category"] == PdfRoutingCategory.GENERIC.value
     assert doc_profile["page_count"] == 2
