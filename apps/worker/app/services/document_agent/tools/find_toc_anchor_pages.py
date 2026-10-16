@@ -28,9 +28,13 @@ from loguru import logger
 
 # CJK and English TOC keywords used for first-pass anchor detection.
 TOC_KEYWORDS = frozenset({"目录", "目次", "contents", "table of contents"})
+# Strict extras for every domain: match line-start only.
+# Exhibit lists appear in filings, contracts, and legal documents alike.
+GLOBAL_PREFIX_TOC_KEYWORDS = frozenset({"exhibit index"})
 # Domain extras: only when that IPTC category was picked; match line-start only.
 DOMAIN_PREFIX_TOC_KEYWORDS: dict[str, frozenset[str]] = {
-    ECONOMY_BUSINESS_FINANCE_CODE: frozenset({"index to"}),
+    # SEC filings: "index to/of …" covers financial statements and exhibits.
+    ECONOMY_BUSINESS_FINANCE_CODE: frozenset({"index to", "index of"}),
 }
 
 MAX_ANCHOR_CANDIDATES = 20
@@ -41,10 +45,10 @@ MIN_CONSECUTIVE_DUPLICATE_RUN = 2
 
 
 def _prefix_toc_keywords_for_categories(categories: object) -> frozenset[str]:
+    keywords: set[str] = set(GLOBAL_PREFIX_TOC_KEYWORDS)
     if not isinstance(categories, list):
-        return frozenset()
+        return frozenset(keywords)
     codes = {str(code) for code in categories}
-    keywords: set[str] = set()
     for code, extras in DOMAIN_PREFIX_TOC_KEYWORDS.items():
         if code in codes:
             keywords.update(extras)
@@ -347,11 +351,10 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
     prefix_keywords = _prefix_toc_keywords_for_categories(
         getattr(profile, "category", None)
     )
-    if prefix_keywords:
-        logger.info(
-            "[find.toc_anchor_pages] domain prefix TOC keywords enabled: {}",
-            sorted(prefix_keywords),
-        )
+    logger.info(
+        "[find.toc_anchor_pages] line-start TOC keywords enabled: {}",
+        sorted(prefix_keywords),
+    )
     keyword_matches = _scan_toc_matches(
         page_bands_map(ctx.blackboard.page_full_text_cache),
         page_count=total_pages,

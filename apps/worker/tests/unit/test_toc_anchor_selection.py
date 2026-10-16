@@ -162,30 +162,47 @@ def test_scan_uses_stage0_lines() -> None:
     assert matches[0]["region"] == "body"
 
 
-def test_economy_category_enables_index_to_prefix_keyword() -> None:
+def test_economy_category_adds_finance_prefix_toc_keywords() -> None:
     assert _prefix_toc_keywords_for_categories(
         [ECONOMY_BUSINESS_FINANCE_CODE]
-    ) == frozenset({"index to"})
-    assert _prefix_toc_keywords_for_categories(["13000000"]) == frozenset()
-    assert _prefix_toc_keywords_for_categories(None) == frozenset()
+    ) == frozenset({"index to", "index of", "exhibit index"})
 
 
-def test_index_to_matches_only_at_line_start_when_enabled() -> None:
+def test_exhibit_index_prefix_keyword_applies_to_every_domain() -> None:
+    assert _prefix_toc_keywords_for_categories(["13000000"]) == frozenset(
+        {"exhibit index"}
+    )
+    assert _prefix_toc_keywords_for_categories(None) == frozenset({"exhibit index"})
+
+
+def test_finance_prefix_keywords_match_only_at_line_start_when_enabled() -> None:
     bands = {
         1: build_page_text_bands(
             (LineDraft(text="INDEX TO FINANCIAL STATEMENTS"),)
         ),
         2: build_page_text_bands(
+            (LineDraft(text="INDEX OF FINANCIAL STATEMENTS"),)
+        ),
+        3: build_page_text_bands((LineDraft(text="EXHIBIT INDEX"),)),
+        4: build_page_text_bands((LineDraft(text="INDEX TO EXHIBITS"),)),
+        5: build_page_text_bands(
             (LineDraft(text="See the index to financial statements below."),)
         ),
-        3: build_page_text_bands((LineDraft(text="No keyword here"),)),
+        6: build_page_text_bands(
+            (LineDraft(text="See the exhibit index below."),)
+        ),
+        7: build_page_text_bands((LineDraft(text="No keyword here"),)),
     }
-    without = _scan_toc_matches(bands, page_count=3)
+    without = _scan_toc_matches(bands, page_count=7)
     assert without == []
     with_prefix = _scan_toc_matches(
         bands,
-        page_count=3,
-        prefix_keywords=frozenset({"index to"}),
+        page_count=7,
+        prefix_keywords=frozenset({"index to", "index of", "exhibit index"}),
     )
-    assert [item["page"] for item in with_prefix] == [1]
-    assert with_prefix[0]["match_kind"] == "keyword:index to"
+    assert [(item["page"], item["match_kind"]) for item in with_prefix] == [
+        (1, "keyword:index to"),
+        (2, "keyword:index of"),
+        (3, "keyword:exhibit index"),
+        (4, "keyword:index to"),
+    ]

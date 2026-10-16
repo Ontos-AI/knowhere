@@ -94,10 +94,15 @@ def test_toc_anchor_text_scan_line_contains_keyword_and_split_repair() -> None:
         "The basic contents of a typical contract document are shown below:",
     ]
 
-    late_matches = toc_anchor_tool._find_toc_text_matches(late_lines)  # noqa: SLF001
-    split_matches = toc_anchor_tool._find_toc_text_matches(split_lines)  # noqa: SLF001
+    keywords = toc_anchor_tool.TOC_KEYWORDS
+    late_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
+        late_lines, keywords=keywords
+    )
+    split_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
+        split_lines, keywords=keywords
+    )
     contains_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
-        contains_lines
+        contains_lines, keywords=keywords
     )
 
     assert late_matches[0]["line_index"] == 60
