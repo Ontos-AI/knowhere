@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 import pymupdf
@@ -27,6 +28,26 @@ class MergedShard:
     @property
     def page_count(self) -> int:
         return self.page_end - self.page_start + 1
+
+
+@dataclass(frozen=True)
+class LiveShard:
+    """A planned shard that still has pages after TOC exclusion.
+
+    ``shard_index`` is the original plan index (same as ``agent_shards``), not
+    the compressed position among surviving PDFs. Downstream MinerU, heading
+    prediction, S3 keys, and bbox page maps must use this identity.
+    """
+
+    shard_index: int
+    page_start: int
+    page_end: int
+    page_numbers: list[int]
+    pdf_path: str = ""
+
+    @property
+    def is_first_shard(self) -> bool:
+        return self.shard_index == 0
 
 
 def map_agent_shards(
@@ -57,16 +78,30 @@ def shard_page_numbers(shard: MergedShard, exclude_pages: set[int]) -> list[int]
     ]
 
 
-def split_pdf_page_numbers(
-    shards: list[MergedShard], exclude_pages: set[int]
-) -> list[list[int]]:
-    """Page map of each shard PDF ``split_pdf`` writes, in the same order.
+def select_live_shards(
+    shards: Sequence[MergedShard],
+    exclude_pages: set[int] | None = None,
+) -> list[LiveShard]:
+    """Planned shards that still have at least one page after exclusion.
 
-    A shard whose pages are all excluded produces no PDF, so it has no entry
-    here either; index ``i`` therefore lines up with ``split_pdf``'s ``i``-th path.
+    Order matches document order. Skipped shards are omitted, not padded.
+    ``pdf_path`` is empty until ``split_pdf`` writes the file.
     """
-    page_maps = [shard_page_numbers(shard, exclude_pages) for shard in shards]
-    return [page_map for page_map in page_maps if page_map]
+    excluded = exclude_pages or set()
+    live: list[LiveShard] = []
+    for shard in shards:
+        page_numbers = shard_page_numbers(shard, excluded)
+        if not page_numbers:
+            continue
+        live.append(
+            LiveShard(
+                shard_index=shard.shard_index,
+                page_start=shard.page_start,
+                page_end=shard.page_end,
+                page_numbers=page_numbers,
+            )
+        )
+    return live
 
 
 def _is_source_object_out_of_range(exc: BaseException) -> bool:
@@ -79,7 +114,7 @@ def split_pdf(
     shards: list[MergedShard],
     work_dir: str,
     exclude_pages: set[int] | None = None,
-) -> list[str]:
+) -> list[LiveShard]:
     """Physically split PDF into sub-PDFs using PyMuPDF.
 
     Args:
@@ -90,8 +125,8 @@ def split_pdf(
             (e.g. TOC pages detected during PROFILE).
 
     Returns:
-        One temp PDF path per shard that kept at least one page. Page ``i`` of
-        each PDF maps to the original page ``split_pdf_page_numbers`` reports.
+        One live shard per planned shard that kept at least one page. Page
+        ``i`` of each PDF is original page ``live.page_numbers[i]``.
     """
     doc = pymupdf.open(pdf_path)
     rewritten_path: str | None = None
@@ -123,43 +158,47 @@ def _extract_shards(
     shards: list[MergedShard],
     work_dir: str,
     exclude_pages: set[int] | None,
-) -> list[str]:
-    paths: list[str] = []
-
+) -> list[LiveShard]:
     if exclude_pages:
         logger.info(
             f"📌 Excluding {len(exclude_pages)} pages from PDF: "
             f"{sorted(exclude_pages)}"
         )
 
+    live_plan = select_live_shards(shards, exclude_pages)
+    live_indexes = {live.shard_index for live in live_plan}
     for shard in shards:
+        if shard.shard_index not in live_indexes:
+            logger.warning(
+                f"  ⚠️ shard_{shard.shard_index}: all pages excluded, skipping"
+            )
+            logger.info(
+                f"  ✂️ shard_{shard.shard_index}: "
+                f"pages {shard.page_start}-{shard.page_end} "
+                f"(0 included, {shard.page_count} excluded)"
+            )
+
+    live_shards: list[LiveShard] = []
+    for live in live_plan:
         sub_doc = pymupdf.open()
         try:
-            shard_included = 0
-            for page_num in shard_page_numbers(shard, exclude_pages or set()):
+            for page_num in live.page_numbers:
                 sub_doc.insert_pdf(
                     doc,
                     from_page=page_num - 1,
                     to_page=page_num - 1,
                 )
-                shard_included += 1
-
-            shard_path = os.path.join(work_dir, f"shard_{shard.shard_index}.pdf")
-            if shard_included > 0:
-                sub_doc.save(shard_path)
-                paths.append(shard_path)
-            else:
-                logger.warning(
-                    f"  ⚠️ shard_{shard.shard_index}: all pages excluded, skipping"
-                )
+            shard_path = os.path.join(work_dir, f"shard_{live.shard_index}.pdf")
+            sub_doc.save(shard_path)
+            live_shards.append(replace(live, pdf_path=shard_path))
         finally:
             sub_doc.close()
 
-        excluded_in_shard = shard.page_count - shard_included
+        excluded_in_shard = (live.page_end - live.page_start + 1) - len(live.page_numbers)
         logger.info(
-            f"  ✂️ shard_{shard.shard_index}: "
-            f"pages {shard.page_start}-{shard.page_end} "
-            f"({shard_included} included"
+            f"  ✂️ shard_{live.shard_index}: "
+            f"pages {live.page_start}-{live.page_end} "
+            f"({len(live.page_numbers)} included"
             f"{f', {excluded_in_shard} excluded' if excluded_in_shard else ''})"
         )
-    return paths
+    return live_shards

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 
+import pytest
+
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
 os.environ.setdefault("S3_BUCKET_NAME", "test-uploads")
@@ -20,13 +22,29 @@ from app.services.document_agent.manifest import (
     PageLabel,
     TocResult,
 )
+from app.services.document_parser.profiling.domain_taxonomy import (
+    DOMAIN_SECTIONS,
+    OTHER_CODE,
+)
+
+
+def _menu_id(code: str) -> int:
+    return next(
+        number
+        for number, leaf_code in enumerate(
+            (leaf.code for section in DOMAIN_SECTIONS for leaf in section.leaves),
+            start=1,
+        )
+        if leaf_code == code
+    )
 
 
 def test_parse_profile_reads_classification_fields() -> None:
     raw = json.dumps(
         {
             "is_scanned": True,
-            "category": "Feasibility Study Report",
+            "domain_ids": [_menu_id("6612"), _menu_id("29")],
+            "category_label": "Feasibility Study Report",
             "routing_category": "generic",
             "language": "zh",
             "header_y": None,
@@ -35,16 +53,59 @@ def test_parse_profile_reads_classification_fields() -> None:
     )
     profile = _parse_profile(raw)
     assert profile.is_scanned is True
-    assert profile.category == "Feasibility Study Report"
+    assert profile.category == ["6612", "29"]
+    assert profile.category_label == "Feasibility Study Report"
     assert profile.routing_category == "generic"
     assert profile.language == "zh"
+
+
+@pytest.mark.parametrize(
+    "domain_ids",
+    [
+        None,
+        [],
+        "6612",
+        [0],
+        [10_000],
+        ["12"],
+        [True],
+        [1, 1],
+        [_menu_id(OTHER_CODE), 1],
+    ],
+)
+def test_parse_profile_falls_back_to_other_for_invalid_domain_ids(domain_ids) -> None:
+    raw = json.dumps(
+        {
+            "is_scanned": False,
+            "domain_ids": domain_ids,
+            "category_label": "Report",
+            "routing_category": "generic",
+            "language": "en",
+        }
+    )
+    profile = _parse_profile(raw)
+    assert profile.category == [OTHER_CODE]
+    assert profile.category_label == "Report"
+
+
+def test_parse_profile_does_not_route_from_category_label() -> None:
+    raw = json.dumps(
+        {
+            "is_scanned": False,
+            "domain_ids": [_menu_id(OTHER_CODE)],
+            "category_label": "Engineering Atlas",
+            "language": "en",
+        }
+    )
+    assert _parse_profile(raw).routing_category == "generic"
 
 
 def test_parse_profile_rejects_invalid_header_footer_order() -> None:
     raw = json.dumps(
         {
             "is_scanned": False,
-            "category": "Report",
+            "domain_ids": [_menu_id(OTHER_CODE)],
+            "category_label": "Report",
             "routing_category": "generic",
             "language": "en",
             "header_y": 0.8,
@@ -84,7 +145,8 @@ def _seed_pages(coordinator: ProfileCoordinator, page_count: int) -> None:
     blackboard.toc_result = TocResult(method="none", notes="no toc")
     blackboard.document_profile = DocumentProfile(
         is_scanned=True,
-        category="Report",
+        category=[OTHER_CODE],
+        category_label="Report",
         routing_category="generic",
     )
 

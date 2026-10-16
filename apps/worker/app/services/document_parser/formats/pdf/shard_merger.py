@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+from collections.abc import Sequence
 
 from loguru import logger
 
@@ -19,6 +20,8 @@ def _extract_heading_key(line: str) -> tuple[int, str] | None:
 
 def merge_shard_lines(
     shard_lines_list: list[list[str]],
+    *,
+    shard_indexes: Sequence[int] | None = None,
 ) -> list[str]:
     """Concatenate per-shard lines_with_heading in order, removing boundary duplicates.
 
@@ -30,17 +33,28 @@ def merge_shard_lines(
     shard's output has the same (level, text) as the *first heading* in shard
     N+1's output, strip the trailing heading (and any non-heading lines that
     follow it, i.e. the divider page content) from shard N's lines.
+
+    ``shard_indexes`` is the original plan index of each entry (same identity as
+    ``LiveShard.shard_index``). When omitted, logs fall back to list position.
     """
     if not shard_lines_list:
         return []
+    if shard_indexes is not None and len(shard_indexes) != len(shard_lines_list):
+        raise ValueError(
+            "shard_indexes must align one-to-one with shard_lines_list "
+            f"(got {len(shard_indexes)} indexes for {len(shard_lines_list)} shards)"
+        )
 
     result: list[str] = []
-    for shard_idx, lines in enumerate(shard_lines_list):
+    for position, lines in enumerate(shard_lines_list):
         if not lines:
             continue
+        log_index = (
+            shard_indexes[position] if shard_indexes is not None else position
+        )
 
         next_first_heading: tuple[int, str] | None = None
-        for future_idx in range(shard_idx + 1, len(shard_lines_list)):
+        for future_idx in range(position + 1, len(shard_lines_list)):
             future_lines = shard_lines_list[future_idx]
             for next_line in future_lines:
                 key = _extract_heading_key(next_line)
@@ -66,7 +80,7 @@ def merge_shard_lines(
                 and last_heading_key == next_first_heading
             ):
                 logger.info(
-                    f"🔗 shard_{shard_idx}: removing trailing boundary heading "
+                    f"🔗 shard_{log_index}: removing trailing boundary heading "
                     f"'{last_heading_key[1]}' (L{last_heading_key[0]}) duplicated "
                     f"at start of next shard ({len(lines_to_add) - last_heading_pos} lines trimmed)"
                 )
@@ -77,14 +91,12 @@ def merge_shard_lines(
     return result
 
 
-def merge_images(shard_dirs: list[str], target_dir: str) -> None:
+def merge_images(shard_dirs: Sequence[str], target_dir: str) -> None:
     """Copy all images from shard images/ dirs into target_dir/images/."""
     target_img_dir = os.path.join(target_dir, "images")
     os.makedirs(target_img_dir, exist_ok=True)
     total = 0
     for shard_dir in shard_dirs:
-        if shard_dir is None:
-            continue
         img_dir = os.path.join(shard_dir, "images")
         if not os.path.isdir(img_dir):
             continue

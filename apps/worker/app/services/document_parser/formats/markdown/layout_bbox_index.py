@@ -77,7 +77,7 @@ def load_layout_image_regions(
 
 
 def load_shard_image_regions(
-    shard_output_dirs: Sequence[str | None],
+    shard_output_dirs: Sequence[str],
     shard_page_numbers: Sequence[Sequence[int] | None],
 ) -> dict[str, AssetRegion]:
     """Merge the per-shard indexes of a sharded PDF into one index.
@@ -91,8 +91,6 @@ def load_shard_image_regions(
     for shard_dir, page_numbers in zip(
         shard_output_dirs, shard_page_numbers, strict=True
     ):
-        if shard_dir is None:
-            continue
         shard_regions = load_layout_image_regions(
             os.path.join(shard_dir, "layout.json"), page_numbers
         )

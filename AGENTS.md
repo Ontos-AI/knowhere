@@ -129,9 +129,10 @@ This is the typed `ParseOutput` entry for all file types. The parser flow:
 
 1. **Profiles** the document via `profiling.doc_profiler.profile_document()`. PDF
    profiling uses `document_agent` as the single PyMuPDF feature source, then runs
-   VLM coarse classification with two fields: open semantic `category` (for example,
-   `Financial Prospectus`) and routing-only `routing_category`
-   (`atlas/scanned/slides/generic`). Oversized non-atlas PDFs additionally run the
+   VLM coarse classification with three fields: `category` (domain codes picked from
+   the numbered ISIC Rev.5 leaf list in `profiling/domain_taxonomy.py`, multiple
+   allowed), `category_label` (open short phrase, for example `Financial Prospectus`),
+   and routing-only `routing_category` (`atlas/scanned/slides/generic`). Oversized non-atlas PDFs additionally run the
    structural anatomy stage once at the entry point and pass the resulting shard
    plan to PDF parsing.
 2. **Routes** to the appropriate parser based on file extension.

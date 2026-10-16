@@ -9,8 +9,10 @@ from app.services.document_agent.pdf_text import (
     line_fingerprint,
 )
 from app.services.document_agent.tools.find_toc_anchor_pages import (
+    HEAD_WINDOW_MAX_PAGES,
     MAX_ANCHOR_CANDIDATES,
     _filter_edge_anchored,
+    _head_window_pages,
     _scan_toc_matches,
     _select_anchor_pages,
 )
@@ -137,6 +139,13 @@ def test_under_cap_does_not_apply_edge_or_body() -> None:
     assert pages == {1, 3}
     assert "after_edge" not in narrowing
     assert "after_body" not in narrowing
+
+
+def test_head_window_is_at_most_ten_pages() -> None:
+    assert _head_window_pages(0) == set()
+    assert _head_window_pages(5) == {1, 2, 3, 4, 5}
+    assert _head_window_pages(10) == set(range(1, 11))
+    assert _head_window_pages(200) == set(range(1, HEAD_WINDOW_MAX_PAGES + 1))
 
 
 def test_scan_uses_stage0_lines() -> None:

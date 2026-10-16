@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 
 
@@ -33,7 +34,8 @@ class ParserDocumentProfile:
     """Parser-entry document profile used for routing and PDF anatomy reuse."""
 
     file_type: str
-    category: str = "unknown document"
+    category: list[str] = field(default_factory=lambda: [OTHER_CODE])
+    category_label: str = "unknown document"
     routing_category: PdfRoutingCategory = PdfRoutingCategory.GENERIC
     is_scanned: bool = False
     page_count: int = 0
@@ -67,7 +69,8 @@ class ParserDocumentProfile:
 
     def summary(self) -> str:
         parts = (
-            f"[{self.file_type.upper()}] category={self.category}, "
+            f"[{self.file_type.upper()}] category={self.category} "
+            f"({self.category_label}), "
             f"routing={self.routing_category.value}, "
             f"scanned={self.is_scanned}, pages={self.page_count}"
         )

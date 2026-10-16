@@ -27,6 +27,7 @@ from loguru import logger
 TOC_KEYWORDS = frozenset({"目录", "目次", "contents", "table of contents"})
 
 MAX_ANCHOR_CANDIDATES = 20
+HEAD_WINDOW_MAX_PAGES = 10
 # English keywords must sit at a line edge once candidates overflow; CJK 目录/目次 are exempt.
 EDGE_ANCHORED_KEYWORDS = frozenset({"contents", "table of contents"})
 MIN_CONSECUTIVE_DUPLICATE_RUN = 2
@@ -228,6 +229,13 @@ def _select_anchor_pages(
     return _match_pages(matches), narrowing
 
 
+def _head_window_pages(page_count: int) -> set[int]:
+    """First ``min(page_count, 10)`` pages when keyword scan found nothing."""
+    if page_count <= 0:
+        return set()
+    return set(range(1, min(page_count, HEAD_WINDOW_MAX_PAGES) + 1))
+
+
 @worker
 def _render_pages_worker(
     queue, pdf_path: str, pages: list[int], output_dir: str, dpi: int
@@ -274,6 +282,14 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
         page_count=total_pages,
     )
     anchor_pages, narrowing = _select_anchor_pages(keyword_matches)
+    if not anchor_pages and narrowing.get("raw") == 0:
+        anchor_pages = _head_window_pages(total_pages)
+        narrowing["head_window"] = len(anchor_pages)
+        logger.info(
+            "[find.toc_anchor_pages] no keyword candidates; "
+            "using first {} pages as head-window fallback",
+            len(anchor_pages),
+        )
     logger.info("[find.toc_anchor_pages] candidate narrowing: {}", narrowing)
     if narrowing.get("gave_up"):
         logger.warning(

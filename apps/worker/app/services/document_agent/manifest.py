@@ -49,7 +49,9 @@ class PageLabel:
 @dataclass
 class DocumentProfile:
     is_scanned: bool
-    category: str
+    category: list[str]
+    """Domain codes picked from the domain taxonomy (e.g. ``["6612"]``)."""
+    category_label: str
     routing_category: str = "generic"
     language: str = "unknown"
     # Content-band margins as fractions of page height (top origin, y down).

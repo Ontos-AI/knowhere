@@ -23,8 +23,8 @@ import pytest  # noqa: E402
 
 from app.services.document_parser.formats.pdf.shard_splitter import (  # noqa: E402
     MergedShard,
+    select_live_shards,
     shard_page_numbers,
-    split_pdf_page_numbers,
 )
 from shared.core.constants.processing import ProcessingConstants  # noqa: E402
 from shared.services.chunks.dataframe_chunk_converter import (  # noqa: E402
@@ -140,7 +140,7 @@ def test_layout_index_keeps_first_region_of_a_repeated_image(tmp_path: Path) -> 
     assert regions["same.jpg"] == _region(1, [1, 1, 2, 2])
 
 
-def test_shard_regions_merge_in_shard_order_and_skip_missing_dirs(
+def test_shard_regions_merge_in_shard_order_keeps_first_duplicate(
     tmp_path: Path,
 ) -> None:
     first = tmp_path / "shard_0"
@@ -160,8 +160,8 @@ def test_shard_regions_merge_in_shard_order_and_skip_missing_dirs(
     )
 
     regions = load_shard_image_regions(
-        [str(first), None, str(second)],
-        [[1], [2], [20]],
+        [str(first), str(second)],
+        [[1], [20]],
     )
 
     assert regions["dup.jpg"] == _region(1, [1, 1, 2, 2])
@@ -175,15 +175,19 @@ def test_shard_page_numbers_skip_excluded_pages() -> None:
     assert shard_page_numbers(shard, {7, 8, 100}) == [5, 6, 9]
 
 
-def test_split_pdf_page_numbers_drop_shards_without_a_pdf() -> None:
+def test_select_live_shards_drops_fully_excluded_middle_shard() -> None:
     shards = [
         MergedShard(shard_index=0, page_start=1, page_end=2),
         MergedShard(shard_index=1, page_start=3, page_end=4),
         MergedShard(shard_index=2, page_start=5, page_end=6),
     ]
 
-    # Shard 1 is entirely excluded, so split_pdf writes no PDF for it.
-    assert split_pdf_page_numbers(shards, {3, 4, 5}) == [[1, 2], [6]]
+    live = select_live_shards(shards, {3, 4, 5})
+
+    assert [item.shard_index for item in live] == [0, 2]
+    assert [item.page_numbers for item in live] == [[1, 2], [6]]
+    assert live[0].is_first_shard is True
+    assert live[1].is_first_shard is False
 
 
 def test_shard_regions_reject_misaligned_page_maps(tmp_path: Path) -> None:
