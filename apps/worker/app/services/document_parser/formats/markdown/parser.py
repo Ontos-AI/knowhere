@@ -14,6 +14,10 @@ from app.services.document_parser.formats.markdown.image_asset import (
     build_markdown_image_name,
     build_markdown_image_asset,
 )
+from app.services.document_parser.formats.markdown.layout_bbox_index import (
+    AssetRegion,
+    image_region_metadata,
+)
 from app.services.document_parser.formats.markdown.parse_state import MarkdownParseState
 from app.services.document_parser.formats.markdown.table_asset import (
     MarkdownTableAssetRequest,
@@ -238,6 +242,7 @@ def parse_md(
     lines_with_heading=None,
     is_first_shard=True,
     skip_toc_detection=False,
+    image_regions: dict[str, AssetRegion] | None = None,
 ):
     if lines_with_heading is not None:
         # ── Phase A bypass ──
@@ -407,7 +412,12 @@ def parse_md(
                     and image_asset.row_values is not None
                 ):
                     parser_state.append_content_item(image_asset.content_item)
-                    parser_state.append_row(image_asset.row_values)
+                    parser_state.append_row(
+                        image_asset.row_values,
+                        extra_metadata=image_region_metadata(
+                            image_regions or {}, img_path
+                        ),
+                    )
                 if (
                     image_asset.cache_key is not None
                     and image_asset.cache_entry is not None

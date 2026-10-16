@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -31,6 +31,7 @@ class MarkdownParseState:
     timestamp: str
     row_updater: RowUpdater
     rows: list[ParserRowValues] = field(default_factory=list)
+    row_extra_metadata: dict[int, str] = field(default_factory=dict)
     content_items: list[str] = field(default_factory=list)
     path_stack: list[tuple[str, int]] = field(default_factory=list)
     inner_paths: list[str] = field(default_factory=list)
@@ -125,7 +126,15 @@ class MarkdownParseState:
     def append_plain_text(self, text: str) -> None:
         self.content_items.append(text.strip())
 
-    def append_row(self, row: ParserRowValues) -> None:
+    def append_row(
+        self,
+        row: ParserRowValues,
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        if extra_metadata:
+            self.row_extra_metadata[len(self.rows)] = json.dumps(
+                extra_metadata, ensure_ascii=False
+            )
         self.rows.append(row)
 
     def schedule_deferred_task(self, task: MarkdownDeferredSummaryTask) -> None:
@@ -168,6 +177,10 @@ class MarkdownParseState:
                     asset_title=str(row_values[12]) if len(row_values) > 12 else "",
                 )
             )
-        return process_dup_paths_df(rows_builder.to_dataframe())
+        rows_df = rows_builder.to_dataframe()
+        rows_df["extra_metadata"] = [
+            self.row_extra_metadata.get(index, "") for index in range(len(rows_df))
+        ]
+        return process_dup_paths_df(rows_df)
 
 

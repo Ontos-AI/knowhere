@@ -544,6 +544,8 @@ def build_asset_rows(
 
 
 def _asset_extra_metadata(asset: PageAsset) -> dict[str, Any]:
+    if asset.kind == "table":
+        return {}
     # bbox is the detected (VLM) box on the rendered page image, not the cropped box.
     return {
         "asset_region": {

@@ -73,14 +73,23 @@ def test_asset_region_and_metadata_match_between_chunks_and_zip() -> None:
         "page_height": 1400,
         "crop_margin_px": 4,
     }
-    for asset_id in ("asset_figure_1", "asset_table_2"):
-        chunk_metadata = chunk_by_id[asset_id]
-        zip_metadata = zip_by_id[asset_id]
-        assert chunk_metadata["asset_region"] == expected_region
+    figure_chunk = chunk_by_id["asset_figure_1"]
+    figure_zip = zip_by_id["asset_figure_1"]
+    table_chunk = chunk_by_id["asset_table_2"]
+    table_zip = zip_by_id["asset_table_2"]
+    assert figure_chunk["asset_region"] == expected_region
+    assert figure_zip["asset_region"] == expected_region
+    assert "asset_region" not in table_chunk
+    assert "asset_region" not in table_zip
+    assert table_chunk["page_nums"] == [5]
+    assert table_zip["page_nums"] == [5]
+    for chunk_metadata, zip_metadata in (
+        (figure_chunk, figure_zip),
+        (table_chunk, table_zip),
+    ):
         assert "image_uri" not in chunk_metadata
         assert set(zip_metadata) <= set(chunk_metadata)
         for key in (
-            "asset_region",
             "entities",
             "asset_title",
             "keywords",

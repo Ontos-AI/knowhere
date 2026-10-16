@@ -422,15 +422,8 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
     assert "title" not in rows[0]["extra_metadata"]
     assert "html_uri" not in rows[0]["extra_metadata"]
     assert "image_uri" not in rows[0]["extra_metadata"]
-    assert rows[0]["extra_metadata"]["asset_region"] == {
-        "page_num": 231,
-        "bbox": [10, 20, 200, 120],
-        "coord_origin": "top_left",
-        "coord_system": "page_image_px",
-        "page_width": 1000,
-        "page_height": 1400,
-        "crop_margin_px": 4,
-    }
+    assert "asset_region" not in rows[0]["extra_metadata"]
+    assert rows[0]["page_nums"] == "231"
 
     by_path = {row["path"]: row for row in rows}
     owner = by_path["demo.pdf/3 基本规定/3.1 职责"]

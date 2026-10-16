@@ -1357,3 +1357,192 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
         "oversized.pdf/Chapter 1",
         "oversized.pdf/Chapter 2",
     ]
+
+
+def test_sharded_pdf_image_bbox_page_numbers_are_original_pages_after_toc_removal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
+    monkeypatch.setenv("TMP_PATH", str(tmp_path))
+    monkeypatch.setenv("S3_BUCKET_NAME", "test-uploads")
+    monkeypatch.setenv("S3_ACCESS_KEY_ID", "test")
+    monkeypatch.setenv("S3_SECRET_ACCESS_KEY", "test")
+    monkeypatch.setenv("S3_TEMP_PATH", str(tmp_path))
+
+    from PIL import Image
+
+    from app.services.document_agent.manifest import (
+        PageAnatomyMap,
+        Shard,
+        ShardPlan,
+        TocResult,
+    )
+    from app.services.document_parser.formats.pdf import parser as pdf_parser
+    from app.services.document_parser.profiling.profile_model import ParserDocumentProfile
+    from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
+    from shared.core.constants.processing import ProcessingConstants
+
+    pdf_path = tmp_path / "sharded.pdf"
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    _write_blank_pdf(pdf_path, page_count=3)
+
+    class _FakeJobFileStorage:
+        def upload_source_file(self, local_file_path: str, storage_key: str) -> dict[str, str]:
+            return {"etag": "test"}
+
+        def verify_upload_exists(self, storage_key: str) -> dict[str, bool]:
+            return {"exists": True}
+
+        def delete_upload_file(self, storage_key: str) -> bool:
+            return True
+
+    # Shard 0 covers pages 1-2 with TOC page 1 removed, so MinerU page_idx 0 is
+    # original page 2. Shard 1 covers page 3 only.
+    anatomy = PageAnatomyMap(
+        job_id="job-bbox-pages",
+        file_path=str(pdf_path),
+        page_count=3,
+        page_features=[],
+        page_labels=[],
+        toc_result=TocResult(toc_pages=[1], method="vlm_batch"),
+        shard_plan=ShardPlan(
+            enabled=True,
+            reason="too_large",
+            shards=[
+                Shard(
+                    shard_index=0,
+                    page_start=1,
+                    page_end=2,
+                    page_offset=0,
+                    anchor_type="toc_leaf_boundary",
+                    anchor_evidence="Chapter 1",
+                ),
+                Shard(
+                    shard_index=1,
+                    page_start=3,
+                    page_end=3,
+                    page_offset=2,
+                    anchor_type="toc_leaf_boundary",
+                    anchor_evidence="Chapter 2",
+                ),
+            ],
+        ),
+        toc_hierarchies=[{"toc_tree": {"Chapter 1": {}, "Chapter 2": {}}}],
+    )
+
+    image_names = {0: "1" * 64 + ".jpg", 1: "2" * 64 + ".jpg"}
+    image_bboxes = {0: [10, 20, 300, 400], 1: [30, 40, 500, 600]}
+
+    def _fake_split_pdf(pdf_path_arg, shards, work_dir, exclude_pages=None):
+        paths = []
+        for shard in shards:
+            shard_path = Path(work_dir) / f"shard_{shard.shard_index}.pdf"
+            shard_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
+            paths.append(str(shard_path))
+        return paths, None
+
+    def _fake_parse_via_full(shard_pdf, shard_filename, shard_out, s3_key=None):
+        shard_index = 0 if "shard0" in shard_filename else 1
+        shard_dir = Path(shard_out)
+        (shard_dir / "images").mkdir(parents=True, exist_ok=True)
+        image_name = image_names[shard_index]
+        width = height = 640
+        pixels = bytearray(width * height * 3)
+        for index in range(len(pixels)):
+            pixels[index] = (index * (37 + shard_index * 16)) % 256
+        image_file = shard_dir / "images" / image_name
+        Image.frombytes("RGB", (width, height), bytes(pixels)).save(
+            image_file, format="JPEG", quality=95
+        )
+        with image_file.open("ab") as handle:
+            handle.write(b"\x00" * ProcessingConstants.IMG_MIN_SIZE)
+        (shard_dir / "full.md").write_text(
+            f"# Chapter {shard_index + 1}\n![](images/{image_name})",
+            encoding="utf-8",
+        )
+        bbox = image_bboxes[shard_index]
+        span = {"bbox": bbox, "type": "image", "image_path": image_name}
+        (shard_dir / "layout.json").write_text(
+            json.dumps(
+                {
+                    "pdf_info": [
+                        {
+                            "page_idx": 0,
+                            "page_size": [960, 540],
+                            "para_blocks": [
+                                {
+                                    "type": "image",
+                                    "bbox": bbox,
+                                    "blocks": [
+                                        {
+                                            "type": "image_body",
+                                            "bbox": bbox,
+                                            "lines": [{"bbox": bbox, "spans": [span]}],
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def _identity_eval_md_headings(
+        md_lines,
+        source_type,
+        toc_hierarchies=None,
+        smart_parse=True,
+        model_name=None,
+        output_dir=None,
+        layout_json_path=None,
+        is_first_shard=True,
+    ):
+        return list(md_lines)
+
+    monkeypatch.setattr(pdf_parser.settings, "MAX_PDF_PAGE_LIMIT", 2)
+    monkeypatch.setattr(pdf_parser.settings, "MINERU_SHARD_CONCURRENCY", 1)
+    monkeypatch.setattr(
+        "app.services.document_parser.formats.pdf.shard_splitter.split_pdf",
+        _fake_split_pdf,
+    )
+    monkeypatch.setattr(pdf_parser, "parse_via_full", _fake_parse_via_full)
+    monkeypatch.setattr(
+        "app.services.document_parser.formats.markdown.parser.eval_md_headings",
+        _identity_eval_md_headings,
+    )
+    monkeypatch.setattr(pdf_parser, "JobFileStorage", _FakeJobFileStorage)
+
+    df = pdf_parser.parse_pdfs(
+        str(pdf_path),
+        "sharded.pdf",
+        str(output_dir),
+        {
+            "smart_title_parse": False,
+            "summary_image": False,
+            "summary_table": False,
+            "summary_txt": False,
+            "stopwords": [],
+            "model_name": "mock-model",
+            "hierarchy_model_name": "mock-model",
+        },
+        profile=ParserDocumentProfile(
+            file_type="pdf",
+            category="generic document",
+            routing_category=PdfRoutingCategory.GENERIC,
+            page_count=3,
+            anatomy=anatomy,
+        ),
+        relative_root="sharded.pdf",
+        s3_key="uploads/job-bbox-pages.pdf",
+        job_id="job-bbox-pages",
+    )
+
+    image_rows = df[df["type"] == "image"]
+    regions = [json.loads(value)["asset_region"] for value in image_rows["extra_metadata"]]
+    assert [region["page_num"] for region in regions] == [2, 3]
+    assert [region["bbox"] for region in regions] == [image_bboxes[0], image_bboxes[1]]
+    assert {region["coord_system"] for region in regions} == {"mineru_layout"}

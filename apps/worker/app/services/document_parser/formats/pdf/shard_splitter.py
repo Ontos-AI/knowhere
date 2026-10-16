@@ -28,11 +28,6 @@ class MergedShard:
     def page_count(self) -> int:
         return self.page_end - self.page_start + 1
 
-    @property
-    def page_offset(self) -> int:
-        """Offset to add to MinerU's 0-based page_idx to get original page_idx."""
-        return self.page_start - 1
-
 
 def map_agent_shards(
     agent_shards: list["Shard"],
@@ -46,6 +41,19 @@ def map_agent_shards(
     return [
         MergedShard(idx, page_start=s.page_start, page_end=s.page_end)
         for idx, s in enumerate(agent_shards)
+    ]
+
+
+def shard_page_numbers(shard: MergedShard, exclude_pages: set[int]) -> list[int]:
+    """Original 1-based page numbers physically present in the shard PDF, in order.
+
+    Index ``i`` is the original page of MinerU's 0-based ``page_idx == i`` for
+    this shard, because excluded (e.g. TOC) pages are removed before MinerU runs.
+    """
+    return [
+        page_num
+        for page_num in range(shard.page_start, shard.page_end + 1)
+        if page_num not in exclude_pages
     ]
 
 
@@ -122,9 +130,7 @@ def _extract_shards(
         sub_doc = pymupdf.open()
         try:
             shard_included = 0
-            for page_num in range(shard.page_start, shard.page_end + 1):
-                if exclude_pages and page_num in exclude_pages:
-                    continue
+            for page_num in shard_page_numbers(shard, exclude_pages or set()):
                 sub_doc.insert_pdf(
                     doc,
                     from_page=page_num - 1,

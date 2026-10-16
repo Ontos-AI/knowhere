@@ -3,6 +3,10 @@ import os
 import re
 import shutil
 
+from app.services.document_parser.formats.markdown.layout_bbox_index import (
+    load_layout_image_regions,
+    load_shard_image_regions,
+)
 from app.services.document_parser.formats.markdown.parser import parse_md
 from app.services.document_parser.orchestration.oversized_pdf_policy import (
     build_oversized_pdf_processing_failed_exception,
@@ -86,6 +90,9 @@ def parse_pdfs(
             base_llm_paras=base_llm_paras,
             relative_root=relative_root,
             skip_toc_detection=True,
+            image_regions=load_layout_image_regions(
+                os.path.join(output_dir, "layout.json")
+            ),
         )
 
 
@@ -118,6 +125,7 @@ def _parse_pdf_via_shards(
     )
     from app.services.document_parser.formats.pdf.shard_splitter import (
         map_agent_shards,
+        shard_page_numbers,
         split_pdf,
     )
     from shared.services.ai.token_tracking import (
@@ -346,6 +354,15 @@ def _parse_pdf_via_shards(
             if not fast_path_original_pdf:
                 merge_images(shard_output_dirs, output_dir)
 
+        # The fast path parsed the whole original PDF; otherwise each shard PDF
+        # holds only its page range minus the excluded TOC pages.
+        shard_page_maps = (
+            [None]
+            if fast_path_original_pdf
+            else [shard_page_numbers(shard, toc_pages) for shard in merged_shards]
+        )
+        image_regions = load_shard_image_regions(shard_output_dirs, shard_page_maps)
+
         logger.info("✅ Shard-first hierarchy complete, entering parse_md Phase B")
 
         # 8. parse_md Phase B only (skip TOC detection + heading prediction)
@@ -356,6 +373,7 @@ def _parse_pdf_via_shards(
                 base_llm_paras=base_llm_paras,
                 relative_root=relative_root,
                 lines_with_heading=all_lines_with_heading,
+                image_regions=image_regions,
             )
     finally:
         _cleanup_temp_shard_s3_assets(temp_shard_s3_keys)

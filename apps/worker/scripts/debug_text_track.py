@@ -664,9 +664,32 @@ def _stage_full_pdf(
     filename: str,
     merged_lines: list[str],
     model: str | None,
+    anatomy,
 ):
+    from app.services.document_parser.formats.markdown.layout_bbox_index import (
+        load_shard_image_regions,
+    )
     from app.services.document_parser.formats.markdown.parser import parse_md
+    from app.services.document_parser.formats.pdf.shard_splitter import (
+        map_agent_shards,
+        shard_page_numbers,
+    )
     from app.services.document_parser.orchestration.postprocess import apply_parse_postprocess
+
+    merged_shards = map_agent_shards(anatomy.shard_plan.shards)
+    toc_pages: set[int] = set()
+    if anatomy.toc_result and anatomy.toc_result.toc_pages:
+        toc_pages = set(anatomy.toc_result.toc_pages)
+    fast_path = len(merged_shards) == 1 and not toc_pages
+    shard_page_maps = (
+        [None]
+        if fast_path
+        else [shard_page_numbers(shard, toc_pages) for shard in merged_shards]
+    )
+    image_regions = load_shard_image_regions(
+        [str(out_dir / "_shards" / f"shard_{i}") for i in range(len(merged_shards))],
+        shard_page_maps,
+    )
 
     logger.info("=" * 70)
     logger.info("📦 Stage 4: parse_md Phase B → DataFrame → chunks")
@@ -687,6 +710,7 @@ def _stage_full_pdf(
         base_llm_paras=base_llm_paras,
         relative_root=filename,
         lines_with_heading=merged_lines,
+        image_regions=image_regions,
     )
     parsed_df = apply_parse_postprocess(str(out_dir), parsed_df)
     elapsed_parse = time.time() - t0
@@ -878,7 +902,7 @@ def main() -> int:
 
             # Stage 4: Full extraction
             chunks, full_elapsed = _stage_full_pdf(
-                out_dir, filename, merged_lines, args.model
+                out_dir, filename, merged_lines, args.model, anatomy
             )
             trace["stages"]["full"] = {
                 "elapsed_s": round(full_elapsed, 1),
