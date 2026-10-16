@@ -1,0 +1,185 @@
+{
+  "$defs": {
+    "NavigationStatistics": {
+      "additionalProperties": true,
+      "properties": {
+        "image_chunks": {
+          "minimum": 0,
+          "title": "Image Chunks",
+          "type": "integer"
+        },
+        "max_depth": {
+          "minimum": 0,
+          "title": "Max Depth",
+          "type": "integer"
+        },
+        "page_chunks": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Page Chunks",
+          "type": "integer"
+        },
+        "table_chunks": {
+          "minimum": 0,
+          "title": "Table Chunks",
+          "type": "integer"
+        },
+        "text_chunks": {
+          "minimum": 0,
+          "title": "Text Chunks",
+          "type": "integer"
+        },
+        "total_chunks": {
+          "minimum": 0,
+          "title": "Total Chunks",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total_chunks",
+        "text_chunks",
+        "image_chunks",
+        "table_chunks",
+        "max_depth"
+      ],
+      "title": "NavigationStatistics",
+      "type": "object"
+    },
+    "Resource": {
+      "additionalProperties": true,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "summary"
+      ],
+      "title": "Resource",
+      "type": "object"
+    },
+    "Resources": {
+      "additionalProperties": true,
+      "properties": {
+        "images": {
+          "items": {
+            "$ref": "#/$defs/Resource"
+          },
+          "title": "Images",
+          "type": "array"
+        },
+        "tables": {
+          "items": {
+            "$ref": "#/$defs/Resource"
+          },
+          "title": "Tables",
+          "type": "array"
+        }
+      },
+      "required": [
+        "images",
+        "tables"
+      ],
+      "title": "Resources",
+      "type": "object"
+    },
+    "Section": {
+      "additionalProperties": true,
+      "properties": {
+        "children": {
+          "items": {
+            "$ref": "#/$defs/Section"
+          },
+          "title": "Children",
+          "type": "array"
+        },
+        "chunk_count": {
+          "minimum": 0,
+          "title": "Chunk Count",
+          "type": "integer"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Level"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "path",
+        "summary",
+        "chunk_count",
+        "children"
+      ],
+      "title": "Section",
+      "type": "object"
+    }
+  },
+  "$id": "https://knowhereto.ai/contracts/parse_result/v1/doc_nav.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "file_name": {
+      "title": "File Name",
+      "type": "string"
+    },
+    "resources": {
+      "$ref": "#/$defs/Resources"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sections": {
+      "items": {
+        "$ref": "#/$defs/Section"
+      },
+      "title": "Sections",
+      "type": "array"
+    },
+    "stats": {
+      "$ref": "#/$defs/NavigationStatistics"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "version",
+    "file_name",
+    "stats",
+    "sections",
+    "resources"
+  ],
+  "title": "DocNav",
+  "type": "object"
+}

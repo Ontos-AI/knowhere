@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "version": "2.0",
+  "job_id": "job-fixture",
+  "data_id": null,
+  "source_file_name": "sample.pdf",
+  "processing_date": "2026-10-07T00:00:00Z",
+  "processing": {
+    "page_count": 3,
+    "billing_status": "skipped",
+    "cost": {
+      "micro_dollars": null,
+      "credits": null
+    },
+    "timing": {
+      "started_at": null,
+      "completed_at": null,
+      "duration_ms": null
+    },
+    "stages": {}
+  },
+  "statistics": {
+    "total_chunks": 4,
+    "text_chunks": 1,
+    "image_chunks": 1,
+    "table_chunks": 1,
+    "page_chunks": 1,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Intro": {},
+    "Chapter": {}
+  }
+}

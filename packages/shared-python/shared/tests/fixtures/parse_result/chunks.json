@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "chunks": [
+    {
+      "chunk_id": "text-1",
+      "type": "text",
+      "content": "hello",
+      "path": "sample.pdf/Intro",
+      "metadata": {
+        "length": 5,
+        "summary": "hello",
+        "page_nums": [
+          1
+        ],
+        "tokens": 0,
+        "keywords": [],
+        "connect_to": []
+      }
+    },
+    {
+      "chunk_id": "image-1",
+      "type": "image",
+      "content": "A picture",
+      "path": "images/picture.png",
+      "metadata": {
+        "length": 9,
+        "summary": "picture",
+        "page_nums": [
+          1
+        ],
+        "file_path": "images/picture.png",
+        "tokens": [],
+        "keywords": []
+      }
+    },
+    {
+      "chunk_id": "table-1",
+      "type": "table",
+      "content": "tables/table.html",
+      "path": "tables/table.html",
+      "metadata": {
+        "length": 17,
+        "summary": "table",
+        "page_nums": [
+          2
+        ],
+        "file_path": "tables/table.html",
+        "tokens": [],
+        "keywords": [],
+        "connect_to": []
+      }
+    },
+    {
+      "chunk_id": "page-1",
+      "type": "page",
+      "content": "page text",
+      "path": "sample.pdf/Chapter",
+      "metadata": {
+        "length": 9,
+        "summary": "page",
+        "page_nums": [
+          3
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 3,
+            "artifact_ref": "page_citation_assets/page-3.webp",
+            "source": "render",
+            "content_type": "image/webp"
+          }
+        ]
+      }
+    }
+  ]
+}

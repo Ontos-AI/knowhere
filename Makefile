@@ -32,3 +32,10 @@ check: lint typecheck
 
 test-doc-agent:
 	cd apps/worker && $(UV_RUN_ENV) $(UV) run pytest tests/document_agent
+
+.PHONY: sync-contracts check-contracts
+sync-contracts:
+	$(UV_RUN) python scripts/sync_parse_result_contracts.py
+
+check-contracts:
+	$(UV_RUN) python scripts/sync_parse_result_contracts.py --check
