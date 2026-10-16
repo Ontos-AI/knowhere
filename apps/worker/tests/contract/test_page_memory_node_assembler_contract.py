@@ -421,6 +421,16 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
     assert "asset_kind" not in rows[0]["extra_metadata"]
     assert "title" not in rows[0]["extra_metadata"]
     assert "html_uri" not in rows[0]["extra_metadata"]
+    assert "image_uri" not in rows[0]["extra_metadata"]
+    assert rows[0]["extra_metadata"]["asset_region"] == {
+        "page_num": 231,
+        "bbox": [10, 20, 200, 120],
+        "coord_origin": "top_left",
+        "coord_system": "page_image_px",
+        "page_width": 1000,
+        "page_height": 1400,
+        "crop_margin_px": 4,
+    }
 
     by_path = {row["path"]: row for row in rows}
     owner = by_path["demo.pdf/3 基本规定/3.1 职责"]
@@ -428,7 +438,7 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
     assert '"relation": "embeds"' in owner["connectto"]
     assert '"target": "tables/table_page_231_1.html"' in owner["connectto"]
     assert '"relation": "related"' in shared["connectto"]
-    assert '"same_as_owner": "demo.pdf/3 基本规定/3.1 职责"' in shared["connectto"]
+    assert "same_as_owner" not in shared["connectto"]
 
 
 def test_page_connectto_normalizes_to_asset_chunk_id() -> None:
@@ -480,4 +490,7 @@ def test_page_connectto_normalizes_to_asset_chunk_id() -> None:
             "relation": "embeds",
             "ref": "[tables/table_page_1_1.html]",
         }
+    ]
+    assert asset_chunk["metadata"]["connect_to"] == [
+        {"target": "page_1", "relation": "embedded_by"}
     ]

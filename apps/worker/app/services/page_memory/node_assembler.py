@@ -630,14 +630,14 @@ def _attach_asset_connections(
                 row = rows_by_path.get(leaf.section_path)
                 if row is None:
                     continue
-                connection: dict[str, Any] = {
-                    "target": uri,
-                    "relation": "related",
-                    "ref": ref,
-                }
-                if owner_leaf is not None:
-                    connection["same_as_owner"] = owner_leaf.section_path
-                _append_connect_to(row, connection)
+                _append_connect_to(
+                    row,
+                    {
+                        "target": uri,
+                        "relation": "related",
+                        "ref": ref,
+                    },
+                )
 
 
 def _append_connect_to(row: dict[str, Any], connection: dict[str, Any]) -> None:

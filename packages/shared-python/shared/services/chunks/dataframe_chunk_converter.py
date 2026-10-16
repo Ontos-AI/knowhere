@@ -12,8 +12,10 @@ import pandas as pd
 from loguru import logger
 
 from shared.services.chunks.chunk_connections import (
+    RELATION_RELATED,
     ConnectionValue,
     RelationshipRef,
+    attach_embedded_by_connections,
     build_resource_target_map,
     convert_refs_to_embed_connections,
     merge_connections,
@@ -203,9 +205,7 @@ def _parse_connect_to(value: object) -> list[ConnectionValue]:
     return [
         {
             "target": connects_text,
-            "relation": "related",
-            "score": 1.0,
-            "keywords": [],
+            "relation": RELATION_RELATED,
         }
     ]
 
@@ -384,6 +384,7 @@ def dataframe_to_chunks(df: _ParserDataFrame | None) -> list[Dict[str, JsonValue
                 resource_target_map,
             ),
         )
+    attach_embedded_by_connections(chunks)
 
     logger.debug(f"DataFrame conversion completed: chunk count={len(chunks)}")
     return cast(list[Dict[str, JsonValue]], chunks)

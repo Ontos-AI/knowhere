@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, TypeAlias, TypedDict
+from typing import Any, Final, TypeAlias, TypedDict
 
 from shared.utils.chunk_refs import ChunkRefSpan, extract_chunk_ref_spans
 
@@ -13,14 +13,27 @@ class PositionPayload(TypedDict):
     end: int
 
 
+RELATION_EMBEDS: Final = "embeds"
+RELATION_EMBEDDED_BY: Final = "embedded_by"
+RELATION_RELATED: Final = "related"
+# Reserved for future producers; no code path emits these yet.
+RELATION_CROSS_DOC_ENTITY: Final = "cross_doc_entity"
+RELATION_INTRA_DOC_REF: Final = "intra_doc_ref"
+
+# Relations whose targets are expanded when hydrating or deduplicating a
+# body chunk's connected assets. Reverse and future relations are excluded so
+# they stay purely additive for existing consumers.
+FORWARD_RELATIONS: Final = frozenset({RELATION_EMBEDS, RELATION_RELATED})
+
+_ASSET_CHUNK_TYPES: Final = frozenset({"image", "table"})
+
+
 class ConnectionPayload(TypedDict, total=False):
     target: str
+    target_document_id: str
     relation: str
     ref: str
     position: PositionPayload
-    score: float
-    keywords: list[str]
-    same_as_owner: str
 
 
 RelationshipRef: TypeAlias = str | ChunkRefSpan
@@ -97,7 +110,7 @@ def convert_refs_to_embed_connections(
 
         connection: ConnectionPayload = {
             "target": target_id,
-            "relation": "embeds",
+            "relation": RELATION_EMBEDS,
             "ref": ref_text,
         }
         if isinstance(start, int) and isinstance(end, int):
@@ -129,20 +142,14 @@ def normalize_connect_to_targets(
 
             normalized_item: ConnectionPayload = {
                 "target": normalized_target,
-                "relation": str(item.get("relation") or "related"),
+                "relation": str(item.get("relation") or RELATION_RELATED),
             }
-            score = item.get("score")
-            if isinstance(score, (int, float)):
-                normalized_item["score"] = float(score)
-            keywords = item.get("keywords")
-            if isinstance(keywords, list):
-                normalized_item["keywords"] = [str(keyword) for keyword in keywords]
+            target_document_id = item.get("target_document_id")
+            if target_document_id:
+                normalized_item["target_document_id"] = str(target_document_id)
             ref = item.get("ref")
             if ref:
                 normalized_item["ref"] = str(ref)
-            same_as_owner = item.get("same_as_owner")
-            if same_as_owner:
-                normalized_item["same_as_owner"] = str(same_as_owner)
             position = item.get("position")
             if isinstance(position, dict):
                 start = position.get("start")
@@ -158,9 +165,7 @@ def normalize_connect_to_targets(
             normalized.append(
                 {
                     "target": normalized_target,
-                    "relation": "related",
-                    "score": 1.0,
-                    "keywords": [],
+                    "relation": RELATION_RELATED,
                 }
             )
     return normalized
@@ -197,6 +202,37 @@ def merge_connections(
     return merged
 
 
+def attach_embedded_by_connections(chunks: Sequence[Mapping[str, Any]]) -> None:
+    """Give every embedded image/table an ``embedded_by`` edge to its owner.
+
+    Mutates each asset chunk's ``metadata["connect_to"]`` in place. ``chunks``
+    must already carry their final forward ``embeds`` edges, with targets
+    normalized to chunk ids.
+    """
+    assets_by_chunk_id: dict[str, list[Mapping[str, Any]]] = {}
+    for chunk in chunks:
+        if chunk.get("type") in _ASSET_CHUNK_TYPES:
+            assets_by_chunk_id.setdefault(str(chunk["chunk_id"]), []).append(chunk)
+
+    for owner in chunks:
+        owner_id = str(owner["chunk_id"])
+        for connection in owner["metadata"].get("connect_to") or []:
+            if (
+                not isinstance(connection, dict)
+                or connection.get("relation") != RELATION_EMBEDS
+            ):
+                continue
+            target_id = str(connection.get("target") or "")
+            if target_id == owner_id:
+                continue
+            for asset in assets_by_chunk_id.get(target_id, ()):
+                asset_metadata = asset["metadata"]
+                asset_metadata["connect_to"] = merge_connections(
+                    asset_metadata.get("connect_to") or [],
+                    [{"target": owner_id, "relation": RELATION_EMBEDDED_BY}],
+                )
+
+
 def _parse_type_relationship_refs(type_value: object) -> list[str]:
     if not isinstance(type_value, str) or "\n" not in type_value:
         return []
@@ -206,10 +242,10 @@ def _parse_type_relationship_refs(type_value: object) -> list[str]:
 
 def _get_connection_key(item: ConnectionValue) -> ConnectionKey:
     if not isinstance(item, dict):
-        return ("", "related", "")
+        return ("", RELATION_RELATED, "")
     return (
         str(item.get("target") or ""),
-        str(item.get("relation") or "related"),
+        str(item.get("relation") or RELATION_RELATED),
         str(item.get("ref") or ""),
     )
 

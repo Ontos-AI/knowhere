@@ -79,8 +79,7 @@ class ZipChunkSchemaBuilder:
             if chunk_type == "text":
                 metadata.update(
                     {
-                        "tokens": existing_metadata.get("tokens")
-                        or chunk.get("tokens", 0),
+                        "tokens": existing_metadata.get("tokens") or [],
                         "keywords": existing_metadata.get("keywords")
                         or chunk.get("keywords", []),
                         "connect_to": _build_embed_connect_to(
@@ -95,10 +94,17 @@ class ZipChunkSchemaBuilder:
             elif chunk_type == "image":
                 if image_info:
                     metadata["file_path"] = image_info["file_path"]
+                if original_name := existing_metadata.get("original_name"):
+                    metadata["original_name"] = original_name
                 metadata["keywords"] = existing_metadata.get("keywords") or chunk.get(
                     "keywords", []
                 )
-                metadata["tokens"] = []
+                metadata["tokens"] = existing_metadata.get("tokens") or []
+                metadata["connect_to"] = existing_metadata.get("connect_to") or []
+                if asset_region := _normalize_asset_region(
+                    existing_metadata.get("asset_region")
+                ):
+                    metadata["asset_region"] = asset_region
             elif chunk_type == "table":
                 metadata["file_path"] = _resolve_table_file_path(
                     chunk=chunk,
@@ -110,7 +116,11 @@ class ZipChunkSchemaBuilder:
                 metadata["keywords"] = existing_metadata.get("keywords") or chunk.get(
                     "keywords", []
                 )
-                metadata["tokens"] = []
+                metadata["tokens"] = existing_metadata.get("tokens") or []
+                if asset_region := _normalize_asset_region(
+                    existing_metadata.get("asset_region")
+                ):
+                    metadata["asset_region"] = asset_region
                 metadata["connect_to"] = _build_embed_connect_to(
                     chunk=chunk,
                     chunk_type_str=chunk_type_str,
@@ -153,6 +163,10 @@ def _base_chunk_metadata(
         "summary": existing_metadata.get("summary") or chunk.get("summary", ""),
         "page_nums": existing_metadata.get("page_nums", []),
     }
+    if entities := existing_metadata.get("entities"):
+        metadata["entities"] = entities
+    if asset_title := existing_metadata.get("asset_title"):
+        metadata["asset_title"] = asset_title
     return metadata
 
 
@@ -230,9 +244,54 @@ def _normalize_page_assets(value: Any) -> list[dict[str, Any]]:
     return assets
 
 
+def _normalize_asset_region(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    page_num = _positive_int_or_none(value.get("page_num"))
+    bbox = _bbox_or_none(value.get("bbox"))
+    coord_origin = str(value.get("coord_origin") or "").strip()
+    coord_system = str(value.get("coord_system") or "").strip()
+    page_width = _positive_int_or_none(value.get("page_width"))
+    page_height = _positive_int_or_none(value.get("page_height"))
+    crop_margin_px = _non_negative_int_or_none(value.get("crop_margin_px"))
+    if (
+        page_num is None
+        or bbox is None
+        or not coord_origin
+        or not coord_system
+        or page_width is None
+        or page_height is None
+        or crop_margin_px is None
+    ):
+        return None
+    return {
+        "page_num": page_num,
+        "bbox": bbox,
+        "coord_origin": coord_origin,
+        "coord_system": coord_system,
+        "page_width": page_width,
+        "page_height": page_height,
+        "crop_margin_px": crop_margin_px,
+    }
+
+
+def _bbox_or_none(value: Any) -> list[int] | None:
+    if not isinstance(value, list) or len(value) != 4:
+        return None
+    try:
+        return [int(item) for item in value]
+    except (TypeError, ValueError):
+        return None
+
+
 def _positive_int_or_none(value: Any) -> int | None:
+    number = _non_negative_int_or_none(value)
+    return number if number is not None and number > 0 else None
+
+
+def _non_negative_int_or_none(value: Any) -> int | None:
     try:
         number = int(value)
     except (TypeError, ValueError):
         return None
-    return number if number > 0 else None
+    return number if number >= 0 else None
