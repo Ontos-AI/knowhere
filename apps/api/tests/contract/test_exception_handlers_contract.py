@@ -38,6 +38,42 @@ def _create_post_only_app() -> FastAPI:
     return app
 
 
+def _create_invalid_webhook_app() -> FastAPI:
+    _prepare_api_app_imports()
+
+    from app.core.exception_handlers import setup_exception_handlers
+    from shared.core.exceptions.webhook_exceptions import WebhookConfigException
+
+    app = FastAPI()
+
+    @app.post("/v2/jobs")
+    async def create_job() -> dict[str, bool]:
+        raise WebhookConfigException(
+            user_message="Invalid webhook URL",
+            internal_message=(
+                "Webhook validation failed: Hostname localhost failed validation"
+            ),
+        )
+
+    setup_exception_handlers(app)
+    return app
+
+
+async def test_invalid_webhook_config_returns_client_error() -> None:
+    app = _create_invalid_webhook_app()
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/v2/jobs")
+
+    assert response.status_code == 400
+    response_json = cast(dict[str, object], response.json())
+    error = cast(dict[str, object], response_json["error"])
+    assert response_json["success"] is False
+    assert error["code"] == "INVALID_ARGUMENT"
+    assert error["message"] == "Invalid webhook URL"
+
+
 async def test_get_to_post_only_route_returns_method_not_allowed() -> None:
     app = _create_post_only_app()
     transport = ASGITransport(app=app)

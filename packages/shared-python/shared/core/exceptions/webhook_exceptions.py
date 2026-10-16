@@ -38,8 +38,8 @@ class WebhookConfigException(WebhookException):
             internal_message=internal_message,
             user_message=user_message,
             http_status_code=400,
+            details=details,
         )
-        self.details = details
 
 
 class WebhookDeliveryException(WebhookException):
