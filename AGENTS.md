@@ -237,7 +237,6 @@ DataFrame is an internal detail. Below is the complete schema.
 ```text
 ~/.knowhere/{corpus_name}/
 ├── knowledge_graph.json           # corpus-wide graph: file metadata + cross-doc edges
-├── chunk_stats.json               # Per-chunk retrieval hit analytics {chunk_id → stats}
 ├── {source_file_name}/            # One directory per ingested document
 │   ├── chunks.json                # All parsed chunks for this document
 │   ├── doc_nav.json               # Hierarchical navigation tree for agentic retrieval
@@ -264,7 +263,6 @@ DataFrame is an internal detail. Below is the complete schema.
       "types": { "image": 13, "table": 1, "text": 141 },
       "top_keywords": ["model", "security", "ai", "operations", "artificial_intelligence"],
       "top_summary": "This document includes: Legal Notice, Foreword, 1. Overview, ...",
-      "importance": 0.3,
       "created_at": "2026-05-09T09:14:12.422208+00:00"
     }
   },
@@ -276,24 +274,7 @@ DataFrame is an internal detail. Below is the complete schema.
 |:---|:---|
 | `files.{name}.top_keywords` | TF-IDF top keywords across all chunks (used for cross-doc edge scoring) |
 | `files.{name}.top_summary` | Auto-generated outline of top-level headings (injected by `load_nav_top_summary()`) |
-| `files.{name}.importance` | Base importance score (feeds `compute_importance_score()` in ranking) |
 | `edges[]` | Cross-document edges with `{source, target, weight, shared_keywords}` when keyword overlap ≥ 0.8 |
-
-### `chunk_stats.json` — Retrieval Hit Analytics
-
-```json
-{
-  "2e2beffc-90b2-5429-8ee7-3c49260a1204": {
-    "hit_count": 0,
-    "first_hit": null,
-    "last_hit": null,
-    "created_at": "2026-05-09T09:14:12.423011+00:00"
-  }
-}
-```
-
-Keyed by `chunk_id`. `hit_count` and `last_hit` feed into `importance_norm_score`
-for retrieval ranking boost.
 
 ### `chunks.json` — Per-Document Chunk Records
 
@@ -340,7 +321,10 @@ chunk objects. Three chunk types exist:
     "page_nums": [],
     "file_path": "images/image-1 ai_model.png",
     "keywords": [],
-    "tokens": []
+    "tokens": [],
+    "connect_to": [
+      { "target": "d88e4c47-3c48-5bdf-b849-693c00453021", "relation": "embedded_by" }
+    ]
   }
 }
 ```
@@ -374,13 +358,14 @@ chunk objects. Three chunk types exist:
 | `path` | `str` | Hierarchical path: `{kb}/{file}/{section1}/{section2}/...` for text; `images/...` or `tables/...` for assets |
 | `metadata.length` | `int` | Character count of content |
 | `metadata.summary` | `str` | LLM summary (images/tables: `"image-N\n{description}"`) |
-| `metadata.tokens` | `list[str]` | Pre-tokenized Chinese terms for BM25 retrieval |
+| `metadata.entities` | `list[{text, type}]` | Typed entities extracted from content or asset VLM/LLM analysis |
 | `metadata.keywords` | `list[str]` | LLM-extracted keywords (semicolon-split from DataFrame) |
 | `metadata.page_nums` | `list[int]` | Source page numbers (PDF only) |
 | `metadata.file_path` | `str` | Relative asset path for images/tables |
-| `metadata.connect_to` | `list[ConnectionValue]` | Cross-chunk references (text→image/table embeddings) |
+| `metadata.connect_to` | `list[ConnectionValue]` | Cross-chunk relations (body↔image/table embeddings) |
 | `metadata.connect_to[].target` | `str` | Target chunk_id |
-| `metadata.connect_to[].relation` | `str` | `"embeds"` (inline asset) or `"related"` |
+| `metadata.connect_to[].target_document_id` | `str` | Reserved for cross-document targets; omitted for same-document edges |
+| `metadata.connect_to[].relation` | `str` | `"embeds"` (body → inline asset), `"embedded_by"` (asset → owning body), `"related"` (same-page body → asset); `"cross_doc_entity"` / `"intra_doc_ref"` are reserved and not generated yet |
 | `metadata.connect_to[].ref` | `str` | Original reference string: `"[images/image-1.png]"` |
 | `metadata.connect_to[].position` | `{start, end}` | Character offset of the reference in content |
 

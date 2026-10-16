@@ -19,9 +19,19 @@ def normalize_keyword(keyword: str) -> str:
 
 
 def extract_keywords_from_chunk_metadata(meta: dict) -> list[str]:
-    """Extract keywords from chunk metadata."""
+    """Extract keywords from chunk metadata, preferring typed entities (§4.4)."""
     if not isinstance(meta, dict):
         return []
+
+    entities = meta.get('entities')
+    if isinstance(entities, list) and entities:
+        entity_texts = [
+            str(item.get('text', '')).strip()
+            for item in entities
+            if isinstance(item, dict) and str(item.get('text', '')).strip()
+        ]
+        if entity_texts:
+            return entity_texts
 
     keywords = meta.get('keywords', [])
     if isinstance(keywords, list) and keywords:

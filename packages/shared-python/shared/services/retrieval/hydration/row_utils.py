@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from shared.services.chunks.chunk_connections import (
+    FORWARD_RELATIONS,
+    RELATION_RELATED,
+)
 from shared.services.retrieval.document_scope import DocumentScope
 
 from typing import Any
@@ -14,6 +18,7 @@ PUBLIC_RESULT_FIELDS = {
     'content',
     'content_source',
     'score',
+    'importance',
     'asset_url',
     'source_chunk_path',
     'file_path',
@@ -94,6 +99,8 @@ def iter_connected_target_ids(row: dict[str, Any]) -> list[str]:
     target_ids: list[str] = []
     for item in metadata.get('connect_to') or []:
         if not isinstance(item, dict):
+            continue
+        if str(item.get('relation') or RELATION_RELATED) not in FORWARD_RELATIONS:
             continue
         target_id = str(item.get('target') or '').strip()
         if target_id:

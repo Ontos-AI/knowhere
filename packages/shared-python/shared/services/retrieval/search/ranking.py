@@ -164,6 +164,7 @@ def rank_candidates_by_path(
             )
             or 0.0
         )
+        row["importance"] = row["importance_raw_score"]
     apply_importance_multiplier(list(merged.values()))
 
     has_agent_results = len(routed_rows) > 0

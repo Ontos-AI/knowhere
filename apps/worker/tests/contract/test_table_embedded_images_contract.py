@@ -178,6 +178,13 @@ def test_table_embedded_images_are_extracted_rewritten_and_linked(
         for item in table_connect
     )
 
+    text_id = str(by_type["text"]["chunk_id"])
+    image_connect = by_type["image"]["metadata"]["connect_to"]
+    assert len(image_connect) == 2
+    assert all(item["relation"] == "embedded_by" for item in image_connect)
+    assert {item["target"] for item in image_connect} == {text_id, table_id}
+    assert {"target": text_id, "relation": "embedded_by"} in table_connect
+
 def test_table_embedded_images_skip_below_img_min_size(tmp_path: Path) -> None:
     output_dir = tmp_path / "doc"
     images_dir = output_dir / "images"
