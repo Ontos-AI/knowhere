@@ -24,7 +24,7 @@ def build_decision_trace(steps: list[AgentStep]) -> list[DecisionTraceStep]:
         observation_text = step.observation_text
         if len(observation_text) > TRACE_OBSERVATION_MAX_CHARS:
             observation_text = observation_text[:TRACE_OBSERVATION_MAX_CHARS] + "..."
-        phase = "finish" if step.tool_name == "finish" else (
+        phase = "evidence_review" if step.tool_name == "evidence_review" else "finish" if step.tool_name == "finish" else (
             "stop" if not step.tool_name else "tool_call"
         )
         observation: dict[str, object] = {"observation_text": observation_text}
@@ -63,6 +63,8 @@ def build_decision_trace(steps: list[AgentStep]) -> list[DecisionTraceStep]:
 def attach_evidence_pool(
     steps: list[DecisionTraceStep],
     pool: list[Candidate],
+    *,
+    stop_reason: str | None = None,
 ) -> list[DecisionTraceStep]:
     """Write the evidence pool onto the existing finish TRACE step.
 
@@ -70,6 +72,16 @@ def attach_evidence_pool(
     public TRACE shape still holds the pool.
     """
     records = pool_trace_records(pool)
+    if stop_reason is not None and (
+        stop_reason != "finished" or not any(step.phase == "finish" for step in steps)
+    ):
+        steps.append(DecisionTraceStep(
+            step_index=len(steps), agent="agent_explore", phase="stop",
+            observation={"observation_text": "Exploration stopped without a reviewed finish."},
+            decision={"action": stop_reason, "args": {}},
+            result={"status": "stopped", "error": None, "evidence_pool": records},
+        ))
+        return steps
     for step in reversed(steps):
         if step.phase == "finish":
             step.result = {**step.result, "evidence_pool": records}

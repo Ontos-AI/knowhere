@@ -29,13 +29,19 @@ class EpisodeBudget:
     wall_clock_seconds: float = AGENT_EXPLORE_WALL_CLOCK_SECONDS
     tokens_used: int = 0
     steps_used: int = 0
+    usage_complete: bool = True
     _started_at: float = field(default_factory=time.monotonic, repr=False)
 
     def record_usage(self, usage: dict[str, Any] | None) -> None:
+        if usage is None or usage.get("total_tokens") is None:
+            self.usage_complete = False
         try:
             add = int((usage or {}).get("total_tokens", 0) or 0)
         except (TypeError, ValueError):
+            self.usage_complete = False
             add = 0
+        if add < 0:
+            self.usage_complete = False
         if add > 0:
             self.tokens_used += add
 
