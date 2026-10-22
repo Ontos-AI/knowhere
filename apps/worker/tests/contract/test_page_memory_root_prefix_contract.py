@@ -19,23 +19,6 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from app.services.document_agent.structure.anchoring_primitives import (
-    SkeletonAnchor,
-    serialize_skeleton_anchor,
-    serialize_title_node,
-)
-from app.services.document_agent.structure.hierarchy_locator import (
-    TitleMatch,
-    TitleNode,
-)
-from app.services.page_memory import memory_service, page_renderer, page_tagger
-from app.services.page_memory.page_tagger import PageTagResult
-from shared.models.schemas.page_memory_config import PageMemoryConfig
-from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
-from shared.services.retrieval.search.lexical_text import section_path_from_chunk_path
-from shared.services.storage.zip_chunk_schema import ZipChunkSchemaBuilder
-from shared.services.storage.zip_doc_navigation import ZipDocNavigationBuilder
-
 
 @pytest.mark.parametrize(
     ("page_count", "chapter_pages", "toc_pages"),
@@ -61,6 +44,25 @@ def test_opening_pages_keep_root_ownership_and_page_citation_assets(
     chapter_pages: list[int],
     toc_pages: list[int],
 ) -> None:
+    # Database contracts evict application modules after collection. Resolve
+    # live modules so provider patches reach the same renderer as the use case.
+    from app.services.document_agent.structure.anchoring_primitives import (
+        SkeletonAnchor,
+        serialize_skeleton_anchor,
+        serialize_title_node,
+    )
+    from app.services.document_agent.structure.hierarchy_locator import (
+        TitleMatch,
+        TitleNode,
+    )
+    from app.services.page_memory import memory_service, page_renderer, page_tagger
+    from app.services.page_memory.page_tagger import PageTagResult
+    from shared.models.schemas.page_memory_config import PageMemoryConfig
+    from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
+    from shared.services.retrieval.search.lexical_text import section_path_from_chunk_path
+    from shared.services.storage.zip_chunk_schema import ZipChunkSchemaBuilder
+    from shared.services.storage.zip_doc_navigation import ZipDocNavigationBuilder
+
     filename: str = "document.pdf"
     titles: list[str] = [f"Chapter {page}" for page in chapter_pages]
     anatomy: SimpleNamespace = SimpleNamespace(

@@ -93,6 +93,13 @@ reload before its repair. The final focused run passed **102 contracts**:
   apps/worker/tests/contract/test_profile_skeleton_anchor_wiring_contract.py -q
 ```
 
+The full Worker contract suite also passed **405 contracts**, including the
+database contracts that reload application modules between environments:
+
+```sh
+.venv/bin/pytest apps/worker/tests/contract -q
+```
+
 This includes direct-root text and full-page citation assets, TOC retention in
 the prefix, unchanged chapter TOC policy, first-page chapters, no-TOC fallback,
 filename-only publication/navigation projection, and staged artifact reload.
