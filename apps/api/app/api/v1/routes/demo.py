@@ -31,6 +31,19 @@ async def list_demo_source_chunks(demo_source_id: str, job_result_id: str | None
     return {**(response or {}), "demo_source_id": demo_source_id, "canonical_document_id": document.document_id}
 
 
+@router.get("/sources/{demo_source_id}/structure")
+async def get_demo_source_structure(
+    demo_source_id: str,
+    response: Response,
+    job_result_id: str | None = Query(None, max_length=36),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await _demo_service.get_structure(
+        db, source_id=demo_source_id, job_result_id=job_result_id,
+    )
+
+
 @router.get("/sources/{demo_source_id}/chunks/{demo_chunk_id}")
 async def get_demo_source_chunk(demo_source_id: str, demo_chunk_id: str, job_result_id: str | None = Query(None, max_length=36), db: AsyncSession = Depends(get_db)) -> dict[str, Any] | None:
     document, revision = await _demo_service.resolve_source(db, source_id=demo_source_id, job_result_id=job_result_id)

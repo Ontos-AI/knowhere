@@ -37,6 +37,48 @@ archive. API job deletion requests for these revisions return 409. This checkout
 has no general job deletion/cancellation API; ordinary jobs remain retained
 processing records, and DELETE remains unsupported for them.
 
+## Public revision structure
+
+`GET /api/v1/demo/sources/{demo_source_id}/structure` returns the complete
+published section outline without loading chunk bodies or result archives.
+It requires no authentication and follows the same active-source and complete
+revision checks as the other public demo reads.
+
+Pass `job_result_id` to pin the outline to the same revision as subsequent chunk
+and asset requests. Omitting it selects the current complete revision. Responses
+use `Cache-Control: no-store`.
+
+```json
+{
+  "demo_source_id": "example-source",
+  "canonical_document_id": "ddoc_example",
+  "job_result_id": "published-revision-id",
+  "sections": [
+    {
+      "section_id": "sec_parent",
+      "parent_section_id": null,
+      "section_path": "Operations",
+      "section_title": "Operations",
+      "section_level": 1,
+      "sort_order": 0
+    }
+  ]
+}
+```
+
+Sections follow persisted `sort_order`, with `section_id` as a deterministic tie
+breaker. Build the tree from `parent_section_id`; do not infer parentage from
+title splitting or alphabetically reorder siblings. Structural parents are
+included even when they own no chunk. This is the published section tree;
+TOC-only entries never persisted during parsing/publication are not restored by
+this read endpoint. Unknown sources or unavailable pinned revisions return 404;
+known sources without a complete revision retain the existing preparing error.
+
+The HTTP/PostgreSQL shared-demo contract suite passes all ten tests, including
+revision-pinned structure reads, structural parents, persisted sibling order,
+preparing/error behavior, and guards against chunk or artifact downloads.
+Ruff and Pyright pass for the changed API modules.
+
 ## Backup gate
 
 Use the authoritative originals in `knowhere-storage-staging`, not public URLs.
