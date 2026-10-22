@@ -59,6 +59,18 @@ The hierarchical navigation node derived from parsed headings and section paths.
 
 The retrieval-visible text, image, or table row attached to a Document Section.
 
+### Document Root
+
+The existing document-level container above its chapters. It can own opening
+content without introducing another chapter.
+
+### Document Prefix
+
+All physical pages before the first recognized chapter, including covers,
+opening text, and printed table-of-contents pages. These pages belong directly
+to the existing document Root; they are not a separate chapter or part of the
+first chapter.
+
 ### Document Ingestion
 
 The workflow that creates a Job, accepts a file or URL source, confirms upload

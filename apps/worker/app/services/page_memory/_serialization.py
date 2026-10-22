@@ -8,6 +8,8 @@ from typing import Any
 
 from app.services.page_memory._utils import (
     collapse_page_ranges,
+    is_document_prefix,
+    is_fallback_root,
     page_scope_info,
 )
 from shared.services.chunks.path_segments import split_escaped_document_path
@@ -39,11 +41,7 @@ def derive_hierarchy_page_scope(
     if not skeletons:
         return list(range(1, page_count + 1))
 
-    has_only_root_fallback = all(
-        getattr(item, "title", "") == "Root"
-        or (getattr(item, "evidence", {}) or {}).get("source") == "fallback_root"
-        for item in skeletons
-    )
+    has_only_root_fallback = all(is_fallback_root(item) for item in skeletons)
     if has_only_root_fallback:
         return list(range(1, page_count + 1))
 
@@ -86,6 +84,7 @@ def serialize_skeletons(skeletons: list[Any]) -> list[dict[str, Any]]:
             "start_page": item.start_page,
             "end_page": item.end_page,
             "parent_path": item.parent_path,
+            "evidence": dict(item.evidence),
         }
         for item in skeletons
     ]
@@ -100,6 +99,9 @@ def build_hierarchy_tree(skeletons: list[Any]) -> dict[str, Any]:
     """
     hierarchy: dict[str, Any] = {}
     for skel in skeletons:
+        # Root-owned body is not a chapter nested beneath its own filename.
+        if is_document_prefix(skel):
+            continue
         parts = split_escaped_document_path(
             getattr(skel, "section_path", "") or ""
         )

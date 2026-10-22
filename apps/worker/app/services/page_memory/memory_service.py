@@ -22,6 +22,7 @@ from app.services.page_memory._utils import (
     CoarseScope,
     build_hierarchy_scopes,
     collapse_page_ranges,
+    derive_excluded_toc_pages,
     page_scope_info,
     sort_skeletons,
 )
@@ -274,7 +275,10 @@ def _build_page_dataframe(
         page_count=page_count,
     )
     toc_result = getattr(anatomy, "toc_result", None) if anatomy is not None else None
-    toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
+    toc_pages = derive_excluded_toc_pages(
+        skeletons=skeletons,
+        toc_pages=list(getattr(toc_result, "toc_pages", None) or []),
+    )
     coarse_pages_scope = pages_excluding_toc(
         _derive_hierarchy_page_scope(
             skeletons=skeletons,
@@ -571,6 +575,9 @@ def _run_hierarchy_scope(
     )
 
     scope_skeletons = sort_skeletons(scope.skeletons)
+    toc_pages = derive_excluded_toc_pages(
+        skeletons=scope_skeletons, toc_pages=toc_pages,
+    )
     scope_manifest = _scope_manifest(
         scope_id=scope.scope_id,
         skeletons=scope_skeletons,
