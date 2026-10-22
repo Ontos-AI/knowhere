@@ -18,6 +18,7 @@ from shared.models.database.demo_corpus import (
     DemoDocument,
     DemoDocumentChunk,
     DemoDocumentMapUnitIndex,
+    DemoDocumentSection,
 )
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
@@ -27,6 +28,44 @@ from shared.services.storage.demo_asset_signer import DemoAssetSigner
 
 
 class SharedDemoDocumentService:
+    async def get_structure(
+        self,
+        db: AsyncSession,
+        *,
+        source_id: str,
+        job_result_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Read the complete published section outline without loading bodies."""
+        document, revision = await self.resolve_source(
+            db, source_id=source_id, job_result_id=job_result_id,
+        )
+        sections = (
+            await db.execute(
+                select(
+                    DemoDocumentSection.section_id,
+                    DemoDocumentSection.parent_section_id,
+                    DemoDocumentSection.section_path,
+                    DemoDocumentSection.section_title,
+                    DemoDocumentSection.section_level,
+                    DemoDocumentSection.sort_order,
+                )
+                .where(
+                    DemoDocumentSection.document_id == document.document_id,
+                    DemoDocumentSection.job_result_id == revision.id,
+                )
+                .order_by(
+                    DemoDocumentSection.sort_order,
+                    DemoDocumentSection.section_id,
+                )
+            )
+        ).mappings().all()
+        return {
+            "demo_source_id": source_id,
+            "canonical_document_id": document.document_id,
+            "job_result_id": revision.id,
+            "sections": [dict(section) for section in sections],
+        }
+
     async def get_catalog(self, db: AsyncSession) -> dict[str, Any]:
         sourceExpression = Job.job_metadata["demo_source_id"].as_string()
         latestJobs = (

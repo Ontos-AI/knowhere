@@ -46,6 +46,7 @@ async def publish_demo(
     content: str = "Shared launch capabilities include reusable rockets.",
     has_page: bool = False,
     should_fail: bool = False,
+    section_paths: list[str] | None = None,
 ) -> str:
     from shared.core.database import get_db_context
     from shared.models.database.job import Job
@@ -107,6 +108,17 @@ async def publish_demo(
                 "metadata": {},
             }
         )
+        if section_paths is not None:
+            chunks = [
+                {
+                    "chunk_id": f"body-{revisionId[:8]}-{index}",
+                    "type": "page",
+                    "content": f"Body for {path}",
+                    "path": f"shared.docx/{path}",
+                    "metadata": {"page_nums": [index + 1]},
+                }
+                for index, path in enumerate(section_paths)
+            ]
         service = RetrievalPublicationService()
         outcome = service.publish_document_state(
             db, job_id=record.job_id, job_result_id=revisionId, chunks=chunks
@@ -123,6 +135,80 @@ async def publish_demo(
         await db.run_sync(publish)
         await db.commit()
     return revisionId
+
+
+@pytest.mark.asyncio
+async def test_public_structure_preserves_order_parents_and_revision_pins(
+    developer_api_client_factory: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with developer_api_client_factory() as client:
+        job = await create_demo(client)
+        preparing = await client.get(
+            "/api/v1/demo/sources/contract-demo/structure",
+            headers={"Authorization": ""},
+        )
+        assert preparing.status_code == 409
+        revision = await publish_demo(
+            job, section_paths=["Operations/Zeta", "Operations/Alpha", "Summary"],
+        )
+        update = await create_demo(client)
+        current_revision = await publish_demo(update, section_paths=["Updated"])
+
+        async def reject_chunk_reads(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("Structure reads must not fetch chunk bodies")
+
+        def reject_artifact_reads(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("Structure reads must not download result artifacts")
+
+        monkeypatch.setattr(
+            "app.services.documents.lifecycle_service.DocumentService.list_document_chunks",
+            reject_chunk_reads,
+        )
+        monkeypatch.setattr(
+            "shared.services.storage.result_storage.JobResultStorage.download_raw_to_temp",
+            reject_artifact_reads,
+        )
+        response = await client.get(
+            "/api/v1/demo/sources/contract-demo/structure",
+            params={"job_result_id": revision},
+            headers={"Authorization": ""},
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["Cache-Control"] == "no-store"
+        payload = response.json()
+        assert payload["demo_source_id"] == "contract-demo"
+        assert payload["canonical_document_id"] == job["document_id"]
+        assert payload["job_result_id"] == revision
+        sections = payload["sections"]
+        assert [section["section_path"] for section in sections] == [
+            "Operations", "Operations / Zeta", "Operations / Alpha", "Summary",
+        ]
+        assert [section["section_title"] for section in sections] == [
+            "Operations", "Zeta", "Alpha", "Summary",
+        ]
+        assert [section["section_level"] for section in sections] == [1, 2, 2, 1]
+        assert [section["sort_order"] for section in sections] == [0, 1, 2, 3]
+        parent_id = sections[0]["section_id"]
+        assert [section["parent_section_id"] for section in sections] == [
+            None, parent_id, parent_id, None,
+        ]
+        assert all(set(section) == {
+            "section_id", "parent_section_id", "section_path", "section_title",
+            "section_level", "sort_order",
+        } for section in sections)
+        current = await client.get(
+            "/api/v1/demo/sources/contract-demo/structure",
+            headers={"Authorization": ""},
+        )
+        assert current.status_code == 200, current.text
+        assert current.json()["job_result_id"] == current_revision
+        assert [section["section_path"] for section in current.json()["sections"]] == ["Updated"]
+        invalid_revision = await client.get(
+            "/api/v1/demo/sources/contract-demo/structure",
+            params={"job_result_id": str(uuid4())},
+        )
+        assert invalid_revision.status_code == 404
 
 
 @pytest.mark.asyncio
