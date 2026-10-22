@@ -183,8 +183,11 @@ def test_c4_resolve_does_not_call_calibration() -> None:
         )
 
     assert skeletons
-    assert skeletons[0].title == "Ch1"
-    assert skeletons[0].start_page == 2
+    assert skeletons[0].section_path == "doc.pdf"
+    assert skeletons[0].start_page == skeletons[0].end_page == 1
+    assert skeletons[1].title == "Ch1"
+    assert skeletons[1].section_path == "doc.pdf/Ch1"
+    assert skeletons[1].start_page == 2
 
 
 def test_shard_plan_reads_offset_and_does_not_calibrate() -> None:

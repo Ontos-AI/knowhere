@@ -24,7 +24,11 @@ from app.services.document_parser.structure.body_boundary import normalize_match
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.hierarchy_level_resolver import PageHierarchyLevelResolver
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
-from app.services.page_memory._utils import page_scope_info, sort_skeletons
+from app.services.page_memory._utils import (
+    is_document_prefix,
+    page_scope_info,
+    sort_skeletons,
+)
 from shared.services.ai.llm_overrides import get_text_client
 from shared.services.chunks.path_segments import append_document_path
 
@@ -57,6 +61,9 @@ def refine_fat_leaf_skeletons(
     refined: list[SectionSkeleton] = []
 
     for index, skeleton in enumerate(coarse_skeletons):
+        if is_document_prefix(skeleton):
+            refined.append(skeleton)
+            continue
         exclusive_end = _exclusive_end(coarse_skeletons, index)
         skel_pages = set(range(skeleton.start_page, exclusive_end + 1))
         overlap = skel_pages & fat_leaf_pages
@@ -126,6 +133,8 @@ def compute_fat_leaf_pages(
     excluded = {int(page) for page in (toc_pages or [])}
     fat_pages: set[int] = set()
     for idx, skel in enumerate(skeletons):
+        if is_document_prefix(skel):
+            continue
         exclusive_end = _exclusive_end(skeletons, idx)
         body_pages = [
             page

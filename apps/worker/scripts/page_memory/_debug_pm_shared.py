@@ -37,6 +37,7 @@ os.environ.setdefault("OVERSIZED_PDF_SHARD_ENABLED", "true")
 from loguru import logger
 
 from app.services.page_memory._utils import (
+    derive_excluded_toc_pages,
     page_scope_info,
     scope_id_for_pages,
     sort_skeletons,
@@ -1342,7 +1343,7 @@ def load_hierarchy_artifact(path: Path) -> tuple[dict[str, Any], list[Any]]:
             SectionSkeleton(
                 section_path=section_path,
                 title=title,
-                level=int(node.get("level") or 1),
+                level=int(node.get("level", 1)),
                 start_page=int(node.get("start_page") or 1),
                 end_page=int(node.get("end_page") or node.get("start_page") or 1),
                 parent_path=node.get("parent_path"),
@@ -1531,7 +1532,10 @@ def build_debug_coarse_scopes(
     from app.services.page_memory._utils import build_hierarchy_scopes
 
     toc_result = getattr(anatomy, "toc_result", None) if anatomy is not None else None
-    toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
+    toc_pages = derive_excluded_toc_pages(
+        skeletons=skeletons,
+        toc_pages=list(getattr(toc_result, "toc_pages", None) or []),
+    )
     toc_page_set = set()
     for raw in toc_pages:
         try:
