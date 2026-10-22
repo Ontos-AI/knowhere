@@ -80,8 +80,7 @@ is separate from the prefix-repair validation.
 
 ### Prefix-repair verification on 2026-10-22
 
-Validation ran on `oracle.ylioo.com` in the isolated workspace
-`/tmp/knowhere-root-prefix-20261022`, based on `main` commit
+Validation ran in an isolated Linux ARM64 environment, based on `main` commit
 `2ed1889626f63240bd0894ec0c24b7a7c5217dfb`.
 
 The new output contract failed for both missing-prefix examples before the
@@ -115,18 +114,15 @@ SpaceX rendered only the missing prefix and reused the original body results,
 rather than rerunning all 407 pages. Thus this is captured-profile seam
 verification, not a fresh full-provider parse or production deployment.
 
-The one-off replay command was:
+### Existing demo revisions after deployment
 
-```sh
-PYTHONPATH=apps/worker:packages/shared-python \
-  .venv/bin/python /tmp/knowhere-root-prefix-replay.py
-```
+Deploying the Worker repair does not regenerate existing parsed revisions.
+After confirming the deployed Worker includes this change, reparse the known
+affected Meta release and SpaceX filing through the maintainer demo ingestion
+flow. Audit the remaining READY demos for missing opening pages before
+selecting additional sources. The restoration helper supports source selection
+and `--reparse-ready`; keep the previous revision available while an update runs.
 
-Remote evidence is retained in `/tmp/knowhere-root-prefix-red.log`,
-`/tmp/knowhere-root-prefix-staged-red.log`,
-`/tmp/knowhere-root-prefix-focused.log`,
-`/tmp/knowhere-root-prefix-real-replay.log`, and
-`/tmp/knowhere-root-prefix-replay-summary.json`. The replay script SHA-256 is
-`906e0a6458e3327799d2ae07921ef3cfe4e60d8868a3e1853889016ac6696c6e`.
-Rendered assets and per-document reports remain under
-`/tmp/knowhere-root-prefix-replay/`.
+Validate physical-page coverage, prefix TOC retention, filename-only root-body
+paths, and page-citation assets on each new revision. Confirm that downstream
+readers consume the new revision after publication.
