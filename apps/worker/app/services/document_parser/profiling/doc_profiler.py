@@ -8,7 +8,7 @@ from typing import Any, Iterator, Literal
 
 from loguru import logger
 from app.services.document_agent.coordinator import ProfileCoordinator
-from app.services.document_agent.pdf_text import page_content_map
+from app.services.document_agent.pdf_text import page_body_content_map, page_content_map
 from app.services.document_agent.visual import purge_debug_visual_dirs, visual_debug_enabled
 from app.services.document_parser.orchestration.oversized_pdf_policy import (
     build_oversized_pdf_profile_failed_exception,
@@ -162,6 +162,9 @@ def _profile_pdf_with_db(
             ),
         },
         page_full_text_cache=page_content_map(
+            coordinator.blackboard.page_full_text_cache
+        ),
+        page_body_text_cache=page_body_content_map(
             coordinator.blackboard.page_full_text_cache
         ),
     )

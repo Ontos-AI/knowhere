@@ -37,6 +37,7 @@ from loguru import logger
 
 from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.models.schemas.page_memory_config import PageMemoryConfig, resolve_asset_model
+from app.services.page_memory.body_text_preview import build_body_text_preview
 
 
 @dataclass(frozen=True)
@@ -122,6 +123,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 page_texts=coerce_page_text_cache(
                     getattr(profile, "page_full_text_cache", None)
                 ),
+                body_text_by_page=getattr(profile, "page_body_text_cache", None),
             )
         else:
             parsed_df = _build_page_dataframe(
@@ -454,6 +456,7 @@ def _build_page_dataframe(
             page_assets_by_page=page_assets_by_page,
             node_summary_max_pages=page_memory_config.node_summary_max_pages,
             node_assembly_concurrency=page_memory_config.node_assembly_concurrency,
+            body_text_by_page=getattr(profile, "page_body_text_cache", None),
         )
     logger.info(
         "[page_memory] C7 assembled {} node rows (verdict={})",
@@ -834,6 +837,7 @@ def _build_whole_doc_dataframe(
     verdict: str,
     trace_recorder: Any | None = None,
     page_texts: dict[int, str] | None = None,
+    body_text_by_page: dict[int, str] | None = None,
 ) -> pd.DataFrame:
     pages = list(range(1, page_count + 1)) if page_count > 0 else [1]
     texts = coerce_page_text_cache(page_texts)
@@ -853,7 +857,11 @@ def _build_whole_doc_dataframe(
         "connectto": "",
         "addtime": get_str_time(),
         "page_nums": ",".join(str(page) for page in pages),
-        "extra_metadata": {},
+        "extra_metadata": {
+            "body_text_preview": build_body_text_preview(
+                (body_text_by_page or {}).get(page, "") for page in pages
+            ),
+        },
     }
     _record_trace_stage(
         trace_recorder,

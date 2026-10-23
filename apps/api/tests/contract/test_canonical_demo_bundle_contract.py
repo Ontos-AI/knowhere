@@ -7,6 +7,9 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from threading import Event
+import json
+from io import BytesIO
+from zipfile import ZipFile
 from typing import Literal
 
 import pytest
@@ -18,6 +21,35 @@ from pytest import MonkeyPatch
 def _write_source(directory: Path, content: str) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "source.md").write_text(content, encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_canonical_bundle_keeps_page_body_preview_metadata(
+    api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    tmp_path: Path,
+) -> None:
+    async with api_client_factory():
+        from app.services.demo.canonical_bundle import CanonicalDemoBundleStore
+        from shared.services.redis import RedisServiceFactory
+        from shared.services.storage.job_file_storage import JobFileStorage
+        from shared.services.storage.zip_chunk_schema import ZipChunkSchemaBuilder
+
+        directory = tmp_path / "preview-source"
+        _write_source(directory, "original content")
+        chunks = ZipChunkSchemaBuilder().format_chunks([
+            {"chunk_id": f"page-{index}", "type": "page", "path": f"doc.pdf/Section {index}", "content": "header\nbody\nfooter", "metadata": {"body_text_preview": preview}}
+            for index, preview in enumerate(["body", ""])
+        ], {}, {})
+        (directory / "chunks.json").write_text(json.dumps({"chunks": chunks}))
+        bundle = await CanonicalDemoBundleStore(redis_service=RedisServiceFactory.get_service()).ensure_bundle(
+            source_id="contract-body-preview", source_directory=directory,
+        )
+        storage = JobFileStorage()
+        payload = storage.storage_adapter.download_fileobj(bundle.zip_key, storage.results_bucket)
+        with ZipFile(BytesIO(payload)) as archive:
+            archived = json.loads(archive.read("chunks.json"))["chunks"]
+        assert [chunk["metadata"]["body_text_preview"] for chunk in archived] == ["body", ""]
+        assert all(chunk["content"] == "header\nbody\nfooter" for chunk in archived)
 
 
 @pytest.mark.asyncio

@@ -173,6 +173,22 @@ def page_bands_map(raw: Any) -> dict[int, PageTextBands]:
     return {int(page): PageTextBands.from_any(value) for page, value in raw.items()}
 
 
+def page_body_content_map(raw: Any) -> dict[int, str]:
+    """Keep only explicitly classified body lines; plain legacy text is unknown."""
+    if not isinstance(raw, dict):
+        return {}
+    result: dict[int, str] = {}
+    for page, value in raw.items():
+        has_regions = isinstance(value, PageTextBands) or (
+            isinstance(value, dict) and isinstance(value.get("lines"), list)
+        )
+        result[int(page)] = (
+            "\n".join(line.text for line in PageTextBands.from_any(value).lines if line.region == "body")
+            if has_regions else ""
+        )
+    return result
+
+
 def strip_margin_text(
     content: str,
     margin: str,

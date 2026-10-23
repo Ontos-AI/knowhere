@@ -127,6 +127,8 @@ class ZipChunkSchemaBuilder:
                 page_assets = _normalize_page_assets(existing_metadata.get("page_assets"))
                 if page_assets:
                     metadata["page_assets"] = page_assets
+                if isinstance(existing_metadata.get("body_text_preview"), str):
+                    metadata["body_text_preview"] = existing_metadata["body_text_preview"]
 
             formatted_chunk = {
                 "chunk_id": chunk_id,
