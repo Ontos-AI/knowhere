@@ -44,6 +44,7 @@ ChunkType: TypeAlias = Literal["text", "image", "table", "page"]
 
 
 class ChunkMetadata(TypedDict, total=False):
+    body_text_preview: str
     keywords: list[str]
     entities: list[dict[str, str]]
     asset_title: str

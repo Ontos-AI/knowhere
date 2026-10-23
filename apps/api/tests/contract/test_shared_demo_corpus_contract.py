@@ -212,6 +212,57 @@ async def test_public_structure_preserves_order_parents_and_revision_pins(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("is_demo", [False, True])
+async def test_page_body_preview_survives_private_and_demo_publication(
+    developer_api_client_factory: ClientFactory, is_demo: bool,
+) -> None:
+    async with developer_api_client_factory() as client:
+        from shared.core.database import get_db_context
+        from shared.models.database.job import Job
+        from shared.models.database.job_result import JobResult
+        from shared.services.retrieval.publication_service import RetrievalPublicationService
+
+        if is_demo:
+            job = await create_demo(client, file_name="preview.pdf")
+        else:
+            response = await client.post("/api/v2/jobs", json={
+                "namespace": "preview-contract", "source_type": "file", "file_name": "preview.pdf",
+            })
+            assert response.status_code == 200, response.text
+            job = response.json()
+        revision = str(uuid4())
+        raw_content = "iv\nTable of Contents\nBody text\nfooter"
+
+        def publish(db: Session) -> None:
+            record = db.execute(select(Job).where(Job.job_id == job["job_id"])).scalar_one()
+            db.add(JobResult(id=revision, job_id=record.job_id, delivery_mode="url", document_metadata={"parse_track": "page_memory"}))
+            db.flush()
+            chunks = [{
+                "chunk_id": f"body-preview-{index}", "type": "page", "content": raw_content,
+                "path": f"preview.pdf/Section {index}",
+                "metadata": {"page_nums": [index + 1], "body_text_preview": preview},
+            } for index, preview in enumerate(["Body text", ""])]
+            service = RetrievalPublicationService()
+            service.publish_document_state(db, job_id=record.job_id, job_result_id=revision, chunks=chunks)
+            service.publish_document_graph(db, job_id=record.job_id, job_result_id=revision)
+            record.status = "done"
+
+        async with get_db_context() as db:
+            await db.run_sync(publish)
+            await db.commit()
+        response = await client.get(
+            f"/api/v1/documents/{job['document_id']}/chunks",
+            params={"job_result_id": revision, "page_size": 200},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["job_result_id"] == revision
+        chunks = {chunk["chunk_id"]: chunk for chunk in response.json()["chunks"]}
+        assert chunks["body-preview-0"]["metadata"]["body_text_preview"] == "Body text"
+        assert chunks["body-preview-1"]["metadata"]["body_text_preview"] == ""
+        assert all(chunk["content"] == raw_content for chunk in chunks.values())
+
+
+@pytest.mark.asyncio
 async def test_preparing_readiness_and_removed_materialization(
     developer_api_client_factory: ClientFactory,
 ) -> None:
