@@ -27,6 +27,7 @@ async def assemble_retrieval_results(
     document_scope: DocumentScope = DocumentScope(),
     allowed_chunk_types: set[str] | None = None,
     revision_pins: Mapping[str, str] | None = None,
+    queried_tables: Mapping[tuple[str, str], str] | None = None,
 ) -> list[dict[str, Any]]:
     scoped_rows = filter_excluded_rows(
         rows,
@@ -78,6 +79,7 @@ async def assemble_retrieval_results(
         assembled_row['composed'] = compose_evidence_parts(
             assembled_row,
             rows_by_chunk_id,
+            queried_tables=queried_tables,
         )
         assembled.append(assembled_row)
     return assembled

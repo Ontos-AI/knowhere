@@ -58,7 +58,6 @@ async def main() -> None:
         budget=EpisodeBudget(),
     )
     print(f"\nfinal refs: {result.refs}")
-    print(f"final notes: {result.notes!r}")
     print(f"stop_reason: {result.stop_reason}")
 
 

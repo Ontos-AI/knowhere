@@ -46,6 +46,7 @@ async def publish_demo(
     content: str = "Shared launch capabilities include reusable rockets.",
     has_page: bool = False,
     should_fail: bool = False,
+    section_paths: list[str] | None = None,
 ) -> str:
     from shared.core.database import get_db_context
     from shared.models.database.job import Job
@@ -107,6 +108,17 @@ async def publish_demo(
                 "metadata": {},
             }
         )
+        if section_paths is not None:
+            chunks = [
+                {
+                    "chunk_id": f"body-{revisionId[:8]}-{index}",
+                    "type": "page",
+                    "content": f"Body for {path}",
+                    "path": f"shared.docx/{path}",
+                    "metadata": {"page_nums": [index + 1]},
+                }
+                for index, path in enumerate(section_paths)
+            ]
         service = RetrievalPublicationService()
         outcome = service.publish_document_state(
             db, job_id=record.job_id, job_result_id=revisionId, chunks=chunks
@@ -123,6 +135,131 @@ async def publish_demo(
         await db.run_sync(publish)
         await db.commit()
     return revisionId
+
+
+@pytest.mark.asyncio
+async def test_public_structure_preserves_order_parents_and_revision_pins(
+    developer_api_client_factory: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with developer_api_client_factory() as client:
+        job = await create_demo(client)
+        preparing = await client.get(
+            "/api/v1/demo/sources/contract-demo/structure",
+            headers={"Authorization": ""},
+        )
+        assert preparing.status_code == 409
+        revision = await publish_demo(
+            job, section_paths=["Operations/Zeta", "Operations/Alpha", "Summary"],
+        )
+        update = await create_demo(client)
+        current_revision = await publish_demo(update, section_paths=["Updated"])
+
+        async def reject_chunk_reads(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("Structure reads must not fetch chunk bodies")
+
+        def reject_artifact_reads(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("Structure reads must not download result artifacts")
+
+        monkeypatch.setattr(
+            "app.services.documents.lifecycle_service.DocumentService.list_document_chunks",
+            reject_chunk_reads,
+        )
+        monkeypatch.setattr(
+            "shared.services.storage.result_storage.JobResultStorage.download_raw_to_temp",
+            reject_artifact_reads,
+        )
+        response = await client.get(
+            "/api/v1/demo/sources/contract-demo/structure",
+            params={"job_result_id": revision},
+            headers={"Authorization": ""},
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["Cache-Control"] == "no-store"
+        payload = response.json()
+        assert payload["demo_source_id"] == "contract-demo"
+        assert payload["canonical_document_id"] == job["document_id"]
+        assert payload["job_result_id"] == revision
+        sections = payload["sections"]
+        assert [section["section_path"] for section in sections] == [
+            "Operations", "Operations / Zeta", "Operations / Alpha", "Summary",
+        ]
+        assert [section["section_title"] for section in sections] == [
+            "Operations", "Zeta", "Alpha", "Summary",
+        ]
+        assert [section["section_level"] for section in sections] == [1, 2, 2, 1]
+        assert [section["sort_order"] for section in sections] == [0, 1, 2, 3]
+        parent_id = sections[0]["section_id"]
+        assert [section["parent_section_id"] for section in sections] == [
+            None, parent_id, parent_id, None,
+        ]
+        assert all(set(section) == {
+            "section_id", "parent_section_id", "section_path", "section_title",
+            "section_level", "sort_order",
+        } for section in sections)
+        current = await client.get(
+            "/api/v1/demo/sources/contract-demo/structure",
+            headers={"Authorization": ""},
+        )
+        assert current.status_code == 200, current.text
+        assert current.json()["job_result_id"] == current_revision
+        assert [section["section_path"] for section in current.json()["sections"]] == ["Updated"]
+        invalid_revision = await client.get(
+            "/api/v1/demo/sources/contract-demo/structure",
+            params={"job_result_id": str(uuid4())},
+        )
+        assert invalid_revision.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_demo", [False, True])
+async def test_page_body_preview_survives_private_and_demo_publication(
+    developer_api_client_factory: ClientFactory, is_demo: bool,
+) -> None:
+    async with developer_api_client_factory() as client:
+        from shared.core.database import get_db_context
+        from shared.models.database.job import Job
+        from shared.models.database.job_result import JobResult
+        from shared.services.retrieval.publication_service import RetrievalPublicationService
+
+        if is_demo:
+            job = await create_demo(client, file_name="preview.pdf")
+        else:
+            response = await client.post("/api/v2/jobs", json={
+                "namespace": "preview-contract", "source_type": "file", "file_name": "preview.pdf",
+            })
+            assert response.status_code == 200, response.text
+            job = response.json()
+        revision = str(uuid4())
+        raw_content = "iv\nTable of Contents\nBody text\nfooter"
+
+        def publish(db: Session) -> None:
+            record = db.execute(select(Job).where(Job.job_id == job["job_id"])).scalar_one()
+            db.add(JobResult(id=revision, job_id=record.job_id, delivery_mode="url", document_metadata={"parse_track": "page_memory"}))
+            db.flush()
+            chunks = [{
+                "chunk_id": f"body-preview-{index}", "type": "page", "content": raw_content,
+                "path": f"preview.pdf/Section {index}",
+                "metadata": {"page_nums": [index + 1], "body_text_preview": preview},
+            } for index, preview in enumerate(["Body text", ""])]
+            service = RetrievalPublicationService()
+            service.publish_document_state(db, job_id=record.job_id, job_result_id=revision, chunks=chunks)
+            service.publish_document_graph(db, job_id=record.job_id, job_result_id=revision)
+            record.status = "done"
+
+        async with get_db_context() as db:
+            await db.run_sync(publish)
+            await db.commit()
+        response = await client.get(
+            f"/api/v1/documents/{job['document_id']}/chunks",
+            params={"job_result_id": revision, "page_size": 200},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["job_result_id"] == revision
+        chunks = {chunk["chunk_id"]: chunk for chunk in response.json()["chunks"]}
+        assert chunks["body-preview-0"]["metadata"]["body_text_preview"] == "Body text"
+        assert chunks["body-preview-1"]["metadata"]["body_text_preview"] == ""
+        assert all(chunk["content"] == raw_content for chunk in chunks.values())
 
 
 @pytest.mark.asyncio
@@ -343,9 +480,6 @@ async def test_demo_agent_tools_pin_history_and_private_isolation(
             CorpusRevisionContext,
         )
         from shared.services.retrieval.agent_explore.dispatch import dispatch_tool_call
-        from shared.services.retrieval.agent_explore.ref_resolution import (
-            resolve_finish_refs,
-        )
 
         async with get_db_context() as db:
             pins = await capture_revision_pins(
@@ -406,19 +540,23 @@ async def test_demo_agent_tools_pin_history_and_private_isolation(
                     assert "reusable rockets" in result.text
                 if name == "corpus.grep":
                     assert result.payload.get("total_matches", 0) > 0 or result.refs
-            async with get_db_context() as db:
-                refs = await resolve_finish_refs(
-                    db,
-                    user_id="reader-two",
-                    namespace="__knowhere_demo__",
-                    refs=[
+            by_path = await dispatch_tool_call(
+                "corpus.read",
+                {
+                    "refs": [
                         {"document_id": job["document_id"], "section_path": sectionPath}
-                    ],
-                )
-                assert (
-                    refs.resolved
-                    and refs.resolved[0]["chunk_id"] == "body-" + revision[:8]
-                )
+                    ]
+                },
+                db_factory=get_db_context,
+                user_id="reader-two",
+                namespace="__knowhere_demo__",
+            )
+            assert by_path.error is None, by_path.error
+            assert "reusable rockets" in by_path.text
+            assert "Updated orbital" not in by_path.text
+            assert any(
+                ref.get("chunk_id") == "body-" + revision[:8] for ref in by_path.refs
+            ), by_path.refs
         private = await client.post(
             "/api/v2/jobs",
             json={
@@ -464,15 +602,42 @@ async def test_demo_agent_tools_pin_history_and_private_isolation(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("file_name", "original_mime"),
+    [
+        ("original.pdf", "application/pdf"),
+        (
+            "original.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        (
+            "original.DOCX",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+    ],
+)
 async def test_demo_revision_media_validation_and_job_retention(
-    developer_api_client_factory: ClientFactory, monkeypatch: pytest.MonkeyPatch
+    developer_api_client_factory: ClientFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    file_name: str,
+    original_mime: str,
 ) -> None:
     async with developer_api_client_factory() as client:
         job = await create_demo(
-            client, source_id="media-demo", file_name="original.pdf"
+            client, source_id="media-demo", file_name=file_name
         )
         revision = await publish_demo(job, has_page=True)
+        import mimetypes
+        from pathlib import PurePath
         from shared.services.storage.job_file_storage import JobFileStorage
+
+        # Slim runtime images need not include the operating system MIME registry.
+        mimetypes.init()
+        monkeypatch.delitem(mimetypes.types_map, PurePath(file_name).suffix.lower(), raising=False)
+        catalog = (await client.get("/api/v1/demo/catalog")).json()
+        source = next(item for item in catalog["sources"] if item["demo_source_id"] == "media-demo")
+        assert source["mime_type"] == original_mime
+        assert source["original_file"]["mime_type"] == original_mime
 
         calls: list[dict[str, Any]] = []
 
@@ -487,7 +652,7 @@ async def test_demo_revision_media_validation_and_job_retention(
             JobFileStorage, "storage_adapter", property(lambda self: SignedStorage())
         )
         for path, mime in (
-            ("original", "application/pdf"),
+            ("original", original_mime),
             ("assets/images/rocket.png", "image/png"),
             ("assets/tables/launch.html", "text/html"),
         ):

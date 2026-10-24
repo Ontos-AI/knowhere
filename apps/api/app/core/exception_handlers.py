@@ -126,7 +126,7 @@ async def knowhere_exception_handler(
     # responses and ``WWW-Authenticate`` for authentication challenges.
     headers = dict(response_headers or {})
     headers["X-Request-ID"] = request_id
-    retry_after = exc.details.get("retry_after")
+    retry_after = (exc.details or {}).get("retry_after")
     if retry_after:
         headers["Retry-After"] = str(retry_after)
 

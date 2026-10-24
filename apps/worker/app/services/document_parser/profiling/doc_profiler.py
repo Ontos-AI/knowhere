@@ -8,13 +8,14 @@ from typing import Any, Iterator, Literal
 
 from loguru import logger
 from app.services.document_agent.coordinator import ProfileCoordinator
-from app.services.document_agent.pdf_text import page_content_map
+from app.services.document_agent.pdf_text import page_body_content_map, page_content_map
 from app.services.document_agent.visual import purge_debug_visual_dirs, visual_debug_enabled
 from app.services.document_parser.orchestration.oversized_pdf_policy import (
     build_oversized_pdf_profile_failed_exception,
     build_oversized_pdf_processing_failed_exception,
     raise_if_oversized_pdf_not_supported,
 )
+from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
 from app.services.document_parser.profiling.profile_model import (
     ParserDocumentProfile,
     ParserTocProfile,
@@ -81,7 +82,8 @@ def profile_document(
 
     return ParserDocumentProfile(
         file_type=ext.lstrip("."),
-        category=f"{ext.lstrip('.') or 'unknown'} document",
+        category=[OTHER_CODE],
+        category_label=f"{ext.lstrip('.') or 'unknown'} document",
         routing_category=PdfRoutingCategory.GENERIC,
     )
 
@@ -146,6 +148,7 @@ def _profile_pdf_with_db(
     profile = ParserDocumentProfile(
         file_type="pdf",
         category=agent_profile.category,
+        category_label=agent_profile.category_label,
         routing_category=routing_category,
         is_scanned=agent_profile.is_scanned,
         page_count=coordinator.blackboard.page_count,
@@ -159,6 +162,9 @@ def _profile_pdf_with_db(
             ),
         },
         page_full_text_cache=page_content_map(
+            coordinator.blackboard.page_full_text_cache
+        ),
+        page_body_text_cache=page_body_content_map(
             coordinator.blackboard.page_full_text_cache
         ),
     )

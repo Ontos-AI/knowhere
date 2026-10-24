@@ -49,89 +49,6 @@ _DATA_ROOT = Path(__file__).resolve().parents[2] / "data" / "demo_documents"
 _ASSET_DIRECTORY_NAMES = frozenset({"images", "tables", "page_citation_assets"})
 _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
     DemoSourceDefinition(
-        demo_source_id="demo-tsla-q4-2025",
-        canonical_document_id="demo-doc-tsla-q4-2025",
-        title="TSLA-Q4-2025-Update.pdf",
-        mime_type="application/pdf",
-        size_bytes=5_648_867,
-        asset_directory="tsla-q4-2025",
-        chunk_count=71,
-        examples=(
-            DemoExampleDefinition(
-                id="demo-tsla-q4-2025-xai",
-                question="What does the document say about Tesla's xAI investment?",
-                answer=(
-                    "Tesla entered an agreement on January 16, 2026 to invest "
-                    "approximately $2 billion in xAI Series E Preferred Stock. "
-                    "[[cite:1]]\n\n"
-                    "The document also says Tesla and xAI entered a framework "
-                    "agreement to evaluate AI collaboration, with the investment "
-                    "expected to close in Q1 2026 subject to customary regulatory "
-                    "conditions. [[cite:1]]"
-                ),
-                citations=(
-                    DemoCitationDefinition(
-                        section_path=("TSLA-Q4-2025-Update.pdf/OTHER UPDATES"),
-                        description="xAI investment",
-                        content=(
-                            "On January 16, 2026, Tesla entered into an agreement "
-                            "to invest approximately"
-                        ),
-                    ),
-                ),
-            ),
-            DemoExampleDefinition(
-                id="demo-tsla-q4-2025-energy-storage",
-                question="What does the document say about energy storage?",
-                answer=(
-                    "Tesla achieved its highest quarterly energy storage "
-                    "deployments, driven by record Megapack deployments. "
-                    "[[cite:1]]\n\n"
-                    "Energy gross profit reached a record $1.1 billion, marking "
-                    "the fifth consecutive record quarter. [[cite:1]]\n\n"
-                    "Tesla also plans to begin Megapack 3 and Megablock "
-                    "production at Megafactory Houston in 2026. [[cite:1]]"
-                ),
-                citations=(
-                    DemoCitationDefinition(
-                        section_path=(
-                            "TSLA-Q4-2025-Update.pdf/"
-                            "MANUFACTURING & HARDWARE/"
-                            "Energy generation and storage"
-                        ),
-                        description="Storage deployment growth",
-                        content=(
-                            "record quarterly energy storage deployments "
-                            "driven by Megapack"
-                        ),
-                    ),
-                ),
-            ),
-            DemoExampleDefinition(
-                id="demo-tsla-q4-2025-production-plans",
-                question="What production plans does Tesla mention for 2026?",
-                answer=(
-                    "Tesla says Cybercab, Tesla Semi, and Megapack 3 are on "
-                    "schedule for volume production starting in 2026. "
-                    "[[cite:1]]\n\n"
-                    "The same product update also notes that first-generation "
-                    "Optimus production lines are being installed before volume "
-                    "production. [[cite:1]]"
-                ),
-                citations=(
-                    DemoCitationDefinition(
-                        section_path=("TSLA-Q4-2025-Update.pdf/OUTLOOK/Volume"),
-                        description="2026 production plans",
-                        content=(
-                            "Cybercab, Tesla Semi and Megapack 3 are on schedule "
-                            "for volume production starting in 2026."
-                        ),
-                    ),
-                ),
-            ),
-        ),
-    ),
-    DemoSourceDefinition(
         demo_source_id="demo-spacex-s1",
         canonical_document_id="demo-doc-spacex-s1",
         title="spacex-s1.pdf",
@@ -208,72 +125,6 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         original_file_name=None,
     ),
     DemoSourceDefinition(
-        demo_source_id="demo-financial-nvda-q1-fy27-earnings-call",
-        canonical_document_id="demo-doc-financial-nvda-q1-fy27-earnings-call",
-        title="NVDA Q1 FY27 Earnings Call Transcript.pdf",
-        mime_type="application/pdf",
-        size_bytes=288_661,
-        asset_directory="financial-nvda-q1-fy27-earnings-call",
-        chunk_count=17,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-financial-nvda-q4-fy26-earnings-call",
-        canonical_document_id="demo-doc-financial-nvda-q4-fy26-earnings-call",
-        title="NVDA Q4 FY26 Earnings Call Transcript.pdf",
-        mime_type="application/pdf",
-        size_bytes=306_317,
-        asset_directory="financial-nvda-q4-fy26-earnings-call",
-        chunk_count=24,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-financial-nvda-q1-fy27-cfo-commentary",
-        canonical_document_id="demo-doc-financial-nvda-q1-fy27-cfo-commentary",
-        title="NVIDIA Q1 FY27 CFO Commentary.pdf",
-        mime_type="application/pdf",
-        size_bytes=75_796,
-        asset_directory="financial-nvda-q1-fy27-cfo-commentary",
-        chunk_count=11,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-financial-nvda-q1-fy27-results",
-        canonical_document_id="demo-doc-financial-nvda-q1-fy27-results",
-        title="NVIDIA Q1 FY27 Results.pdf",
-        mime_type="application/pdf",
-        size_bytes=379_572,
-        asset_directory="financial-nvda-q1-fy27-results",
-        chunk_count=98,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-financial-nvda-q1-fy27-presentation",
-        canonical_document_id="demo-doc-financial-nvda-q1-fy27-presentation",
-        title="NVIDIA Q1 FY27 Quarterly Presentation.pdf",
-        mime_type="application/pdf",
-        size_bytes=3_371_774,
-        asset_directory="financial-nvda-q1-fy27-presentation",
-        chunk_count=28,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-financial-nvda-fy26-annual-report",
-        canonical_document_id="demo-doc-financial-nvda-fy26-annual-report",
-        title="NVIDIA FY26 Annual Report.pdf",
-        mime_type="application/pdf",
-        size_bytes=15_850_437,
-        asset_directory="financial-nvda-fy26-annual-report",
-        chunk_count=368,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
         demo_source_id="demo-financial-micron-report-530bd7ed",
         canonical_document_id="demo-doc-financial-micron-report-530bd7ed",
         title="Micron investor report 530bd7ed.pdf",
@@ -296,140 +147,6 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         original_file_name=None,
     ),
     DemoSourceDefinition(
-        demo_source_id="demo-financial-goog-10-k-2025",
-        canonical_document_id="demo-doc-financial-goog-10-k-2025",
-        title="GOOG 10-K 2025.pdf",
-        mime_type="application/pdf",
-        size_bytes=940_068,
-        asset_directory="financial-goog-10-k-2025",
-        chunk_count=1,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-financial-meta-q1-2026-results",
-        canonical_document_id="demo-doc-financial-meta-q1-2026-results",
-        title="Meta Q1 2026 Exhibit 99.1.pdf",
-        mime_type="application/pdf",
-        size_bytes=154_270,
-        asset_directory="financial-meta-q1-2026-results",
-        chunk_count=17,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-financial-meta-q1-2026-presentation",
-        canonical_document_id="demo-doc-financial-meta-q1-2026-presentation",
-        title="Meta Q1 2026 Earnings Presentation.pdf",
-        mime_type="application/pdf",
-        size_bytes=239_814,
-        asset_directory="financial-meta-q1-2026-presentation",
-        chunk_count=32,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-financial-meta-q1-2026-earnings-call",
-        canonical_document_id="demo-doc-financial-meta-q1-2026-earnings-call",
-        title="Meta Q1 2026 Earnings Call Transcript.pdf",
-        mime_type="application/pdf",
-        size_bytes=131_758,
-        asset_directory="financial-meta-q1-2026-earnings-call",
-        chunk_count=3,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-financial-microsoft-2025-annual-report",
-        canonical_document_id="demo-doc-financial-microsoft-2025-annual-report",
-        title="Microsoft 2025 Annual Report.docx",
-        mime_type=(
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        ),
-        size_bytes=1_044_155,
-        asset_directory="financial-microsoft-2025-annual-report",
-        chunk_count=85,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-financial-alibaba-fy2026-interim-report",
-        canonical_document_id="demo-doc-financial-alibaba-fy2026-interim-report",
-        title="Alibaba Fiscal Year 2026 Interim Report.pdf",
-        mime_type="application/pdf",
-        size_bytes=346_418,
-        asset_directory="financial-alibaba-fy2026-interim-report",
-        chunk_count=125,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-research-attention-is-all-you-need",
-        canonical_document_id="demo-doc-research-attention-is-all-you-need",
-        title="Attention Is All You Need.pdf",
-        mime_type="application/pdf",
-        size_bytes=2_215_244,
-        asset_directory="research-attention-is-all-you-need",
-        chunk_count=34,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-research-rag-survey",
-        canonical_document_id="demo-doc-research-rag-survey",
-        title="Retrieval-Augmented Generation for Large Language Models: A Survey.pdf",
-        mime_type="application/pdf",
-        size_bytes=1_662_567,
-        asset_directory="research-rag-survey",
-        chunk_count=35,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-research-rag-realized",
-        canonical_document_id="demo-doc-research-rag-realized",
-        title="Retrieval-Augmented Generation Realized.pdf",
-        mime_type="application/pdf",
-        size_bytes=3_979_559,
-        asset_directory="research-rag-realized",
-        chunk_count=59,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-research-toolformer",
-        canonical_document_id="demo-doc-research-toolformer",
-        title="Toolformer: Language Models Can Teach Themselves to Use Tools.pdf",
-        mime_type="application/pdf",
-        size_bytes=657_966,
-        asset_directory="research-toolformer",
-        chunk_count=41,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-research-ai-agents-overview",
-        canonical_document_id="demo-doc-research-ai-agents-overview",
-        title="AI Agents Overview.pdf",
-        mime_type="application/pdf",
-        size_bytes=4_928_076,
-        asset_directory="research-ai-agents-overview",
-        chunk_count=58,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-stem-jurafsky-transformers",
-        canonical_document_id="demo-doc-stem-jurafsky-transformers",
-        title="Speech and Language Processing, Chapter 8: Transformers.pdf",
-        mime_type="application/pdf",
-        size_bytes=1_363_617,
-        asset_directory="stem-jurafsky-transformers",
-        chunk_count=47,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
         demo_source_id="demo-stem-transformers-tutorial",
         canonical_document_id="demo-doc-stem-transformers-tutorial",
         title="Transformers Tutorial.pdf",
@@ -437,50 +154,6 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         size_bytes=12_824_695,
         asset_directory="stem-transformers-tutorial",
         chunk_count=301,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-stem-deep-learning-transformer-network",
-        canonical_document_id="demo-doc-stem-deep-learning-transformer-network",
-        title="Deep Learning - Transformer Network.pdf",
-        mime_type="application/pdf",
-        size_bytes=2_619_505,
-        asset_directory="stem-deep-learning-transformer-network",
-        chunk_count=18,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-stem-probability-theory-lecture-notes",
-        canonical_document_id="demo-doc-stem-probability-theory-lecture-notes",
-        title="Probability Theory Lecture Notes.pdf",
-        mime_type="application/pdf",
-        size_bytes=708_671,
-        asset_directory="stem-probability-theory-lecture-notes",
-        chunk_count=68,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-stem-introduction-statistical-learning-theory",
-        canonical_document_id="demo-doc-stem-introduction-statistical-learning-theory",
-        title="Introduction to Statistical Learning Theory.pdf",
-        mime_type="application/pdf",
-        size_bytes=1_208_674,
-        asset_directory="stem-introduction-statistical-learning-theory",
-        chunk_count=49,
-        examples=(),
-        original_file_name=None,
-    ),
-    DemoSourceDefinition(
-        demo_source_id="demo-stem-statistical-learning",
-        canonical_document_id="demo-doc-stem-statistical-learning",
-        title="Statistical Learning Notes.pdf",
-        mime_type="application/pdf",
-        size_bytes=614_119,
-        asset_directory="stem-statistical-learning",
-        chunk_count=45,
         examples=(),
         original_file_name=None,
     ),
@@ -651,19 +324,9 @@ def _normalize_asset_path(asset_path: str) -> Path | None:
     return Path(*parts)
 
 
+@lru_cache(maxsize=8)
 def _load_source_chunks(source: DemoSourceDefinition) -> tuple[dict[str, Any], ...]:
     chunks_path = (_DATA_ROOT / source.asset_directory) / "chunks.json"
-    status = chunks_path.stat()
-    return _load_source_chunks_version(
-        chunks_path, status.st_size, status.st_mtime_ns, status.st_ctime_ns
-    )
-
-
-@lru_cache(maxsize=8)
-def _load_source_chunks_version(
-    chunks_path: Path, size: int, modified_at: int, changed_at: int
-) -> tuple[dict[str, Any], ...]:
-    """Invalidate parsed source content when the canonical input file changes."""
     with chunks_path.open("r", encoding="utf-8") as file:
         payload = json.load(file)
 

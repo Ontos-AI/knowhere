@@ -2,7 +2,7 @@
 
 Image/table chunks are stored under their document's ``Root`` section; the
 real placement is ``chunk_metadata.connect_to`` on the body chunk that embeds
-them (``CORPUS_SCHEMA.md`` §3). Hosts are keyed by ``(document_id,
+them. Hosts are keyed by ``(document_id,
 asset chunk_id)`` — chunk ids are content hashes and repeat across
 documents — and read only from each document's current revision. When an
 asset has several hosts they are kept in body order, so every tool that

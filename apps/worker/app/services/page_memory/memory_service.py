@@ -15,13 +15,14 @@ from app.services.document_agent.visual import (
 )
 from app.services.document_parser.profiling.doc_profiler import profile_document
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
-from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
+from app.services.document_parser.support.parser_rows import PARSER_DF_COLUMNS
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.page_memory.normalizer import normalize_to_pdf
 from app.services.page_memory._utils import (
     CoarseScope,
     build_hierarchy_scopes,
     collapse_page_ranges,
+    derive_excluded_toc_pages,
     page_scope_info,
     sort_skeletons,
 )
@@ -36,6 +37,7 @@ from loguru import logger
 
 from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.models.schemas.page_memory_config import PageMemoryConfig, resolve_asset_model
+from app.services.page_memory.body_text_preview import build_body_text_preview
 
 
 @dataclass(frozen=True)
@@ -121,6 +123,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 page_texts=coerce_page_text_cache(
                     getattr(profile, "page_full_text_cache", None)
                 ),
+                body_text_by_page=getattr(profile, "page_body_text_cache", None),
             )
         else:
             parsed_df = _build_page_dataframe(
@@ -231,7 +234,7 @@ def _build_page_dataframe(
     anatomy = getattr(profile, "anatomy", None)
     page_count = max(int(profile.page_count or 0), 0)
     if page_count <= 0:
-        return pd.DataFrame(columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+        return pd.DataFrame(columns=pd.Index(PARSER_DF_COLUMNS))
 
     asset_extraction_enabled = page_memory_config.asset_extraction_enabled
 
@@ -274,7 +277,10 @@ def _build_page_dataframe(
         page_count=page_count,
     )
     toc_result = getattr(anatomy, "toc_result", None) if anatomy is not None else None
-    toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
+    toc_pages = derive_excluded_toc_pages(
+        skeletons=skeletons,
+        toc_pages=list(getattr(toc_result, "toc_pages", None) or []),
+    )
     coarse_pages_scope = pages_excluding_toc(
         _derive_hierarchy_page_scope(
             skeletons=skeletons,
@@ -450,6 +456,7 @@ def _build_page_dataframe(
             page_assets_by_page=page_assets_by_page,
             node_summary_max_pages=page_memory_config.node_summary_max_pages,
             node_assembly_concurrency=page_memory_config.node_assembly_concurrency,
+            body_text_by_page=getattr(profile, "page_body_text_cache", None),
         )
     logger.info(
         "[page_memory] C7 assembled {} node rows (verdict={})",
@@ -465,7 +472,7 @@ def _build_page_dataframe(
             "page_to_node": _page_to_node_map(rows),
         },
     )
-    return pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+    return pd.DataFrame(rows, columns=pd.Index(PARSER_DF_COLUMNS))
 
 
 def _build_hierarchy_scopes(
@@ -571,6 +578,9 @@ def _run_hierarchy_scope(
     )
 
     scope_skeletons = sort_skeletons(scope.skeletons)
+    toc_pages = derive_excluded_toc_pages(
+        skeletons=scope_skeletons, toc_pages=toc_pages,
+    )
     scope_manifest = _scope_manifest(
         scope_id=scope.scope_id,
         skeletons=scope_skeletons,
@@ -827,6 +837,7 @@ def _build_whole_doc_dataframe(
     verdict: str,
     trace_recorder: Any | None = None,
     page_texts: dict[int, str] | None = None,
+    body_text_by_page: dict[int, str] | None = None,
 ) -> pd.DataFrame:
     pages = list(range(1, page_count + 1)) if page_count > 0 else [1]
     texts = coerce_page_text_cache(page_texts)
@@ -846,7 +857,11 @@ def _build_whole_doc_dataframe(
         "connectto": "",
         "addtime": get_str_time(),
         "page_nums": ",".join(str(page) for page in pages),
-        "extra_metadata": {},
+        "extra_metadata": {
+            "body_text_preview": build_body_text_preview(
+                (body_text_by_page or {}).get(page, "") for page in pages
+            ),
+        },
     }
     _record_trace_stage(
         trace_recorder,
@@ -854,7 +869,7 @@ def _build_whole_doc_dataframe(
         page_info=page_scope_info(pages),
         variables={"summary": summary, "verdict": verdict},
     )
-    return pd.DataFrame([row], columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+    return pd.DataFrame([row], columns=pd.Index(PARSER_DF_COLUMNS))
 
 
 def _build_summary(*, filename: str, page_count: int, raw_text: str) -> str:

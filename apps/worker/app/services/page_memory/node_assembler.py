@@ -37,6 +37,8 @@ from app.services.page_memory.page_assets import (
     build_asset_rows,
 )
 from app.services.page_memory.page_tagger import PageTagResult
+from app.services.page_memory.body_text_preview import build_body_text_preview
+from app.services.document_parser.structure.body_boundary import normalize_match_text
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
 from shared.services.ai.summary.engine import summarize
 
@@ -209,6 +211,50 @@ def build_node_content(
         elif owner is not None:
             segments.append(f"[{SAME_AS_PREFIX} {owner.section_path} p{page}]")
     return "\n\n".join(segment for segment in segments if segment).strip()
+
+
+def _find_body_heading(lines: list[str], title: str) -> int | None:
+    target = normalize_match_text(title)
+    if not target:
+        return None
+    for start in range(len(lines)):
+        for end in range(start + 1, min(start + 3, len(lines)) + 1):
+            if normalize_match_text(" ".join(lines[start:end])) == target:
+                return start
+    return None
+
+
+def _preview_owned_body(
+    *,
+    view: NodePageView,
+    page_to_leaves: dict[int, list[LeafNode]],
+    body_text_by_page: dict[int, str],
+) -> str:
+    """Respect physical ownership and conservative same-page title boundaries."""
+    texts: list[str] = []
+    for page in view.owned_pages:
+        lines = body_text_by_page.get(page, "").splitlines()
+        leaves = page_to_leaves.get(page, [])
+        current_index = next(index for index, leaf in enumerate(leaves) if leaf.section_path == view.leaf.section_path)
+        following = next((leaf for leaf in leaves[current_index + 1:] if leaf.start_page == page), None)
+        start = 0
+        if page == view.leaf.start_page and view.leaf.title != "Root":
+            located = _find_body_heading(lines, view.leaf.title)
+            if located is None:
+                if following is not None:
+                    break
+                continue
+            start = located
+        end = len(lines)
+        if following is not None:
+            located = _find_body_heading(lines[start:], following.title)
+            if located is None:
+                break
+            end = start + located
+        texts.append("\n".join(lines[start:end]))
+        if following is not None:
+            break
+    return build_body_text_preview(texts)
 
 
 def next_title_on_page(
@@ -391,6 +437,7 @@ def build_node_rows(
     page_assets_by_page: dict[int, list[PageAsset]] | None = None,
     node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
     node_assembly_concurrency: int = 3,
+    body_text_by_page: dict[int, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Assemble one row per leaf section node (node-granularity chunks)."""
     available_pages = set(raw_text_by_page.keys())
@@ -473,6 +520,10 @@ def build_node_rows(
                     output_dir=output_dir,
                 ),
             }
+            row["extra_metadata"]["body_text_preview"] = _preview_owned_body(
+                view=view, page_to_leaves=page_to_leaves,
+                body_text_by_page=body_text_by_page or {},
+            )
             rows.append(row)
             rows_by_path[leaf.section_path] = row
 
@@ -630,14 +681,14 @@ def _attach_asset_connections(
                 row = rows_by_path.get(leaf.section_path)
                 if row is None:
                     continue
-                connection: dict[str, Any] = {
-                    "target": uri,
-                    "relation": "related",
-                    "ref": ref,
-                }
-                if owner_leaf is not None:
-                    connection["same_as_owner"] = owner_leaf.section_path
-                _append_connect_to(row, connection)
+                _append_connect_to(
+                    row,
+                    {
+                        "target": uri,
+                        "relation": "related",
+                        "ref": ref,
+                    },
+                )
 
 
 def _append_connect_to(row: dict[str, Any], connection: dict[str, Any]) -> None:

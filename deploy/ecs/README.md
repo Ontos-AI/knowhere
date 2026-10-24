@@ -41,6 +41,14 @@ python deploy/ecs/render_task_definitions.py --environment staging --output-dir 
 
 The output directory is deployment-only and must not be committed. The renderer fails on missing inputs, unresolved placeholders, or either long-lived S3 credential variable.
 
+`QSTASH_BASE_URL` is an optional renderer input applied to both containers.
+The production release workflow supplies `https://qstash-us-east-1.upstash.io`
+because the existing production QStash token belongs to `us-east-1`. Omitting
+this input preserves the SDK default for other environments. QStash API
+publication and the public callback base URL are separate configuration values;
+the API base URL must match the token region. A wrong region rejects publication
+before any customer webhook is delivered.
+
 The staging workflow keeps the API at 256 CPU / 1024 MiB. The production release
 workflow sets the API to 512 CPU / 2048 MiB (2 GiB) and the worker to 2048 CPU /
 4096 MiB, so production API memory remains at 2 GiB across future releases.

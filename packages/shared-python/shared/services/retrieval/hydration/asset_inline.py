@@ -11,12 +11,13 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-_PATH_REF_RE = re.compile(r"\[(?:images|tables)/[^\]\n]+\]")
+from shared.utils.chunk_refs import RESOURCE_PATH_REF_RE, match_resource_path_ref
+
 _SAME_AS_RE = re.compile(r"\[SAME-AS [^\]]+\]")
 
 
 def remove_path_placeholders(content: str) -> str:
-    text = _PATH_REF_RE.sub("", content)
+    text = RESOURCE_PATH_REF_RE.sub("", content)
     return _SAME_AS_RE.sub("", text)
 
 
@@ -51,12 +52,11 @@ def inline_assets_at_placeholders(
 
         ref = str(item.get("ref") or "").strip()
         placed = False
-        for candidate in _ref_candidates(ref):
-            if candidate and candidate in text:
-                text = text.replace(candidate, f"\n{body}\n", 1)
-                embedded.add(target_id)
-                placed = True
-                break
+        match = match_resource_path_ref(text, ref)
+        if match is not None:
+            text = f"{text[: match.start()]}\n{body}\n{text[match.end() :]}"
+            embedded.add(target_id)
+            placed = True
         if not placed:
             pending_append.append((target_id, body))
 
@@ -70,19 +70,3 @@ def inline_assets_at_placeholders(
         embedded.add(target_id)
 
     return strip_path_placeholders(text), embedded
-
-
-def _ref_candidates(ref: str) -> list[str]:
-    raw = str(ref or "").strip()
-    if not raw:
-        return []
-    out: list[str] = [raw]
-    if raw.startswith("[") and raw.endswith("]"):
-        inner = raw[1:-1].strip()
-        if inner and inner not in out:
-            out.append(inner)
-    else:
-        bracketed = f"[{raw}]"
-        if bracketed not in out:
-            out.append(bracketed)
-    return out

@@ -3,9 +3,9 @@ from __future__ import annotations
 INTERNAL_RECALL_K_MULTIPLIER = 2
 DEFAULT_TOP_K = 10
 
-# Final evidence / tool-observation text budget (characters). Used by
+# Agent-visible tool-observation text budget (characters). Used by
 # agent tool-loop harness caps (``ToolBudget.max_chars``).
-EVIDENCE_TEXT_CHAR_BUDGET = 12_000
+EVIDENCE_TEXT_CHAR_BUDGET = 15_000
 
 # Explore-phase table policy (user-specified). A table is large when either
 # axis meets this size; the same number caps query_table SELECT rows.

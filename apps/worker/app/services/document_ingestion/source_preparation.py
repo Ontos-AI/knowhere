@@ -13,6 +13,7 @@ from app.services.document_ingestion.processing_context import (
     ParseJobContext,
     persist_job_metadata_updates,
 )
+from app.services.document_ingestion.source_content_admission import SourceContentAdmission
 from app.services.document_parser.support.internal_parse_name import (
     prepare_internal_parse_input,
 )
@@ -56,8 +57,12 @@ def prepare_source_file(
         suffix=file_extension,
         temp_dir=input_dir,
     )
-    if job_context.job_metadata.get("corpus_target") == "DEMO":
-        persist_job_metadata_updates(job_id=job_id, job_context=job_context, metadata_updates={"source_size_bytes": os.path.getsize(local_file_path)})
+    fingerprint: dict[str, object] = SourceContentAdmission().admit_source(
+        job_id=job_id,
+        local_file_path=local_file_path,
+    )
+    job_context.metadata_service.update_metadata(job_id, fingerprint)
+    job_context.job_metadata.update(fingerprint)
     logger.info(f"File downloaded: job_id={job_id}, local_path={local_file_path}")
 
     prepared_parse_input = prepare_internal_parse_input(

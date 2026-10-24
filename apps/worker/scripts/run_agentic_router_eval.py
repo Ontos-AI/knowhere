@@ -51,6 +51,21 @@ def _count_llm_steps(decision_trace: list[dict[str, Any]], mode: str) -> int:
     )
 
 
+def _evidence_preview(response: dict[str, Any]) -> str:
+    texts: list[str] = []
+    for part in response.get("evidence") or []:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text":
+            text = str(part.get("text") or "")
+            if text:
+                texts.append(text)
+            continue
+        if part.get("type") == "image":
+            texts.append("[image]")
+    return "".join(texts)
+
+
 def _keyword_hits(evidence_text: str, keywords: list[str]) -> tuple[int, list[str]]:
     text = evidence_text or ""
     hits = [kw for kw in keywords if kw and kw in text]
@@ -139,7 +154,7 @@ async def _run_one(
         error = f"{type(exc).__name__}: {exc}"
 
     elapsed_ms = int((time.monotonic() - started) * 1000)
-    evidence = str(response.get("evidence_text") or "")
+    evidence = _evidence_preview(response)
     decision_trace = response.get("decision_trace") or []
     hits, matched = _keyword_hits(evidence, expected_keywords)
     return RunMetrics(
@@ -206,7 +221,7 @@ def _render_markdown(
             f"- agent_explore p50: {_p50(agent_ms)} ms ({len(agent_ms)} runs)\n",
             "\n## Notes\n",
             "- Runs bypass Redis retrieval cache (direct ``run_retrieval_route``).\n",
-            "- ``kw hit`` = expected keywords found in ``evidence_text`` " +
+            "- ``kw hit`` = expected keywords found in ``evidence`` text parts " +
             "(proxy for recall quality, not a full answer judge).\n",
             "- Phase 0 ad-hoc queries are separate; this set is the 8 questions " +
             "from ``zh_档案知识库测试样例.docx``.\n",

@@ -5,34 +5,21 @@ second harness (``harness/cursor_harness.py``) needed the exact same logic
 and, as a debug-script PoC, had started duplicating and drifting from it
 instead of sharing it — see the Phase 3.5 section of
 ``.cursor/plans/agentic_corpus_explore_retrieval_c2c4ea21.plan.md``.
-
-Deliberately excludes anything that assumes an editable ``messages:
-list[dict]`` conversation history (that's OpenAI-harness-specific — see
-``harness/openai_harness.py``'s ``_collapse_stale_tool_messages``, which is
-NOT here because the Cursor SDK manages its own context with no equivalent
-hook exposed to the host process).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 import jsonschema
 import jsonschema.validators
 
-from shared.services.retrieval.agent_explore.budget import EpisodeBudget
-from shared.services.retrieval.agent_explore.config import FINISH_TOOL_SCHEMA
-from shared.services.retrieval.agent_tools import ToolResult
-
-# Tools whose ToolResult.refs point at evidence the agent has actually looked
-# at (full body content), as opposed to candidate/listing refs from
-# list_documents/outline/node_filter/recall/grep — those describe *where
-# things are*, not *what was read*, and would inject unread noise into the
-# trajectory-refs fallback below if included.
-EVIDENCE_TOOL_NAMES = frozenset(
-    {"corpus.read", "corpus.assets", "corpus.query_table"}
+from shared.services.retrieval.agent_explore.config import (
+    FINISH_TOOL_SCHEMA,
+    PICK_TOOL_NAME,
+    PICK_TOOL_SCHEMA,
 )
+from shared.services.retrieval.agent_tools import ToolResult
 
 # The two map-narrowing tools bound their own text at MAP_TOOL_CHAR_BUDGET by
 # folding whole subtrees (agent_tools.map_render) or failing the call, so
@@ -112,58 +99,11 @@ def tool_message_content(result: ToolResult, *, tool_name: str, max_chars: int) 
     if tool_name in MAP_TOOL_NAMES or len(text) <= max_chars:
         return text
     omitted = len(text) - max_chars
+    # TODO: return a fragment for oversized corpus.read bodies, the way oversized tables do, instead of this head cut.
     return (
         text[:max_chars]
         + f"\n...[truncated, {omitted} more chars — narrow the scope "
         "or use a more specific ref and call again if you need the rest]"
-    )
-
-
-@dataclass(frozen=True)
-class EpisodeRefSelection:
-    """Final episode refs plus how they were chosen.
-
-    ``agent_selected_refs`` is ``None`` only when finish was never called.
-    An explicit empty finish stays empty and does not take the trajectory
-    fallback.
-    """
-
-    refs: list[dict[str, Any]]
-    notes: str
-    agent_selected_refs: list[dict[str, Any]] | None
-    fallback_refs: list[dict[str, Any]]
-
-
-def select_episode_refs(
-    finish_refs: list[dict[str, Any]] | None,
-    trajectory_refs: list[dict[str, Any]],
-    notes: str,
-) -> EpisodeRefSelection:
-    """Choose episode refs without treating ``[]`` and ``None`` as the same."""
-    if finish_refs is None:
-        fallback_refs = dedup_refs(trajectory_refs)
-        if not fallback_refs:
-            return EpisodeRefSelection(
-                refs=[],
-                notes=notes,
-                agent_selected_refs=None,
-                fallback_refs=[],
-            )
-        suffix = (
-            "[refs auto-filled from corpus.read/corpus.assets/"
-            "corpus.query_table trajectory; finish was not called]"
-        )
-        return EpisodeRefSelection(
-            refs=fallback_refs,
-            notes=(notes + " " if notes else "") + suffix,
-            agent_selected_refs=None,
-            fallback_refs=fallback_refs,
-        )
-    return EpisodeRefSelection(
-        refs=list(finish_refs),
-        notes=notes,
-        agent_selected_refs=list(finish_refs),
-        fallback_refs=[],
     )
 
 
@@ -176,10 +116,26 @@ def validate_finish_args(args: dict[str, Any]) -> str | None:
     is unverified (see ``config.py``'s ``FINISH_TOOL_SCHEMA`` docstring
     context), so this is the real enforcement point.
     """
+    return _schema_args_error("finish", FINISH_TOOL_SCHEMA, args)
+
+
+def validate_pick_args(args: dict[str, Any]) -> str | None:
+    """Validate ``corpus.pick`` args against ``PICK_TOOL_SCHEMA``; ``None`` = valid.
+
+    The Cursor SDK does not enforce ``input_schema`` (a live run sent
+    ``pick_ids``), so a malformed call must fail here instead of being
+    applied as an empty pick that closes the pick phase.
+    """
+    return _schema_args_error(PICK_TOOL_NAME, PICK_TOOL_SCHEMA, args)
+
+
+def _schema_args_error(
+    tool_name: str, schema: dict[str, object], args: dict[str, Any]
+) -> str | None:
     if not isinstance(args, dict):
-        return f"finish: arguments must be a JSON object, got {type(args).__name__}"
-    validator_cls = jsonschema.validators.validator_for(FINISH_TOOL_SCHEMA)
-    validator = validator_cls(FINISH_TOOL_SCHEMA)
+        return f"{tool_name}: arguments must be a JSON object, got {type(args).__name__}"
+    validator_cls = jsonschema.validators.validator_for(schema)
+    validator = validator_cls(schema)
     errors = sorted(
         validator.iter_errors(args), key=lambda error: [str(p) for p in error.path]
     )
@@ -190,7 +146,7 @@ def validate_finish_args(args: dict[str, Any]) -> str | None:
     if error.validator == "oneOf" and isinstance(error.schema, dict):
         message = str(error.schema.get("description") or message)
     location = "".join(f"[{p}]" if isinstance(p, int) else f".{p}" for p in error.path)
-    return f"finish: invalid arguments{f' at {location}' if location else ''}: {message}"
+    return f"{tool_name}: invalid arguments{f' at {location}' if location else ''}: {message}"
 
 
 def read_ref_status(tool_name: str, result: ToolResult) -> list[dict[str, Any]] | None:
@@ -205,65 +161,14 @@ def invalid_finish_message(error: str) -> str:
     """Model-facing text for a rejected ``finish`` call; the episode goes on."""
     return (
         f"{error}. finish was not accepted and the episode continues. Correct "
-        'form: {"refs": [{"document_id": "...", "section_path": "..."} or '
-        '{"document_id": "...", "chunk_id": "..."}], "notes": "..."} — each '
-        "ref names exactly one of section_path or chunk_id. Call finish again "
+        'form: {"notes": "..."} — Call finish again '
         "with fixed arguments, or keep exploring with the corpus tools."
     )
 
 
-def finish_refs_from_args(args: dict[str, Any] | None) -> list[dict[str, Any]] | None:
-    """Return cited refs, or ``None`` when finish omitted the ``refs`` key.
-
-    ``None`` means the agent did not specify refs (never called finish, or
-    called finish with ``{}``). An explicit ``refs: []`` stays an empty list
-    and must not be collapsed into ``None``.
-    """
-    if not isinstance(args, dict) or "refs" not in args or args.get("refs") is None:
-        return None
-    return normalize_finish_refs(args.get("refs"))
-
-
-def normalize_finish_refs(raw: Any) -> list[dict[str, Any]]:
-    """Keep only dict items with a non-empty ``document_id`` from a raw ``finish.refs``."""
-    if not isinstance(raw, list):
-        return []
-    normalized: list[dict[str, Any]] = []
-    for item in raw:
-        if isinstance(item, dict) and str(item.get("document_id") or "").strip():
-            normalized.append(item)
-    return normalized
-
-
-def budget_status_line(budget: EpisodeBudget) -> str:
-    """One-line remaining-budget summary appended to a tool observation.
-
-    Neither harness previously surfaced ``EpisodeBudget``'s own counters
-    (``steps_used``/``max_steps``, ``tokens_used``/``token_limit``,
-    elapsed/wall_clock) to the model at all — it had no way to tell "I'm on
-    step 3 of 12" from "I'm on step 11 of 12", so it could not self-regulate
-    when to stop exploring and call ``finish``. This exposes the same
-    ``EpisodeBudget.snapshot()`` data already used for the hard cutoff,
-    reused as a soft signal the model can read every turn.
-    """
-    snap = budget.snapshot()
+def invalid_pick_message(error: str) -> str:
+    """Model-facing text for a rejected ``corpus.pick`` call; the pick phase goes on."""
     return (
-        f"[budget: steps {snap['steps_used']}/{snap['max_steps']}, "
-        f"tokens {snap['tokens_used']}/{snap['token_limit']}, "
-        f"elapsed {snap['elapsed_seconds']:.0f}s/{snap['wall_clock_seconds']:.0f}s]"
+        f"{error}. Nothing was picked and the pick phase continues. Correct "
+        'form: {"pick": ["<id>", ...]} or {"pick": []} — call corpus_pick again.'
     )
-
-
-def dedup_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Dedup by ``(document_id, chunk_id)``, keeping first-seen order."""
-    seen: set[tuple[str, str]] = set()
-    deduped: list[dict[str, Any]] = []
-    for ref in refs:
-        document_id = str(ref.get("document_id") or "").strip()
-        chunk_id = str(ref.get("chunk_id") or "").strip()
-        key = (document_id, chunk_id)
-        if not document_id or not chunk_id or key in seen:
-            continue
-        seen.add(key)
-        deduped.append(ref)
-    return deduped

@@ -166,6 +166,7 @@ class MarkdownParseState:
                     page_nums=str(row_values[10]),
                     entities=str(row_values[11]) if len(row_values) > 11 else "",
                     asset_title=str(row_values[12]) if len(row_values) > 12 else "",
+                    extra_metadata=str(row_values[13]) if len(row_values) > 13 else "",
                 )
             )
         return process_dup_paths_df(rows_builder.to_dataframe())

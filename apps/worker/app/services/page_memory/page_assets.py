@@ -23,6 +23,7 @@ from app.services.page_memory.page_renderer import PageRenderResult
 from shared.services.ai.prompt_service import build_prompt
 
 _GRID_SIZE = 1000
+_ASSET_CROP_MARGIN_PX = 4
 _VALID_KINDS = {"table", "figure"}
 _ASSET_ANNOTATE_DIR = "asset_annotate"
 
@@ -194,7 +195,7 @@ def crop_page_asset(
     asset: PageAsset,
     page_image_path: str,
     output_dir: str,
-    margin_px: int = 4,
+    margin_px: int = _ASSET_CROP_MARGIN_PX,
 ) -> PageAsset:
     image_dir = Path(output_dir) / "images"
     image_dir.mkdir(parents=True, exist_ok=True)
@@ -543,10 +544,20 @@ def build_asset_rows(
 
 
 def _asset_extra_metadata(asset: PageAsset) -> dict[str, Any]:
-    metadata: dict[str, Any] = {
-        "image_uri": asset.image_uri,
+    if asset.kind == "table":
+        return {}
+    # bbox is the detected (VLM) box on the rendered page image, not the cropped box.
+    return {
+        "asset_region": {
+            "page_num": asset.page_index,
+            "bbox": list(asset.bbox_px),
+            "coord_origin": "top_left",
+            "coord_system": "page_image_px",
+            "page_width": asset.width_px,
+            "page_height": asset.height_px,
+            "crop_margin_px": _ASSET_CROP_MARGIN_PX,
+        }
     }
-    return metadata
 
 
 def asset_reference(asset: PageAsset) -> str:
@@ -668,15 +679,6 @@ def _is_meaningful_frame(frame: pd.DataFrame) -> bool:
         return False
     non_empty = frame.fillna("").astype(str).map(lambda text: bool(text.strip()))
     return bool(non_empty.values.sum() >= 2)
-
-
-def _normalize_keywords(value: object) -> list[str]:
-    if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
-    if isinstance(value, str):
-        delimiter = ";" if ";" in value else ","
-        return [item.strip() for item in value.split(delimiter) if item.strip()]
-    return []
 
 
 def _safe_float(value: object, *, default: float) -> float:

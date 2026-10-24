@@ -874,7 +874,7 @@ async def test_should_inherit_existing_document_namespace_when_update_namespace_
 
 
 @pytest.mark.asyncio
-async def test_should_return_conflict_when_creating_a_job_for_a_duplicate_file_name(
+async def test_should_accept_same_file_name_before_source_content_is_available(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
@@ -894,21 +894,12 @@ async def test_should_return_conflict_when_creating_a_job_for_a_duplicate_file_n
         response = await api_client.post("/api/v1/jobs", json=payload)
         jobs_after = await _count_jobs()
 
-    assert response.status_code == 409
+    assert response.status_code == 200
     response_json: dict[str, object] = response.json()
-    error = cast(dict[str, object], response_json["error"])
-    assert response_json["success"] is False
-    assert error["code"] == "ALREADY_EXISTS"
-    assert error["message"] == (
-        f"A document named {file_name!r} already exists. "
-        "To replace it, retry with document_id set to details.id."
-    )
-    assert error["details"] == {
-        "reason": "ALREADY_EXISTS",
-        "resource": "Document",
-        "id": document_id,
-    }
-    assert jobs_after == jobs_before
+    assert response_json["status"] == "waiting-file"
+    assert response_json["document_id"] != document_id
+    assert response_json["upload_url"]
+    assert jobs_after == jobs_before + 1
 
 
 @pytest.mark.asyncio
@@ -967,7 +958,7 @@ async def test_should_allow_same_file_name_in_a_different_namespace(
 
 
 @pytest.mark.asyncio
-async def test_should_return_conflict_when_url_source_resolves_to_a_duplicate_file_name(
+async def test_should_accept_url_source_with_same_resolved_file_name(
     monkeypatch: MonkeyPatch,
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
@@ -981,6 +972,7 @@ async def test_should_return_conflict_when_url_source_resolves_to_a_duplicate_fi
         "source_url": f"https://example.com/contracts/{file_name}",
         "data_id": "contract-job-duplicate-filename-url",
     }
+    scheduled_tasks: list[dict[str, object]] = []
 
     class _FakeHeadResponse:
         def __init__(self) -> None:
@@ -998,6 +990,25 @@ async def test_should_return_conflict_when_url_source_resolves_to_a_duplicate_fi
             assert follow_redirects is False
             return _FakeHeadResponse()
 
+    class _FakeCeleryTask:
+        def apply_async(
+            self,
+            *,
+            args: list[object],
+            kwargs: dict[str, object],
+        ) -> None:
+            scheduled_tasks.append({"args": args, "kwargs": kwargs})
+
+    class _FakeCeleryApp:
+        def __init__(self) -> None:
+            from types import SimpleNamespace
+
+            self.conf = SimpleNamespace(task_routes={})
+
+        def signature(self, task_name: str) -> _FakeCeleryTask:
+            assert task_name == "app.core.tasks.document_ingestion_tasks.upload_url_file_task"
+            return _FakeCeleryTask()
+
     def resolve_public_address(
         host: str,
         port: int | None,
@@ -1007,6 +1018,7 @@ async def test_should_return_conflict_when_url_source_resolves_to_a_duplicate_fi
         del host, port, args, kwargs
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
 
+    import shared.core.celery_app as celery_app_module
     import shared.services.http.client_pool as client_pool_module
 
     monkeypatch.setattr(socket, "getaddrinfo", resolve_public_address)
@@ -1015,26 +1027,38 @@ async def test_should_return_conflict_when_url_source_resolves_to_a_duplicate_fi
         "get_async_client",
         lambda: _FakeAsyncHttpClient(),
     )
+    monkeypatch.setattr(
+        celery_app_module,
+        "get_celery_app",
+        lambda: _FakeCeleryApp(),
+    )
 
     async with developer_api_client_factory() as api_client:
         await _insert_document(document_id=document_id, source_file_name=file_name)
         jobs_before = await _count_jobs()
         response = await api_client.post("/api/v1/jobs", json=payload)
         jobs_after = await _count_jobs()
+        response_json: dict[str, object] = response.json()
+        job_id = cast(str, response_json["job_id"])
+        job_metadata = cast(
+            dict[str, object], (await _load_job_record(job_id))["job_metadata"]
+        )
 
-    assert response.status_code == 409
-    error = cast(dict[str, object], response.json()["error"])
-    assert error["code"] == "ALREADY_EXISTS"
-    assert error["details"] == {
-        "reason": "ALREADY_EXISTS",
-        "resource": "Document",
-        "id": document_id,
-    }
-    assert jobs_after == jobs_before
+    assert response.status_code == 200
+    assert response_json["source_type"] == "url"
+    assert response_json["document_id"] != document_id
+    assert job_metadata["source_file_name"] == file_name
+    assert jobs_after == jobs_before + 1
+    assert scheduled_tasks == [
+        {
+            "args": [job_id, payload["source_url"], "local-dev-user"],
+            "kwargs": {"job_type": "document_ingestion"},
+        }
+    ]
 
 
 @pytest.mark.asyncio
-async def test_should_return_conflict_when_creating_a_v2_job_for_a_duplicate_file_name(
+async def test_should_accept_v2_job_with_same_file_name_before_upload(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
@@ -1054,15 +1078,11 @@ async def test_should_return_conflict_when_creating_a_v2_job_for_a_duplicate_fil
         response = await api_client.post("/api/v2/jobs", json=payload)
         jobs_after = await _count_jobs()
 
-    assert response.status_code == 409
-    error = cast(dict[str, object], response.json()["error"])
-    assert error["code"] == "ALREADY_EXISTS"
-    assert error["details"] == {
-        "reason": "ALREADY_EXISTS",
-        "resource": "Document",
-        "id": document_id,
-    }
-    assert jobs_after == jobs_before
+    assert response.status_code == 200
+    response_json: dict[str, object] = response.json()
+    assert response_json["status"] == "waiting-file"
+    assert response_json["document_id"] != document_id
+    assert jobs_after == jobs_before + 1
 
 
 @pytest.mark.asyncio

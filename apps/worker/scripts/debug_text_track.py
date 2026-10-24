@@ -207,8 +207,9 @@ def _stage_profile(pdf_path: str, filename: str, out_dir: Path, model: str | Non
 
     logger.info("   profile done in {:.1f}s", elapsed)
     logger.info(
-        "   category={!r} routing={} header_y={} footer_y={}",
+        "   category={!r} label={!r} routing={} header_y={} footer_y={}",
         getattr(profile, "category", None),
+        getattr(profile, "category_label", None),
         getattr(profile, "routing_category", None),
         header_y,
         footer_y,
@@ -396,21 +397,23 @@ def _stage_mineru_pdf(
         parse_via_full(pdf_path, filename, shard_out)
         shard_output_dirs = [shard_out]
     else:
-        shard_pdf_paths, _page_remap = split_pdf(
+        live_shards = split_pdf(
             pdf_path, merged_shards, work_dir,
             exclude_pages=toc_pages if toc_pages else None,
         )
         logger.info("   split into {} shard PDFs (excluded {} TOC pages)",
-                    len(shard_pdf_paths), len(toc_pages))
+                    len(live_shards), len(toc_pages))
 
-        shard_output_dirs: list[str] = [None] * len(shard_pdf_paths)  # type: ignore[list-item]
-        for i, shard_pdf in enumerate(shard_pdf_paths):
-            shard_out = os.path.join(work_dir, f"shard_{i}")
+        shard_output_dirs = []
+        for live in live_shards:
+            shard_out = os.path.join(work_dir, f"shard_{live.shard_index}")
             os.makedirs(shard_out, exist_ok=True)
-            shard_filename = f"{os.path.splitext(filename)[0]}_shard{i}.pdf"
-            logger.info("   🔄 MinerU shard_{}: parsing...", i)
-            parse_via_full(shard_pdf, shard_filename, shard_out)
-            shard_output_dirs[i] = shard_out
+            shard_filename = (
+                f"{os.path.splitext(filename)[0]}_shard{live.shard_index}.pdf"
+            )
+            logger.info("   🔄 MinerU shard_{}: parsing...", live.shard_index)
+            parse_via_full(live.pdf_path, shard_filename, shard_out)
+            shard_output_dirs.append(shard_out)
 
     elapsed = time.time() - t0
     logger.info("   ✅ MinerU extraction done in {:.1f}s → {} shard dirs", elapsed, len(shard_output_dirs))
@@ -433,7 +436,10 @@ def _stage_hierarchy_pdf(
         merge_images,
         merge_shard_lines,
     )
-    from app.services.document_parser.formats.pdf.shard_splitter import map_agent_shards
+    from app.services.document_parser.formats.pdf.shard_splitter import (
+        map_agent_shards,
+        select_live_shards,
+    )
 
     logger.info("=" * 70)
     logger.info("🔬 Stage 3: Per-shard heading prediction → merged hierarchy")
@@ -443,31 +449,39 @@ def _stage_hierarchy_pdf(
     agent_shards = anatomy.shard_plan.shards
 
     merged_shards = map_agent_shards(agent_shards)
+    toc_pages: set[int] = set()
+    if anatomy.toc_result and anatomy.toc_result.toc_pages:
+        toc_pages = set(anatomy.toc_result.toc_pages)
+    live_shards = select_live_shards(merged_shards, toc_pages)
 
     work_dir = out_dir / "_shards"
 
-    # Discover shard output dirs
+    # Discover live shard output dirs by original shard_index, not compressed position.
     shard_output_dirs: list[str] = []
-    for i in range(len(merged_shards)):
-        shard_dir = str(work_dir / f"shard_{i}")
+    for live in live_shards:
+        shard_dir = str(work_dir / f"shard_{live.shard_index}")
         if not os.path.isdir(shard_dir):
-            raise FileNotFoundError(f"shard_{i} dir not found: {shard_dir} (run --stop-at mineru first)")
+            raise FileNotFoundError(
+                f"shard_{live.shard_index} dir not found: {shard_dir} "
+                "(run --stop-at mineru first)"
+            )
         shard_output_dirs.append(shard_dir)
 
     hierarchy_model = model or os.environ.get("NORMOL_MODEL")
 
-    def _predict_shard(shard_idx: int, shard_out_dir: str) -> list[str]:
+    def _predict_shard(live, shard_out_dir: str) -> list[str]:
         md_path = os.path.join(shard_out_dir, "full.md")
         if not os.path.exists(md_path):
-            raise FileNotFoundError(f"shard_{shard_idx}: full.md not found at {md_path}")
+            raise FileNotFoundError(
+                f"shard_{live.shard_index}: full.md not found at {md_path}"
+            )
 
         with open(md_path, "r", encoding="utf-8") as f:
             md_lines = f.readlines()
         md_lines = [line.strip() for line in md_lines if line.strip()]
         md_lines = merge_html_tables(md_lines)
 
-        is_first = shard_idx == 0
-        agent_shard = agent_shards[shard_idx]
+        agent_shard = agent_shards[live.shard_index]
         shard_toc = getattr(agent_shard, "toc_hierarchies", None)
 
         lines_with_heading = eval_md_headings(
@@ -482,12 +496,12 @@ def _stage_hierarchy_pdf(
                 if os.path.exists(os.path.join(shard_out_dir, "layout.json"))
                 else None
             ),
-            is_first_shard=is_first,
+            is_first_shard=live.is_first_shard,
         )
 
         heading_count = sum(1 for line in lines_with_heading if line.startswith("#"))
         logger.info("   ✅ shard_{}: {} headings from {} lines",
-                    shard_idx, heading_count, len(lines_with_heading))
+                    live.shard_index, heading_count, len(lines_with_heading))
 
         _write_json(
             Path(shard_out_dir) / "lines_with_heading.json",
@@ -496,12 +510,15 @@ def _stage_hierarchy_pdf(
         return lines_with_heading
 
     all_shard_lines: list[list[str]] = []
-    for i, shard_dir in enumerate(shard_output_dirs):
-        lines = _predict_shard(i, shard_dir)
+    for live, shard_dir in zip(live_shards, shard_output_dirs, strict=True):
+        lines = _predict_shard(live, shard_dir)
         all_shard_lines.append(lines)
 
     # Merge (boundary-heading dedup; signature matches production parser)
-    merged_lines = merge_shard_lines(all_shard_lines)
+    merged_lines = merge_shard_lines(
+        all_shard_lines,
+        shard_indexes=[live.shard_index for live in live_shards],
+    )
 
     # Always copy shard images into the package root. Unlike production's MinerU
     # fast path (which writes directly to output_dir), this debug script always
@@ -664,9 +681,36 @@ def _stage_full_pdf(
     filename: str,
     merged_lines: list[str],
     model: str | None,
+    anatomy,
 ):
+    from app.services.document_parser.formats.markdown.layout_bbox_index import (
+        load_shard_image_regions,
+    )
     from app.services.document_parser.formats.markdown.parser import parse_md
+    from app.services.document_parser.formats.pdf.shard_splitter import (
+        map_agent_shards,
+        select_live_shards,
+    )
     from app.services.document_parser.orchestration.postprocess import apply_parse_postprocess
+
+    merged_shards = map_agent_shards(anatomy.shard_plan.shards)
+    toc_pages: set[int] = set()
+    if anatomy.toc_result and anatomy.toc_result.toc_pages:
+        toc_pages = set(anatomy.toc_result.toc_pages)
+    fast_path = len(merged_shards) == 1 and not toc_pages
+    live_shards = select_live_shards(merged_shards, toc_pages)
+    shard_page_maps = (
+        [None]
+        if fast_path
+        else [live.page_numbers for live in live_shards]
+    )
+    image_regions = load_shard_image_regions(
+        [
+            str(out_dir / "_shards" / f"shard_{live.shard_index}")
+            for live in live_shards
+        ],
+        shard_page_maps,
+    )
 
     logger.info("=" * 70)
     logger.info("📦 Stage 4: parse_md Phase B → DataFrame → chunks")
@@ -687,6 +731,7 @@ def _stage_full_pdf(
         base_llm_paras=base_llm_paras,
         relative_root=filename,
         lines_with_heading=merged_lines,
+        image_regions=image_regions,
     )
     parsed_df = apply_parse_postprocess(str(out_dir), parsed_df)
     elapsed_parse = time.time() - t0
@@ -878,7 +923,7 @@ def main() -> int:
 
             # Stage 4: Full extraction
             chunks, full_elapsed = _stage_full_pdf(
-                out_dir, filename, merged_lines, args.model
+                out_dir, filename, merged_lines, args.model, anatomy
             )
             trace["stages"]["full"] = {
                 "elapsed_s": round(full_elapsed, 1),

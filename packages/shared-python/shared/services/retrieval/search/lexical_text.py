@@ -63,12 +63,14 @@ def build_content_lexical_text(chunk: dict[str, Any]) -> Optional[str]:
         return None
     metadata = chunk.get("metadata") or {}
     tokens = metadata.get("tokens") if isinstance(metadata, dict) else None
-    if isinstance(tokens, list):
+    if isinstance(tokens, list) and tokens:
         token_text = " ".join(
             str(token).strip() for token in tokens if str(token).strip()
         )
     else:
-        token_text = ""
+        token_text = " ".join(
+            PublicationPreparationCache.tokenize(content, dedupe=True)
+        )
     lexical_parts = [part for part in [content, token_text] if part]
     return "\n".join(lexical_parts) if lexical_parts else content
 
@@ -207,18 +209,23 @@ def _table_search_source_text(chunk: dict[str, Any]) -> str:
     if not isinstance(metadata, dict):
         metadata = {}
 
-    keyword_value = metadata.get("keywords") or chunk.get("keywords") or []
-    if isinstance(keyword_value, list):
-        keyword_text = " ".join(
-            str(keyword).strip()
-            for keyword in keyword_value
-            if str(keyword).strip()
-        )
+    entity_text = _chunk_entity_text(chunk)
+    if entity_text:
+        keyword_text = entity_text
     else:
-        keyword_text = str(keyword_value or "").replace(";", " ").strip()
+        keyword_value = metadata.get("keywords") or chunk.get("keywords") or []
+        if isinstance(keyword_value, list):
+            keyword_text = " ".join(
+                str(keyword).strip()
+                for keyword in keyword_value
+                if str(keyword).strip()
+            )
+        else:
+            keyword_text = str(keyword_value or "").replace(";", " ").strip()
 
     parts = [
         str(metadata.get("summary") or chunk.get("summary") or "").strip(),
+        str(metadata.get("asset_title") or chunk.get("asset_title") or "").strip(),
         keyword_text,
         str(metadata.get("caption") or chunk.get("caption") or "").strip(),
     ]

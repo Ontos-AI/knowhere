@@ -28,6 +28,7 @@ from app.services.document_agent.structure.toc_anchoring import (
     select_global_toc_hierarchies,
 )
 from loguru import logger
+from app.services.page_memory._utils import is_document_prefix
 from shared.services.chunks.path_segments import (
     append_document_path,
     join_document_path,
@@ -204,6 +205,21 @@ def extract_section_skeletons(
             body_pages=body_pages,
         )
         skeletons.extend(secondary_skeletons)
+
+    first_chapter_page: int = min(skeleton.start_page for skeleton in skeletons)
+    if first_chapter_page > 1:
+        skeletons.insert(
+            0,
+            SectionSkeleton(
+                section_path=join_document_path([filename]),
+                level=0,
+                start_page=1,
+                end_page=first_chapter_page - 1,
+                title="Root",
+                parent_path=None,
+                evidence={"source": "document_prefix"},
+            ),
+        )
 
     _log_unlocated_title_warnings(filename=filename, skeletons=skeletons)
     return skeletons
@@ -452,7 +468,7 @@ def collapse_single_child_chains(
         # Re-read children after recursive collapse may have mutated by_path
         child_paths = children_of.get(path, [])
 
-        if len(child_paths) == 1:
+        if len(child_paths) == 1 and not is_document_prefix(node):
             only_child_path = child_paths[0]
             only_child = by_path[only_child_path]
             grandchild_paths = children_of.get(only_child_path, [])

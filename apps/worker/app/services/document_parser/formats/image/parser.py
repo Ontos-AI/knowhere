@@ -11,7 +11,7 @@ import pandas as pd
 from app.services.document_parser.tables.dataframe_helpers import process_dup_paths_df
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import (
-    PARSER_ROW_COLUMNS,
+    PARSER_DF_COLUMNS,
     ParsedRow,
     ParsedRowsBuilder,
 )
@@ -236,7 +236,7 @@ def parse_image(
         from shared.core.constants import ProcessingConstants
 
         if discard_undersized_image_file(img_path, label=f"image {filename}"):
-            return pd.DataFrame(columns=list(PARSER_ROW_COLUMNS))
+            return pd.DataFrame(columns=list(PARSER_DF_COLUMNS))
 
         # Extract image content
         client = _get_vision_client()

@@ -133,13 +133,13 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
     leaf_a = by_path["demo.pdf/3 基本规定/3.1 职责"]
     assert leaf_a["page_nums"] == "231"
     assert leaf_a["content"] == "text-231"
-    assert leaf_a["extra_metadata"] == {}
+    assert leaf_a["extra_metadata"] == {"body_text_preview": ""}
 
     leaf_b = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
     assert leaf_b["page_nums"] == "231,232"
     assert node_assembler.SAME_AS_PREFIX in leaf_b["content"]
     assert "text-232" in leaf_b["content"]
-    assert leaf_b["extra_metadata"] == {}
+    assert leaf_b["extra_metadata"] == {"body_text_preview": ""}
 
 
 def test_build_node_rows_preserves_order_under_summary_concurrency(
@@ -421,6 +421,9 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
     assert "asset_kind" not in rows[0]["extra_metadata"]
     assert "title" not in rows[0]["extra_metadata"]
     assert "html_uri" not in rows[0]["extra_metadata"]
+    assert "image_uri" not in rows[0]["extra_metadata"]
+    assert "asset_region" not in rows[0]["extra_metadata"]
+    assert rows[0]["page_nums"] == "231"
 
     by_path = {row["path"]: row for row in rows}
     owner = by_path["demo.pdf/3 基本规定/3.1 职责"]
@@ -428,7 +431,7 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
     assert '"relation": "embeds"' in owner["connectto"]
     assert '"target": "tables/table_page_231_1.html"' in owner["connectto"]
     assert '"relation": "related"' in shared["connectto"]
-    assert '"same_as_owner": "demo.pdf/3 基本规定/3.1 职责"' in shared["connectto"]
+    assert "same_as_owner" not in shared["connectto"]
 
 
 def test_page_connectto_normalizes_to_asset_chunk_id() -> None:
@@ -480,4 +483,7 @@ def test_page_connectto_normalizes_to_asset_chunk_id() -> None:
             "relation": "embeds",
             "ref": "[tables/table_page_1_1.html]",
         }
+    ]
+    assert asset_chunk["metadata"]["connect_to"] == [
+        {"target": "page_1", "relation": "embedded_by"}
     ]

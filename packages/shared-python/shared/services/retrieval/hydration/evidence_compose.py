@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import tempfile
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from loguru import logger
@@ -17,6 +18,7 @@ from loguru import logger
 from shared.services.retrieval.hydration.asset_inline import (
     remove_path_placeholders,
 )
+from shared.utils.chunk_refs import match_resource_path_ref
 from shared.services.retrieval.hydration.row_utils import (
     extract_page_nums,
     normalize_chunk_type,
@@ -26,6 +28,7 @@ from shared.services.retrieval.hydration.table_grid import (
     TableDownloadError,
     load_table_html,
 )
+from shared.services.retrieval.search.lexical_text import split_section_path
 from shared.services.storage.raw_prefix_arguments import RawPrefixArguments
 from shared.services.storage.result_storage import get_result_storage
 
@@ -41,47 +44,89 @@ _IMAGE_MEDIA_TYPES = {
 def compose_evidence_parts(
     row: dict[str, Any],
     rows_by_chunk_id: dict[str, dict[str, Any]],
+    queried_tables: Mapping[tuple[str, str], str] | None = None,
 ) -> list[dict[str, Any]]:
     chunk_type = normalize_chunk_type(row.get("chunk_type"))
     if chunk_type == "page":
         return _compose_page_parts(row)
     if chunk_type == "table":
-        return _compose_standalone_table_parts(row)
+        return _compose_standalone_table_parts(row, queried_tables)
     if chunk_type == "image":
         return _compose_standalone_image_parts(row)
-    return _compose_text_parts(row, rows_by_chunk_id)
+    return _compose_text_parts(row, rows_by_chunk_id, queried_tables)
 
 
-def collect_evidence(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    parts: list[dict[str, Any]] = []
-    for row in rows:
-        composed = row.get("composed")
-        if isinstance(composed, list):
-            revisionId: object = row.get("job_result_id")
-            parts.extend(
-                {**part, "job_result_id": revisionId} if revisionId else part
-                for part in composed
+_GROUP_BODY_INDENT = "  "
+
+
+def group_evidence_units(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group units by document and the direct parent of ``section_path``.
+
+    Each unit is ``document_id``, ``source_file_name``, ``section_path``,
+    ``sort_order``, ``parts``, and ``kind`` (``read`` or ``outline``).
+    Outline units ignore ``section_path`` and ``sort_order``.
+    """
+    documents: dict[str, dict[str, Any]] = {}
+    for index, unit in enumerate(units):
+        document = documents.setdefault(
+            unit["document_id"], {"outlines": [], "reads": {}}
+        )
+        if unit["kind"] == "outline":
+            document["outlines"].append(
+                (f"[§ {unit['source_file_name']}]", [unit["parts"]])
             )
-    return parts
+            continue
+        parent_path = _direct_parent_path(unit["section_path"])
+        group = document["reads"].setdefault(
+            parent_path,
+            {
+                "title": f"[§ {unit['source_file_name']} / {parent_path}]",
+                "members": [],
+            },
+        )
+        group["members"].append((unit["sort_order"], index, unit["parts"]))
+
+    evidence: list[dict[str, Any]] = []
+    group_number = 0
+    for document in documents.values():
+        read_groups = sorted(
+            (
+                (min(group["members"]), group["title"], sorted(group["members"]))
+                for group in document["reads"].values()
+            ),
+            key=lambda item: item[0],
+        )
+        ordered = [*document["outlines"]] + [
+            (title, [member[2] for member in members])
+            for _first, title, members in read_groups
+        ]
+        for title, member_parts in ordered:
+            if group_number:
+                evidence.append(_text_part("\n"))
+            group_number += 1
+            evidence.append(_text_part(f"[E{group_number}] {title}"))
+            for parts in member_parts:
+                evidence.extend(_indent_member_part(part) for part in parts)
+    return evidence
 
 
-def flatten_parts(parts: list[dict[str, Any]] | None) -> str:
-    texts: list[str] = []
-    for part in parts or []:
-        if not isinstance(part, dict):
-            continue
-        if part.get("type") == "text":
-            text = str(part.get("text") or "")
-            if text:
-                texts.append(text)
-            continue
-        if part.get("type") != "image":
-            continue
-        media_type = str(part.get("media_type") or "").strip() or "application/octet-stream"
-        data = str(part.get("data") or "").strip()
-        if data:
-            texts.append(f"data:{media_type};base64,{data}")
-    return "".join(texts)
+def _direct_parent_path(section_path: str) -> str:
+    parts = split_section_path(section_path)
+    if len(parts) > 1:
+        return " / ".join(parts[:-1])
+    return section_path
+
+
+def _indent_member_part(part: dict[str, Any]) -> dict[str, Any]:
+    if part["type"] != "text":
+        return part
+    return {
+        "type": "text",
+        "text": "".join(
+            (_GROUP_BODY_INDENT + line if line.strip() else line)
+            for line in part["text"].splitlines(keepends=True)
+        ),
+    }
 
 
 def _compose_page_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -97,8 +142,11 @@ def _compose_page_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
     return parts
 
 
-def _compose_standalone_table_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
-    html = _try_read_table_html(row)
+def _compose_standalone_table_parts(
+    row: dict[str, Any],
+    queried_tables: Mapping[tuple[str, str], str] | None = None,
+) -> list[dict[str, Any]]:
+    html = _try_read_table_html(row, queried_tables)
     if html is None:
         return []
     return [_text_part(f"\n{html}\n")]
@@ -118,11 +166,12 @@ def _compose_standalone_image_parts(row: dict[str, Any]) -> list[dict[str, Any]]
 def _compose_text_parts(
     row: dict[str, Any],
     rows_by_chunk_id: dict[str, dict[str, Any]],
+    queried_tables: Mapping[tuple[str, str], str] | None = None,
 ) -> list[dict[str, Any]]:
     content = str(row.get("content") or "")
     tables, images = _embed_targets(row, rows_by_chunk_id)
     for _target_id, target_row, ref in tables:
-        html = _try_read_table_html(target_row)
+        html = _try_read_table_html(target_row, queried_tables)
         content, placed = _replace_placeholder(content, ref, "" if html is None else f"\n{html}\n")
         if html is not None and not placed:
             _warn_skipped(target_row, "table", "placeholder not found")
@@ -194,10 +243,10 @@ def _connections(row: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _replace_placeholder(text: str, ref: str, replacement: str) -> tuple[str, bool]:
-    for candidate in _ref_candidates(ref):
-        if candidate and candidate in text:
-            return text.replace(candidate, replacement, 1), True
-    return text, False
+    match = match_resource_path_ref(text, ref)
+    if match is None:
+        return text, False
+    return text[: match.start()] + replacement + text[match.end() :], True
 
 
 def _earliest_image_placeholder(
@@ -206,42 +255,31 @@ def _earliest_image_placeholder(
 ) -> tuple[str, str, dict[str, Any]] | None:
     best: tuple[int, int, dict[str, Any]] | None = None
     for _target_id, target_row, ref in images:
-        for candidate in _ref_candidates(ref):
-            if not candidate:
-                continue
-            index = text.find(candidate)
-            if index < 0:
-                continue
-            length = len(candidate)
-            if (
-                best is None
-                or index < best[0]
-                or (index == best[0] and length > best[1])
-            ):
-                best = (index, length, target_row)
+        match = match_resource_path_ref(text, ref)
+        if match is None:
+            continue
+        index = match.start()
+        length = match.end() - match.start()
+        if (
+            best is None
+            or index < best[0]
+            or (index == best[0] and length > best[1])
+        ):
+            best = (index, length, target_row)
     if best is None:
         return None
     index, length, target_row = best
     return text[:index], text[index + length :], target_row
 
 
-def _ref_candidates(ref: str) -> list[str]:
-    raw = str(ref or "").strip()
-    if not raw:
-        return []
-    out = [raw]
-    if raw.startswith("[") and raw.endswith("]"):
-        inner = raw[1:-1].strip()
-        if inner and inner not in out:
-            out.append(inner)
-    else:
-        bracketed = f"[{raw}]"
-        if bracketed not in out:
-            out.append(bracketed)
-    return out
-
-
-def _try_read_table_html(row: dict[str, Any]) -> str | None:
+def _try_read_table_html(
+    row: dict[str, Any],
+    queried_tables: Mapping[tuple[str, str], str] | None = None,
+) -> str | None:
+    if queried_tables is not None:
+        key = (str(row.get("document_id") or ""), str(row.get("chunk_id") or ""))
+        if key in queried_tables:
+            return queried_tables[key].strip()
     try:
         html = load_table_html(row).strip()
     except TableDownloadError as exc:

@@ -61,7 +61,7 @@ response as the authoritative result:
   "sequence": 7,
   "elapsed_ms": 2410,
   "status": "completed",
-  "response": { "namespace": "default", "query": "...", "router_used": "agent_explore", "evidence_text": "...", "referenced_chunks": [], "results": [] }
+  "response": { "namespace": "default", "query": "...", "router_used": "agent_explore", "evidence": [], "referenced_chunks": [], "results": [] }
 }
 ```
 

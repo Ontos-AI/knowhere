@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text
+from sqlalchemy import Select, select, text
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 
@@ -204,6 +204,112 @@ def test_should_allow_a_new_active_document_job_after_a_terminal_job(
         )
 
     assert int(result.scalar_one()) == 2
+
+
+@pytest.mark.parametrize("external_transaction", [False, True])
+@pytest.mark.parametrize(
+    "existing_index",
+    [
+        "absent", "wrong-columns", "wrong-predicate", "wrong-key-case",
+        "wrong-key-suffix", "intended",
+    ],
+)
+def test_should_index_future_source_hashes_without_backfilling_existing_jobs(
+    alembic_engine: Engine,
+    external_transaction: bool,
+    existing_index: str,
+) -> None:
+    from shared.models.database.job import Job
+
+    config: Config = _build_alembic_command_config(engine=alembic_engine)
+    command.upgrade(config, "4d5e6f7a8b9c")
+    user_id: str = f"hash-index-user-{uuid4().hex[:12]}"
+    job_id: str = f"job_hash_{uuid4().hex[:12]}"
+    with alembic_engine.begin() as connection:
+        insert_contract_user(connection, user_id=user_id)
+        _insert_job(
+            connection,
+            job_id=job_id,
+            user_id=user_id,
+            document_id=f"doc_hash_{uuid4().hex[:12]}",
+            status="done",
+        )
+        index_definitions: dict[str, str] = {
+            "wrong-columns": "ON jobs (status)",
+            "wrong-predicate": (
+                "ON jobs (user_id, (job_metadata ->> 'source_content_sha256')) "
+                "WHERE status = 'done'"
+            ),
+            "wrong-key-case": (
+                "ON jobs (user_id, (job_metadata ->> 'SOURCE_CONTENT_SHA256')) "
+                "WHERE job_metadata ->> 'SOURCE_CONTENT_SHA256' IS NOT NULL"
+            ),
+            "wrong-key-suffix": (
+                "ON jobs (user_id, (job_metadata ->> 'source_content_sha256::text')) "
+                "WHERE job_metadata ->> 'source_content_sha256::text' IS NOT NULL"
+            ),
+            "intended": (
+                "ON jobs (user_id, (job_metadata ->> 'source_content_sha256')) "
+                "WHERE job_metadata ->> 'source_content_sha256' IS NOT NULL"
+            ),
+        }
+        if existing_index != "absent":
+            connection.execute(
+                text(
+                    "CREATE INDEX idx_jobs_user_source_content_hash "
+                    + index_definitions[existing_index]
+                )
+            )
+        previous_index_id: int | None = connection.execute(
+            text("SELECT to_regclass('idx_jobs_user_source_content_hash')::oid")
+        ).scalar_one()
+    if external_transaction:
+        _upgrade_to_heads_with_external_connection(engine=alembic_engine)
+    else:
+        _upgrade_to_heads(engine=alembic_engine)
+
+    with alembic_engine.begin() as connection:
+        current_index_id: int = connection.execute(
+            text("SELECT to_regclass('idx_jobs_user_source_content_hash')::oid")
+        ).scalar_one()
+        if existing_index == "intended":
+            assert current_index_id == previous_index_id
+        elif existing_index != "absent":
+            assert current_index_id != previous_index_id
+        assert connection.execute(
+            text("SELECT job_metadata ->> 'source_content_sha256' FROM jobs WHERE job_id = :job_id"),
+            {"job_id": job_id},
+        ).scalar_one() is None
+        connection.execute(
+            text("UPDATE jobs SET job_metadata = jsonb_set(job_metadata::jsonb, '{source_content_sha256}', to_jsonb(CAST(:hash AS text)))::json WHERE job_id = :job_id"),
+            {"job_id": job_id, "hash": "a" * 64},
+        )
+        connection.execute(text("SET LOCAL enable_seqscan = off"))
+        lookup: Select[tuple[str]] = (
+            select(Job.job_id)
+            .where(Job.user_id == user_id)
+            .where(Job.job_metadata["source_content_sha256"].as_string() == "a" * 64)
+            .limit(1)
+        )
+        compiled_lookup: str = str(
+            lookup.compile(
+                dialect=connection.dialect,
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+        plan: str = "\n".join(
+            str(row[0]) for row in connection.execute(
+                text(f"EXPLAIN {compiled_lookup}"),
+            )
+        )
+    assert "idx_jobs_user_source_content_hash" in plan
+    index_conditions: list[str] = [
+        line for line in plan.splitlines() if "Index Cond:" in line
+    ]
+    assert any(
+        "user_id" in condition and "source_content_sha256" in condition
+        for condition in index_conditions
+    )
 
 
 def test_should_seed_v2_job_polling_system_limit(

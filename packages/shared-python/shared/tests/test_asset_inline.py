@@ -6,6 +6,7 @@ import pytest
 
 from shared.services.retrieval.hydration.asset_inline import (
     inline_assets_at_placeholders,
+    remove_path_placeholders,
 )
 from shared.services.retrieval.hydration.result_assembly import (
     assemble_retrieval_results,
@@ -16,6 +17,17 @@ from shared.services.retrieval.scoring.knowhere_provider import (
     SectionRow,
     UnitRow,
 )
+
+
+def test_remove_path_placeholders_requires_asset_extension() -> None:
+    leftover = (
+        "前 [images/image-3-适应证_(1)二级预防_患者 $^{[99]}$ (I,A)。(2)一级.jpg] 后"
+    )
+    assert remove_path_placeholders(leftover) == "前  后"
+    assert remove_path_placeholders("见表 [tables/table-1.html] 完") == "见表  完"
+    assert remove_path_placeholders("不是引用 [images/foo] 也不是 [tables/a]") == (
+        "不是引用 [images/foo] 也不是 [tables/a]"
+    )
 
 
 def test_inline_replaces_placeholder_with_newlines() -> None:

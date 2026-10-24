@@ -3,6 +3,11 @@ import os
 import re
 import shutil
 
+from app.services.document_parser.formats.markdown.layout_bbox_index import (
+    load_layout_image_regions,
+    load_shard_image_regions,
+)
+from app.services.document_parser.formats.pdf.shard_splitter import LiveShard
 from app.services.document_parser.formats.markdown.parser import parse_md
 from app.services.document_parser.orchestration.oversized_pdf_policy import (
     build_oversized_pdf_processing_failed_exception,
@@ -86,6 +91,9 @@ def parse_pdfs(
             base_llm_paras=base_llm_paras,
             relative_root=relative_root,
             skip_toc_detection=True,
+            image_regions=load_layout_image_regions(
+                os.path.join(output_dir, "layout.json")
+            ),
         )
 
 
@@ -118,6 +126,7 @@ def _parse_pdf_via_shards(
     )
     from app.services.document_parser.formats.pdf.shard_splitter import (
         map_agent_shards,
+        select_live_shards,
         split_pdf,
     )
     from shared.services.ai.token_tracking import (
@@ -168,13 +177,15 @@ def _parse_pdf_via_shards(
 
         # 4. Parse via MinerU. The 1-shard/no-TOC case keeps the original
         # PDF/S3 object to avoid temporary split/upload churn.
-        shard_output_dirs: list[str | None]
+        live_shards: list[LiveShard]
+        shard_output_dirs: list[str]
         concurrency = settings.MINERU_SHARD_CONCURRENCY
 
         if fast_path_original_pdf:
             logger.info("📄 Single shard without TOC pages; using original PDF fast path")
             with stage_timer("pdf.extract.single_shard_fast", filename=filename):
                 parse_via_full(pdf_path, filename, output_dir, s3_key=s3_key)
+            live_shards = select_live_shards(merged_shards)
             shard_output_dirs = [output_dir]
         else:
             # Physically split PDF when TOC pages must be excluded or multiple
@@ -182,12 +193,12 @@ def _parse_pdf_via_shards(
             work_dir = os.path.join(output_dir, "_shards")
             os.makedirs(work_dir, exist_ok=True)
             with stage_timer("pdf.split", filename=filename):
-                shard_pdf_paths, _page_remap = split_pdf(
+                live_shards = split_pdf(
                     pdf_path, merged_shards, work_dir,
                     exclude_pages=toc_pages if toc_pages else None,
                 )
 
-            if not shard_pdf_paths:
+            if not live_shards:
                 raise RuntimeError(
                     f"PDF shard split for {filename} produced no shard PDFs"
                 )
@@ -197,48 +208,61 @@ def _parse_pdf_via_shards(
                     source_s3_key=s3_key,
                     job_id=job_id,
                     filename=filename,
-                    shard_index=shard_index,
+                    shard_index=live.shard_index,
                 )
-                for shard_index, _shard_pdf_path in enumerate(shard_pdf_paths)
+                for live in live_shards
             ]
 
             with stage_timer("pdf.upload_shards", filename=filename):
-                _upload_temp_shard_pdfs(shard_pdf_paths, temp_shard_s3_keys)
+                _upload_temp_shard_pdfs(live_shards, temp_shard_s3_keys)
 
             # 5. Parse each shard via MinerU (parallel) only after S3 has the
             # split objects. URL mode HeadObject then reuses those keys.
-            shard_output_dirs = [None] * len(shard_pdf_paths)
+            parsed_output_dirs: list[str | None] = [None] * len(live_shards)
 
-            def _parse_single_shard(shard_idx, shard_pdf):
+            def _parse_single_shard(live: LiveShard, shard_s3_key: str) -> str:
                 assert work_dir is not None
-                shard_out = os.path.join(work_dir, f"shard_{shard_idx}_output")
+                shard_out = os.path.join(
+                    work_dir, f"shard_{live.shard_index}_output"
+                )
                 os.makedirs(shard_out, exist_ok=True)
                 shard_filename = (
-                    f"{os.path.splitext(filename)[0]}_shard{shard_idx}.pdf"
+                    f"{os.path.splitext(filename)[0]}_shard{live.shard_index}.pdf"
                 )
-                shard_s3_key = temp_shard_s3_keys[shard_idx]
                 logger.info(
-                    f"  🔄 MinerU shard_{shard_idx}: parsing via S3 URL "
+                    f"  🔄 MinerU shard_{live.shard_index}: parsing via S3 URL "
                     f"({shard_s3_key})"
                 )
                 parse_via_full(
-                    shard_pdf, shard_filename, shard_out, s3_key=shard_s3_key
+                    live.pdf_path, shard_filename, shard_out, s3_key=shard_s3_key
                 )
                 return shard_out
 
             with stage_timer(
                 "pdf.mineru_parallel",
                 filename=filename,
-                shard_count=len(shard_pdf_paths),
+                shard_count=len(live_shards),
             ):
                 with ThreadPoolExecutor(max_workers=concurrency) as executor:
                     futures = {
-                        executor.submit(_parse_single_shard, i, shard_pdf_path): i
-                        for i, shard_pdf_path in enumerate(shard_pdf_paths)
+                        executor.submit(
+                            _parse_single_shard, live, s3_key
+                        ): index
+                        for index, (live, s3_key) in enumerate(
+                            zip(live_shards, temp_shard_s3_keys, strict=True)
+                        )
                     }
                     for future in as_completed(futures):
                         idx = futures[future]
-                        shard_output_dirs[idx] = future.result()
+                        parsed_output_dirs[idx] = future.result()
+
+            shard_output_dirs = []
+            for index, shard_dir in enumerate(parsed_output_dirs):
+                if shard_dir is None:
+                    raise RuntimeError(
+                        f"Missing MinerU output for shard_{live_shards[index].shard_index}"
+                    )
+                shard_output_dirs.append(shard_dir)
 
         # 6. Per-shard heading prediction (parallel)
         @dataclass
@@ -254,21 +278,22 @@ def _parse_pdf_via_shards(
         )
 
         def _predict_shard_headings(
-            shard_idx: int,
+            live: LiveShard,
             shard_out_dir: str,
         ) -> ShardHeadingResult:
             """Run full heading prediction pipeline on a single shard's full.md."""
             md_path = os.path.join(shard_out_dir, "full.md")
             if not os.path.exists(md_path):
-                raise FileNotFoundError(f"shard_{shard_idx}: full.md not found")
+                raise FileNotFoundError(
+                    f"shard_{live.shard_index}: full.md not found"
+                )
 
             with open(md_path, "r", encoding="utf-8") as f:
                 md_lines = f.readlines()
             md_lines = [line.strip() for line in md_lines if line.strip() != ""]
             md_lines = merge_html_tables(md_lines)
 
-            is_first_shard = shard_idx == 0
-            agent_shard = agent_shards[shard_idx]
+            agent_shard = agent_shards[live.shard_index]
             shard_toc = getattr(agent_shard, "toc_hierarchies", None)
 
             lines_with_heading = eval_md_headings(
@@ -283,41 +308,42 @@ def _parse_pdf_via_shards(
                     if os.path.exists(os.path.join(shard_out_dir, "layout.json"))
                     else None
                 ),
-                is_first_shard=is_first_shard,
+                is_first_shard=live.is_first_shard,
             )
 
             heading_count = sum(1 for line in lines_with_heading if line.startswith("#"))
             logger.info(
-                f"  ✅ shard_{shard_idx}: {heading_count} headings identified "
+                f"  ✅ shard_{live.shard_index}: {heading_count} headings identified "
                 f"from {len(lines_with_heading)} lines"
             )
             return ShardHeadingResult(
-                shard_index=shard_idx,
+                shard_index=live.shard_index,
                 lines_with_heading=lines_with_heading,
                 heading_count=heading_count,
             )
 
         def _predict_shard_headings_with_tracking(
-            shard_idx: int,
+            live: LiveShard,
             shard_out_dir: str,
         ) -> ShardHeadingResult:
             with bind_token_tracker(token_tracker_root_id):
-                return _predict_shard_headings(shard_idx, shard_out_dir)
+                return _predict_shard_headings(live, shard_out_dir)
 
         shard_heading_results: list[ShardHeadingResult | None] = [None] * len(
-            shard_output_dirs
+            live_shards
         )
 
         with stage_timer(
-            "pdf.shard_headings", filename=filename, shard_count=len(shard_output_dirs)
+            "pdf.shard_headings", filename=filename, shard_count=len(live_shards)
         ):
             with ThreadPoolExecutor(max_workers=concurrency) as executor:
                 futures = {
                     executor.submit(
-                        _predict_shard_headings_with_tracking, i, shard_dir
-                    ): i
-                    for i, shard_dir in enumerate(shard_output_dirs)
-                    if shard_dir is not None
+                        _predict_shard_headings_with_tracking, live, shard_dir
+                    ): index
+                    for index, (live, shard_dir) in enumerate(
+                        zip(live_shards, shard_output_dirs, strict=True)
+                    )
                 }
                 for future in as_completed(futures):
                     idx = futures[future]
@@ -327,11 +353,16 @@ def _parse_pdf_via_shards(
         complete_heading_results: list[ShardHeadingResult] = []
         for index, result in enumerate(shard_heading_results):
             if result is None:
-                raise RuntimeError(f"Missing heading result for shard_{index}")
+                raise RuntimeError(
+                    f"Missing heading result for shard_{live_shards[index].shard_index}"
+                )
             complete_heading_results.append(result)
 
         all_lines_with_heading: list[str] = merge_shard_lines(
             [result.lines_with_heading for result in complete_heading_results],
+            shard_indexes=[
+                result.shard_index for result in complete_heading_results
+            ],
         )
         total_headings = sum(
             1 for line in all_lines_with_heading if line.startswith("#")
@@ -346,6 +377,15 @@ def _parse_pdf_via_shards(
             if not fast_path_original_pdf:
                 merge_images(shard_output_dirs, output_dir)
 
+        # The fast path parsed the whole original PDF; otherwise each shard PDF
+        # holds only its page range minus the excluded TOC pages.
+        shard_page_maps = (
+            [None]
+            if fast_path_original_pdf
+            else [live.page_numbers for live in live_shards]
+        )
+        image_regions = load_shard_image_regions(shard_output_dirs, shard_page_maps)
+
         logger.info("✅ Shard-first hierarchy complete, entering parse_md Phase B")
 
         # 8. parse_md Phase B only (skip TOC detection + heading prediction)
@@ -356,6 +396,7 @@ def _parse_pdf_via_shards(
                 base_llm_paras=base_llm_paras,
                 relative_root=relative_root,
                 lines_with_heading=all_lines_with_heading,
+                image_regions=image_regions,
             )
     finally:
         _cleanup_temp_shard_s3_assets(temp_shard_s3_keys)
@@ -363,18 +404,16 @@ def _parse_pdf_via_shards(
 
 
 def _upload_temp_shard_pdfs(
-    shard_pdf_paths: list[str],
+    live_shards: list[LiveShard],
     shard_s3_keys: list[str],
 ) -> None:
     """Upload split shards to S3 and confirm each object exists before MinerU."""
     storage = JobFileStorage()
-    for shard_index, (shard_path, shard_s3_key) in enumerate(
-        zip(shard_pdf_paths, shard_s3_keys, strict=True)
-    ):
+    for live, shard_s3_key in zip(live_shards, shard_s3_keys, strict=True):
         logger.info(
-            f"  ☁️ Uploading MinerU shard_{shard_index} to S3 ({shard_s3_key})"
+            f"  ☁️ Uploading MinerU shard_{live.shard_index} to S3 ({shard_s3_key})"
         )
-        storage.upload_source_file(shard_path, shard_s3_key)
+        storage.upload_source_file(live.pdf_path, shard_s3_key)
         existing_file = storage.verify_upload_exists(shard_s3_key)
         if not existing_file.get("exists"):
             raise StorageServiceException(
@@ -384,7 +423,7 @@ def _upload_temp_shard_pdfs(
                 ),
                 operation="verify_source_object",
             )
-        logger.info(f"  ✅ Uploaded MinerU shard_{shard_index}: {shard_s3_key}")
+        logger.info(f"  ✅ Uploaded MinerU shard_{live.shard_index}: {shard_s3_key}")
 
 
 def _build_temp_shard_s3_key(

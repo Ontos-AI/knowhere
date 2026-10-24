@@ -45,7 +45,7 @@ def test_build_nav_config_is_checklist_map_trim_stack() -> None:
 
 
 def test_nav_evidence_chars_is_code_constant() -> None:
-    assert nav_evidence_chars() == 12000
+    assert nav_evidence_chars() == 15000
 
 
 def _root_remount_snapshot():

@@ -37,6 +37,7 @@ os.environ.setdefault("OVERSIZED_PDF_SHARD_ENABLED", "true")
 from loguru import logger
 
 from app.services.page_memory._utils import (
+    derive_excluded_toc_pages,
     page_scope_info,
     scope_id_for_pages,
     sort_skeletons,
@@ -358,11 +359,13 @@ def _build_debug_coordinator(
 
 def _document_profile_from_dict(data: dict[str, Any] | None):
     from app.services.document_agent.manifest import DocumentProfile
+    from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
 
     raw = data or {}
     return DocumentProfile(
         is_scanned=bool(raw.get("is_scanned", False)),
-        category=str(raw.get("category") or "unknown"),
+        category=list(raw.get("category") or [OTHER_CODE]),
+        category_label=str(raw.get("category_label") or "unknown"),
         routing_category=str(raw.get("routing_category") or "generic"),
         language=str(raw.get("language") or "unknown"),
         header_y=raw.get("header_y"),
@@ -537,6 +540,8 @@ def run_stage0_bootstrap(
             payload={
                 "page_count": coordinator.blackboard.page_count,
                 "is_scanned": bool(getattr(profile, "is_scanned", False)),
+                "category": getattr(profile, "category", None),
+                "category_label": getattr(profile, "category_label", None),
                 "routing_category": getattr(profile, "routing_category", None),
                 "text_pages": len(coordinator.blackboard.page_full_text_cache or {}),
                 "assets_probed": bool(
@@ -551,8 +556,9 @@ def run_stage0_bootstrap(
 
     logger.info(f"   stage0 done in {time.time() - t0:.1f}s → {state_path}")
     logger.info(
-        "   category={} routing={} page_count={} is_scanned={} has_asset_pages={}",
+        "   category={} label={!r} routing={} page_count={} is_scanned={} has_asset_pages={}",
         getattr(profile, "category", None),
+        getattr(profile, "category_label", None),
         getattr(profile, "routing_category", None),
         coordinator.blackboard.page_count,
         getattr(profile, "is_scanned", None),
@@ -1337,7 +1343,7 @@ def load_hierarchy_artifact(path: Path) -> tuple[dict[str, Any], list[Any]]:
             SectionSkeleton(
                 section_path=section_path,
                 title=title,
-                level=int(node.get("level") or 1),
+                level=int(node.get("level", 1)),
                 start_page=int(node.get("start_page") or 1),
                 end_page=int(node.get("end_page") or node.get("start_page") or 1),
                 parent_path=node.get("parent_path"),
@@ -1526,7 +1532,10 @@ def build_debug_coarse_scopes(
     from app.services.page_memory._utils import build_hierarchy_scopes
 
     toc_result = getattr(anatomy, "toc_result", None) if anatomy is not None else None
-    toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
+    toc_pages = derive_excluded_toc_pages(
+        skeletons=skeletons,
+        toc_pages=list(getattr(toc_result, "toc_pages", None) or []),
+    )
     toc_page_set = set()
     for raw in toc_pages:
         try:

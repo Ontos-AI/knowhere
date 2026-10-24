@@ -6,6 +6,36 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 
+def is_document_prefix(skeleton: Any) -> bool:
+    """Identify body owned by the existing document root before its chapters."""
+    return (getattr(skeleton, "evidence", {}) or {}).get("source") == "document_prefix"
+
+
+def is_fallback_root(skeleton: Any) -> bool:
+    """Keep prefix ownership separate from the full-document Root fallback."""
+    if is_document_prefix(skeleton):
+        return False
+    return (
+        getattr(skeleton, "title", "") == "Root"
+        or (getattr(skeleton, "evidence", {}) or {}).get("source") == "fallback_root"
+    )
+
+
+def derive_excluded_toc_pages(
+    *,
+    skeletons: list[Any],
+    toc_pages: list[int] | None,
+) -> list[int]:
+    """Exclude chapter TOCs while retaining every physical prefix page."""
+    prefix_pages: set[int] = {
+        page
+        for skeleton in skeletons
+        if is_document_prefix(skeleton)
+        for page in range(skeleton.start_page, skeleton.end_page + 1)
+    }
+    return sorted({int(page) for page in (toc_pages or [])} - prefix_pages)
+
+
 def sort_skeletons(skeletons: list[Any]) -> list[Any]:
     """Order skeletons by start page only.
 
@@ -73,20 +103,17 @@ def build_hierarchy_scopes(
 ) -> list[CoarseScope]:
     """Split skeleton list into per-leaf scopes for independent processing.
 
-    Each TOC leaf skeleton becomes its own scope. ``skeletons`` is leaf-level
-    (produced by ``extract_section_skeletons`` → ``resolve_hierarchy_page_ranges``,
-    which only emits leaf nodes). When multiple leaves share the same page range
+    Each TOC leaf skeleton and any document-root prefix owner gets its own
+    scope. Chapter ranges come from ``resolve_hierarchy_page_ranges``; the
+    root owner preserves physical pages before those chapters without adding
+    a section. When multiple leaves share the same page range
     (e.g. unlocated leaves that fell back to the same parent scope), they are
     merged into a single scope to keep ``scope_id`` unique.
     """
     if not skeletons:
         return []
 
-    root_fallback = all(
-        getattr(item, "title", "") == "Root"
-        or (getattr(item, "evidence", {}) or {}).get("source") == "fallback_root"
-        for item in skeletons
-    )
+    root_fallback = all(is_fallback_root(item) for item in skeletons)
     if root_fallback:
         ordered = sort_skeletons(skeletons)
         return [

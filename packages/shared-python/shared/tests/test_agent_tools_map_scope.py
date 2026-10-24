@@ -48,11 +48,13 @@ _ROW_KEYS = {
 }
 
 
-def _assert_shared_search_payload(result: ToolResult) -> None:
+def _assert_shared_search_payload(
+    result: ToolResult, extra_keys: frozenset[str] = frozenset()
+) -> None:
     assert set(result.payload) == {"rows", "details"}
     assert isinstance(result.payload["details"], dict)
     for row in result.payload["rows"]:
-        assert set(row) == _ROW_KEYS
+        assert set(row) == _ROW_KEYS | extra_keys
 
 USER_ID = "user_map"
 NAMESPACE = "default"

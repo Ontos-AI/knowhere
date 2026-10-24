@@ -107,8 +107,6 @@ class TraceRecorder:
     def record_decision_trace_step(self, step: DecisionTraceStep) -> None:
         """Buffer a DB trace row derived from the public decision trace step."""
         result_status = str(step.result.get("status") or "unknown")
-        budget = step.budget or {}
-        tokens = int(budget.get("tokens_used_delta") or 0)
         model = (
             step.result.get("model")
             or (step.decision or {}).get("model")
@@ -145,7 +143,6 @@ class TraceRecorder:
                 "observation_payload_keys": list(step.observation.keys()),
                 "latency_ms": int(step.elapsed_ms or 0),
                 "error": step.result.get("error"),
-                "tokens_used": tokens,
                 "selected_paths": selected_paths,
                 "selected_doc_ids": selected_docs,
                 "model_name": str(model).strip() if model else None,
@@ -164,7 +161,6 @@ class TraceRecorder:
                 "observation_payload_keys": [],
                 "latency_ms": 0,
                 "error": None,
-                "tokens_used": 0,
                 "selected_paths": None,
                 "selected_doc_ids": None,
                 "model_name": None,
@@ -188,10 +184,7 @@ class TraceRecorder:
             return
 
         total_latency = int((time.monotonic() - self._start_time) * 1000)
-        summed_tokens = sum(int(step.get("tokens_used", 0) or 0) for step in self._steps)
-        run_token_count = (
-            int(token_count) if token_count is not None else summed_tokens
-        )
+        run_token_count = int(token_count) if token_count is not None else None
 
         try:
             from shared.models.database.document import RetrievalStep
@@ -206,12 +199,11 @@ class TraceRecorder:
                     observation={
                         "status": step_data["observation_status"],
                         "payload_keys": step_data["observation_payload_keys"],
-                        "tokens_used": step_data.get("tokens_used", 0),
                     },
                     selected_paths=step_data.get("selected_paths"),
                     selected_doc_ids=step_data.get("selected_doc_ids"),
                     latency_ms=step_data["latency_ms"],
-                    token_count=step_data.get("tokens_used", 0),
+                    token_count=None,
                     model_name=step_data.get("model_name") or model_name,
                     error=step_data.get("error"),
                     created_at=step_data["created_at"],

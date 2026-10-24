@@ -13,7 +13,7 @@ from sqlalchemy import select
 from shared.models.database.document import DocumentChunk, GraphEdge, GraphNode
 from shared.services.retrieval.agent_explore.dispatch import dispatch_tool_call
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
-from shared.services.retrieval.agent_explore.ref_resolution import resolve_finish_refs
+from shared.services.retrieval.agent_explore.evidence_pool import Candidate
 from shared.services.retrieval.agent_explore.types import EpisodeResult
 from shared.services.retrieval.cache_service import _cache_shape_digest
 from shared.services.retrieval.document_scope import DocumentScope
@@ -213,29 +213,6 @@ async def test_scope_matrix_all_corpus_tools_and_refs(developer_api_client_facto
                         ("assets", {"scope": outside_scope}),
                     ]:
                         assert not (await call(name, args)).refs
-            async with contract_db_session() as db:
-                final_refs = await resolve_finish_refs(
-                    db,
-                    user_id="local-dev-user",
-                    namespace=namespace,
-                    refs=refs,
-                    document_scope=scope,
-                )
-                assert {r["document_id"] for r in final_refs.resolved} == expected
-                padded_refs = await resolve_finish_refs(
-                    db,
-                    user_id="local-dev-user",
-                    namespace=namespace,
-                    refs=[
-                        {
-                            "document_id": f" {r['document_id']} ",
-                            "chunk_id": r["chunk_id"],
-                        }
-                        for r in refs
-                    ],
-                    document_scope=scope,
-                )
-                assert padded_refs.resolved == final_refs.resolved
 
 
 @pytest.mark.parametrize("version", ["v1", "v2"])
@@ -300,24 +277,16 @@ async def test_agent_scope_survives_dispatch_and_untrusted_finish(
                     calls.append(result)
                     assert {r["document_id"] for r in result.refs} == {ids[0]}
                     return EpisodeResult(
-                        refs=[
-                            {
-                                "document_id": doc,
-                                "section_path": "Root / Section1 / body",
-                            }
-                            for doc in ids
-                        ]
-                        + [
-                            {
-                                "document_id": f" {ids[2]} ",
-                                "chunk_id": f"{namespace}-gamma-1",
-                            },
-                            {
-                                "document_id": f" {ids[0]} ",
-                                "chunk_id": f"{namespace}-alpha-1",
-                            },
+                        pool=[
+                            Candidate(
+                                handle="R1.1",
+                                kind="read",
+                                document_id=ids[0],
+                                source_file_name="alpha.pdf",
+                                section_path="alpha.pdf / Section1 / body",
+                                chunk_ids=(f"{namespace}-alpha-1",),
+                            )
                         ],
-                        notes="",
                     )
 
             monkeypatch.setattr(
@@ -560,15 +529,15 @@ async def test_real_harness_provider_loop_scopes_postgresql_tools(
 
         class CompletionClient:
             def chat_completion_raw_with_usage(self, *, messages, **kwargs):
-                tool_messages = [m for m in messages if m["role"] == "tool"]
-                if tool_messages:
-                    for message in tool_messages:
-                        verify_observation(message["content"])
+                user_messages = [m for m in messages if m["role"] == "user"]
+                latest = str(user_messages[-1]["content"]) if user_messages else ""
+                if "latest results" in latest:
+                    verify_observation(latest)
                     calls = [
                         SimpleNamespace(
                             id="finish",
                             function=SimpleNamespace(
-                                name="finish", arguments='{"refs": []}'
+                                name="finish", arguments='{"notes": ""}'
                             ),
                         )
                     ]
@@ -587,33 +556,52 @@ async def test_real_harness_provider_loop_scopes_postgresql_tools(
             yield value
 
         class Run:
-            def __init__(self, tools):
+            def __init__(self, tools, options=None):
                 self.tools = tools
+                self.options = options
 
             async def wait(self):
                 # Cursor invokes callbacks on provider threads; both callbacks
                 # must cross run_coroutine_threadsafe and open their own DB session.
-                contents = await asyncio.gather(
-                    *[
-                        asyncio.to_thread(
+                on_delta = getattr(self.options, "on_delta", None)
+                contents = []
+                for call in tool_calls:
+                    if on_delta is not None:
+                        on_delta(
+                            SimpleNamespace(
+                                type="tool-call-started",
+                                call_id=call.id,
+                                model_call_id="round-1",
+                            )
+                        )
+                    contents.append(
+                        await asyncio.to_thread(
                             self.tools[call.function.name].execute,
                             json.loads(call.function.arguments),
-                            None,
+                            SimpleNamespace(tool_call_id=call.id),
                         )
-                        for call in tool_calls
-                    ]
-                )
+                    )
                 for content in contents:
                     verify_observation(content)
-                self.tools["finish"].execute({"refs": []}, None)
+                if on_delta is not None:
+                    on_delta(
+                        SimpleNamespace(
+                            type="tool-call-started",
+                            call_id="finish",
+                            model_call_id="round-2",
+                        )
+                    )
+                self.tools["finish"].execute(
+                    {"notes": ""}, SimpleNamespace(tool_call_id="finish")
+                )
                 return SimpleNamespace(usage=SimpleNamespace(total_tokens=1))
 
         class Agent:
             def __init__(self, tools):
                 self.tools = tools
 
-            async def send(self, prompt):
-                return Run(self.tools)
+            async def send(self, prompt, options=None):
+                return Run(self.tools, options)
 
         class Agents:
             async def create(self, options):
@@ -640,6 +628,7 @@ async def test_real_harness_provider_loop_scopes_postgresql_tools(
                     CustomTool=SimpleNamespace,
                     AgentOptions=SimpleNamespace,
                     LocalAgentOptions=SimpleNamespace,
+                    SendOptions=SimpleNamespace,
                     AsyncClient=Client,
                 ),
             )
@@ -652,6 +641,6 @@ async def test_real_harness_provider_loop_scopes_postgresql_tools(
             query="scopeprobe",
             budget=EpisodeBudget(),
         )
-        assert len(observed) == 2
+        assert len(observed) == (1 if provider == "openai" else 2)
         assert episode.stop_reason == "finished"
         assert all(step.error is None for step in episode.steps)

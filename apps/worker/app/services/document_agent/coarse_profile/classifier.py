@@ -19,6 +19,10 @@ from loguru import logger
 from app.services.document_agent.coarse_profile.prompts import COARSE_PROFILE_INSTRUCTIONS
 from app.services.document_agent.manifest import DocumentProfile, ToolContext, ToolResult
 from app.services.document_agent.visual import render_pages
+from app.services.document_parser.profiling.domain_taxonomy import (
+    OTHER_CODE,
+    domain_codes_from_ids,
+)
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 
 PAGE_KIND_DEFINITIONS = {
@@ -137,10 +141,15 @@ def _parse_profile(raw: str) -> DocumentProfile:
     data = json.loads(raw)
     if not isinstance(data, dict):
         raise ValueError("coarse profile output must be a JSON object")
-    category = " ".join(str(data.get("category") or "unknown document").split()[:5])
-    routing_category = PdfRoutingCategory.normalize(
-        data.get("routing_category") or data.get("category")
-    ).value
+    try:
+        category = domain_codes_from_ids(data.get("domain_ids"))
+    except ValueError as exc:
+        logger.warning("[document_agent] invalid domain_ids, using OTHER: {}", exc)
+        category = [OTHER_CODE]
+    category_label = " ".join(
+        str(data.get("category_label") or "unknown document").split()[:5]
+    )
+    routing_category = PdfRoutingCategory.normalize(data.get("routing_category")).value
     raw_is_scanned = data.get("is_scanned")
     if isinstance(raw_is_scanned, bool):
         is_scanned = raw_is_scanned
@@ -155,7 +164,8 @@ def _parse_profile(raw: str) -> DocumentProfile:
         footer_y = None
     return DocumentProfile(
         is_scanned=is_scanned,
-        category=category or "unknown document",
+        category=category,
+        category_label=category_label or "unknown document",
         routing_category=routing_category,
         language=str(data.get("language") or "unknown"),
         header_y=header_y,
@@ -197,7 +207,8 @@ class CoarseProfiler:
         if not model:
             profile = DocumentProfile(
                 is_scanned=False,
-                category="unknown document",
+                category=[OTHER_CODE],
+                category_label="unknown document",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
             return profile, ToolResult(

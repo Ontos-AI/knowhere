@@ -1,8 +1,9 @@
 """In-process tool-calling agentic retrieval route.
 
-Default agentic path when ``use_agentic`` is unset or true. Runs the
-``agent_tools`` corpus registry through an LLM tool-calling loop. Map-nav is
-archived under ``deprecated/mapnav/`` and is not a live route.
+Agentic path when ``use_agentic`` is true, or when it is unset and the query
+router selects agent. Runs the ``agent_tools`` corpus registry through an LLM
+tool-calling loop. Map-nav is archived under ``deprecated/mapnav/`` and is
+not a live route.
 
 Which provider runs that loop (Cursor SDK or OpenAI-compatible) is the
 ``AGENT_EXPLORE_HARNESS`` switch resolved via ``resolve_harness()``.

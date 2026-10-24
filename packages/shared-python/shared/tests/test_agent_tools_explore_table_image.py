@@ -231,7 +231,6 @@ def _read_table(chunk_id: str, **extra: object) -> dict:
         "refs": [{"document_id": DOC_ID, "chunk_id": chunk_id}],
         "mode": "self",
         "include_assets": False,
-        "resolve_same_as": False,
         **extra,
     }
 
@@ -242,14 +241,16 @@ def test_query_table_is_registered() -> None:
     assert spec.json_schema["required"] == ["document_id", "chunk_id", "sql"]
 
 
-def test_corpus_schema_documents_explore_table_rules() -> None:
-    from shared.services.retrieval.agent_tools import load_corpus_schema_text
+def test_corpus_overview_does_not_repeat_explore_table_rules() -> None:
+    from shared.services.retrieval.agent_tools import load_corpus_overview_text
 
-    text = load_corpus_schema_text()
-    assert "query_table" in text
-    assert "Grep does not scan table-cell HTML" in text
+    text = load_corpus_overview_text()
+    assert "query_table" not in text
+    assert "Grep does not scan table-cell HTML" not in text
     assert "Table **cells** are searched only when `document_ids` is set" not in text
-    assert "focus" not in text.lower()
+    grep = REGISTRY.get("corpus.grep")
+    assert grep is not None
+    assert "Table cell values are not searched" in grep.description
 
 
 @pytest.mark.asyncio
@@ -291,7 +292,6 @@ async def test_read_inlines_connected_small_table_html(
             "refs": [{"document_id": DOC_ID, "section_path": PATH_INTRO}],
             "mode": "self",
             "include_assets": True,
-            "resolve_same_as": False,
         },
     )
     assert result.error is None
@@ -324,7 +324,6 @@ async def test_read_connected_table_download_failure_keeps_body_content(
             "refs": [{"document_id": DOC_ID, "section_path": PATH_INTRO}],
             "mode": "self",
             "include_assets": True,
-            "resolve_same_as": False,
         },
     )
     assert result.error is None
@@ -350,6 +349,11 @@ async def test_query_table_select_returns_html_rows(
     assert "<table>" in result.text
     assert "30 mg" in result.text
     assert result.refs == [{"document_id": DOC_ID, "chunk_id": CHUNK_SMALL}]
+    assert result.payload["document_id"] == DOC_ID
+    assert result.payload["chunk_id"] == CHUNK_SMALL
+    assert result.payload["table_html"]
+    assert "30 mg" in result.payload["table_html"]
+    assert result.payload["table_html"].startswith("<table>")
 
 
 @pytest.mark.asyncio
@@ -732,23 +736,9 @@ class _GrepConnectedRow:
                 DOC_ID,
                 "text",
                 "intro body 30 mg mention",
-                "intro body [tables/small.html]",
-                None,
-                {
-                    "connect_to": [
-                        {
-                            "target": CHUNK_SMALL,
-                            "relation": "embeds",
-                            "ref": "[tables/small.html]",
-                        }
-                    ]
-                },
-                REV_ID,
-                JOB_ID,
-                None,
+                1,
                 PATH_INTRO,
                 FILE_NAME,
-                1,
             )
         ]
 
@@ -767,7 +757,7 @@ class _GrepThenSession:
 
 
 @pytest.mark.asyncio
-async def test_grep_mounts_connected_table(explore_ctx: ToolContext) -> None:
+async def test_grep_connected_table_is_not_mounted(explore_ctx: ToolContext) -> None:
     db = _GrepThenSession(explore_ctx.db._session, _GrepConnectedRow())
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
@@ -777,8 +767,8 @@ async def test_grep_mounts_connected_table(explore_ctx: ToolContext) -> None:
     )
     result = await grep(ctx, {"pattern": "intro body"})
     assert result.error is None
-    assert f"mounted table chunk_id={CHUNK_SMALL}:" in result.text
-    assert "<table" in result.text
-    assert "30 mg" in result.text
-    assert db.execute_count == 2
+    assert "mounted table" not in result.text
+    assert "<table" not in result.text
+    assert "intro body 30 mg mention" in result.text
+    assert db.execute_count == 1
 

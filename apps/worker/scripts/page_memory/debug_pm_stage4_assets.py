@@ -74,6 +74,8 @@ def _load_scope_asset_context(
         hint=f"Run Stage 3 first to produce {fine_hierarchy_path}",
     )
     prior_scope, active_skeletons = load_hierarchy_artifact(fine_hierarchy_path)
+    from app.services.page_memory._utils import derive_excluded_toc_pages
+    toc_pages = derive_excluded_toc_pages(skeletons=active_skeletons, toc_pages=toc_pages)
     if not active_skeletons:
         logger.warning(
             "   [scope {}] no skeletons in fine_hierarchy.json — skipping",
@@ -184,12 +186,7 @@ def main() -> int:
         if context is not None:
             scope_contexts.append(context)
 
-    from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
-
-    union_pages = pages_excluding_toc(
-        sorted({page for context in scope_contexts for page in context.pages}),
-        toc_pages,
-    )
+    union_pages = sorted({page for context in scope_contexts for page in context.pages})
     logger.info(
         "🔬 document C5: {} unique pages across {} scopes",
         len(union_pages),

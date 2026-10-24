@@ -59,6 +59,18 @@ The hierarchical navigation node derived from parsed headings and section paths.
 
 The retrieval-visible text, image, or table row attached to a Document Section.
 
+### Document Root
+
+The existing document-level container above its chapters. It can own opening
+content without introducing another chapter.
+
+### Document Prefix
+
+All physical pages before the first recognized chapter, including covers,
+opening text, and printed table-of-contents pages. These pages belong directly
+to the existing document Root; they are not a separate chapter or part of the
+first chapter.
+
 ### Document Ingestion
 
 The workflow that creates a Job, accepts a file or URL source, confirms upload
@@ -68,6 +80,18 @@ state, and starts parsing work.
 
 The API-side handoff that advances an uploaded file Job to pending state and
 enqueues the worker parse task with the user-aware Celery queue policy.
+
+### Source Content Admission
+
+The check that rejects identical original file bytes within one User and
+Namespace before parsing or billing, including unchanged Document updates.
+Filenames do not determine duplicates. Only current active Document revisions
+and in-progress Jobs participate; failed Jobs and archived or superseded
+revisions do not block retries. The check happens after source upload or URL
+download, so a duplicate is reported through the normal Job failure contract.
+Demo Corpus publication retains its separate admission policy.
+Existing sources without recorded fingerprints do not participate, and their
+original files are not fetched for comparison.
 
 ### Worker Document Parsing
 

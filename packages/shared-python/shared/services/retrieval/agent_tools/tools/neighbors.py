@@ -1,6 +1,6 @@
 """``corpus.neighbors`` — document-level ``related`` graph edges.
 
-Document-to-document only (§4 of ``CORPUS_SCHEMA.md``): no section- or
+Document-to-document only: no section- or
 entity-level graph nodes exist yet. Edges are undirected and were written by
 ``DocumentGraphService.publish_document_graph`` with ``shared_entities`` (typed
 entity overlap, preferred) or ``shared_keywords`` (TF-IDF fallback).
