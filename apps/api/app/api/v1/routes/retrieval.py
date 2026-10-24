@@ -73,8 +73,9 @@ class RetrievalQueryRequest(BaseModel):
         None,
         description=(
             "Turns agent retrieval on or off. False uses classic map-unit "
-            "BM25. Unset or true turns agent retrieval on; "
-            "AGENT_EXPLORE_HARNESS then selects Cursor (cursor_sdk) or "
+            "BM25. True turns agent retrieval on. Unset (None) lets the "
+            "query router choose classic or agent. When agent retrieval is "
+            "on, AGENT_EXPLORE_HARNESS then selects Cursor (cursor_sdk) or "
             "Knowhere's own harness (openai)."
         ),
     )
@@ -154,6 +155,14 @@ class RetrievalQueryResponse(BaseModel):
         description=(
             "Per-step agentic retrieval trace. Each entry follows the "
             "observation/decision/result schema."
+        ),
+    )
+    router_decision: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Present when use_agentic was unset and the query router chose "
+            "agent or classic. Fields: mode, reason, source, model_name, "
+            "tokens_used."
         ),
     )
 
