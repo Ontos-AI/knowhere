@@ -102,8 +102,8 @@ flowchart TB
 
     subgraph RETRIEVE["⑤ Retrieval (shared)"]
         Query["POST /v1|/v2 retrieval/query"] --> Pipeline["run_retrieval_query"]
-        Pipeline --> Classic["classic_topk / small_corpus (use_agentic=False)"]
-        Pipeline --> Explore["agent_explore (use_agentic unset/true)"]
+        Pipeline --> Classic["classic_topk / small_corpus"]
+        Pipeline --> Explore["agent_explore"]
         Explore --> Cursor["AGENT_EXPLORE_HARNESS=cursor_sdk"]
         Explore --> Own["AGENT_EXPLORE_HARNESS=openai"]
         Classic --> Channels["map_unit_discovery: path+content BM25 -> RRF"]
@@ -542,7 +542,7 @@ Core retrieval internals are grouped by ownership:
 
 ### Retrieval Switch and Agent Modes
 
-Per-request `use_agentic` only turns agent retrieval on or off: `False` → classic top-K (map-unit BM25); `None`/`True` → agent_explore. When agent retrieval is on, `AGENT_EXPLORE_HARNESS` selects Cursor (`cursor_sdk`) or Knowhere's own harness (`openai`).
+Per-request `use_agentic`: `False` → classic top-K (map-unit BM25); `True` → agent_explore; unset (`None`) → a query router chooses classic or agent. When agent retrieval is on, `AGENT_EXPLORE_HARNESS` selects Cursor (`cursor_sdk`) or Knowhere's own harness (`openai`).
 
 #### Classic Mode (map-unit BM25)
 

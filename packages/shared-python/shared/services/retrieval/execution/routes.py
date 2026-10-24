@@ -19,6 +19,9 @@ from shared.services.retrieval.hydration.evidence_compose import (
 from shared.services.retrieval.hydration.result_assembly import (
     assemble_retrieval_results,
 )
+from shared.services.retrieval.routing import config as query_router_config
+from shared.services.retrieval.routing.classifier import classify_query_mode
+from shared.services.retrieval.routing.types import QueryMode, RouterDecision
 from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
 from shared.services.retrieval.search.ranking import rank_retrieval_candidates
 from shared.services.retrieval.search.scoped_corpus import (
@@ -77,10 +80,39 @@ async def run_retrieval_route(
     if small_corpus_outcome is not None:
         return small_corpus_outcome
 
-    # Explicit False → classic map-unit BM25 top-K. None/True → agent_explore.
-    if context.use_agentic is False:
-        return await _run_classic_topk_route(context)
-    return await _run_agent_explore_route(context)
+    use_agentic = context.use_agentic
+    decision: RouterDecision | None = None
+    if use_agentic is None:
+        use_agentic, decision = await _resolve_auto_route(context)
+
+    if use_agentic is False:
+        outcome = await _run_classic_topk_route(context)
+    else:
+        outcome = await _run_agent_explore_route(context)
+
+    if decision is not None:
+        outcome.response["router_decision"] = decision.to_dict()
+    return outcome
+
+
+async def _resolve_auto_route(
+    context: RetrievalRouteContext,
+) -> tuple[bool, RouterDecision]:
+    if not query_router_config.QUERY_ROUTER_ENABLED:
+        decision = RouterDecision(
+            mode=QueryMode.AGENT,
+            reason="",
+            source="disabled",
+            model_name="",
+            tokens_used=0,
+        )
+    else:
+        decision = await classify_query_mode(context.query)
+    logger.info(
+        f"retrieval query router mode={decision.mode.value} "
+        f"source={decision.source} reason={decision.reason}"
+    )
+    return decision.mode == QueryMode.AGENT, decision
 
 
 async def _try_run_small_corpus_route(
