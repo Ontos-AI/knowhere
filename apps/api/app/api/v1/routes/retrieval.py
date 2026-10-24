@@ -88,6 +88,15 @@ class RetrievalQueryRequest(BaseModel):
             "agent retrieval is off or the harness is openai."
         ),
     )
+    review_evidence: bool = Field(
+        False,
+        description=(
+            "Review selected text/table evidence against the query before ending "
+            "agent retrieval. Allows at most one bounded corrective continuation "
+            "within the original step/time budget. Default false adds no review calls. "
+            "Classic and small-corpus routes return an unverified review status."
+        ),
+    )
     conversation_id: str | None = Field(
         None,
         max_length=255,
@@ -149,6 +158,14 @@ class RetrievalQueryResponse(BaseModel):
     )
     stop_reason: str | None = None
     failure_reason: str | None = None
+    evidence_review: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Optional evidence sufficiency assessment: sufficient, insufficient, "
+            "or unverified; includes per-requirement citations, limits, and usage. "
+            "This assessment does not synthesize an answer or prove corpus-wide absence."
+        ),
+    )
     decision_trace: list[dict] | None = Field(
         default=None,
         description=(
@@ -210,6 +227,7 @@ async def execute_retrieval_query(
         threshold=payload.threshold,
         internal_recall_k=payload.internal_recall_k,
         use_agentic=payload.use_agentic,
+        review_evidence=payload.review_evidence,
         agent_explore_model=(
             str(payload.agent_explore_model).strip()
             if payload.agent_explore_model
