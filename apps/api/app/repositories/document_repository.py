@@ -10,7 +10,7 @@ from app.services.demo.revision_reader import resolve_demo_revision
 from datetime import datetime, timezone
 from typing import Sequence, cast
 
-from sqlalchemy import func, select, true
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
@@ -20,6 +20,27 @@ from shared.models.database.job_result import JobResult
 
 DocumentChunkRow = tuple[DocumentChunk, DocumentSection | None, JobResult]
 DocumentJobRevisionRow = tuple[Document, JobResult, Job]
+DocumentJobHistoryRow = tuple[Job, JobResult | None]
+
+
+def _document_job_history_query(*, user_id: str, document_id: str):
+    # A published result owns the canonical link. Metadata preserves attempts
+    # that failed or are still processing, and legacy results without a link.
+    return (
+        select(Job, JobResult)
+        .outerjoin(JobResult, JobResult.job_id == Job.job_id)
+        .where(Job.user_id == user_id)
+        .where(
+            or_(
+                JobResult.document_id == document_id,
+                and_(
+                    JobResult.document_id.is_(None),
+                    JobResult.demo_document_id.is_(None),
+                    Job.job_metadata["document_id"].as_string() == document_id,
+                ),
+            )
+        )
+    )
 
 
 class DocumentRepository:
@@ -28,7 +49,7 @@ class DocumentRepository:
         db: AsyncSession,
         *,
         user_id: str,
-        namespace: str,
+        namespace: str | None,
         limit: int,
         offset: int,
     ) -> Sequence[Document]:
@@ -36,7 +57,7 @@ class DocumentRepository:
         result = await db.execute(
             select(corpusStorage.Document)
             .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
-            .where(corpusStorage.Document.namespace == namespace)
+            .where(corpusStorage.Document.namespace == namespace if namespace is not None else true())
             .where(corpusStorage.Document.status != "archived")
             .order_by(corpusStorage.Document.updated_at.desc(), corpusStorage.Document.document_id.asc())
             .limit(limit)
@@ -49,13 +70,13 @@ class DocumentRepository:
         db: AsyncSession,
         *,
         user_id: str,
-        namespace: str,
+        namespace: str | None,
     ) -> int:
         corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
         result = await db.execute(
             select(func.count(corpusStorage.Document.document_id))
             .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
-            .where(corpusStorage.Document.namespace == namespace)
+            .where(corpusStorage.Document.namespace == namespace if namespace is not None else true())
             .where(corpusStorage.Document.status != "archived")
         )
         return int(result.scalar_one())
@@ -75,6 +96,37 @@ class DocumentRepository:
             .where(corpusStorage.Document.status != "archived" if corpusStorage.is_demo else true())
         )
         return result.scalar_one_or_none()
+
+    async def count_document_jobs(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+        document_id: str,
+    ) -> int:
+        result = await db.execute(
+            _document_job_history_query(user_id=user_id, document_id=document_id)
+            .with_only_columns(func.count(Job.job_id), maintain_column_froms=True)
+        )
+        return int(result.scalar_one())
+
+    async def list_document_jobs(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+        document_id: str,
+        limit: int,
+        offset: int,
+    ) -> Sequence[DocumentJobHistoryRow]:
+        result = await db.execute(
+            _document_job_history_query(user_id=user_id, document_id=document_id)
+            .options(noload(JobResult.chunks), noload(JobResult.job))
+            .order_by(Job.created_at.desc(), Job.job_id.asc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return cast(Sequence[DocumentJobHistoryRow], result.all())
 
     async def get_current_document_job_revision(
         self,
