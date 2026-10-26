@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from loguru import logger
-from pgvector.utils import to_db
+from pgvector import HalfVector
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -195,7 +195,7 @@ async def visual_page_discovery(
         normalized_query,
         usage_task="retrieval.query_embed",
     )
-    vector_literal = to_db(query_vector)
+    vector_literal = HalfVector(query_vector).to_text()
 
     signal_clause, signal_params = _build_signal_clause(
         signal_paths or [], filter_mode
@@ -236,7 +236,7 @@ async def visual_page_discovery(
         FROM (
             SELECT DISTINCT ON (dpe.document_id, dpe.chunk_id)
                 dpe.page_num,
-                1.0 - (dpe.embedding <=> CAST(:query_embedding AS vector))
+                1.0 - (dpe.embedding <=> CAST(:query_embedding AS halfvec))
                     AS similarity,
                 dc.chunk_id,
                 dc.document_id,
@@ -274,7 +274,7 @@ async def visual_page_discovery(
                 {exclude_clause}
             ORDER BY dpe.document_id,
                      dpe.chunk_id,
-                     dpe.embedding <=> CAST(:query_embedding AS vector) ASC,
+                     dpe.embedding <=> CAST(:query_embedding AS halfvec) ASC,
                      dpe.page_num ASC
         ) ranked
         ORDER BY ranked.similarity DESC, ranked.page_num ASC

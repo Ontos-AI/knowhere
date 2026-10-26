@@ -236,10 +236,18 @@ def _build_visual_m0_dataframe(
             [image_path_by_page[page] for page in ordered_pages],
             usage_task="page_memory.m0_embed",
         )
-    embeddings_by_page = {
-        page: vec
-        for page, vec in zip(ordered_pages, vectors, strict=True)
-    }
+    embeddings_by_page = {}
+    skipped_pages: list[int] = []
+    for page, vec in zip(ordered_pages, vectors, strict=True):
+        if isinstance(vec, list) and vec:
+            embeddings_by_page[page] = vec
+        else:
+            skipped_pages.append(page)
+    if skipped_pages:
+        logger.warning(
+            "Skipped page embeddings after retries; document continues: pages={}",
+            skipped_pages,
+        )
     return build_visual_page_dataframe(
         page_count=page_count,
         filename=filename,

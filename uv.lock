@@ -1551,7 +1551,7 @@ requires-dist = [
     { name = "kombu", specifier = "==5.5.4" },
     { name = "loguru", specifier = "==0.7.3" },
     { name = "openai", specifier = ">=1.0.0" },
-    { name = "pgvector", specifier = ">=0.2.4" },
+    { name = "pgvector", specifier = ">=0.4.1" },
     { name = "pillow", specifier = "==12.2.0" },
     { name = "posthog", specifier = "==7.18.1" },
     { name = "psutil", specifier = "==5.9.8" },
@@ -2599,13 +2599,11 @@ wheels = [
 
 [[package]]
 name = "pgvector"
-version = "0.2.4"
+version = "0.5.1"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-]
+sdist = { url = "https://files.pythonhosted.org/packages/f8/23/96aa38899fbf8e103766db608d6e42acac269a96e08f3003fe9da3396fed/pgvector-0.5.1.tar.gz", hash = "sha256:94998a54b801b1075d623b8fa677fcb8210a7977b88f8e2203ab115c155af2e4", size = 35714, upload-time = "2026-10-09T01:50:22.779Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ff/70/4121568743eff331240def4d0b0e949f3cd36f440435a69f967ebd1f0bc6/pgvector-0.2.4-py2.py3-none-any.whl", hash = "sha256:548e1f88d3c7433020c1c177feddad2f36915c262852d621f9018fcafff6870b", size = 9564, upload-time = "2023-11-24T17:26:57.442Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/8d/a9c2a531da0ebb54b4a7174450e8534a39db112a141ae3a437de28420111/pgvector-0.5.1-py3-none-any.whl", hash = "sha256:ec5bcd5ffaefe6ecb2dcc9564ca921d284564b969183bc837a144604773af8ea", size = 31056, upload-time = "2026-10-09T01:50:21.614Z" },
 ]
 
 [[package]]

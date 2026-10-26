@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import math
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
+import httpx
 from loguru import logger
 
 from shared.core.config import settings
@@ -30,6 +33,7 @@ DEFAULT_EMBEDDING_MODEL = "google/gemini-embedding-2"
 DEFAULT_EMBEDDING_DIM = 3072
 DEFAULT_EMBEDDING_ENDPOINT = "https://ai-gateway.vercel.sh/v1/embeddings"
 _MAX_EMBEDDING_RETRIES = 3
+_RETRY_BACKOFF_CAP_SECONDS = 8.0
 
 
 def resolve_embedding_model(model: str | None = None) -> str:
@@ -148,6 +152,15 @@ def _extract_embedding_usage(payload: dict[str, Any]) -> dict[str, int]:
     }
 
 
+def _is_retryable_http_status(status_code: int) -> bool:
+    return status_code == 429 or 500 <= status_code < 600
+
+
+def _sleep_before_retry(attempt: int) -> None:
+    delay = min(float(2**attempt), _RETRY_BACKOFF_CAP_SECONDS)
+    time.sleep(delay)
+
+
 def _call_gateway_embedding(
     *,
     text: str | None = None,
@@ -185,6 +198,7 @@ def _call_gateway_embedding(
         image_bytes=image_bytes,
     )
 
+    last_error: Exception | None = None
     for attempt in range(_MAX_EMBEDDING_RETRIES):
         try:
             response = http_client.post(
@@ -196,21 +210,23 @@ def _call_gateway_embedding(
                 },
                 timeout=timeout_seconds,
             )
-            if response.status_code == 429:
+            if _is_retryable_http_status(response.status_code):
+                last_error = LLMServiceException(
+                    internal_message=(
+                        f"Vercel embedding HTTP {response.status_code}: {response.text}"
+                    ),
+                    provider=resolved_model,
+                )
                 logger.warning(
-                    "Vercel embedding rate-limited (attempt {}/{})",
+                    "Vercel embedding retryable HTTP {} (attempt {}/{})",
+                    response.status_code,
                     attempt + 1,
                     _MAX_EMBEDDING_RETRIES,
                 )
-                if attempt == _MAX_EMBEDDING_RETRIES - 1:
-                    raise LLMServiceException(
-                        internal_message=(
-                            f"Vercel embedding rate-limited after {_MAX_EMBEDDING_RETRIES} "
-                            f"retries ({resolved_model})"
-                        ),
-                        provider=resolved_model,
-                    )
-                continue
+                if attempt < _MAX_EMBEDDING_RETRIES - 1:
+                    _sleep_before_retry(attempt)
+                    continue
+                raise last_error
 
             if response.status_code >= 400:
                 raise LLMServiceException(
@@ -236,25 +252,35 @@ def _call_gateway_embedding(
             return vector
         except LLMServiceException:
             raise
-        except Exception as exc:
+        except (httpx.RequestError, json.JSONDecodeError) as exc:
+            last_error = exc
             masked_key = mask_api_key(api_key)
-            logger.error(
-                "Embedding request failed: model={}, api_key={}, error={}",
+            logger.warning(
+                "Embedding request failed (attempt {}/{}): model={}, api_key={}, error={}",
+                attempt + 1,
+                _MAX_EMBEDDING_RETRIES,
                 resolved_model,
                 masked_key,
                 exc,
             )
+            if attempt < _MAX_EMBEDDING_RETRIES - 1:
+                _sleep_before_retry(attempt)
+                continue
             raise LLMServiceException(
                 internal_message=(
-                    f"Embedding failed (api_key={masked_key}): {exc}"
+                    f"Embedding failed after {_MAX_EMBEDDING_RETRIES} attempts "
+                    f"(api_key={masked_key}): {exc}"
                 ),
                 provider=resolved_model,
                 original_exception=exc,
             ) from exc
 
     raise LLMServiceException(
-        internal_message="Vercel embedding retry loop exited unexpectedly",
+        internal_message=(
+            f"Vercel embedding retry loop exited unexpectedly: {last_error}"
+        ),
         provider=resolved_model,
+        original_exception=last_error,
     )
 
 
@@ -282,8 +308,8 @@ def embed_images(
     model: str | None = None,
     concurrency: int | None = None,
     usage_task: str = "page_memory.m0_embed",
-) -> list[list[float]]:
-    """Embed a sequence of page images concurrently in order."""
+) -> list[list[float] | None]:
+    """Embed page images concurrently. Failed pages after retries are skipped."""
     items = list(image_inputs)
     if not items:
         return []
@@ -294,17 +320,25 @@ def embed_images(
     resolved_concurrency = max(int(concurrency or default_concurrency), 1)
     tracker_root_id = get_current_token_tracker_root_id()
 
-    def _embed_one(index: int) -> tuple[int, list[float]]:
+    def _embed_one(index: int) -> tuple[int, list[float] | None]:
         with bind_token_tracker(tracker_root_id):
-            mime_type, raw_bytes = _read_image_payload(items[index])
-            vec = _call_gateway_embedding(
-                image_mime=mime_type,
-                image_bytes=raw_bytes,
-                seed_bytes=raw_bytes,
-                model=model,
-                usage_task=usage_task,
-            )
-            return index, vec
+            try:
+                mime_type, raw_bytes = _read_image_payload(items[index])
+                vec = _call_gateway_embedding(
+                    image_mime=mime_type,
+                    image_bytes=raw_bytes,
+                    seed_bytes=raw_bytes,
+                    model=model,
+                    usage_task=usage_task,
+                )
+                return index, vec
+            except Exception as exc:
+                logger.warning(
+                    "Skipping page image embedding after retries: index={}, error={}",
+                    index,
+                    exc,
+                )
+                return index, None
 
     if len(items) == 1 or resolved_concurrency == 1:
         return [_embed_one(idx)[1] for idx in range(len(items))]
@@ -314,9 +348,9 @@ def embed_images(
 
     pool = GeventPool(size=min(resolved_concurrency, len(items)))
     greenlets = [pool.spawn(_embed_one, idx) for idx in range(len(items))]
-    gevent.joinall(greenlets, raise_error=True)
+    gevent.joinall(greenlets, raise_error=False)
     pairs = [
-        cast(tuple[int, list[float]], greenlet.value)
+        cast(tuple[int, list[float] | None], greenlet.value)
         for greenlet in greenlets
     ]
     pairs.sort(key=lambda item: item[0])

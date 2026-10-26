@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from pgvector.sqlalchemy import Vector
+from pgvector.sqlalchemy import HALFVEC
 from sqlalchemy import (
     JSON,
     DateTime,
@@ -430,7 +430,7 @@ class DocumentPageEmbedding(Base):
         String(64), nullable=False, default="google/gemini-embedding-2"
     )
     dims: Mapped[int] = mapped_column(Integer, nullable=False, default=3072)
-    embedding: Mapped[Any] = mapped_column(Vector(3072), nullable=False)
+    embedding: Mapped[Any] = mapped_column(HALFVEC(3072), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False
     )
@@ -458,7 +458,7 @@ class DocumentPageEmbedding(Base):
             "idx_document_page_embeddings_hnsw_cosine",
             "embedding",
             postgresql_using="hnsw",
-            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_ops={"embedding": "halfvec_cosine_ops"},
         ),
     )
 
