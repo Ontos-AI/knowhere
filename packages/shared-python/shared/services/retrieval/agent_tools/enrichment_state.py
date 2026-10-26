@@ -152,13 +152,15 @@ def format_still_structuring_note(file_names: list[str]) -> str:
     joined = ", ".join(file_names) if file_names else "document"
     return (
         f"{joined} is still being structured (state=text); no section outline yet. "
-        "Use corpus.recall / corpus.grep / corpus.read on page text now; "
-        "retry outline once structuring completes."
+        "Do not retry outline, node_filter, or assets on it in this session — "
+        "use corpus.recall, corpus.grep, and corpus.read on page text directly."
     )
 
 
 def format_assets_not_refined_note(page_range_label: str, state: str = "coarse") -> str:
     return (
         f"assets for {page_range_label} are not extracted yet (state={state}); "
-        "corpus.read a page in this range to trigger refinement, then retry."
+        "background refinement is queued. Do not retry corpus.assets or "
+        "corpus.query_table on this range in this session — use page text "
+        "via corpus.read, corpus.grep, or corpus.recall."
     )

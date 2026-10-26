@@ -38,7 +38,7 @@ def test_loop_rules_state_round_read_and_pick_contract() -> None:
     assert "On your first\n  turn you have no results yet, so do not call corpus.read." in LOOP_RULES
     assert "Calls in the same turn cannot use each other's results." in LOOP_RULES
     assert "the next turn is\n  a pick phase: you can only call corpus.pick." in LOOP_RULES
-    assert "Body text you read but did not pick cannot be read again." in LOOP_RULES
+    assert "Body text you read (picked or not) cannot be read again." in LOOP_RULES
     assert "the steps used so far" in LOOP_RULES
     for removed in ("expire", "to pick later", '"pick" field', "remaining budget"):
         assert removed not in LOOP_RULES, removed

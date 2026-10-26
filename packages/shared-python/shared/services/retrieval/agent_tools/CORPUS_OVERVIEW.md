@@ -30,8 +30,7 @@ Documents may still be loading progressively (`status` is `text`, `coarse`, or
 `complete`):
 - Page text is always searchable immediately via `corpus.recall`, `corpus.grep`,
   and `corpus.read`.
-- `corpus.outline` and `corpus.node_filter` require structuring (`coarse` or
-  `complete`).
+- `corpus.outline` and `corpus.node_filter` require `coarse` or `complete`.
 - `corpus.assets` and `corpus.query_table` require per-scope refinement.
-A "not ready yet" tool note is a state signal, not a dead end — answer from
-page text now or `corpus.read` a page in that range to trigger refinement.
+A "not ready yet" tool note means background processing is still running — do
+not retry that tool on the same scope in this session; answer from page text.
