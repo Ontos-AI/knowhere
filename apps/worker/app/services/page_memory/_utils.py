@@ -21,21 +21,6 @@ def is_fallback_root(skeleton: Any) -> bool:
     )
 
 
-def derive_excluded_toc_pages(
-    *,
-    skeletons: list[Any],
-    toc_pages: list[int] | None,
-) -> list[int]:
-    """Exclude chapter TOCs while retaining every physical prefix page."""
-    prefix_pages: set[int] = {
-        page
-        for skeleton in skeletons
-        if is_document_prefix(skeleton)
-        for page in range(skeleton.start_page, skeleton.end_page + 1)
-    }
-    return sorted({int(page) for page in (toc_pages or [])} - prefix_pages)
-
-
 def sort_skeletons(skeletons: list[Any]) -> list[Any]:
     """Order skeletons by start page only.
 

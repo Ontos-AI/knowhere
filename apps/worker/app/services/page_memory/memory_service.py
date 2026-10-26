@@ -21,7 +21,6 @@ from app.services.page_memory.normalizer import normalize_to_pdf
 from app.services.page_memory._utils import (
     CoarseScope,
     collapse_page_ranges,
-    derive_excluded_toc_pages,
     page_scope_info,
     sort_skeletons,
 )
@@ -514,9 +513,7 @@ def _run_hierarchy_scope(
     )
 
     scope_skeletons = sort_skeletons(scope.skeletons)
-    toc_pages = derive_excluded_toc_pages(
-        skeletons=scope_skeletons, toc_pages=toc_pages,
-    )
+    toc_pages = sorted({int(page) for page in (toc_pages or [])})
     scope_manifest = _scope_manifest(
         scope_id=scope.scope_id,
         skeletons=scope_skeletons,

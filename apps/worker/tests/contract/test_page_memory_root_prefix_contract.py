@@ -167,11 +167,14 @@ def test_opening_pages_keep_root_ownership_and_page_citation_assets(
         image_files_map={},
         table_files_map={},
     )
-    expected_prefix: list[int] = (
+    expected_prefix_span: list[int] = (
         list(range(1, chapter_pages[0]))
         if chapter_pages
         else list(range(1, page_count + 1))
     )
+    expected_prefix: list[int] = [
+        page for page in expected_prefix_span if page not in set(toc_pages)
+    ]
     root_path: str = filename if chapter_pages else f"{filename}/Root"
     root_chunks = [chunk for chunk in published if chunk["path"] == root_path]
     assert len(root_chunks) == bool(expected_prefix)
@@ -204,15 +207,13 @@ def test_opening_pages_keep_root_ownership_and_page_citation_assets(
     covered_pages: set[int] = {
         page for chunk in published for page in chunk["metadata"]["page_nums"]
     }
-    assert covered_pages == set(range(1, page_count + 1)) - (
-        set(toc_pages) - set(expected_prefix)
-    )
+    assert covered_pages == set(range(1, page_count + 1)) - set(toc_pages)
     for chunk in published:
         for asset in chunk["metadata"]["page_assets"]:
             assert (tmp_path / asset["artifact_ref"]).is_file()
 
 
-def test_staged_prefix_scope_retains_root_identity_and_printed_toc(
+def test_staged_prefix_scope_retains_root_identity_and_excludes_toc_pages(
     tmp_path: Path,
 ) -> None:
     from app.services.page_memory._serialization import serialize_hierarchy_artifact
@@ -241,7 +242,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, 'apps/worker/scripts/page_memory')
 from _debug_pm_shared import load_hierarchy_artifact
-from app.services.page_memory._utils import build_hierarchy_scopes, derive_excluded_toc_pages
+from app.services.page_memory._utils import build_hierarchy_scopes
 from app.services.page_memory.phase_a import build_phase_a_manifest
 from debug_pm_stage3_scope_fine_hierarchy import _resolve_scope_processing_pages
 from debug_pm_stage4_assets import _load_scope_asset_context
@@ -261,17 +262,18 @@ manifest = build_phase_a_manifest(
     skeletons=skeletons,
     coarse_scopes=coarse_scopes,
     next_title_by_path={},
-    toc_pages=derive_excluded_toc_pages(skeletons=skeletons, toc_pages=[17, 18]),
+    toc_pages=[17, 18],
 )
 scopes = manifest['scopes']
+expected_pages = [p for p in range(1, 20) if p not in {17, 18}]
 assert len(scopes) == 1
-assert scopes[0]['processing_pages'] == list(range(1, 20))
-assert scopes[0]['excluded_toc_pages'] == []
+assert scopes[0]['processing_pages'] == expected_pages
+assert scopes[0]['excluded_toc_pages'] == [17, 18]
 pages, excluded = _resolve_scope_processing_pages(scope_meta={}, skeletons=skeletons, page_count=407, toc_pages=[17, 18])
-assert pages == list(range(1, 20))
-assert excluded == []
+assert pages == expected_pages
+assert excluded == [17, 18]
 context = _load_scope_asset_context(scope_id='p1-19', scope_dir=path.parent, page_count=407, toc_pages=[17, 18])
-assert context.pages == list(range(1, 20))
+assert context.pages == expected_pages
 """,
             str(artifact_path),
         ],

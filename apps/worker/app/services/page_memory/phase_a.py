@@ -22,7 +22,6 @@ from app.services.page_memory._serialization import (
 from app.services.page_memory._utils import (
     CoarseScope,
     build_hierarchy_scopes,
-    derive_excluded_toc_pages,
     page_scope_info,
 )
 from app.services.page_memory.body_text_preview import build_body_text_preview
@@ -114,9 +113,8 @@ def build_phase_a(
         page_count=page_count,
     )
     toc_result = getattr(anatomy, "toc_result", None) if anatomy is not None else None
-    toc_pages = derive_excluded_toc_pages(
-        skeletons=skeletons,
-        toc_pages=list(getattr(toc_result, "toc_pages", None) or []),
+    toc_pages = sorted(
+        {int(page) for page in (getattr(toc_result, "toc_pages", None) or [])}
     )
     manifest = build_phase_a_manifest(
         filename=filename,

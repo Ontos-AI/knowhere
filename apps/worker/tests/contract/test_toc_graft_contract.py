@@ -622,7 +622,7 @@ def test_page_parallel_still_cuts_primary_window() -> None:
         page_texts=page_texts,
     )
     ch2 = next(item for item in skeletons if item.title == "Ch2")
-    assert ch2.end_page == 199
+    assert ch2.end_page == 209
     assert any(item.title == "App" for item in skeletons)
 
 

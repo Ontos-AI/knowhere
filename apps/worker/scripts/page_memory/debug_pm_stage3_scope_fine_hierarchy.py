@@ -67,9 +67,8 @@ def _resolve_scope_processing_pages(
     toc_pages: list[int],
 ) -> tuple[list[int], list[int]]:
     from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
-    from app.services.page_memory._utils import derive_excluded_toc_pages
 
-    toc_pages = derive_excluded_toc_pages(skeletons=skeletons, toc_pages=toc_pages)
+    toc_pages = sorted({int(page) for page in (toc_pages or [])})
     processing_pages = [
         int(page) for page in (scope_meta.get("processing_pages") or [])
     ]
@@ -134,8 +133,7 @@ def _run_fine_hierarchy_for_scope(
     require_file(skel_path, hint=f"Stage 3 should have created {skel_path}")
     scope_meta, active_skeletons = load_scope_skeletons_artifact(skel_path)
     active_skeletons = sort_skeletons(active_skeletons)
-    from app.services.page_memory._utils import derive_excluded_toc_pages
-    toc_pages = derive_excluded_toc_pages(skeletons=active_skeletons, toc_pages=toc_pages)
+    toc_pages = sorted({int(page) for page in (toc_pages or [])})
     strategy = str(scope_meta.get("strategy") or "coarse_scope")
     processing_pages, excluded_toc_pages = _resolve_scope_processing_pages(
         scope_meta=scope_meta,

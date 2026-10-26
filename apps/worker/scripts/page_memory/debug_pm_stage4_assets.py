@@ -74,8 +74,7 @@ def _load_scope_asset_context(
         hint=f"Run Stage 3 first to produce {fine_hierarchy_path}",
     )
     prior_scope, active_skeletons = load_hierarchy_artifact(fine_hierarchy_path)
-    from app.services.page_memory._utils import derive_excluded_toc_pages
-    toc_pages = derive_excluded_toc_pages(skeletons=active_skeletons, toc_pages=toc_pages)
+    toc_pages = sorted({int(page) for page in (toc_pages or [])})
     if not active_skeletons:
         logger.warning(
             "   [scope {}] no skeletons in fine_hierarchy.json — skipping",
