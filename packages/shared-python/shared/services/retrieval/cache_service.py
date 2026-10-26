@@ -153,6 +153,27 @@ async def bump_retrieval_namespace_cache_version(
     )
 
 
+def bump_retrieval_namespace_cache_version_sync(
+    *, user_id: str, namespace: str
+) -> int | None:
+    try:
+        from shared.services.redis.redis_sync_service import (
+            SyncRedisServiceFactory,
+        )
+
+        redis_service = SyncRedisServiceFactory.get_service()
+        return int(
+            redis_service.incr(
+                _namespace_version_key(user_id=user_id, namespace=namespace)
+            )
+        )
+    except Exception as exc:
+        logger.warning(
+            f"Failed to invalidate retrieval cache namespace (ignored): user_id={user_id}, namespace={namespace}, error={exc}"
+        )
+        return None
+
+
 async def invalidate_retrieval_cache_namespaces(
     *, user_id: str, namespaces: list[str]
 ) -> None:

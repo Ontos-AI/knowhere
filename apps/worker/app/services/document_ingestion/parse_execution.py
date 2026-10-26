@@ -133,6 +133,9 @@ def _execute_page_memory_parse(
     page_memory_config = JobMetadataHelper.get_page_memory_config(
         job_context.job_metadata,
     )
+    ingestion_mode = JobMetadataHelper.get_ingestion_mode(
+        job_context.job_metadata,
+    )
     page_output_dir, parsed_df = run(
         PageMemoryInput(
             file_path=prepared_source.local_file_path,
@@ -141,6 +144,7 @@ def _execute_page_memory_parse(
             output_dir=output_dir,
             job_id=job_id,
             page_memory_config=page_memory_config,
+            ingestion_mode=ingestion_mode,
         )
     )
     return ParseOutput(output_dir=page_output_dir, parsed_df=parsed_df)

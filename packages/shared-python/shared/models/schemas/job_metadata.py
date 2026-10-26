@@ -33,6 +33,9 @@ class JobMetadataBase(BaseModel):
         None, description="Resolved internal ingestion generation"
     )
     parse_track: Optional[str] = Field(None, description="Resolved parser track")
+    ingestion_mode: Optional[str] = Field(
+        None, description="Resolved ingestion mode (full | progressive)"
+    )
     page_memory_config: Optional[Dict[str, Any]] = Field(
         None, description="Resolved page-memory worker configuration"
     )
@@ -77,6 +80,7 @@ class JobMetadataHelper:
         parse_track: str = "chunk",
         processing_generation: str = "legacy_chunk",
         page_memory_config: PageMemoryConfig | Dict[str, Any] | None = None,
+        ingestion_mode: str | None = None,
         **kwargs,
     ) -> Dict[str, Any]:
         """Build metadata from a public job request."""
@@ -86,6 +90,11 @@ class JobMetadataHelper:
             resolved_page_memory_config = page_memory_config.to_dict()
         else:
             resolved_page_memory_config = page_memory_config
+        resolved_ingestion_mode = _normalize_ingestion_mode(
+            ingestion_mode
+            if ingestion_mode is not None
+            else getattr(request, "ingestion_mode", None)
+        )
         # v2-only field; getattr keeps v1 JobCreate (no llm_config) safe.
         raw_llm_config = getattr(request, "llm_config", None)
         llm_config_payload: Dict[str, Any] | None = None
@@ -99,6 +108,7 @@ class JobMetadataHelper:
             "namespace": namespace,
             "document_id": request.document_id,
             "parse_track": parse_track,
+            "ingestion_mode": resolved_ingestion_mode,
             "processing_generation": processing_generation,
             "parsing_params": (
                 request.parsing_params.model_dump() if request.parsing_params else None
@@ -194,6 +204,13 @@ class JobMetadataHelper:
         )
 
     @staticmethod
+    def get_ingestion_mode(metadata: Optional[Dict[str, Any]]) -> str:
+        """Return the ingestion mode stored in metadata (defaults to 'full')."""
+        return _normalize_ingestion_mode(
+            JobMetadataHelper.get_string_field(metadata, "ingestion_mode", "full")
+        )
+
+    @staticmethod
     def get_api_version(metadata: Optional[Dict[str, Any]]) -> str:
         """Return the API version stored in metadata."""
         return JobMetadataHelper.get_string_field(metadata, "api_version", "v1") or "v1"
@@ -272,6 +289,13 @@ class JobMetadataHelper:
         """Return the BYOK LLM config stored in metadata, if any."""
         raw = JobMetadataHelper.get_field(metadata, "llm_config", None)
         return parse_llm_config(raw)
+
+
+def _normalize_ingestion_mode(raw: object) -> str:
+    value = str(raw or "").strip().lower()
+    if value == "progressive":
+        return "progressive"
+    return "full"
 
 
 def _mask_llm_config_in_request(payload: Dict[str, Any]) -> Dict[str, Any]:

@@ -97,6 +97,13 @@ celery_app.conf.update(
         "app.core.tasks.document_ingestion_tasks.*": {
             "queue": "document_ingestion_medium"
         },
+        "app.core.tasks.enrichment_tasks.build_page_memory_structure": {
+            "queue": "document_ingestion_medium"
+        },
+        "app.core.tasks.enrichment_tasks.sweep_progressive_enrichments": {
+            "queue": "default"
+        },
+        "app.core.tasks.enrichment_tasks.*": {"queue": "document_ingestion_low"},
         "app.core.tasks.kb_tasks.*": {"queue": "kb_medium"},
         # Webhook orphan recovery
         "app.core.tasks.webhook_tasks.recover_orphaned_webhooks": {"queue": "default"},
@@ -112,6 +119,10 @@ celery_app.conf.update(
         "expire-stale-jobs": {
             "task": "app.core.tasks.stale_job_sweeper.expire_stale_jobs",
             "schedule": 1800.0,  # Every 30 minutes
+        },
+        "sweep-progressive-enrichments": {
+            "task": "app.core.tasks.enrichment_tasks.sweep_progressive_enrichments",
+            "schedule": 300.0,  # Every 5 minutes
         },
     },
 )

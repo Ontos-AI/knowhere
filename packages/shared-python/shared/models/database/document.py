@@ -141,6 +141,46 @@ class DocumentSection(Base):
     )
 
 
+class DocumentScopeEnrichment(Base):
+    """Per-scope Phase B enrichment state for one published page-memory revision."""
+
+    __tablename__ = "document_scope_enrichments"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: f"dse_{uuid4().hex[:12]}"
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_result_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("job_results.id", ondelete="CASCADE"), nullable=False
+    )
+    scope_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    page_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    page_end: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False, default="coarse")
+    priority: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_hit_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    refined_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "job_result_id",
+            "scope_id",
+            name="uq_document_scope_enrichments_revision_scope",
+        ),
+    )
+
+
 class DocumentChunk(Base):
     """Canonical retrieval payload row for one published document revision."""
 

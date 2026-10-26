@@ -22,6 +22,7 @@ from shared.utils.chunk_refs import match_resource_path_ref
 from shared.services.retrieval.hydration.row_utils import (
     extract_page_nums,
     normalize_chunk_type,
+    page_enrichment_state,
     page_summary,
 )
 from shared.services.retrieval.hydration.table_grid import (
@@ -131,6 +132,11 @@ def _indent_member_part(part: dict[str, Any]) -> dict[str, Any]:
 
 def _compose_page_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
     parts: list[dict[str, Any]] = []
+    if page_enrichment_state(row) in {"text", "coarse", "queued"}:
+        raw_text = str(row.get("content") or "").strip()
+        if raw_text:
+            parts.append(_text_part(raw_text))
+        return parts
     summary = page_summary(row)
     if summary:
         parts.append(_text_part(summary))

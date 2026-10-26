@@ -26,6 +26,11 @@ from typing import Any
 
 from sqlalchemy import select
 
+from shared.services.retrieval.agent_tools.enrichment_state import (
+    STATUS_TEXT,
+    format_still_structuring_note,
+    load_revision_enrichment_status,
+)
 from shared.services.retrieval.agent_tools.map_render import render_map
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
@@ -156,6 +161,50 @@ async def node_filter(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
     document_ids = scope_document_ids(targets)
     revision_by_doc = {target.document_id: target.job_result_id for target in targets}
+    revision_status = await load_revision_enrichment_status(
+        ctx.db,
+        set(revision_by_doc.values()),
+    )
+    text_targets = [
+        target
+        for target in targets
+        if revision_status.get(target.job_result_id) == STATUS_TEXT
+    ]
+    if text_targets:
+        documents_rows = (
+            (
+                await ctx.db.execute(
+                    select(corpusStorage.Document).where(
+                        corpusStorage.Document.document_id.in_(document_ids)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        source_file_name_by_doc = {
+            d.document_id: d.source_file_name or d.document_id for d in documents_rows
+        }
+        text_names = [
+            source_file_name_by_doc.get(t.document_id) or t.document_id
+            for t in text_targets
+        ]
+        if len(text_targets) == len(targets):
+            note = format_still_structuring_note(text_names)
+            return ToolResult(
+                text=note,
+                payload={
+                    "rows": [],
+                    "details": {
+                        "cardinality": 0,
+                        "matched_document_ids": [],
+                        "enrichment_status": STATUS_TEXT,
+                    },
+                },
+                refs=[],
+            )
+    else:
+        text_names = []
 
     chunk_types = {
         str(t).strip().lower() for t in (args.get("chunk_types") or []) if str(t).strip()
@@ -244,8 +293,13 @@ async def node_filter(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             order.append((section.section_id, parent_id))
 
     if not matched_ids:
+        empty_text = (
+            format_still_structuring_note(text_names)
+            if text_names
+            else "hits=0"
+        )
         return ToolResult(
-            text="hits=0",
+            text=empty_text,
             payload={"rows": [], "details": {"cardinality": 0, "matched_document_ids": []}},
             refs=[],
         )

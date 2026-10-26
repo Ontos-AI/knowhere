@@ -240,12 +240,13 @@ def test_staged_prefix_scope_retains_root_identity_and_printed_toc(
 import sys
 from pathlib import Path
 sys.path.insert(0, 'apps/worker/scripts/page_memory')
-from _debug_pm_shared import load_hierarchy_artifact, build_debug_coarse_scopes
+from _debug_pm_shared import load_hierarchy_artifact
+from app.services.page_memory._utils import build_hierarchy_scopes, derive_excluded_toc_pages
+from app.services.page_memory.phase_a import build_phase_a_manifest
 from debug_pm_stage3_scope_fine_hierarchy import _resolve_scope_processing_pages
 from debug_pm_stage4_assets import _load_scope_asset_context
 from app.services.page_memory._serialization import derive_hierarchy_page_scope, build_hierarchy_tree
 from app.services.page_memory.fine_hierarchy import compute_fat_leaf_pages
-from types import SimpleNamespace
 path = Path(sys.argv[1])
 _, skeletons = load_hierarchy_artifact(path)
 assert skeletons[0].level == 0
@@ -253,8 +254,17 @@ assert skeletons[0].evidence['source'] == 'document_prefix'
 assert derive_hierarchy_page_scope(skeletons=skeletons, page_count=407) == list(range(1, 20))
 assert build_hierarchy_tree(skeletons) == {}
 assert compute_fat_leaf_pages(skeletons, min_pages=4, toc_pages=[17, 18]) == set()
-anatomy = SimpleNamespace(toc_result=SimpleNamespace(toc_pages=[17, 18]))
-scopes = build_debug_coarse_scopes(skeletons=skeletons, filename='spacex.pdf', page_count=407, anatomy=anatomy)
+coarse_scopes = build_hierarchy_scopes(skeletons=skeletons, filename='spacex.pdf', page_count=407)
+manifest = build_phase_a_manifest(
+    filename='spacex.pdf',
+    page_count=407,
+    skeletons=skeletons,
+    coarse_scopes=coarse_scopes,
+    next_title_by_path={},
+    toc_pages=derive_excluded_toc_pages(skeletons=skeletons, toc_pages=[17, 18]),
+    asset_allocations=[0],
+)
+scopes = manifest['scopes']
 assert len(scopes) == 1
 assert scopes[0]['processing_pages'] == list(range(1, 20))
 assert scopes[0]['excluded_toc_pages'] == []

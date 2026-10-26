@@ -27,21 +27,49 @@ class SyncJobResultWriter:
         result = db.execute(select(JobResult).where(JobResult.job_id == job_id))
         existing = result.scalar_one_or_none()
 
+        job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
+        metadata = job.job_metadata or {} if job is not None else {}
+        if metadata.get("corpus_target") == "DEMO":
+            doc_metadata = {
+                key: metadata[key]
+                for key in (
+                    "source_size_bytes",
+                    "demo_asset_manifest",
+                    "result_raw_prefix",
+                    "parse_track",
+                    "ingestion_mode",
+                    "enrichment_status",
+                )
+                if key in metadata
+            }
+        else:
+            doc_metadata = {
+                key: metadata[key]
+                for key in (
+                    "result_raw_prefix",
+                    "parse_track",
+                    "ingestion_mode",
+                    "enrichment_status",
+                )
+                if key in metadata
+            }
+
         if existing:
             existing.delivery_mode = delivery_mode
             existing.inline_payload = inline_payload
             existing.result_s3_key = result_s3_key
             existing.result_size = result_size
+            existing.document_metadata = {
+                **dict(existing.document_metadata or {}),
+                **doc_metadata,
+            }
             db.flush()
             return existing
 
-        job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
-        metadata = job.job_metadata or {} if job is not None else {}
-        demoMetadata = {key: metadata[key] for key in ("source_size_bytes", "demo_asset_manifest", "result_raw_prefix", "parse_track") if key in metadata} if metadata.get("corpus_target") == "DEMO" else {}
         job_result = JobResult(
             job_id=job_id,
             delivery_mode=delivery_mode,
-            document_metadata=demoMetadata,
+            document_metadata=doc_metadata,
             inline_payload=inline_payload,
             result_s3_key=result_s3_key,
             result_size=result_size,

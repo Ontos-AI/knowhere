@@ -20,7 +20,6 @@ from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.page_memory.normalizer import normalize_to_pdf
 from app.services.page_memory._utils import (
     CoarseScope,
-    build_hierarchy_scopes,
     collapse_page_ranges,
     derive_excluded_toc_pages,
     page_scope_info,
@@ -31,6 +30,11 @@ from app.services.page_memory._serialization import (
     scope_manifest as _scope_manifest,
     write_scope_artifacts as _write_scope_artifacts,
     write_top_level_artifacts as _write_top_level_artifacts,
+)
+from app.services.page_memory.phase_a import (
+    build_coarse_text_dataframe,
+    build_phase_a,
+    persist_m0_inputs,
 )
 
 from loguru import logger
@@ -51,6 +55,7 @@ class PageMemoryInput:
     page_memory_config: PageMemoryConfig = field(
         default_factory=PageMemoryConfig.default,
     )
+    ingestion_mode: str = "full"
 
 
 @dataclass(frozen=True)
@@ -86,6 +91,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 base_url=request.base_url,
             )
         _persist_source_pdf(pdf_path=pdf_path, output_dir=full_output_dir)
+        is_progressive = str(request.ingestion_mode or "full").strip().lower() == "progressive"
         with stage_timer("page_memory.profile", filename=pdf_filename):
             profile = profile_document(
                 pdf_path,
@@ -94,6 +100,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 output_dir=full_output_dir,
                 skip_shard_plan=True,
                 oversized_policy="page_memory",
+                stop_after="asset_probe" if is_progressive else None,
             )
         trace_recorder = getattr(profile, "trace_recorder", None)
         page_count = max(int(profile.page_count or 0), 0)
@@ -108,10 +115,11 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                     "description": f"PDF has {page_count} pages, limit is {page_memory_config.max_pages}",
                 }],
             )
-        verdict = _decide_granularity(profile)
+        verdict = "page" if is_progressive else _decide_granularity(profile)
         trace_summary = {
             "page_count": page_count,
             "verdict": verdict,
+            "ingestion_mode": "progressive" if is_progressive else "full",
         }
 
         if verdict == "whole_doc":
@@ -125,6 +133,21 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 ),
                 body_text_by_page=getattr(profile, "page_body_text_cache", None),
             )
+        elif is_progressive:
+            parsed_df = build_coarse_text_dataframe(
+                page_texts=coerce_page_text_cache(
+                    getattr(profile, "page_full_text_cache", None)
+                ),
+                body_text_by_page=coerce_page_text_cache(
+                    getattr(profile, "page_body_text_cache", None)
+                ),
+                page_count=page_count,
+                filename=request.filename,
+            )
+            persist_m0_inputs(
+                output_dir=full_output_dir,
+                profile=profile,
+            )
         else:
             parsed_df = _build_page_dataframe(
                 pdf_path=pdf_path,
@@ -132,8 +155,8 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 output_dir=full_output_dir,
                 profile=profile,
                 verdict=verdict,
-                trace_recorder=trace_recorder,
                 page_memory_config=page_memory_config,
+                trace_recorder=trace_recorder,
             )
         final_status = "success"
         trace_summary["rows_count"] = len(parsed_df)
@@ -182,16 +205,6 @@ def _decide_granularity(profile: Any) -> str:
     return "page"
 
 
-def _resolve_asset_max_pages(
-    page_count: int,
-    page_memory_config: PageMemoryConfig,
-) -> int:
-    configured_limit = page_memory_config.asset_max_pages
-    if configured_limit is None:
-        return page_count
-    return max(0, min(page_count, configured_limit))
-
-
 def _resolve_hierarchy_model(page_memory_config: PageMemoryConfig) -> str | None:
     return (
         page_memory_config.hierarchy_model
@@ -201,6 +214,70 @@ def _resolve_hierarchy_model(page_memory_config: PageMemoryConfig) -> str | None
 
 
 # ── page builder (C1→C2→C3→C4→C6→C7) ────────────────────────────────
+
+
+def assemble_c7_node_rows(
+    *,
+    skeletons: list[Any],
+    rendered: list[Any] | dict[int, Any],
+    tags: list[Any],
+    assets_by_page: dict[int, list[Any]],
+    page_texts: dict[int, str],
+    body_text_by_page: dict[int, str] | None,
+    page_labels: list[Any],
+    toc_pages: list[int],
+    page_count: int,
+    output_dir: str,
+    filename: str,
+    verdict: str,
+    vlm_model: str | None,
+    page_memory_config: PageMemoryConfig,
+) -> tuple[list[dict[str, Any]], list[int]]:
+    """Shared C7 node-row assembly used by whole-doc ``_build_page_dataframe`` and per-scope refinement."""
+    from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
+    from app.services.page_memory.node_assembler import build_node_rows
+
+    if isinstance(rendered, dict):
+        render_map = rendered
+    else:
+        render_map = {item.page_index: item for item in rendered}
+    tag_map = {t.page_index: t for t in tags}
+    label_map: dict[int, str] = {}
+    if page_labels:
+        for lbl in page_labels:
+            label_map[lbl.page] = lbl.kind
+
+    final_pages = pages_excluding_toc(
+        _derive_hierarchy_page_scope(
+            skeletons=skeletons,
+            page_count=page_count,
+        ),
+        toc_pages,
+    )
+    raw_text_by_page: dict[int, str] = {}
+    image_path_by_page: dict[int, str] = {}
+    for page in final_pages:
+        rend = render_map.get(page)
+        raw_text_by_page[page] = (rend.raw_text if rend else page_texts.get(page, "")) or ""
+        if rend and rend.image_path and os.path.exists(rend.image_path):
+            image_path_by_page[page] = rend.image_path
+
+    rows = build_node_rows(
+        skeletons=skeletons,
+        raw_text_by_page=raw_text_by_page,
+        image_path_by_page=image_path_by_page,
+        output_dir=output_dir,
+        kind_by_page=label_map,
+        tag_by_page=tag_map,
+        filename=filename,
+        verdict=verdict,
+        vlm_model=vlm_model,
+        page_assets_by_page=assets_by_page,
+        node_summary_max_pages=page_memory_config.node_summary_max_pages,
+        node_assembly_concurrency=page_memory_config.node_assembly_concurrency,
+        body_text_by_page=body_text_by_page,
+    )
+    return rows, final_pages
 
 
 def _build_page_dataframe(
@@ -213,10 +290,10 @@ def _build_page_dataframe(
     page_memory_config: PageMemoryConfig,
     trace_recorder: Any | None = None,
 ) -> pd.DataFrame:
-    """Build per-page DataFrame via the full C1-C7 pipeline.
+    """Build per-page DataFrame via Phase A scopes then the full C1-C7 path.
 
     Steps:
-      C4  skeleton_extractor  → SectionSkeleton[]
+      Phase A  build_phase_a → frozen scopes / next titles / asset budgets
       C1  page_renderer       → PageRenderResult[]
       C2  page_plan           → PagePlan[]
       C3  page_tagger         → PageTagResult[]
@@ -225,91 +302,25 @@ def _build_page_dataframe(
       C5  page_assets          → assets anchored to refined hierarchy pages
       C7  assemble node-granularity DataFrame
     """
-    from app.services.page_memory.skeleton_extractor import (
-        SectionSkeleton,
-        collapse_single_child_chains,
-        extract_section_skeletons,
-    )
-    from shared.services.chunks.path_segments import join_document_path
-    anatomy = getattr(profile, "anatomy", None)
+    from app.services.page_memory.skeleton_extractor import collapse_single_child_chains
+
     page_count = max(int(profile.page_count or 0), 0)
     if page_count <= 0:
         return pd.DataFrame(columns=pd.Index(PARSER_DF_COLUMNS))
 
     asset_extraction_enabled = page_memory_config.asset_extraction_enabled
-
-    # ── C4: skeleton (from profile anatomy) ───────────────────────────
-    page_texts = coerce_page_text_cache(getattr(profile, "page_full_text_cache", None))
-    with stage_timer("page_memory.skeleton", page_count=page_count):
-        if anatomy is not None:
-            skeletons = extract_section_skeletons(
-                anatomy=anatomy,
-                filename=filename,
-                page_texts=page_texts,
-            )
-        else:
-            skeletons = []
-    logger.info(
-        "[page_memory] C4 skeleton: {} sections from anatomy",
-        len(skeletons),
-    )
-
-    if not skeletons:
-        skeletons = [
-            SectionSkeleton(
-                section_path=join_document_path([filename, "Root"]),
-                level=1,
-                start_page=1,
-                end_page=page_count,
-                title="Root",
-                parent_path=filename,
-                evidence={"source": "fallback_root", "reason": "no_hierarchy"},
-            )
-        ]
-
-    from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
-    from app.services.page_memory.fine_hierarchy import build_next_title_by_path
-
-    next_title_by_path = build_next_title_by_path(skeletons)
-    coarse_scopes = _build_hierarchy_scopes(
-        skeletons=skeletons,
+    phase_a = build_phase_a(
+        profile=profile,
         filename=filename,
-        page_count=page_count,
+        page_memory_config=page_memory_config,
+        trace_recorder=trace_recorder,
     )
-    toc_result = getattr(anatomy, "toc_result", None) if anatomy is not None else None
-    toc_pages = derive_excluded_toc_pages(
-        skeletons=skeletons,
-        toc_pages=list(getattr(toc_result, "toc_pages", None) or []),
-    )
-    coarse_pages_scope = pages_excluding_toc(
-        _derive_hierarchy_page_scope(
-            skeletons=skeletons,
-            page_count=page_count,
-        ),
-        toc_pages,
-    )
-    _record_trace_stage(
-        trace_recorder,
-        "C4.skeleton",
-        page_info={
-            "document_page_count": page_count,
-            "coarse_scope": page_scope_info(coarse_pages_scope),
-        },
-        variables={
-            "sections": _summarize_skeletons(skeletons),
-            "scope_count": len(coarse_scopes),
-            "scopes": [
-                _scope_manifest(
-                    scope_id=scope.scope_id,
-                    skeletons=scope.skeletons,
-                    page_count=page_count,
-                    strategy=scope.strategy,
-                )
-                for scope in coarse_scopes
-            ],
-        },
-    )
-
+    page_texts = phase_a.page_texts
+    coarse_scopes = phase_a.coarse_scopes
+    next_title_by_path = phase_a.next_title_by_path
+    toc_pages = phase_a.toc_pages
+    asset_allocations = phase_a.asset_allocations
+    anatomy = getattr(profile, "anatomy", None)
     page_features = anatomy.page_features if anatomy else []
     page_labels = anatomy.page_labels if anatomy else []
     vlm_model = os.environ.get("IMAGE_MODEL")
@@ -326,13 +337,6 @@ def _build_page_dataframe(
             sorted({int(page) for page in toc_pages}),
         )
     scope_results: list[_ScopeRunResult] = []
-    asset_pages_remaining = (
-        _resolve_asset_max_pages(page_count, page_memory_config)
-        if asset_extraction_enabled
-        else 0
-    )
-
-    # Common keyword arguments shared by every scope invocation.
     _scope_kwargs = dict(
         pdf_path=pdf_path,
         filename=filename,
@@ -350,35 +354,26 @@ def _build_page_dataframe(
     )
 
     if scope_concurrency <= 1 or len(coarse_scopes) <= 1:
-        # ── serial path (identical to previous behaviour) ─────────────
         for index, scope in enumerate(coarse_scopes, start=1):
-            result = _run_scope_with_retry(
-                scope=scope,
-                scope_index=index,
-                scope_count=len(coarse_scopes),
-                asset_max_pages=asset_pages_remaining,
-                **_scope_kwargs,
-            )
-            scope_results.append(result)
-            if asset_extraction_enabled:
-                asset_pages_remaining = max(
-                    asset_pages_remaining - len(result.final_pages),
-                    0,
+            scope_results.append(
+                run_single_scope(
+                    scope=scope,
+                    scope_index=index,
+                    scope_count=len(coarse_scopes),
+                    asset_max_pages=asset_allocations[index - 1],
+                    **_scope_kwargs,
                 )
+            )
     else:
-        # ── concurrent path (GeventPool) ──────────────────────────────
         import gevent
         from gevent.pool import Pool as GeventPool
 
-        asset_allocations = _allocate_asset_pages(
-            coarse_scopes, asset_pages_remaining,
-        )
         pool = GeventPool(
             size=min(scope_concurrency, len(coarse_scopes)),
         )
         greenlets = [
             pool.spawn(
-                _run_scope_with_retry,
+                run_single_scope,
                 scope=scope,
                 scope_index=idx,
                 scope_count=len(coarse_scopes),
@@ -415,48 +410,22 @@ def _build_page_dataframe(
     )
 
     # ── C7: assemble DataFrame rows ──────────────────────────────────
-    tag_map = {t.page_index: t for t in tags}
-    render_map = rendered_map
-
-    # Build page → PageLabel.kind lookup
-    label_map: dict[int, str] = {}
-    if page_labels:
-        for lbl in page_labels:
-            label_map[lbl.page] = lbl.kind
-
-    # Shared per-page lookups for node-granularity assembly.
-    raw_text_by_page: dict[int, str] = {}
-    image_path_by_page: dict[int, str] = {}
-    final_pages_scope = pages_excluding_toc(
-        _derive_hierarchy_page_scope(
+    with stage_timer("page_memory.node_assembly", page_count=page_count):
+        rows, final_pages_scope = assemble_c7_node_rows(
             skeletons=skeletons,
+            rendered=rendered_map,
+            tags=tags,
+            assets_by_page=page_assets_by_page,
+            page_texts=page_texts,
+            body_text_by_page=getattr(profile, "page_body_text_cache", None),
+            page_labels=page_labels,
+            toc_pages=toc_pages,
             page_count=page_count,
-        ),
-        toc_pages,
-    )
-    for page in final_pages_scope:
-        rend = render_map.get(page)
-        raw_text_by_page[page] = (rend.raw_text if rend else page_texts.get(page, "")) or ""
-        if rend and rend.image_path and os.path.exists(rend.image_path):
-            image_path_by_page[page] = rend.image_path
-
-    from app.services.page_memory.node_assembler import build_node_rows
-
-    with stage_timer("page_memory.node_assembly", page_count=len(final_pages_scope)):
-        rows = build_node_rows(
-            skeletons=skeletons,
-            raw_text_by_page=raw_text_by_page,
-            image_path_by_page=image_path_by_page,
             output_dir=output_dir,
-            kind_by_page=label_map,
-            tag_by_page=tag_map,
             filename=filename,
             verdict=verdict,
             vlm_model=vlm_model,
-            page_assets_by_page=page_assets_by_page,
-            node_summary_max_pages=page_memory_config.node_summary_max_pages,
-            node_assembly_concurrency=page_memory_config.node_assembly_concurrency,
-            body_text_by_page=getattr(profile, "page_body_text_cache", None),
+            page_memory_config=page_memory_config,
         )
     logger.info(
         "[page_memory] C7 assembled {} node rows (verdict={})",
@@ -475,40 +444,12 @@ def _build_page_dataframe(
     return pd.DataFrame(rows, columns=pd.Index(PARSER_DF_COLUMNS))
 
 
-def _build_hierarchy_scopes(
-    *,
-    skeletons: list[Any],
-    filename: str,
-    page_count: int,
-) -> list[CoarseScope]:
-    return build_hierarchy_scopes(
-        skeletons=skeletons,
-        filename=filename,
-        page_count=page_count,
-    )
-
-
-def _allocate_asset_pages(
-    scopes: list[CoarseScope], total_budget: int,
-) -> list[int]:
-    """Pre-allocate asset page budget proportionally to avoid concurrency races."""
-    if total_budget <= 0 or not scopes:
-        return [0] * len(scopes)
-    page_counts = [max(s.end_page - s.start_page + 1, 1) for s in scopes]
-    total_pages = sum(page_counts)
-    allocations: list[int] = []
-    remaining = total_budget
-    for i, count in enumerate(page_counts):
-        if i == len(page_counts) - 1:
-            allocations.append(remaining)
-        else:
-            share = min(int(total_budget * count / total_pages), remaining)
-            allocations.append(share)
-            remaining -= share
-    return allocations
-
-
 _SCOPE_RETRY_DELAY_SECONDS = 10.0
+
+
+def run_single_scope(**kwargs: Any) -> _ScopeRunResult:
+    """Run one frozen scope through the existing Stage-3/4 path."""
+    return _run_scope_with_retry(**kwargs)
 
 
 def _run_scope_with_retry(
@@ -914,7 +855,7 @@ def _cleanup_page_memory_artifacts(output_dir: str) -> None:
                 path.unlink()
         except Exception:
             logger.debug("[page_memory] failed to cleanup artifact {}", path)
-    for name in ("asset_annotate", "debug", "images", "pages", "scopes", "tables"):
+    for name in ("asset_annotate", "debug", "images", "pages", "phase_b", "scopes", "tables"):
         path = root / name
         try:
             if path.is_dir():

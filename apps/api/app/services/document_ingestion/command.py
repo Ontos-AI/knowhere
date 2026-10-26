@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from shared.models.schemas.job import JobCreateBase
+from shared.models.schemas.job import IngestionMode, JobCreateBase
 from shared.models.schemas.page_memory_config import PageMemoryConfig
 
 ApiVersion = Literal["v1", "v2"]
@@ -20,6 +20,7 @@ class DocumentIngestionCommand:
     api_version: ApiVersion
     parse_track: ParseTrack
     processing_generation: ProcessingGeneration
+    ingestion_mode: IngestionMode = "full"
     page_memory_config: PageMemoryConfig | None = None
 
 
@@ -57,11 +58,13 @@ def _build_ingestion_command(
     page_memory_config = (
         PageMemoryConfig.default() if parse_track == "page_memory" else None
     )
+    ingestion_mode: IngestionMode = getattr(payload, "ingestion_mode", "full")
     return DocumentIngestionCommand(
         payload=payload,
         api_version=api_version,
         parse_track=parse_track,
         processing_generation=processing_generation,
+        ingestion_mode=ingestion_mode,
         page_memory_config=page_memory_config,
     )
 

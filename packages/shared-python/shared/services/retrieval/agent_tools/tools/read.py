@@ -70,6 +70,9 @@ from shared.services.retrieval.agent_tools.section_path_lookup import (
     section_path_received,
     section_path_subtree_filter,
 )
+from shared.services.jobs.lifecycle.scope_enrichments import (
+    promote_scopes_on_read,
+)
 from shared.services.retrieval.search.lexical_text import section_path_from_chunk_path
 
 _SAME_AS_MARKER_RE = re.compile(r"\[SAME-AS (.+?) p(\d+)\]")
@@ -733,6 +736,8 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         elif chunk_type == "image":
             composed["content"] = _image_display_content(row)
         assembled.append(composed)
+
+    await promote_scopes_on_read(ctx.db, base_rows)
 
     lines = ["refs:", *(f"  {line}" for line in status_lines)]
     for row in assembled:

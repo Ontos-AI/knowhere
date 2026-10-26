@@ -124,9 +124,9 @@ def main() -> int:
     from app.services.document_agent.pdf_text import read_page_texts
     from app.services.page_memory.memory_service import (
         _project_assets_for_pages,
-        _resolve_asset_max_pages,
         _select_rendered_pages_with_assets,
     )
+    from app.services.page_memory.phase_a import _resolve_asset_max_pages
     from app.services.page_memory.page_assets import (
         extract_page_assets_from_renders,
         get_asset_confidence_threshold,

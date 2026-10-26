@@ -25,3 +25,13 @@ doc_7f3a  Hypertension_Guideline.pdf
 Addresses from this example:
 - {document_id: "doc_7f3a", section_path: "2 Treatment / 2.2 Drugs"}
 - {document_id: "doc_7f3a", chunk_id: "tbl_12"}
+
+Documents may still be loading progressively (`status` is `text`, `coarse`, or
+`complete`):
+- Page text is always searchable immediately via `corpus.recall`, `corpus.grep`,
+  and `corpus.read`.
+- `corpus.outline` and `corpus.node_filter` require structuring (`coarse` or
+  `complete`).
+- `corpus.assets` and `corpus.query_table` require per-scope refinement.
+A "not ready yet" tool note is a state signal, not a dead end — answer from
+page text now or `corpus.read` a page in that range to trigger refinement.
