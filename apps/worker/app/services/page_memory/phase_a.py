@@ -28,7 +28,6 @@ from app.services.page_memory._utils import (
 from app.services.page_memory.body_text_preview import build_body_text_preview
 from app.services.page_memory.fine_hierarchy import build_next_title_by_path
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
-from shared.models.schemas.page_memory_config import PageMemoryConfig
 from shared.services.chunks.path_segments import join_document_path
 
 
@@ -56,7 +55,6 @@ class PhaseAResult:
     coarse_scopes: list[CoarseScope]
     next_title_by_path: dict[str, str | None]
     toc_pages: list[int]
-    asset_allocations: list[int]
     skeletons: list[SectionSkeleton]
     coarse_df: pd.DataFrame
     manifest: dict[str, Any]
@@ -67,7 +65,6 @@ def build_phase_a(
     *,
     profile: Any,
     filename: str,
-    page_memory_config: PageMemoryConfig,
     trace_recorder: Any | None = None,
 ) -> PhaseAResult:
     """Run through C4 skeletons, freeze scopes, and build coarse page rows."""
@@ -82,7 +79,6 @@ def build_phase_a(
             coarse_scopes=[],
             next_title_by_path={},
             toc_pages=[],
-            asset_allocations=[],
             skeletons=[],
             coarse_df=empty,
             manifest=_empty_manifest(filename=filename, page_count=page_count),
@@ -122,12 +118,6 @@ def build_phase_a(
         skeletons=skeletons,
         toc_pages=list(getattr(toc_result, "toc_pages", None) or []),
     )
-    asset_budget = (
-        _resolve_asset_max_pages(page_count, page_memory_config)
-        if page_memory_config.asset_extraction_enabled
-        else 0
-    )
-    asset_allocations = allocate_asset_pages(coarse_scopes, asset_budget)
     manifest = build_phase_a_manifest(
         filename=filename,
         page_count=page_count,
@@ -135,7 +125,6 @@ def build_phase_a(
         coarse_scopes=coarse_scopes,
         next_title_by_path=next_title_by_path,
         toc_pages=toc_pages,
-        asset_allocations=asset_allocations,
     )
     _record_trace_stage(
         trace_recorder,
@@ -180,30 +169,11 @@ def build_phase_a(
         coarse_scopes=coarse_scopes,
         next_title_by_path=next_title_by_path,
         toc_pages=toc_pages,
-        asset_allocations=asset_allocations,
         skeletons=skeletons,
         coarse_df=coarse_df,
         manifest=manifest,
         page_texts=page_texts,
     )
-
-
-def allocate_asset_pages(scopes: list[CoarseScope], total_budget: int) -> list[int]:
-    """Pre-allocate asset page budget proportionally to freeze Phase B shares."""
-    if total_budget <= 0 or not scopes:
-        return [0] * len(scopes)
-    page_counts = [max(s.end_page - s.start_page + 1, 1) for s in scopes]
-    total_pages = sum(page_counts)
-    allocations: list[int] = []
-    remaining = total_budget
-    for i, count in enumerate(page_counts):
-        if i == len(page_counts) - 1:
-            allocations.append(remaining)
-        else:
-            share = min(int(total_budget * count / total_pages), remaining)
-            allocations.append(share)
-            remaining -= share
-    return allocations
 
 
 def build_phase_a_manifest(
@@ -214,10 +184,9 @@ def build_phase_a_manifest(
     coarse_scopes: list[CoarseScope],
     next_title_by_path: dict[str, str | None],
     toc_pages: list[int],
-    asset_allocations: list[int],
 ) -> dict[str, Any]:
     scope_entries: list[dict[str, Any]] = []
-    for index, scope in enumerate(coarse_scopes):
+    for scope in coarse_scopes:
         base = scope_manifest(
             scope_id=scope.scope_id,
             skeletons=scope.skeletons,
@@ -250,9 +219,6 @@ def build_phase_a_manifest(
                     for path in skeleton_paths
                     if path in next_title_by_path
                 },
-                "asset_budget": (
-                    asset_allocations[index] if index < len(asset_allocations) else 0
-                ),
                 "toc_pages": list(toc_pages),
                 "processing_pages": processing_pages,
                 "excluded_toc_pages": excluded_toc_pages,
@@ -524,16 +490,6 @@ def _skeleton_pages(
 def _jsonable_page_map(raw: Any) -> dict[str, str]:
     coerced = coerce_page_text_cache(raw)
     return {str(page): text for page, text in sorted(coerced.items())}
-
-
-def _resolve_asset_max_pages(
-    page_count: int,
-    page_memory_config: PageMemoryConfig,
-) -> int:
-    configured_limit = page_memory_config.asset_max_pages
-    if configured_limit is None:
-        return page_count
-    return max(0, min(page_count, configured_limit))
 
 
 def _record_trace_stage(

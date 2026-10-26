@@ -140,7 +140,6 @@ def execute_structure_enrichment(
         phase_a = build_phase_a(
             profile=profile,
             filename=target.source_file_name,
-            page_memory_config=target.page_memory_config,
             trace_recorder=None,
         )
         phase_b_refs = persist_phase_b_inputs(
@@ -295,7 +294,6 @@ def run_single_scope_refinement(
         start_page=int(entry["start_page"]),
         end_page=int(entry["end_page"]),
     )
-    asset_budget = max(int(entry.get("asset_budget") or 0), 0)
     vlm_model = os.environ.get("IMAGE_MODEL")
 
     scope_result = run_single_scope(
@@ -311,7 +309,6 @@ def run_single_scope_refinement(
         page_labels=page_labels,
         vlm_model=vlm_model,
         asset_extraction_enabled=page_memory_config.asset_extraction_enabled,
-        asset_max_pages=asset_budget,
         trace_recorder=None,
         page_memory_config=page_memory_config,
         next_title_by_path=next_title_by_path,

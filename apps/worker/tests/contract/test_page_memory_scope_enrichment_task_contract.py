@@ -255,7 +255,6 @@ def _build_storage_inputs() -> dict[str, bytes]:
         coarse_scopes=scopes,
         next_title_by_path={"doc.pdf/Parent/OnlyChild/GrandB": "Other"},
         toc_pages=[],
-        asset_allocations=[1, 0],
     )
     anatomy = PageAnatomyMap(
         job_id="j1",

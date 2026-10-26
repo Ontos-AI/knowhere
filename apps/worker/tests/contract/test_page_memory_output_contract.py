@@ -238,13 +238,13 @@ def test_zip_chunk_schema_preserves_page_memory_node_metadata() -> None:
 def test_page_memory_granularity_routes_supported_page_modes() -> None:
     assert (
         memory_service._decide_granularity(  # noqa: SLF001
-            SimpleNamespace(page_count=6, toc=SimpleNamespace(has_toc=False))
+            SimpleNamespace(page_count=5, toc=SimpleNamespace(has_toc=False))
         )
         == "whole_doc"
     )
     assert (
         memory_service._decide_granularity(  # noqa: SLF001
-            SimpleNamespace(page_count=7, toc=SimpleNamespace(has_toc=False))
+            SimpleNamespace(page_count=6, toc=SimpleNamespace(has_toc=False))
         )
         == "page"
     )

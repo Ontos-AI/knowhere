@@ -72,7 +72,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
     """Run the page-memory track.
 
     Supports two granularity verdicts:
-    - ``whole_doc`` (≤6 pages, no TOC) → single whole-document chunk
+    - ``whole_doc`` (≤5 pages, no TOC) → single whole-document chunk
     - ``page`` → leaf section nodes via the full C1-C7 pipeline
     """
     full_output_dir = _resolve_output_dir(request)
@@ -200,7 +200,7 @@ def _decide_granularity(profile: Any) -> str:
     page_count = int(getattr(profile, "page_count", 0) or 0)
     toc = getattr(profile, "toc", None)
     has_toc = bool(getattr(toc, "has_toc", False))
-    if page_count <= 6 and not has_toc:
+    if page_count <= 5 and not has_toc:
         return "whole_doc"
     return "page"
 
@@ -312,14 +312,12 @@ def _build_page_dataframe(
     phase_a = build_phase_a(
         profile=profile,
         filename=filename,
-        page_memory_config=page_memory_config,
         trace_recorder=trace_recorder,
     )
     page_texts = phase_a.page_texts
     coarse_scopes = phase_a.coarse_scopes
     next_title_by_path = phase_a.next_title_by_path
     toc_pages = phase_a.toc_pages
-    asset_allocations = phase_a.asset_allocations
     anatomy = getattr(profile, "anatomy", None)
     page_features = anatomy.page_features if anatomy else []
     page_labels = anatomy.page_labels if anatomy else []
@@ -360,7 +358,6 @@ def _build_page_dataframe(
                     scope=scope,
                     scope_index=index,
                     scope_count=len(coarse_scopes),
-                    asset_max_pages=asset_allocations[index - 1],
                     **_scope_kwargs,
                 )
             )
@@ -377,7 +374,6 @@ def _build_page_dataframe(
                 scope=scope,
                 scope_index=idx,
                 scope_count=len(coarse_scopes),
-                asset_max_pages=asset_allocations[idx - 1],
                 **_scope_kwargs,
             )
             for idx, scope in enumerate(coarse_scopes, start=1)
@@ -498,7 +494,6 @@ def _run_hierarchy_scope(
     page_labels: list[Any],
     vlm_model: str | None,
     asset_extraction_enabled: bool,
-    asset_max_pages: int,
     trace_recorder: Any | None,
     page_memory_config: PageMemoryConfig,
     next_title_by_path: dict[str, str | None] | None = None,
@@ -702,17 +697,16 @@ def _run_hierarchy_scope(
     )
 
     assets_by_page: dict[int, list[Any]] = {}
-    if asset_extraction_enabled and asset_max_pages > 0:
+    if asset_extraction_enabled:
         asset_rendered = _select_rendered_pages_with_assets(
             rendered, page_features
         )
-        with stage_timer("page_memory.assets", page_count=asset_max_pages):
+        with stage_timer("page_memory.assets", page_count=len(asset_rendered)):
             assets_by_page = extract_page_assets_from_renders(
                 pdf_path=pdf_path,
                 rendered_pages=asset_rendered,
                 output_dir=output_dir,
                 model_name=page_memory_config.asset_model or resolve_asset_model(),
-                max_pages=asset_max_pages,
                 confidence_threshold=page_memory_config.asset_confidence_threshold,
                 summary_enabled=page_memory_config.asset_summary_enabled,
                 summary_concurrency=page_memory_config.asset_summary_concurrency,

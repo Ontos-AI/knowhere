@@ -78,7 +78,6 @@ def main() -> int:
     from app.services.document_agent.validators import single_shard_plan
     from app.services.page_memory.phase_a import build_phase_a
     from shared.core.config import settings
-    from shared.models.schemas.page_memory_config import PageMemoryConfig
 
     pdf_path, filename, out_dir = resolve_paths(args)
     anatomy_cache = resolve_anatomy_cache_path(out_dir)
@@ -156,7 +155,6 @@ def main() -> int:
                 page_body_text_cache={},
             ),
             filename=filename,
-            page_memory_config=PageMemoryConfig.default(),
         )
         skeletons = phase_a.skeletons
         scope_manifest = phase_a.manifest

@@ -88,7 +88,6 @@ def test_phase_a_without_anatomy_falls_back_to_root_spanning_all_pages() -> None
     phase_a = build_phase_a(
         profile=profile,
         filename="atlas.pdf",
-        page_memory_config=PageMemoryConfig.default(),
     )
 
     assert [(s.title, s.start_page, s.end_page) for s in phase_a.skeletons] == [
@@ -116,7 +115,6 @@ def test_phase_a_writes_coarse_rows_and_frozen_manifest(
     phase_a = build_phase_a(
         profile=profile,
         filename="doc.pdf",
-        page_memory_config=PageMemoryConfig.default(),
     )
     (tmp_path / PHASE_B_SOURCE_PDF_REL).write_bytes(b"%PDF")
     written = persist_phase_b_inputs(
@@ -195,7 +193,6 @@ def test_coarse_rows_omit_excluded_toc_pages(
     phase_a = build_phase_a(
         profile=profile,
         filename="doc.pdf",
-        page_memory_config=PageMemoryConfig.default(),
     )
     chunks = dataframe_to_chunks(phase_a.coarse_df)
     assert len(chunks) == 1

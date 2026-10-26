@@ -262,7 +262,6 @@ manifest = build_phase_a_manifest(
     coarse_scopes=coarse_scopes,
     next_title_by_path={},
     toc_pages=derive_excluded_toc_pages(skeletons=skeletons, toc_pages=[17, 18]),
-    asset_allocations=[0],
 )
 scopes = manifest['scopes']
 assert len(scopes) == 1
