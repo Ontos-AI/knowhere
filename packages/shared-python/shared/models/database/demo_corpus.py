@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
+from pgvector.sqlalchemy import HALFVEC
 from sqlalchemy import (
     JSON,
     CheckConstraint,
@@ -270,9 +271,9 @@ class DemoDocumentChunk(Base):
 class DemoDocumentMapUnit(Base):
     """Persisted lexical map unit for one document revision.
 
-    These rows are a derived index of the exact leaf and interstitial units
-    used by map-nav. Full chunk payloads remain in ``demo_document_chunks`` and are
-    loaded separately for evidence hydration.
+    These rows are a derived index of the leaf and interstitial units used
+    by classic map-unit BM25 and agent recall. Full chunk payloads remain in
+    ``demo_document_chunks`` and are loaded separately for evidence hydration.
     """
 
     __tablename__ = "demo_document_map_units"
@@ -433,6 +434,74 @@ class DemoDocumentMapUnitIndex(Base):
     )
 
 
+class DemoDocumentPageEmbedding(Base):
+    """Persisted multimodal page embedding for one shared demo document revision."""
+
+    __tablename__ = "demo_document_page_embeddings"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: f"dpe_{uuid4().hex[:12]}"
+    )
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    namespace: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="__knowhere_demo__"
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("demo_documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_result_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("job_results.id", ondelete="RESTRICT"), nullable=False
+    )
+    chunk_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    page_num: Mapped[int] = mapped_column(Integer, nullable=False)
+    modality: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="visual"
+    )
+    model: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="google/gemini-embedding-2"
+    )
+    dims: Mapped[int] = mapped_column(Integer, nullable=False, default=3072)
+    embedding: Mapped[Any] = mapped_column(HALFVEC(3072), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_result_id", "document_id"],
+            ["job_results.id", "job_results.demo_document_id"],
+            ondelete="RESTRICT",
+            name="fk_demo_documentpageembedding_revision",
+        ),
+        UniqueConstraint(
+            "document_id",
+            "job_result_id",
+            "page_num",
+            name="uq_demo_document_page_embeddings_revision_page",
+        ),
+        Index(
+            "idx_demo_document_page_embeddings_scope",
+            "user_id",
+            "namespace",
+            "job_result_id",
+        ),
+        Index(
+            "idx_demo_document_page_embeddings_revision",
+            "document_id",
+            "job_result_id",
+            "page_num",
+        ),
+        Index(
+            "idx_demo_document_page_embeddings_hnsw_cosine",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "halfvec_cosine_ops"},
+        ),
+    )
+
+
 class DemoRetrievalNamespaceGeneration(Base):
     """Monotonic serving generation for one user-owned namespace."""
 
@@ -508,8 +577,9 @@ class DemoRetrievalNamespaceMapSnapshot(Base):
     """Persisted namespace-level MAP (sections + chunk index + map units).
 
     Incrementally patched at publish/archive time (one document's subtree at
-    a time); query time reads this row directly instead of merging per-file
-    manifests. Overwritten in place -- no generation history is retained.
+    a time). Live query and ``corpus.outline`` read ``document_sections``
+    instead of this blob. Overwritten in place -- no generation history is
+    retained.
     """
 
     __tablename__ = "demo_retrieval_namespace_map_snapshots"

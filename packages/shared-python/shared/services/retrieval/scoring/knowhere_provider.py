@@ -1,7 +1,6 @@
 """Publication-time hierarchy provider over section/chunk rows.
 
-Extracted from the map-nav package so document publication and classic
-recall can build map-unit indexes without the episode kernel.
+Document publication and classic recall use this to build map-unit indexes.
 """
 
 from __future__ import annotations

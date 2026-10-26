@@ -18,6 +18,7 @@ from shared.services.retrieval.publication_preparation_cache import PublicationP
 RRF_K = 60
 CHANNEL_WEIGHT_PATH = 1.0
 CHANNEL_WEIGHT_CONTENT = 2.0
+CHANNEL_WEIGHT_VISUAL = 1.5
 # Persisted map-unit token format. Bump when tokenizer semantics change.
 # v1: character-level CJK regex. v2: word-level jieba (text_utils).
 MAP_UNIT_INDEX_FORMAT_VERSION = 2

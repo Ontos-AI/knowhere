@@ -1,14 +1,7 @@
 """Score-based folding for an oversized ``corpus.outline``/``corpus.node_filter`` map.
 
-Adapted from the archived MAP-NAV pooling/hiding algorithm
-(``deprecated/mapnav/nav/nav_map_scores.py``'s ``_pool_unit_scores_to_tree``
-and ``nav_projection.py``'s ``_apply_budget_hide``) onto the live,
-``document_sections``-based tree ``outline``/``node_filter`` already build —
-not onto the retired ``ToolSpace``/``LazyKnowhereProvider`` abstraction those
-files used. The deprecated files are unmodified; this is a fresh module using
-the same idea against live data.
-
-Only invoked when a rendered map exceeds
+Folds the ``document_sections`` tree that ``outline``/``node_filter`` already
+build. Only invoked when a rendered map exceeds
 ``agent_tools.registry.MAP_TOOL_CHAR_BUDGET``. Scoring needs the end user's
 original query (``ToolContext.query``) — see that field's docstring for why a
 caller without one gets a "narrow the scope" error instead of a silently
@@ -298,9 +291,8 @@ def fold_map_nodes(
 
     Every id in ``keep_ids`` and all of its ancestors are never hidden;
     a subtree is a removal candidate only when no kept row lies in it.
-    Candidates go lowest score first; ties follow the archived MAP-NAV
-    order (``_apply_budget_hide``): most descendants first, then deepest
-    first, then ``section_id``. The budget counts the placeholder rows left
+    Candidates go lowest score first; ties go most descendants first, then
+    deepest first, then ``section_id``. The budget counts the placeholder rows left
     behind, not just the visible rows. ``overflow`` is set when the rows
     that must stay (plus their placeholders) still exceed ``char_budget``;
     the caller fails the call rather than hiding a kept row or cutting text.

@@ -16,6 +16,8 @@ from shared.core.logging import LogEvent
 class DocumentIngestionBaseTask(Task):
     """Base task class for worker-side Document Ingestion error handling."""
 
+    finalize_job_on_failure: bool = True
+
     def on_success(self, retval, task_id, args, kwargs):
         """Task success callback."""
         logger.bind(
@@ -66,6 +68,8 @@ class DocumentIngestionBaseTask(Task):
 
     def _extract_job_id(self, args, kwargs) -> Optional[str]:
         """Extract job_id from args or kwargs."""
+        if not self.finalize_job_on_failure:
+            return None
         if args and len(args) > 0:
             if isinstance(args[0], dict) and "job_id" in args[0]:
                 return args[0]["job_id"]

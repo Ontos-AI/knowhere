@@ -1,8 +1,9 @@
 """``corpus.recall`` — fuzzy ranked candidate search.
 
-One live scoring path: ``search.map_unit_discovery.map_unit_discovery``
-(persisted map-unit BM25 over path + content, already RRF-fused there).
-Exact-string lookup is ``corpus.grep``, not a second channel here.
+One live scoring path: ``search.visual_discovery.hybrid_discovery`` —
+persisted map-unit BM25 over path + content (already RRF-fused in
+``search.map_unit_discovery``) plus visual page-embedding hits for scanned
+pages. Exact-string lookup is ``corpus.grep``, not a second channel here.
 
 ``scope`` is applied in that same discovery SQL: a named section is that
 section and everything under it, scored before ranking. Classic retrieval
@@ -37,7 +38,7 @@ from shared.services.retrieval.agent_tools.scope import (
 from shared.services.retrieval.agent_tools.snippet import build_row, build_snippet, format_row
 from shared.services.retrieval.hydration.row_utils import normalize_chunk_type
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
-from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
+from shared.services.retrieval.search.visual_discovery import hybrid_discovery
 
 _DEFAULT_LIMIT = 10
 
@@ -47,13 +48,21 @@ def _identifier_snippet(row: dict[str, Any]) -> str:
     snippet = str(row.get("snippet") or "").strip()
     if snippet:
         return snippet
-    if normalize_chunk_type(row.get("chunk_type")) == "table":
+    chunk_type = normalize_chunk_type(row.get("chunk_type"))
+    if chunk_type == "table":
         metadata = row.get("chunk_metadata") or {}
         if not isinstance(metadata, dict):
             metadata = {}
         summary = str(metadata.get("summary") or "").strip()
         return build_snippet(summary) if summary else ""
-    return build_snippet(str(row.get("content") or ""))
+    text_snippet = build_snippet(str(row.get("content") or ""))
+    if text_snippet:
+        return text_snippet
+    if chunk_type == "page":
+        metadata = row.get("chunk_metadata") or {}
+        if isinstance(metadata, dict) and metadata.get("page_assets"):
+            return "(scanned page image — call corpus.read to inspect page image)"
+    return ""
 
 
 @register_tool(
@@ -116,7 +125,7 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     document_scope = (
         ctx.document_scope.narrow(scope_document_ids(scope)) if scope else ctx.document_scope
     )
-    discovery = await map_unit_discovery(
+    discovery = await hybrid_discovery(
         ctx.db,
         user_id=ctx.user_id,
         namespace=ctx.namespace,

@@ -14,6 +14,10 @@ from typing import Any
 
 from sqlalchemy import select
 
+from shared.services.retrieval.agent_tools.enrichment_state import (
+    STATUS_COMPLETE,
+    load_revision_enrichment_status,
+)
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
     ToolResult,
@@ -53,15 +57,30 @@ async def list_documents(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
         .order_by(corpusStorage.Document.source_file_name)
     )
     rows = (await ctx.db.execute(stmt)).all()
+    revision_ids = [
+        rev
+        for document, _props in rows
+        if (
+            rev := CorpusRevisionContext.resolve_revision(
+                document.document_id, document.current_job_result_id
+            )
+        )
+    ]
+    status_by_rev = await load_revision_enrichment_status(ctx.db, revision_ids)
 
     documents: list[dict[str, Any]] = []
     lines: list[str] = []
     for document, properties in rows:
         props = properties if isinstance(properties, dict) else {}
+        rev_id = CorpusRevisionContext.resolve_revision(
+            document.document_id, document.current_job_result_id
+        )
+        status = status_by_rev.get(str(rev_id or ""), STATUS_COMPLETE)
         entry = {
             "document_id": document.document_id,
-            "job_result_id": CorpusRevisionContext.resolve_revision(document.document_id, document.current_job_result_id),
+            "job_result_id": rev_id,
             "source_file_name": document.source_file_name,
+            "status": status,
             "top_keywords": props.get("top_keywords") or [],
             "top_summary": props.get("top_summary") or "",
             "types": props.get("types") or {},
@@ -70,7 +89,7 @@ async def list_documents(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
         documents.append(entry)
         summary_line = (
             f"- {entry['source_file_name']} ({entry['document_id']}, "
-            f"chunks={entry['chunks_count']})"
+            f"status={status}, chunks={entry['chunks_count']})"
         )
         if entry["top_summary"]:
             summary_line += f"\n  summary: {entry['top_summary']}"

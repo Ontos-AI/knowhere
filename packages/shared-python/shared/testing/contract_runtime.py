@@ -55,6 +55,7 @@ _MODULE_NAMES_TO_CLEAR: tuple[str, ...] = (
     "main",
     "custom_openapi",
     "shared.core.config",
+    "shared.core.config.ai",
     "shared.core.config.app",
     "shared.core.config.base",
     "shared.core.config.billing",

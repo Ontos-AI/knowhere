@@ -300,6 +300,10 @@ class ProfileCoordinator:
             self.blackboard.page_text_search_view = None
             return
         if profile.is_scanned:
+            if self.ctx.settings.get("skip_scanned_ocr"):
+                self.blackboard.page_full_text_cache = {}
+                self.blackboard.page_text_search_view = None
+                return
             result = REGISTRY.dispatch("ocr.pages", self.ctx, {"pages": pages})
             self.trace.record_step(
                 round_index=self.round_index,

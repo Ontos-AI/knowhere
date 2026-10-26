@@ -1,4 +1,4 @@
-"""Add revision-pinned map-nav score units."""
+"""Add revision-pinned map-unit score rows."""
 
 from __future__ import annotations
 

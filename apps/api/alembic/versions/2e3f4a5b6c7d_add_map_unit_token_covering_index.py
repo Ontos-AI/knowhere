@@ -1,4 +1,4 @@
-"""Add a covering index for persisted map-nav token lookups."""
+"""Add a covering index for persisted map-unit token lookups."""
 
 from __future__ import annotations
 

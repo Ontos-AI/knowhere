@@ -44,6 +44,36 @@ class AIConfig(BaseModel):
             "Empty follows IMAGE_MODEL."
         ),
     )
+    VERCEL_KEY: str = Field(
+        default="",
+        description="Vercel AI Gateway API key for page-image and query embeddings.",
+    )
+    EMBEDDING_MODEL: str = Field(
+        default="google/gemini-embedding-2",
+        description=(
+            "Vercel AI Gateway embedding model producing shared-space "
+            "page-image and query vectors for scanned page retrieval."
+        ),
+    )
+    EMBEDDING_DIM: int = Field(
+        default=3072,
+        description="Dimension of page-image and query embeddings.",
+    )
+    EMBEDDING_ENDPOINT: str = Field(
+        default="https://ai-gateway.vercel.sh/v1/embeddings",
+        description="Vercel AI Gateway OpenAI-compatible embeddings endpoint.",
+    )
+    VISUAL_RETRIEVAL_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "Enable pure-visual M0 page embeddings for scanned progressive "
+            "documents and hybrid visual+lexical retrieval."
+        ),
+    )
+    PAGE_MEMORY_EMBED_CONCURRENCY: int = Field(
+        default=8,
+        description="Local per-job page embedding concurrency for scanned M0 documents.",
+    )
 
     # Runtime LLM controls.
     LLM_MOCK_ENABLED: bool = Field(

@@ -11,10 +11,6 @@ class BusinessConstants:
         "N_EPOCHS": 3,
         "THRESHOLD": 0.5,
         "OCR_TIMEOUT": 30.0,
-        "HYBRID_SEARCH": True,
-        "USE_LOCAL_LLM": False,
-        "USE_LOCAL_ENCODER": False,
-        "USE_LOCAL_RERANKER": False,
         "USE_STOPWORDS": False,
         "LOCAL_SUMMARY": False,
         "API_NAME": "ds_api",
@@ -33,7 +29,6 @@ class BusinessConstants:
     # Model-related defaults.
     MIN_CONFIDENCE_THRESHOLD = 0.05
     HIGH_IOU_THRESHOLD = 0.9
-    DEFAULT_EMBEDDING_DIM = 1024
     DEFAULT_BATCH_SIZE = 32
     DEFAULT_EPOCHS = 3
     DEFAULT_LEARNING_RATE = 0.001

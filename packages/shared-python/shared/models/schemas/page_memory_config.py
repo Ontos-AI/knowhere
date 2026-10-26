@@ -25,14 +25,13 @@ class PageMemoryConfig:
     tag_concurrency: int = 4
     title_detection_concurrency: int = 3
     node_assembly_concurrency: int = 3
-    fine_min_pages: int = 4
+    fine_min_pages: int = 5
     hierarchy_model: str | None = None
     hierarchy_max_tokens: int = 2000
     max_heading_depth: int = 6
     asset_extraction_enabled: bool = True
     asset_summary_enabled: bool = False
     asset_model: str = ""
-    asset_max_pages: int | None = None
     asset_confidence_threshold: float = 0.3
     asset_summary_concurrency: int = 4
     table_engine: str = "tabula"
@@ -109,7 +108,6 @@ class PageMemoryConfig:
                 default.asset_summary_enabled,
             ),
             asset_model=_as_str(value.get("asset_model"), default.asset_model),
-            asset_max_pages=_as_optional_int(value.get("asset_max_pages")),
             asset_confidence_threshold=_as_float(
                 value.get("asset_confidence_threshold"),
                 default.asset_confidence_threshold,
@@ -142,16 +140,6 @@ def _as_int(value: object, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return resolved if resolved > 0 else default
-
-
-def _as_optional_int(value: object) -> int | None:
-    if value in (None, ""):
-        return None
-    try:
-        resolved = int(str(value))
-    except (TypeError, ValueError):
-        return None
-    return resolved if resolved > 0 else None
 
 
 def _as_float(value: object, default: float) -> float:

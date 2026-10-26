@@ -171,8 +171,43 @@ def test_public_job_create_schemas_do_not_advertise_parse_track() -> None:
 
     assert "parse_track" not in v1_schema["properties"]
     assert "parse_track" not in v2_schema["properties"]
+    assert "ingestion_mode" not in v1_schema["properties"]
+    assert "ingestion_mode" in v2_schema["properties"]
     assert v1_schema["additionalProperties"] is False
     assert v2_schema["additionalProperties"] is False
+
+
+def test_v2_progressive_ingestion_mode_rejected_for_non_page_memory_formats() -> None:
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from app.services.document_ingestion.service import DocumentIngestionService
+    from app.services.rate_limit.data_structures import CurrentUser
+    from shared.models.schemas.job_metadata import JobMetadataHelper
+
+    payload = _build_job_create_v2(
+        source_type="file",
+        file_name="policy.docx",
+        ingestion_mode="progressive",
+    )
+    meta = JobMetadataHelper.create_from_request(payload, api_version="v2")
+    assert JobMetadataHelper.get_ingestion_mode(meta) == "progressive"
+    assert JobMetadataHelper.get_ingestion_mode({}) == "full"
+
+    svc = DocumentIngestionService(
+        creation_service=AsyncMock(),
+        confirmation_service=AsyncMock(),
+        job_admission_service=AsyncMock(),
+    )
+    with pytest.raises(ValidationException) as exc_info:
+        asyncio.run(
+            svc.create_v2_job(
+                AsyncMock(),
+                payload=payload,
+                current_user=CurrentUser(user_id="u1", user_tier="pro"),
+            )
+        )
+    assert exc_info.value.details["violations"][0]["field"] == "ingestion_mode"
 
 
 def test_v2_job_polling_system_rule_matches_before_default() -> None:

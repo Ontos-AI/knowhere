@@ -18,6 +18,7 @@ _EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
 _EXCLUDED_DIR_NAMES = {"tmp", "temp", "__pycache__"}
 _CLIENT_ARTIFACT_DIRS = {"images", "tables", "page_pdfs", "page_citation_assets"}
 _INTERNAL_RAW_FILES = {"source.pdf"}
+_INTERNAL_RAW_PREFIXES = {"phase_b"}
 _MAX_RESULT_UPLOAD_CONCURRENCY = 64
 _upload_executor_lock = threading.Lock()
 _upload_executors: dict[int, ThreadPoolExecutor] = {}
@@ -386,6 +387,8 @@ class JobResultStorage:
         if not normalized:
             return None
         if normalized in _INTERNAL_RAW_FILES:
+            return normalized
+        if normalized.split("/", 1)[0] in _INTERNAL_RAW_PREFIXES:
             return normalized
         return self.normalize_artifact_ref(normalized)
 

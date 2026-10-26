@@ -32,6 +32,11 @@ from typing import Any
 from sqlalchemy import func, or_, select
 
 from shared.services.retrieval.agent_tools.asset_hosts import host_paths_for_hits
+from shared.services.retrieval.agent_tools.enrichment_state import (
+    STATUS_TEXT,
+    format_scanned_pages_pending_ocr_note,
+    load_revision_enrichment_status,
+)
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
     ToolResult,
@@ -353,6 +358,19 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 _fold_line(str(group[0]["source_file_name"] or ""), document_id, len(group))
             )
 
+    if not rows:
+        scanned_note = await _check_scanned_pending_ocr_note(ctx, scope=scope)
+        if scanned_note is not None:
+            if lines:
+                lines.append(scanned_note)
+            else:
+                lines = [scanned_note]
+            return ToolResult(
+                text="\n".join(lines),
+                payload={"rows": [], "details": {"enrichment_status": STATUS_TEXT}},
+                refs=[],
+            )
+
     return ToolResult(
         text="\n".join(lines),
         payload={"rows": rows, "details": {}},
@@ -361,3 +379,95 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             for hit in shown_hits
         ],
     )
+
+
+async def _check_scanned_pending_ocr_note(
+    ctx: ToolContext,
+    *,
+    scope: list[ScopeTarget],
+) -> str | None:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
+    targets = scope
+    if not targets:
+        docs = (
+            (
+                await ctx.db.execute(
+                    select(corpusStorage.Document).where(
+                        ctx.document_scope.predicate(
+                            corpusStorage.Document.document_id
+                        ),
+                        corpusStorage.Document.user_id
+                        == corpusStorage.resolve_owner(ctx.user_id),
+                        corpusStorage.Document.namespace == ctx.namespace,
+                        corpusStorage.Document.status == "active",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        targets = [
+            ScopeTarget(d.document_id, rev, None)
+            for d in docs
+            if (
+                rev := CorpusRevisionContext.resolve_revision(
+                    d.document_id, d.current_job_result_id
+                )
+            )
+        ]
+    if not targets:
+        return None
+
+    revision_status = await load_revision_enrichment_status(
+        ctx.db,
+        {t.job_result_id for t in targets},
+    )
+    text_targets = [
+        t for t in targets if revision_status.get(t.job_result_id) == STATUS_TEXT
+    ]
+    if not text_targets:
+        return None
+
+    scanned_doc_ids: list[str] = []
+    seen_docs: set[str] = set()
+    for target in text_targets:
+        if target.document_id in seen_docs:
+            continue
+        seen_docs.add(target.document_id)
+        page_rows = (
+            await ctx.db.execute(
+                select(
+                    corpusStorage.DocumentChunk.content,
+                    corpusStorage.DocumentChunk.chunk_metadata,
+                )
+                .where(corpusStorage.DocumentChunk.document_id == target.document_id)
+                .where(
+                    corpusStorage.DocumentChunk.job_result_id
+                    == target.job_result_id
+                )
+                .where(corpusStorage.DocumentChunk.chunk_type == "page")
+            )
+        ).all()
+        if page_rows and all(
+            not str(content or "").strip()
+            and isinstance(meta, dict)
+            and bool(meta.get("page_assets"))
+            for content, meta in page_rows
+        ):
+            scanned_doc_ids.append(target.document_id)
+
+    if not scanned_doc_ids:
+        return None
+    doc_rows = (
+        (
+            await ctx.db.execute(
+                select(corpusStorage.Document).where(
+                    corpusStorage.Document.document_id.in_(scanned_doc_ids)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    names = [d.source_file_name or d.document_id for d in doc_rows]
+    return format_scanned_pages_pending_ocr_note(names)

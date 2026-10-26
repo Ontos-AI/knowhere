@@ -74,8 +74,7 @@ def _load_scope_asset_context(
         hint=f"Run Stage 3 first to produce {fine_hierarchy_path}",
     )
     prior_scope, active_skeletons = load_hierarchy_artifact(fine_hierarchy_path)
-    from app.services.page_memory._utils import derive_excluded_toc_pages
-    toc_pages = derive_excluded_toc_pages(skeletons=active_skeletons, toc_pages=toc_pages)
+    toc_pages = sorted({int(page) for page in (toc_pages or [])})
     if not active_skeletons:
         logger.warning(
             "   [scope {}] no skeletons in fine_hierarchy.json — skipping",
@@ -124,7 +123,6 @@ def main() -> int:
     from app.services.document_agent.pdf_text import read_page_texts
     from app.services.page_memory.memory_service import (
         _project_assets_for_pages,
-        _resolve_asset_max_pages,
         _select_rendered_pages_with_assets,
     )
     from app.services.page_memory.page_assets import (
@@ -215,15 +213,13 @@ def main() -> int:
         or os.environ.get("IMAGE_MODEL")
     )
     pm_config = PageMemoryConfig.default()
-    asset_max_pages = _resolve_asset_max_pages(page_count, pm_config)
     asset_rendered = _select_rendered_pages_with_assets(rendered, page_features)
     summary_enabled = page_asset_summary_enabled()
     logger.info(
         "   C5: {}/{} rendered pages have coarse has_asset "
-        "(asset_max_pages={} summary_enabled={} model={})",
+        "(summary_enabled={} model={})",
         len(asset_rendered),
         len(rendered),
-        asset_max_pages,
         summary_enabled,
         asset_model,
     )
@@ -233,7 +229,6 @@ def main() -> int:
         rendered_pages=asset_rendered,
         output_dir=str(out_dir),
         model_name=asset_model,
-        max_pages=asset_max_pages,
         confidence_threshold=get_asset_confidence_threshold(),
         summary_enabled=summary_enabled,
         summary_concurrency=pm_config.asset_summary_concurrency,

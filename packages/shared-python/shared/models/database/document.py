@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from pgvector.sqlalchemy import HALFVEC
 from sqlalchemy import (
     JSON,
     DateTime,
@@ -141,6 +142,46 @@ class DocumentSection(Base):
     )
 
 
+class DocumentScopeEnrichment(Base):
+    """Per-scope Phase B enrichment state for one published page-memory revision."""
+
+    __tablename__ = "document_scope_enrichments"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: f"dse_{uuid4().hex[:12]}"
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_result_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("job_results.id", ondelete="CASCADE"), nullable=False
+    )
+    scope_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    page_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    page_end: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False, default="coarse")
+    priority: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_hit_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    refined_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "job_result_id",
+            "scope_id",
+            name="uq_document_scope_enrichments_revision_scope",
+        ),
+    )
+
+
 class DocumentChunk(Base):
     """Canonical retrieval payload row for one published document revision."""
 
@@ -221,9 +262,9 @@ class DocumentChunk(Base):
 class DocumentMapUnit(Base):
     """Persisted lexical map unit for one document revision.
 
-    These rows are a derived index of the exact leaf and interstitial units
-    used by map-nav. Full chunk payloads remain in ``document_chunks`` and are
-    loaded separately for evidence hydration.
+    These rows are a derived index of the leaf and interstitial units used
+    by classic map-unit BM25 and agent recall. Full chunk payloads remain in
+    ``document_chunks`` and are loaded separately for evidence hydration.
     """
 
     __tablename__ = "document_map_units"
@@ -360,6 +401,68 @@ class DocumentMapUnitIndex(Base):
     )
 
 
+class DocumentPageEmbedding(Base):
+    """Persisted multimodal page embedding for one published document revision."""
+
+    __tablename__ = "document_page_embeddings"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: f"dpe_{uuid4().hex[:12]}"
+    )
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    namespace: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="default"
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_result_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("job_results.id", ondelete="CASCADE"), nullable=False
+    )
+    chunk_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    page_num: Mapped[int] = mapped_column(Integer, nullable=False)
+    modality: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="visual"
+    )
+    model: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="google/gemini-embedding-2"
+    )
+    dims: Mapped[int] = mapped_column(Integer, nullable=False, default=3072)
+    embedding: Mapped[Any] = mapped_column(HALFVEC(3072), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id",
+            "job_result_id",
+            "page_num",
+            name="uq_document_page_embeddings_revision_page",
+        ),
+        Index(
+            "idx_document_page_embeddings_scope",
+            "user_id",
+            "namespace",
+            "job_result_id",
+        ),
+        Index(
+            "idx_document_page_embeddings_revision",
+            "document_id",
+            "job_result_id",
+            "page_num",
+        ),
+        Index(
+            "idx_document_page_embeddings_hnsw_cosine",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "halfvec_cosine_ops"},
+        ),
+    )
+
+
 class RetrievalNamespaceGeneration(Base):
     """Monotonic serving generation for one user-owned namespace."""
 
@@ -427,8 +530,9 @@ class RetrievalNamespaceMapSnapshot(Base):
     """Persisted namespace-level MAP (sections + chunk index + map units).
 
     Incrementally patched at publish/archive time (one document's subtree at
-    a time); query time reads this row directly instead of merging per-file
-    manifests. Overwritten in place -- no generation history is retained.
+    a time). Live query and ``corpus.outline`` read ``document_sections``
+    instead of this blob. Overwritten in place -- no generation history is
+    retained.
     """
 
     __tablename__ = "retrieval_namespace_map_snapshots"

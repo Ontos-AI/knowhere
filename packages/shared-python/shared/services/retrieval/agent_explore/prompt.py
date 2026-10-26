@@ -28,16 +28,13 @@ Evidence pool: only what you pick reaches the answer writer.
 - After a turn where corpus.read or corpus.outline succeeds, the next turn is
   a pick phase: you can only call corpus.pick. Pass the ids worth keeping, or
   an empty list. Picked ids join the evidence pool.
-- Body text you read but did not pick cannot be read again.
+- Body text you read (picked or not) cannot be read again.
 - Each turn you see: a trace of your past calls (tool, arguments, ok or why
   it failed), the full results of your latest calls, the evidence pool, and
   the steps used so far.
 
 Call finish when the pool is enough to answer, or when you are sure the
 corpus has no answer. finish ends the exploration at once.
-
-If a call needs another call's result, wait for that result instead of
-issuing both in the same turn.
 
 Tool names on the wire use "_" instead of "." (corpus_read = corpus.read).
 """

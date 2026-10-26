@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from shared.models.schemas.llm_config import LLMConfig
 
+IngestionMode = Literal["full", "progressive"]
+
 
 class WebhookConfig(BaseModel):
     """Webhook configuration."""
@@ -95,6 +97,16 @@ class JobCreate(JobCreateBase):
 class JobCreateV2(JobCreateBase):
     """Public v2 request payload for creating a job."""
 
+    ingestion_mode: IngestionMode = Field(
+        "full",
+        description=(
+            "Ingestion mode for page-memory documents. 'full' runs the "
+            "complete C1-C7 pipeline synchronously before publishing; "
+            "'progressive' publishes an askable per-page text baseline first, "
+            "then structures coarse scopes in the background and refines hit "
+            "scopes on demand."
+        ),
+    )
     llm_config: Optional[LLMConfig] = Field(
         None,
         description=(

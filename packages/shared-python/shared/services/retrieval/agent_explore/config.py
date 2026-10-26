@@ -74,5 +74,5 @@ PICK_TOOL_SCHEMA: dict[str, object] = {
 
 PICK_TOOL_DESCRIPTION = (
     "Pick which of your latest corpus.read / corpus.outline results join the "
-    "evidence pool. Body text you read but do not pick cannot be read again."
+    "evidence pool. Body text you read cannot be read again."
 )

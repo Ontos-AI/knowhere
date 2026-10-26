@@ -28,6 +28,10 @@ from loguru import logger
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.ai.token_tracking import get_current_token_tracker
 from app.services.document_parser.support.stage_profiler import get_current_stage_tracker, stage_timer
+from app.services.page_memory.phase_a import (
+    PHASE_B_BLACKBOARD_REL,
+    existing_phase_b_input_refs,
+)
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
 from shared.services.storage.zip_result_service import ZipResultService
 
@@ -261,6 +265,19 @@ def _upload_result_package(
     add_dir = str(result_package.artifact.add_dir) if result_package.artifact.add_dir else ""
     if add_dir and os.path.isfile(os.path.join(add_dir, "source.pdf")):
         artifact_refs.add("source.pdf")
+    parse_track = (
+        JobMetadataHelper.get_parse_track(job_context.job_metadata)
+        if job_context is not None
+        else ""
+    )
+    ingestion_mode = (
+        JobMetadataHelper.get_ingestion_mode(job_context.job_metadata)
+        if job_context is not None
+        else "full"
+    )
+    phase_b_refs = existing_phase_b_input_refs(add_dir) if add_dir else []
+    if parse_track == "page_memory" and ingestion_mode == "progressive":
+        artifact_refs.update(phase_b_refs)
     with logfire.span("Upload result assets for {job_id}", job_id=job_id), stage_timer("worker.result.assets_upload", job_id=job_id):
         result_bundle = result_storage_factory().upload(
             job_id=job_id,
@@ -268,6 +285,23 @@ def _upload_result_package(
             zip_file_path=generated_package.zip_file_path,
             artifact_refs=artifact_refs,
         )
+    metadata_updates: dict[str, object] = {}
+    if job_context is not None and parse_track == "page_memory":
+        metadata_updates["result_raw_prefix"] = result_bundle.raw_prefix
+        if (
+            ingestion_mode == "progressive"
+            and add_dir
+            and os.path.isfile(os.path.join(add_dir, PHASE_B_BLACKBOARD_REL))
+        ):
+            metadata_updates["page_memory_phase_b"] = phase_b_refs
+            metadata_updates["enrichment_status"] = "text"
     if job_context is not None and job_context.job_metadata.get("corpus_target") == "DEMO":
-        persist_job_metadata_updates(job_id=job_id, job_context=job_context, metadata_updates={"demo_asset_manifest": sorted(result_bundle.raw_files), "result_raw_prefix": result_bundle.raw_prefix})
+        metadata_updates["demo_asset_manifest"] = sorted(result_bundle.raw_files)
+        metadata_updates.setdefault("result_raw_prefix", result_bundle.raw_prefix)
+    if job_context is not None and metadata_updates:
+        persist_job_metadata_updates(
+            job_id=job_id,
+            job_context=job_context,
+            metadata_updates=metadata_updates,
+        )
     return result_bundle.zip_key

@@ -70,7 +70,6 @@ Table / body summaries on this track are text LLM, not VLM.
 
 - Scanned-page text: local RapidOCR
 - TOC source choose, cross-page table continuity, title-tree refine, Excel/DOCX table summary: text LLM
-- Archived map-nav image filter: not on the live path
 
 ## Debug
 

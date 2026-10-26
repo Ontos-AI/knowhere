@@ -25,6 +25,11 @@ from typing import Any
 
 from sqlalchemy import select
 
+from shared.services.retrieval.agent_tools.enrichment_state import (
+    STATUS_TEXT,
+    format_still_structuring_note,
+    load_revision_enrichment_status,
+)
 from shared.services.retrieval.agent_tools.map_render import render_map
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
@@ -102,6 +107,32 @@ async def outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         .all()
     )
     source_file_name_by_doc = {d.document_id: d.source_file_name or "" for d in documents}
+    revision_status = await load_revision_enrichment_status(
+        ctx.db,
+        {target.job_result_id for target in targets},
+    )
+    text_targets = [
+        target
+        for target in targets
+        if revision_status.get(target.job_result_id) == STATUS_TEXT
+    ]
+    if text_targets and len(text_targets) == len(targets):
+        names = [
+            source_file_name_by_doc.get(t.document_id) or t.document_id
+            for t in text_targets
+        ]
+        note = format_still_structuring_note(names)
+        return ToolResult(
+            text=note,
+            payload={
+                "rows": [],
+                "details": {
+                    "enrichment_status": STATUS_TEXT,
+                    "documents": source_file_name_by_doc,
+                },
+            },
+            refs=[],
+        )
 
     rows_by_id: dict[str, dict[str, Any]] = {}
     order: list[tuple[str, str | None]] = []
@@ -200,8 +231,15 @@ async def outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     visible_rows = [
         rows_by_id[section_id] for section_id, _ in order if section_id in rendered.visible_ids
     ]
+    text_out = rendered.text
+    if text_targets:
+        names = [
+            source_file_name_by_doc.get(t.document_id) or t.document_id
+            for t in text_targets
+        ]
+        text_out = f"note: {format_still_structuring_note(names)}\n{text_out}"
     return ToolResult(
-        text=rendered.text,
+        text=text_out,
         payload={
             "rows": visible_rows,
             "details": {
