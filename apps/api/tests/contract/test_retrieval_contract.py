@@ -509,46 +509,6 @@ async def test_agent_explore_retrieval_should_return_seeded_chunk_via_fake_episo
 
 
 @pytest.mark.asyncio
-async def test_agentic_router_env_mapnav_is_ignored(
-    developer_api_client_factory: Callable[
-        [], AbstractAsyncContextManager[AsyncClient]
-    ],
-    monkeypatch: MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("RETRIEVAL_AGENTIC_ROUTER", "mapnav")
-    async with developer_api_client_factory() as api_client:
-        target = await _seed_retrieval_document(
-            user_id="local-dev-user",
-            namespace="contract-explore-env",
-            source_file_name="target.pdf",
-            section_path="Findings",
-            content="env ignored content",
-        )
-        await _seed_retrieval_document(
-            user_id="local-dev-user",
-            namespace="contract-explore-env",
-            source_file_name="filler.pdf",
-            section_path="filler/section",
-            content="unrelated filler content",
-        )
-        _patch_harness(
-            monkeypatch,
-            _episode_keeping_refs(documents=[target], notes="env ignored"),
-        )
-        response = await api_client.post(
-            "/api/v1/retrieval/query",
-            json={
-                "namespace": "contract-explore-env",
-                "query": "ignored",
-                "top_k": 1,
-                "use_agentic": True,
-            },
-        )
-    assert response.status_code == 200
-    assert cast(dict[str, object], response.json())["router_used"] == "agent_explore"
-
-
-@pytest.mark.asyncio
 async def test_agent_explore_should_not_hydrate_references_outside_request_scope(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]

@@ -1,4 +1,4 @@
-"""Add the index used by lazy map-nav section loads."""
+"""Add the index used by revision-section chunk loads."""
 
 from __future__ import annotations
 

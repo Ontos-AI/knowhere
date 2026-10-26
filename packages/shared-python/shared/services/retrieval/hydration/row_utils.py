@@ -53,6 +53,13 @@ def page_summary(row: dict[str, Any]) -> str:
     return str(metadata.get('summary') or '').strip()
 
 
+def page_enrichment_state(row: dict[str, Any]) -> str:
+    metadata = row.get('chunk_metadata') or row.get('metadata') or {}
+    if not isinstance(metadata, dict):
+        return ''
+    return str(metadata.get('enrichment_state') or '').strip().lower()
+
+
 def build_reference_lookup_key(
     *,
     document_id: object,

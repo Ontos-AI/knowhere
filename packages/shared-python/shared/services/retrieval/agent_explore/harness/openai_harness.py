@@ -18,8 +18,7 @@ A turn after a successful read or outline is a pick phase: only
 step. Tokens are only summed for the episode total.
 
 Tool calls within one turn are dispatched sequentially through
-``dispatch.dispatch_tool_call`` (fresh DB session per call). No import from
-archived map-nav modules.
+``dispatch.dispatch_tool_call`` (fresh DB session per call).
 """
 
 from __future__ import annotations

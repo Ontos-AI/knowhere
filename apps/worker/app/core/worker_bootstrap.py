@@ -19,6 +19,7 @@ _CHILD_PROCESS_KILL_TIMEOUT_SECONDS: float = 5
 def _register_task_modules() -> None:
     """Import task modules for Celery side-effect registration."""
     import app.core.tasks.document_ingestion_tasks  # noqa: F401
+    import app.core.tasks.enrichment_tasks  # noqa: F401
     import app.core.tasks.stale_job_sweeper  # noqa: F401
     import app.core.tasks.webhook_tasks  # noqa: F401
 

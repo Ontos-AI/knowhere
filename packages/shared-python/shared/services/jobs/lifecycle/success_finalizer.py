@@ -5,9 +5,12 @@ from dataclasses import dataclass
 from typing import Any, Literal, cast
 
 from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from shared.core.state_machine.service_sync import SyncStateMachineService
+from shared.models.database.job import Job
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.jobs.lifecycle.post_commit_effects import PostCommitEffectPlan
 from shared.services.jobs.lifecycle.publication import SyncJobPublicationFinalizer
 from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
@@ -117,6 +120,22 @@ class SyncJobSuccessFinalizer:
             document_top_summary=safe_document_top_summary,
             trace=trace,
         )
+        published_document_id = (
+            publication_outcome.published_document_state.document_id
+            if publication_outcome.published_document_state is not None
+            else None
+        )
+        job_row = db.execute(
+            select(Job.job_metadata).where(Job.job_id == job_id)
+        ).scalar_one_or_none()
+        job_metadata = job_row if isinstance(job_row, dict) else {}
+        should_enqueue_structure = bool(
+            published_document_id
+            and JobMetadataHelper.get_parse_track(job_metadata) == "page_memory"
+            and JobMetadataHelper.get_ingestion_mode(job_metadata) == "progressive"
+            and str(job_metadata.get("enrichment_status") or "").strip().lower()
+            == "text"
+        )
 
         transition_outcome = self._state_machine.mark_completed_outcome(
             db,
@@ -150,5 +169,8 @@ class SyncJobSuccessFinalizer:
             post_commit_effects=PostCommitEffectPlan.from_success(
                 cache_invalidation=publication_outcome.cache_invalidation,
                 webhook_event_id=webhook_event.event_id if webhook_event else None,
+                structure_job_result_id=(
+                    str(job_result.id) if should_enqueue_structure else None
+                ),
             ),
         )

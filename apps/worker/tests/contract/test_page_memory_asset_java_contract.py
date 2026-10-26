@@ -17,11 +17,10 @@ from app.services.page_memory import page_assets
 from app.services.page_memory.page_renderer import PageRenderResult
 
 
-def test_page_assets_default_to_image_model_and_full_page_scan() -> None:
+def test_page_assets_default_to_image_model() -> None:
     from shared.models.schemas.page_memory_config import resolve_asset_model
 
     assert page_assets.get_asset_model() == resolve_asset_model()
-    assert page_assets.get_asset_max_pages(301) == 301
 
 
 def test_page_asset_detection_uses_lowest_temperature(monkeypatch, tmp_path) -> None:
@@ -144,7 +143,6 @@ def test_page_asset_extraction_keeps_debug_output_minimal(
         rendered_pages=page_images,
         output_dir=str(tmp_path),
         model_name=page_assets.get_asset_model(),
-        max_pages=2,
         confidence_threshold=0.3,
         summary_enabled=False,
         summary_concurrency=4,

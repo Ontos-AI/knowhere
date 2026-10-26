@@ -14,6 +14,7 @@ from shared.services.retrieval.hydration.row_utils import (
     filter_excluded_rows,
     iter_connected_target_ids,
     normalize_chunk_type,
+    page_enrichment_state,
     page_summary,
 )
 
@@ -68,8 +69,14 @@ async def assemble_retrieval_results(
         base_content = str(row.get('content') or '')
         chunk_type = normalize_chunk_type(row.get('chunk_type'))
         if chunk_type == 'page':
-            assembled_row['content'] = page_summary(row)
-            assembled_row['content_source'] = 'summary'
+            if page_enrichment_state(row) in {'text', 'coarse', 'queued'}:
+                assembled_row['content'] = base_content
+                assembled_row['content_source'] = (
+                    'raw' if base_content.strip() else 'page_image'
+                )
+            else:
+                assembled_row['content'] = page_summary(row)
+                assembled_row['content_source'] = 'summary'
             page_nums = extract_page_nums(row)
             if page_nums is not None:
                 assembled_row['page_nums'] = page_nums

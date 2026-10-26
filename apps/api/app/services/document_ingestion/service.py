@@ -122,6 +122,19 @@ class DocumentIngestionService:
                 api_version=api_version,
             )
             command = build_command(file_extension)
+            if command.ingestion_mode == "progressive" and command.parse_track != "page_memory":
+                raise ValidationException(
+                    user_message="Progressive ingestion is only supported for page-memory formats (.pdf, .pptx) on /v2/jobs",
+                    violations=[
+                        {
+                            "field": "ingestion_mode",
+                            "description": (
+                                "ingestion_mode=progressive requires a page_memory "
+                                "document (.pdf, .pptx) submitted via /v2/jobs"
+                            ),
+                        }
+                    ],
+                )
             scope = await self._resolve_scope(
                 db,
                 command=command,
@@ -284,6 +297,7 @@ class DocumentIngestionService:
                 parse_track=command.parse_track,
                 processing_generation=command.processing_generation,
                 page_memory_config=command.page_memory_config,
+                ingestion_mode=command.ingestion_mode,
             ),
         )
         if CorpusStorage.resolve_namespace(payload.namespace).is_demo:

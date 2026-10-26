@@ -37,7 +37,6 @@ os.environ.setdefault("OVERSIZED_PDF_SHARD_ENABLED", "true")
 from loguru import logger
 
 from app.services.page_memory._utils import (
-    derive_excluded_toc_pages,
     page_scope_info,
     scope_id_for_pages,
     sort_skeletons,
@@ -861,35 +860,6 @@ def load_pipeline_state(
     return data
 
 
-def _pipeline_skeleton_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
-    stages = state.get("stages")
-    stage2 = stages.get("stage2") if isinstance(stages, dict) else None
-    rows = stage2.get("skeletons") if isinstance(stage2, dict) else None
-    if not isinstance(rows, list):
-        raise ValueError("pipeline state is missing stages.stage2.skeletons[]")
-    return [row for row in rows if isinstance(row, dict)]
-
-
-def load_pipeline_skeletons(
-    state_path: Path,
-) -> list[Any]:
-    from app.services.page_memory.skeleton_extractor import SectionSkeleton
-
-    state = load_pipeline_state(state_path)
-    return [
-        SectionSkeleton(
-            section_path=str(row["section_path"]),
-            title=str(row["title"]),
-            level=int(row["level"]),
-            start_page=int(row["start_page"]),
-            end_page=int(row["end_page"]),
-            parent_path=row.get("parent_path"),
-            evidence=dict(row.get("evidence") or {}),
-        )
-        for row in _pipeline_skeleton_rows(state)
-    ]
-
-
 def update_pipeline_state(
     state_path: Path,
     *,
@@ -1519,53 +1489,6 @@ def _serialize_skeletons(skeletons: list[Any]) -> list[dict[str, Any]]:
 
 
 # ── Coarse scope helpers ─────────────────────────────────────────────────────
-
-
-def build_debug_coarse_scopes(
-    *,
-    skeletons: list[Any],
-    filename: str,
-    page_count: int,
-    anatomy: Any | None = None,
-) -> list[dict[str, Any]]:
-    from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
-    from app.services.page_memory._utils import build_hierarchy_scopes
-
-    toc_result = getattr(anatomy, "toc_result", None) if anatomy is not None else None
-    toc_pages = derive_excluded_toc_pages(
-        skeletons=skeletons,
-        toc_pages=list(getattr(toc_result, "toc_pages", None) or []),
-    )
-    toc_page_set = set()
-    for raw in toc_pages:
-        try:
-            toc_page_set.add(int(raw))
-        except (TypeError, ValueError):
-            continue
-    scopes = build_hierarchy_scopes(
-        skeletons=skeletons,
-        filename=filename,
-        page_count=page_count,
-    )
-    return [
-        {
-            "scope_id": scope.scope_id,
-            "skeletons": scope.skeletons,
-            "start_page": scope.start_page,
-            "end_page": scope.end_page,
-            "strategy": scope.strategy,
-            "processing_pages": pages_excluding_toc(
-                list(range(scope.start_page, scope.end_page + 1)),
-                toc_pages,
-            ),
-            "excluded_toc_pages": sorted(
-                page
-                for page in toc_page_set
-                if scope.start_page <= page <= scope.end_page
-            ),
-        }
-        for scope in scopes
-    ]
 
 
 def add_scope_selection_args(parser: argparse.ArgumentParser) -> None:

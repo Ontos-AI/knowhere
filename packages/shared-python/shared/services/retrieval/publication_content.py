@@ -5,7 +5,7 @@ from shared.services.retrieval.corpus_storage import CorpusStorage
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import (
@@ -13,6 +13,10 @@ from shared.models.database.document import (
     DocumentSection,
 )
 from shared.services.retrieval.map_unit_index import replace_document_map_units
+from shared.services.retrieval.page_embedding_index import (
+    extract_and_strip_page_embeddings,
+    replace_document_page_embeddings,
+)
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.publication_trace_stage import trace_publication_stage
 from shared.services.retrieval.serving_manifest import persist_revision_serving_state
@@ -72,14 +76,19 @@ def replace_document_revision_content(
         db=db,
         scope=scope,
         section_summaries=section_summaries,
+        preload_existing=False,
     )
     prepared_chunks: list[
         tuple[int, dict[str, Any], dict[str, Any], str | None, DocumentSection]
     ] = []
+    incoming_embeddings_by_page: dict[int, list[float]] = {}
     with trace_publication_stage(trace, "sections_prepare"):
         for index, chunk in enumerate(chunks):
             safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
-            chunk_metadata = _get_chunk_metadata(safe_chunk)
+            chunk_metadata = dict(_get_chunk_metadata(safe_chunk))
+            incoming_embeddings_by_page.update(
+                extract_and_strip_page_embeddings(chunk_metadata)
+            )
             source_path = _get_source_path(
                 chunk=safe_chunk,
                 chunk_metadata=chunk_metadata,
@@ -124,6 +133,11 @@ def replace_document_revision_content(
         trace=trace,
         clear_existing=False,
     )
+    replace_document_page_embeddings(
+        db,
+        scope=scope,
+        incoming_embeddings_by_page=incoming_embeddings_by_page or None,
+    )
     manifest_payload = persist_revision_serving_state(db, scope=scope, trace=trace)
     return manifest_payload
 
@@ -135,6 +149,7 @@ class DocumentSectionPublisher:
         db: Session,
         scope: DocumentPublicationScope,
         section_summaries: dict[str, str] | None = None,
+        preload_existing: bool = True,
     ) -> None:
         self._db = db
         self._scope = scope
@@ -143,17 +158,61 @@ class DocumentSectionPublisher:
             remove_nul_characters(section_summaries or {}),
         )
         self._sections_by_path: dict[str, DocumentSection] = {}
+        self._preexisting_paths: set[str] = set()
+        self._existing_loaded = not preload_existing
+
+    def _ensure_existing_loaded(self) -> None:
+        if self._existing_loaded:
+            return
+        self._existing_loaded = True
+        corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(
+            self._scope.namespace
+        )
+        existing_sections = self._db.scalars(
+            select(corpusStorage.DocumentSection)
+            .where(
+                corpusStorage.DocumentSection.document_id
+                == self._scope.document_id
+            )
+            .where(
+                corpusStorage.DocumentSection.job_result_id
+                == self._scope.job_result_id
+            )
+            .order_by(
+                corpusStorage.DocumentSection.sort_order,
+                corpusStorage.DocumentSection.section_id,
+            )
+        ).all()
+        for existing in existing_sections:
+            self._sections_by_path.setdefault(existing.section_path, existing)
+            self._preexisting_paths.add(existing.section_path)
 
     def ensure_section(self, section_path: str) -> DocumentSection:
+        self._ensure_existing_loaded()
         corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(self._scope.namespace)
         existing_section = self._sections_by_path.get(section_path)
         if existing_section is not None:
+            if (
+                summary := self._section_summaries.get(section_path)
+            ) and (
+                section_path not in self._preexisting_paths
+                or not existing_section.summary
+            ):
+                existing_section.summary = summary
             return existing_section
 
         path_parts = [part for part in section_path.split(" / ") if part]
         for depth in range(1, len(path_parts) + 1):
             ancestor_path = " / ".join(path_parts[:depth])
-            if ancestor_path in self._sections_by_path:
+            existing_ancestor = self._sections_by_path.get(ancestor_path)
+            if existing_ancestor is not None:
+                if (
+                    summary := self._section_summaries.get(ancestor_path)
+                ) and (
+                    ancestor_path not in self._preexisting_paths
+                    or not existing_ancestor.summary
+                ):
+                    existing_ancestor.summary = summary
                 continue
 
             ancestor_section = corpusStorage.DocumentSection(

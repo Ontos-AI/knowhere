@@ -1,4 +1,4 @@
-"""Add the index used by lazy map-nav section pagination."""
+"""Add the index used by section snapshot-order pagination."""
 
 from __future__ import annotations
 

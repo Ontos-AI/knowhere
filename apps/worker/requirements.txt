@@ -302,7 +302,7 @@ pandas==2.3.1
     # via
     #   knowhere-worker-app
     #   tabula-py
-pgvector==0.2.4
+pgvector==0.5.1
     # via knowhere-shared
 pillow==12.2.0
     # via

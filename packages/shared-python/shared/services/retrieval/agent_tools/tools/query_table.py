@@ -12,6 +12,16 @@ from typing import Any
 from sqlalchemy import select
 
 from shared.models.database.job_result import JobResult
+from shared.services.jobs.lifecycle.scope_enrichments import (
+    promote_scopes_on_read,
+)
+from shared.services.retrieval.agent_tools.enrichment_state import (
+    STATUS_TEXT,
+    format_assets_not_refined_note,
+    format_still_structuring_note,
+    inspect_scope_page_states,
+    load_revision_enrichment_status,
+)
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
     ToolResult,
@@ -106,6 +116,33 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         )
     ).first()
     if row is None:
+        revision_id = str(
+            CorpusRevisionContext.resolve_revision(
+                doc.document_id, doc.current_job_result_id
+            )
+            or ""
+        )
+        if revision_id:
+            rev_status = await load_revision_enrichment_status(ctx.db, [revision_id])
+            if rev_status.get(revision_id) == STATUS_TEXT:
+                note = format_still_structuring_note(
+                    [doc.source_file_name or document_id]
+                )
+                return ToolResult(text=note, error=note)
+            summary = await inspect_scope_page_states(
+                ctx.db,
+                namespace=ctx.namespace,
+                document_id=document_id,
+                job_result_id=revision_id,
+            )
+            if summary.has_unrefined_pages:
+                if summary.page_rows:
+                    await promote_scopes_on_read(ctx.db, list(summary.page_rows))
+                note = format_assets_not_refined_note(
+                    summary.page_range_label,
+                    state="text" if "text" in summary.states else "coarse",
+                )
+                return ToolResult(text=note, error=note)
         return ToolResult(text="", error=f"unknown table chunk_id: {chunk_id} in {document_id}")
     chunk, section_path = row
     try:

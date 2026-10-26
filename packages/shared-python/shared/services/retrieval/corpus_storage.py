@@ -78,6 +78,16 @@ class CorpusStorage:
         )
 
     @property
+    def DocumentPageEmbedding(
+        self,
+    ) -> type[private.DocumentPageEmbedding] | type[demo.DemoDocumentPageEmbedding]:
+        return (
+            demo.DemoDocumentPageEmbedding
+            if self.is_demo
+            else private.DocumentPageEmbedding
+        )
+
+    @property
     def RetrievalNamespaceGeneration(
         self,
     ) -> (
@@ -149,6 +159,7 @@ _TABLE_NAMES: tuple[str, ...] = (
     "retrieval_namespace_generations",
     "document_map_unit_indexes",
     "document_map_unit_tokens",
+    "document_page_embeddings",
     "retrieval_hit_stats",
     "document_map_units",
     "document_sections",

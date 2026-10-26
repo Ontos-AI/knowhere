@@ -31,10 +31,20 @@ from typing import Any
 
 from sqlalchemy import select
 
+from shared.services.jobs.lifecycle.scope_enrichments import (
+    promote_scopes_on_read,
+)
 from shared.services.retrieval.agent_tools.asset_hosts import (
     hosted_section_path,
     in_scope_hosts,
     load_asset_hosts,
+)
+from shared.services.retrieval.agent_tools.enrichment_state import (
+    STATUS_TEXT,
+    format_assets_not_refined_note,
+    format_still_structuring_note,
+    inspect_scope_page_states,
+    load_revision_enrichment_status,
 )
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
@@ -189,11 +199,109 @@ async def _forward_search(
         if len(rows) >= ctx.budget.max_items:
             break
 
+    if not rows:
+        unrefined_note = await _check_unrefined_assets_note(ctx, scope=scope)
+        if unrefined_note is not None:
+            return ToolResult(
+                text=unrefined_note,
+                payload={"rows": [], "details": {"unrefined": True}},
+                refs=[],
+            )
     lines = [f"assets={len(rows)}", *(format_row(row) for row in rows)]
     return ToolResult(
         text="\n".join(lines),
         payload={"rows": rows, "details": {}},
         refs=[{"document_id": row["document_id"], "chunk_id": row["chunk_id"]} for row in rows],
+    )
+
+
+async def _check_unrefined_assets_note(
+    ctx: ToolContext,
+    *,
+    scope: list[ScopeTarget],
+) -> str | None:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
+    targets = scope
+    if not targets:
+        docs = (
+            (
+                await ctx.db.execute(
+                    select(corpusStorage.Document)
+                    .where(
+                        ctx.document_scope.predicate(
+                            corpusStorage.Document.document_id
+                        ),
+                        corpusStorage.Document.user_id
+                        == corpusStorage.resolve_owner(ctx.user_id),
+                        corpusStorage.Document.namespace == ctx.namespace,
+                        corpusStorage.Document.status == "active",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        targets = [
+            ScopeTarget(d.document_id, rev, None)
+            for d in docs
+            if (
+                rev := CorpusRevisionContext.resolve_revision(
+                    d.document_id, d.current_job_result_id
+                )
+            )
+        ]
+    if not targets:
+        return None
+
+    revision_status = await load_revision_enrichment_status(
+        ctx.db,
+        {t.job_result_id for t in targets},
+    )
+    text_targets = [
+        t for t in targets if revision_status.get(t.job_result_id) == STATUS_TEXT
+    ]
+    if text_targets and len(text_targets) == len(targets):
+        doc_rows = (
+            (
+                await ctx.db.execute(
+                    select(corpusStorage.Document).where(
+                        corpusStorage.Document.document_id.in_(
+                            [t.document_id for t in text_targets]
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        names = [d.source_file_name or d.document_id for d in doc_rows]
+        return format_still_structuring_note(names)
+
+    promote_rows: list[dict[str, Any]] = []
+    range_labels: list[str] = []
+    seen_states: set[str] = set()
+    for target in targets:
+        summary = await inspect_scope_page_states(
+            ctx.db,
+            namespace=ctx.namespace,
+            document_id=target.document_id,
+            job_result_id=target.job_result_id,
+            section_path=target.section_path,
+        )
+        if not summary.has_unrefined_pages:
+            continue
+        seen_states.update(summary.states)
+        range_labels.append(summary.page_range_label)
+        promote_rows.extend(summary.page_rows)
+
+    if not range_labels:
+        return None
+    if promote_rows:
+        await promote_scopes_on_read(ctx.db, promote_rows)
+    state_label = "text" if "text" in seen_states else "coarse"
+    return format_assets_not_refined_note(
+        ", ".join(dict.fromkeys(range_labels)),
+        state=state_label,
     )
 
 

@@ -7,8 +7,9 @@ Same PROFILE anchoring path as production PAGE/TEXT:
   restore Stage-1 outline (or re-probe) → calibrate / outline route →
   classify contained/parallel → graft contained → write skeleton_*
 
-Also resolves coarse skeletons (C4 resolve-only) into pipeline state so
-Stage 3 can resume without re-anchoring. No scope build or fine hierarchy.
+Also resolves coarse skeletons (C4 resolve-only) and the Phase A scope
+manifest into pipeline state so Stage 3 can resume without re-anchoring
+or rebuilding scopes. No fine hierarchy.
 
 Requires Stage 0 → Stage 1 first:
   uv run python scripts/page_memory/debug_pm_stage0_bootstrap.py --file ...
@@ -75,7 +76,7 @@ def main() -> int:
     from app.services.document_agent.persist import DOC_PROFILE_FILENAME
     from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
     from app.services.document_agent.validators import single_shard_plan
-    from app.services.page_memory.skeleton_extractor import extract_section_skeletons
+    from app.services.page_memory.phase_a import build_phase_a
     from shared.core.config import settings
 
     pdf_path, filename, out_dir = resolve_paths(args)
@@ -143,13 +144,20 @@ def main() -> int:
             pass
 
         from app.services.document_agent.pdf_text import page_content_map
+        from types import SimpleNamespace
 
         page_texts = page_content_map(bb.page_full_text_cache or {})
-        skeletons = extract_section_skeletons(
-            anatomy=anchored,
+        phase_a = build_phase_a(
+            profile=SimpleNamespace(
+                page_count=page_count,
+                anatomy=anchored,
+                page_full_text_cache=page_texts,
+                page_body_text_cache={},
+            ),
             filename=filename,
-            page_texts=page_texts,
         )
+        skeletons = phase_a.skeletons
+        scope_manifest = phase_a.manifest
     finally:
         if args.model:
             settings.IMAGE_MODEL = previous_image_model
@@ -177,6 +185,7 @@ def main() -> int:
             "pending_skeleton_anchors": pending_records,
             "pending_summary": pending_summary,
             "skeletons": _serialize_skeletons(skeletons),
+            "scope_manifest": scope_manifest,
         },
     )
 
@@ -222,7 +231,11 @@ def main() -> int:
         pipeline_stage=2,
         elapsed_s=elapsed,
         token_cost_tracker=token_cost_tracker,
-        extra_summary={"pending": pending_summary, "skeleton_count": len(skeletons)},
+        extra_summary={
+            "pending": pending_summary,
+            "skeleton_count": len(skeletons),
+            "scope_count": len(scope_manifest.get("scopes") or []),
+        },
     )
 
 

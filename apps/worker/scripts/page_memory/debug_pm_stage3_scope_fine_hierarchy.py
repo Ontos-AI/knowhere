@@ -5,8 +5,9 @@
 Mirrors production ``_run_hierarchy_scope`` (without C5 assets; that is Stage 4):
 fat-leaf title render → ``tag_page_titles`` → fine hierarchy → render → ``tag_pages``.
 
-Requires Stage 2 output: _doc_agent/pipeline_state.json (with skeletons),
-doc_profile.json (after production ``run_toc_anchoring``).
+Requires Stage 2 output: _doc_agent/pipeline_state.json (with scope_manifest),
+doc_profile.json (after production ``run_toc_anchoring``). Stage 3 reads the
+frozen Phase A manifest and does not rebuild scopes.
 
 Usage:
   cd apps/worker
@@ -34,10 +35,9 @@ from _debug_pm_shared import (
     TraceStageAdapter,
     add_scope_selection_args,
     base_argparser,
-    build_debug_coarse_scopes,
     load_anatomy_cache,
     resolve_anatomy_cache_path,
-    load_pipeline_skeletons,
+    load_pipeline_state,
     load_scope_skeletons_artifact,
     list_scope_dirs,
     pipeline_state_path,
@@ -67,9 +67,8 @@ def _resolve_scope_processing_pages(
     toc_pages: list[int],
 ) -> tuple[list[int], list[int]]:
     from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
-    from app.services.page_memory._utils import derive_excluded_toc_pages
 
-    toc_pages = derive_excluded_toc_pages(skeletons=skeletons, toc_pages=toc_pages)
+    toc_pages = sorted({int(page) for page in (toc_pages or [])})
     processing_pages = [
         int(page) for page in (scope_meta.get("processing_pages") or [])
     ]
@@ -134,8 +133,7 @@ def _run_fine_hierarchy_for_scope(
     require_file(skel_path, hint=f"Stage 3 should have created {skel_path}")
     scope_meta, active_skeletons = load_scope_skeletons_artifact(skel_path)
     active_skeletons = sort_skeletons(active_skeletons)
-    from app.services.page_memory._utils import derive_excluded_toc_pages
-    toc_pages = derive_excluded_toc_pages(skeletons=active_skeletons, toc_pages=toc_pages)
+    toc_pages = sorted({int(page) for page in (toc_pages or [])})
     strategy = str(scope_meta.get("strategy") or "coarse_scope")
     processing_pages, excluded_toc_pages = _resolve_scope_processing_pages(
         scope_meta=scope_meta,
@@ -336,8 +334,12 @@ def main() -> int:
 
     from app.services.document_agent.pdf_text import read_page_texts
     from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
-    from app.services.page_memory.fine_hierarchy import build_next_title_by_path
-    from app.services.page_memory.skeleton_extractor import SectionSkeleton
+    from app.services.page_memory.phase_a import (
+        next_title_by_path_from_manifest,
+        require_phase_a_manifest,
+        scopes_from_phase_a_manifest,
+        skeletons_from_phase_a_manifest,
+    )
     from shared.models.schemas.page_memory_config import PageMemoryConfig
 
     pdf_path, filename, out_dir = resolve_paths(args)
@@ -358,12 +360,19 @@ def main() -> int:
     page_count = anatomy.page_count
     page_features = anatomy.page_features if anatomy else []
     page_labels = anatomy.page_labels if anatomy else []
-    toc_result = getattr(anatomy, "toc_result", None)
-    toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
     page_memory_config = PageMemoryConfig.default()
-    skeletons = load_pipeline_skeletons(state_path)
-    from app.services.page_memory._utils import derive_excluded_toc_pages
-    toc_pages = derive_excluded_toc_pages(skeletons=skeletons, toc_pages=toc_pages)
+    stage2 = load_pipeline_state(state_path).get("stages", {}).get("stage2")
+    try:
+        manifest = require_phase_a_manifest(stage2 if isinstance(stage2, dict) else None)
+    except ValueError as exc:
+        raise SystemExit(
+            f"{exc}. Re-run Stage 2: "
+            "uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file ..."
+        ) from exc
+    skeletons = skeletons_from_phase_a_manifest(manifest)
+    toc_pages = [int(page) for page in (manifest.get("toc_pages") or [])]
+    coarse_scopes = scopes_from_phase_a_manifest(manifest)
+    next_title_by_path = next_title_by_path_from_manifest(manifest)
 
     logger.info("█" * 70)
     logger.info(f"  STAGE 3: SCOPE + FINE HIERARCHY — {filename}")
@@ -374,41 +383,11 @@ def main() -> int:
     trace_stages: list[dict] = []
     token_cost_tracker = TokenCostTracker()
 
-    # ── Build coarse scopes ──
-    coarse_scopes = build_debug_coarse_scopes(
-        skeletons=skeletons,
-        filename=filename,
-        page_count=page_count,
-        anatomy=anatomy,
-    )
-
     if not coarse_scopes:
-        root_skel = SectionSkeleton(
-            section_path=f"{filename}/Root",
-            level=1,
-            start_page=1,
-            end_page=page_count,
-            title="Root",
-            parent_path=filename,
-            evidence={"source": "fallback_root"},
+        raise SystemExit(
+            "Stage 2 scope_manifest has no scopes. Re-run Stage 2: "
+            "uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file ..."
         )
-        coarse_scopes = [
-            {
-                "scope_id": scope_id_for_pages(1, page_count),
-                "skeletons": [root_skel],
-                "start_page": 1,
-                "end_page": page_count,
-                "strategy": "fallback_root",
-                "processing_pages": pages_excluding_toc(
-                    list(range(1, page_count + 1)),
-                    toc_pages,
-                ),
-                "excluded_toc_pages": sorted(
-                    {int(page) for page in toc_pages}
-                ),
-            }
-        ]
-        logger.info("   no skeleton hierarchy → fallback Root scope p1-{}", page_count)
 
     if args.list_scopes:
         logger.info("Available scopes ({}):", len(coarse_scopes))
@@ -541,7 +520,6 @@ def main() -> int:
     if partial_run:
         logger.info("  MODE: partial — will not overwrite top-level hierarchy.json")
 
-    next_title_by_path = build_next_title_by_path(skeletons)
     logger.info(
         "   next_title_by_path: {} paths ({} with tail anchor)",
         len(next_title_by_path),

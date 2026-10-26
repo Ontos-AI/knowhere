@@ -22,12 +22,12 @@ from shared.services.retrieval.hydration.result_assembly import (
 from shared.services.retrieval.routing import config as query_router_config
 from shared.services.retrieval.routing.classifier import classify_query_mode
 from shared.services.retrieval.routing.types import QueryMode, RouterDecision
-from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
 from shared.services.retrieval.search.ranking import rank_retrieval_candidates
 from shared.services.retrieval.search.scoped_corpus import (
     count_scoped_chunks,
     load_all_scoped_chunks,
 )
+from shared.services.retrieval.search.visual_discovery import hybrid_discovery
 
 
 def open_fresh_database_context() -> AbstractAsyncContextManager[AsyncSession]:
@@ -182,7 +182,7 @@ async def _try_run_small_corpus_route(
 async def _run_classic_topk_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
-    discovery_result = await map_unit_discovery(
+    discovery_result = await hybrid_discovery(
         context.db,
         user_id=context.user_id,
         namespace=context.namespace,

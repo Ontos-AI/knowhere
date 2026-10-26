@@ -535,7 +535,7 @@ Core retrieval internals are grouped by ownership:
 - `execution/`: request shaping, route selection (classic / agent_explore / small_corpus), and public response projection.
 - `search/`: `map_unit_discovery` (persisted map-unit BM25 discovery; incomplete or incompatible indexes raise), scoring, section filters, candidate ranking.
 - `hydration/`: row/path/reference hydration, inline assets, and result assembly.
-- `agent_explore/` + `agent_tools/`: agent retrieval when `use_agentic` is on. Harness is `cursor_sdk` (Cursor) or `openai` (Knowhere's own). Map-nav is archived under `deprecated/mapnav/`.
+- `agent_explore/` + `agent_tools/`: agent retrieval when `use_agentic` is on. Harness is `cursor_sdk` (Cursor) or `openai` (Knowhere's own).
 - `trace/`: `DecisionTraceStep` mapping and `TraceRecorder`.
 - `graph/`: document graph publication/query support.
 - `stats/`: retrieval hit recording.
@@ -571,8 +571,7 @@ There is no scored term channel in this primary path. Chunk
 
 Default agentic path is `agent_explore`: a `corpus.*` tool loop run by the
 resolved harness (`AGENT_EXPLORE_HARNESS`, default `cursor_sdk`). Finish refs
-are resolved to chunks, then assembled like classic. Map-nav is archived at
-`deprecated/mapnav/` and is no longer a live route.
+are resolved to chunks, then assembled like classic.
 
 ### Result Assembly
 

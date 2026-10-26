@@ -371,7 +371,7 @@ scope, filters, data type, ranking options, and agentic toggle.
 
 ### Retrieval Run
 
-One execution of a Retrieval Query, recorded across classic, map-nav,
+One execution of a Retrieval Query, recorded across classic, agent_explore,
 small-corpus, cache-hit, failed, and cancelled outcomes with route, timing,
 and terminal-status metadata.
 

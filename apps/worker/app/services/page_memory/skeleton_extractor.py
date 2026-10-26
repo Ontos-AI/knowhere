@@ -24,6 +24,7 @@ from app.services.document_agent.structure.anchoring_primitives import (
 )
 from app.services.document_agent.structure.toc_anchoring import (
     body_pages_excluding_toc,
+    evidenced_physical_span,
     pending_toc_body_scope,
     select_global_toc_hierarchies,
 )
@@ -134,14 +135,13 @@ def extract_section_skeletons(
         pending_tocs=pending_tocs,
         pending_records=pending_records,
     )
-    parallel_tocs = [toc for toc, _record in parallel_pending]
     primary_page_count = page_count
     primary_body_pages = body_pages
-    pending_starts: list[int] = []
-    for toc in parallel_tocs:
-        start = toc_range_start(toc)
-        if start is not None:
-            pending_starts.append(start)
+    pending_starts = [
+        start
+        for toc, record in parallel_pending
+        if (start := _parallel_forest_start_page(toc, record)) is not None
+    ]
     if pending_starts:
         primary_page_count = min(pending_starts) - 1
         primary_body_pages = [page for page in body_pages if page <= primary_page_count]
@@ -312,6 +312,20 @@ def _parallel_pending_tocs(
     return parallel_pending
 
 
+def _parallel_forest_start_page(
+    pending_toc: dict[str, Any],
+    record: dict[str, Any],
+) -> int | None:
+    anchor_raw = record.get("skeleton_anchor")
+    if isinstance(anchor_raw, dict):
+        span = evidenced_physical_span(
+            deserialize_skeleton_anchor(anchor_raw).match_overrides
+        )
+        if span is not None:
+            return span[0]
+    return toc_range_start(pending_toc)
+
+
 def _resolve_pending_tocs(
     *,
     parallel_pending: list[tuple[dict[str, Any], dict[str, Any]]],
@@ -346,12 +360,19 @@ def _resolve_pending_tocs(
         if offset is None:
             raise ValueError("pending TOC offset missing after PROFILE classify")
 
-        toc_scope_end, toc_body_pages = pending_toc_body_scope(
+        _, toc_body_pages = pending_toc_body_scope(
             pending_tocs=parallel_tocs,
             index=i,
             page_count=page_count,
             body_pages=body_pages,
         )
+        next_starts = [
+            start
+            for next_toc, next_record in parallel_pending[i + 1 :]
+            if (start := _parallel_forest_start_page(next_toc, next_record)) is not None
+        ]
+        toc_scope_end = (min(next_starts) - 1) if next_starts else page_count
+        toc_body_pages = [page for page in toc_body_pages if page <= toc_scope_end]
         match_overrides = skeleton_anchor.match_overrides
         null_page_report = skeleton_anchor.null_page_report
         locate_summary: dict[str, Any] = {

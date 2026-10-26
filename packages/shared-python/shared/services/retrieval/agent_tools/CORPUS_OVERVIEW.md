@@ -25,3 +25,14 @@ doc_7f3a  Hypertension_Guideline.pdf
 Addresses from this example:
 - {document_id: "doc_7f3a", section_path: "2 Treatment / 2.2 Drugs"}
 - {document_id: "doc_7f3a", chunk_id: "tbl_12"}
+
+Documents may still be loading progressively (`status` is `text`, `coarse`, or
+`complete`):
+- Pages are always searchable immediately via `corpus.recall` (lexical and
+  visual semantic for scanned pages), `corpus.grep` (once text/OCR is present),
+  and `corpus.read` (returns page text or the rendered page image).
+- `corpus.outline` and `corpus.node_filter` require `coarse` or `complete`.
+- Extracted figure and table tools require per-scope refinement.
+A "not ready yet" tool note means background processing is still running — do
+not retry that tool on the same scope in this session; answer from page text
+or page images returned by `corpus.read`.

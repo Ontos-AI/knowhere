@@ -608,7 +608,7 @@ async def test_recall_mounts_connected_table(
         )
 
     monkeypatch.setattr(
-        "shared.services.retrieval.agent_tools.tools.recall.map_unit_discovery",
+        "shared.services.retrieval.agent_tools.tools.recall.hybrid_discovery",
         _discovery,
     )
     result = await recall(explore_ctx, {"query": "intro"})
@@ -647,7 +647,7 @@ async def test_recall_mounts_table_hit(
         )
 
     monkeypatch.setattr(
-        "shared.services.retrieval.agent_tools.tools.recall.map_unit_discovery",
+        "shared.services.retrieval.agent_tools.tools.recall.hybrid_discovery",
         _discovery,
     )
     result = await recall(explore_ctx, {"query": "dose"})
@@ -688,7 +688,7 @@ async def test_recall_path_content_table_snippet_uses_summary_not_path(
         )
 
     monkeypatch.setattr(
-        "shared.services.retrieval.agent_tools.tools.recall.map_unit_discovery",
+        "shared.services.retrieval.agent_tools.tools.recall.hybrid_discovery",
         _discovery,
     )
     monkeypatch.setattr(
@@ -714,7 +714,7 @@ async def test_recall_path_content_table_snippet_empty_without_summary(
         )
 
     monkeypatch.setattr(
-        "shared.services.retrieval.agent_tools.tools.recall.map_unit_discovery",
+        "shared.services.retrieval.agent_tools.tools.recall.hybrid_discovery",
         _discovery,
     )
     monkeypatch.setattr(

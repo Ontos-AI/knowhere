@@ -74,10 +74,6 @@ def get_asset_model() -> str | None:
     return resolve_asset_model() or None
 
 
-def get_asset_max_pages(page_count: int) -> int:
-    return max(0, page_count)
-
-
 def detect_page_assets(
     *,
     page: PageRenderResult,
@@ -369,14 +365,13 @@ def extract_page_assets_from_renders(
     rendered_pages: list[PageRenderResult],
     output_dir: str,
     model_name: str | None,
-    max_pages: int,
     confidence_threshold: float,
     summary_enabled: bool = False,
     summary_concurrency: int = 4,
     table_engine: str = "tabula",
     table_merge_enabled: bool = True,
 ) -> dict[int, list[PageAsset]]:
-    pages = sorted(rendered_pages, key=lambda item: item.page_index)[:max_pages]
+    pages = sorted(rendered_pages, key=lambda item: item.page_index)
     source_name = Path(pdf_path).name
     assets_by_page: dict[int, list[PageAsset]] = {}
     pending_summaries: list[PageAsset] = []
@@ -906,7 +901,6 @@ __all__ = [
     "build_asset_rows",
     "extract_page_assets_from_renders",
     "get_asset_confidence_threshold",
-    "get_asset_max_pages",
     "get_asset_model",
     "merge_cross_page_tables",
     "page_asset_extraction_enabled",

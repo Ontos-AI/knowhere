@@ -43,15 +43,18 @@ _REQUIRED_POSTGRESQL_EXECUTABLES: tuple[str, ...] = (
 _REQUIRED_POSTGRESQL_EXTENSIONS: tuple[str, ...] = (
     "uuid-ossp",
     "pg_trgm",
+    "vector",
 )
 
 
 def _get_postgresql_install_hint() -> str:
     return (
         "Run `uv run python apps/api/scripts/ensure_test_environment.py --install`, "
-        "or install PostgreSQL server binaries and contrib extensions manually. "
+        "or install PostgreSQL server binaries, contrib extensions, and pgvector. "
         "Ubuntu: sudo apt-get update && sudo apt-get install -y "
-        "postgresql postgresql-contrib. macOS: brew install postgresql@16 "
+        "postgresql postgresql-contrib, then install "
+        "postgresql-<same-major>-pgvector from PGDG without upgrading "
+        "the PostgreSQL metapackage. macOS: brew install postgresql@16 pgvector "
         "and add its bin directory to PATH. If needed, set "
         "PYTEST_POSTGRESQL_EXECUTABLE to the pg_ctl path."
     )
@@ -205,13 +208,31 @@ def get_install_commands() -> tuple[InstallCommand, ...]:
                     ("apt-get", "install", "-y", "postgresql", "postgresql-contrib")
                 ),
             ),
+            InstallCommand(
+                description=(
+                    "Hold Ubuntu PostgreSQL and install matching PGDG pgvector"
+                ),
+                command=_with_privilege(
+                    (
+                        "bash",
+                        "-lc",
+                        (
+                            "set -euo pipefail; "
+                            "major=$(pg_config --version | awk '{print $2}' | cut -d. -f1); "
+                            "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y; "
+                            'apt-mark hold postgresql postgresql-contrib "postgresql-${major}"; '
+                            'apt-get install -y --no-upgrade "postgresql-${major}-pgvector"'
+                        ),
+                    )
+                ),
+            ),
         )
 
     if system_name == "darwin" and shutil.which("brew") is not None:
         return (
             InstallCommand(
                 description="Install PostgreSQL server binaries and contrib extensions",
-                command=("brew", "install", "postgresql@16"),
+                command=("brew", "install", "postgresql@16", "pgvector"),
             ),
         )
 

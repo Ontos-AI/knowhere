@@ -27,7 +27,7 @@ This directory is the new home for API tests.
 ## Local Prerequisites
 
 - PostgreSQL server binaries available to `pytest-postgresql`
-- PostgreSQL contrib extension files for `uuid-ossp` and `pg_trgm`
+- PostgreSQL contrib extension files for `uuid-ossp`, `pg_trgm`, and `vector`
 - No running local PostgreSQL service is required; `pytest-postgresql` starts an isolated process
 - No running local Redis service is required; contract tests use `fakeredis`
 - Set `PYTEST_POSTGRESQL_EXECUTABLE` to the `pg_ctl` path if discovery cannot find it

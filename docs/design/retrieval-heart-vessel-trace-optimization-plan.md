@@ -1,5 +1,8 @@
 # Retrieval optimization plan from the fresh `心血管` trace
 
+Status: historical. The map-nav route named below was later removed. Live
+routes are classic map-unit BM25 and agent_explore.
+
 ## Scope and evidence
 
 The detailed stage breakdown below is based on a newly issued production

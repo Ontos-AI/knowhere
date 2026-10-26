@@ -15,7 +15,7 @@ dependencies = [
     "psycopg2-binary==2.9.12",
     "alembic==1.13.1",
     "sqlalchemy-utils==0.41.1",
-    "pgvector==0.2.4",
+    "pgvector>=0.4.1",
 
     # Redis
     "redis==5.3.1",
