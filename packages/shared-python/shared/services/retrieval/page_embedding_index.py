@@ -1,4 +1,4 @@
-"""Publication-time persistence and cross-stage/revision reuse of page embeddings."""
+"""Publication-time persistence and same-revision rebinding of page embeddings."""
 
 from __future__ import annotations
 
@@ -146,15 +146,14 @@ def replace_document_page_embeddings(
     scope: DocumentPublicationScope,
     incoming_embeddings_by_page: dict[int, list[float]] | None = None,
 ) -> int:
-    """Persist new M0 page embeddings or rebind/copy existing page embeddings across stages/revisions."""
+    """Persist new M0 page embeddings, or rebind existing ones to the current revision's page chunks."""
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
     owner_by_page = _build_owner_chunk_by_page(db, scope=scope)
     if not owner_by_page and not incoming_embeddings_by_page:
         return 0
 
-    model_name = resolve_embedding_model(getattr(settings, "EMBEDDING_MODEL", None))
-
     if incoming_embeddings_by_page:
+        model_name = resolve_embedding_model(getattr(settings, "EMBEDDING_MODEL", None))
         db.execute(
             delete(corpusStorage.DocumentPageEmbedding)
             .where(corpusStorage.DocumentPageEmbedding.document_id == scope.document_id)
@@ -197,64 +196,10 @@ def replace_document_page_embeddings(
             .order_by(corpusStorage.DocumentPageEmbedding.page_num)
         ).all()
     )
+    for row in current_rows:
+        target_chunk_id = owner_by_page.get(int(row.page_num))
+        if target_chunk_id and row.chunk_id != target_chunk_id:
+            row.chunk_id = target_chunk_id
     if current_rows:
-        for row in current_rows:
-            target_chunk_id = owner_by_page.get(int(row.page_num))
-            if target_chunk_id and row.chunk_id != target_chunk_id:
-                row.chunk_id = target_chunk_id
         db.flush()
-        return len(current_rows)
-
-    prior_revision_id = db.scalars(
-        select(corpusStorage.DocumentPageEmbedding.job_result_id)
-        .where(corpusStorage.DocumentPageEmbedding.document_id == scope.document_id)
-        .where(
-            corpusStorage.DocumentPageEmbedding.job_result_id != scope.job_result_id
-        )
-        .order_by(corpusStorage.DocumentPageEmbedding.created_at.desc())
-        .limit(1)
-    ).first()
-    if not prior_revision_id:
-        return 0
-
-    prior_rows = list(
-        db.scalars(
-            select(corpusStorage.DocumentPageEmbedding)
-            .where(corpusStorage.DocumentPageEmbedding.document_id == scope.document_id)
-            .where(
-                corpusStorage.DocumentPageEmbedding.job_result_id
-                == str(prior_revision_id)
-            )
-            .order_by(corpusStorage.DocumentPageEmbedding.page_num)
-        ).all()
-    )
-    copied = 0
-    for prior in prior_rows:
-        page_num = int(prior.page_num)
-        chunk_id = owner_by_page.get(page_num)
-        if not chunk_id:
-            continue
-        vec = (
-            prior.embedding.tolist()
-            if hasattr(prior.embedding, "tolist")
-            else list(prior.embedding)
-        )
-        db.add(
-            corpusStorage.DocumentPageEmbedding(
-                id=f"dpe_{uuid4().hex[:12]}",
-                user_id=scope.user_id,
-                namespace=scope.namespace,
-                document_id=scope.document_id,
-                job_result_id=scope.job_result_id,
-                chunk_id=chunk_id,
-                page_num=page_num,
-                modality=str(prior.modality or "visual"),
-                model=str(prior.model or model_name),
-                dims=int(prior.dims or len(vec)),
-                embedding=vec,
-            )
-        )
-        copied += 1
-    if copied:
-        db.flush()
-    return copied
+    return len(current_rows)

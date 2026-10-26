@@ -34,7 +34,6 @@ from shared.services.retrieval.search.map_unit_discovery import (
     map_unit_discovery,
 )
 from shared.services.retrieval.search.scoring import normalize_row_scores
-from shared.services.retrieval.search.section_filters import is_excluded_section
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 
 __all__ = ["hybrid_discovery", "visual_page_discovery"]
@@ -89,6 +88,33 @@ def _build_visual_section_subtree_clause(
             f"(ds.section_path = :{path_key} OR ds.section_path LIKE :{like_key}))"
         )
     return f"AND ({' OR '.join(parts)})", params
+
+
+def _build_visual_exclude_sections_clause(
+    exclude_sections: list[dict[str, str]],
+) -> tuple[str, dict[str, Any]]:
+    parts: list[str] = []
+    params: dict[str, Any] = {}
+    for index, item in enumerate(exclude_sections):
+        if not isinstance(item, dict):
+            continue
+        document_id = str(item.get("document_id") or "").strip()
+        section_path = str(item.get("section_path") or "").strip()
+        if not document_id or not section_path:
+            continue
+        doc_key = f"_vexc_doc_{index}"
+        path_key = f"_vexc_path_{index}"
+        like_key = f"_vexc_pathlike_{index}"
+        params[doc_key] = document_id
+        params[path_key] = section_path
+        params[like_key] = f"{section_path} / %"
+        parts.append(
+            f"(dpe.document_id = :{doc_key} AND "
+            f"(ds.section_path = :{path_key} OR ds.section_path LIKE :{like_key}))"
+        )
+    if not parts:
+        return "", {}
+    return f"AND NOT ({' OR '.join(parts)})", params
 
 
 async def visual_page_discovery(
@@ -177,83 +203,95 @@ async def visual_page_discovery(
     section_clause, section_params = _build_visual_section_subtree_clause(
         section_targets
     )
-    candidate_limit = max(int(top_k) * 4, 20)
+    exclude_clause, exclude_params = _build_visual_exclude_sections_clause(
+        exclude_sec_list
+    )
     query_params: dict[str, Any] = {
         **params,
         **signal_params,
         **section_params,
+        **exclude_params,
         "query_embedding": vector_literal,
-        "candidate_limit": candidate_limit,
+        "top_k": int(top_k),
     }
 
     search_sql = f"""
         SELECT
-            dpe.page_num,
-            1.0 - (dpe.embedding <=> CAST(:query_embedding AS vector)) AS similarity,
-            dc.chunk_id,
-            dc.document_id,
-            dc.section_id,
-            dc.chunk_type,
-            dc.content,
-            dc.source_chunk_path,
-            dc.file_path,
-            dc.chunk_metadata,
-            dc.job_result_id,
-            dc.sort_order,
-            ds.section_path,
-            d.source_file_name,
-            jr.job_id,
-            jr.document_metadata ->> 'result_raw_prefix' AS result_raw_prefix
-        FROM document_page_embeddings dpe
-        JOIN documents d
-            ON d.document_id = dpe.document_id
-            {revision_join}
-        JOIN document_chunks dc
-            ON dc.document_id = dpe.document_id
-            AND dc.job_result_id = dpe.job_result_id
-            AND dc.chunk_id = dpe.chunk_id
-        LEFT JOIN document_sections ds
-            ON ds.section_id = dc.section_id
-        LEFT JOIN job_results jr
-            ON jr.id = dc.job_result_id
-        WHERE d.user_id = :user_id
-            AND d.namespace = :namespace
-            AND d.status = 'active'
-            {revision_clause}
-            {document_scope_clause}
-            {signal_clause}
-            {section_clause}
-        ORDER BY dpe.embedding <=> CAST(:query_embedding AS vector) ASC,
-                 dpe.page_num ASC
-        LIMIT :candidate_limit
+            ranked.page_num,
+            ranked.similarity,
+            ranked.chunk_id,
+            ranked.document_id,
+            ranked.section_id,
+            ranked.chunk_type,
+            ranked.content,
+            ranked.source_chunk_path,
+            ranked.file_path,
+            ranked.chunk_metadata,
+            ranked.job_result_id,
+            ranked.sort_order,
+            ranked.section_path,
+            ranked.source_file_name,
+            ranked.job_id,
+            ranked.result_raw_prefix
+        FROM (
+            SELECT DISTINCT ON (dpe.document_id, dpe.chunk_id)
+                dpe.page_num,
+                1.0 - (dpe.embedding <=> CAST(:query_embedding AS vector))
+                    AS similarity,
+                dc.chunk_id,
+                dc.document_id,
+                dc.section_id,
+                dc.chunk_type,
+                dc.content,
+                dc.source_chunk_path,
+                dc.file_path,
+                dc.chunk_metadata,
+                dc.job_result_id,
+                dc.sort_order,
+                ds.section_path,
+                d.source_file_name,
+                jr.job_id,
+                jr.document_metadata ->> 'result_raw_prefix' AS result_raw_prefix
+            FROM document_page_embeddings dpe
+            JOIN documents d
+                ON d.document_id = dpe.document_id
+                {revision_join}
+            JOIN document_chunks dc
+                ON dc.document_id = dpe.document_id
+                AND dc.job_result_id = dpe.job_result_id
+                AND dc.chunk_id = dpe.chunk_id
+            LEFT JOIN document_sections ds
+                ON ds.section_id = dc.section_id
+            LEFT JOIN job_results jr
+                ON jr.id = dc.job_result_id
+            WHERE d.user_id = :user_id
+                AND d.namespace = :namespace
+                AND d.status = 'active'
+                {revision_clause}
+                {document_scope_clause}
+                {signal_clause}
+                {section_clause}
+                {exclude_clause}
+            ORDER BY dpe.document_id,
+                     dpe.chunk_id,
+                     dpe.embedding <=> CAST(:query_embedding AS vector) ASC,
+                     dpe.page_num ASC
+        ) ranked
+        ORDER BY ranked.similarity DESC, ranked.page_num ASC
+        LIMIT :top_k
     """
     result = await db.execute(
         text(corpusStorage.compile_sql(search_sql)), query_params
     )
 
-    primaries_by_chunk: dict[tuple[str, str], dict[str, Any]] = {}
+    primaries: list[dict[str, Any]] = []
     for raw_row in result.all():
         row = dict(raw_row._mapping)
-        if is_excluded_section(
-            document_id=row.get("document_id"),
-            section_path=row.get("section_path"),
-            exclude_sections=exclude_sec_list,
-        ):
-            continue
         similarity = max(0.0, float(row.pop("similarity", 0.0) or 0.0))
         row.pop("page_num", None)
         row["chunk_metadata"] = _as_metadata_dict(row.get("chunk_metadata"))
         row["score"] = similarity
-        key = (str(row.get("document_id") or ""), str(row.get("chunk_id") or ""))
-        existing = primaries_by_chunk.get(key)
-        if existing is None or similarity > float(existing.get("score") or 0.0):
-            primaries_by_chunk[key] = row
-
-    primaries = sorted(
-        primaries_by_chunk.values(),
-        key=lambda item: float(item.get("score") or 0.0),
-        reverse=True,
-    )[:top_k]
+        primaries.append(row)
 
     if chunk_types is not None and chunk_types.issubset(ASSET_CHUNK_TYPES):
         connected = await hydrate_connected_target_rows(

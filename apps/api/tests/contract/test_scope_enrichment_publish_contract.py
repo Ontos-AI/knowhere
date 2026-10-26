@@ -1445,7 +1445,7 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
             ).scalar_one()
             assert (sec2_chunk.chunk_metadata or {}).get("page_assets")
 
-        async def _verify_hybrid_after_coarse_and_flag_off() -> None:
+        async def _verify_hybrid_after_coarse() -> float:
             async with get_db_context() as async_db:
                 hyb_res = await hybrid_discovery(
                     async_db,
@@ -1455,6 +1455,83 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                     top_k=2,
                 )
                 assert hyb_res.payload["fused_rows"][0]["chunk_id"] == "coarse-sec-2"
+
+                vis_res = await visual_page_discovery(
+                    async_db,
+                    user_id=scope.user_ref,
+                    namespace=scope.namespace_ref,
+                    query="second page chart",
+                    top_k=2,
+                )
+                vis_rows = vis_res.payload["fused_rows"]
+                assert vis_rows[0]["chunk_id"] == "coarse-sec-2"
+
+                excluded = await visual_page_discovery(
+                    async_db,
+                    user_id=scope.user_ref,
+                    namespace=scope.namespace_ref,
+                    query="second page chart",
+                    top_k=2,
+                    exclude_sections=[
+                        {
+                            "document_id": doc_id,
+                            "section_path": "Chapter1 / SecB",
+                        }
+                    ],
+                )
+                assert "coarse-sec-2" not in [
+                    row["chunk_id"] for row in excluded.payload["fused_rows"]
+                ]
+                return float(vis_rows[0]["score"])
+
+        page2_score = asyncio.run(_verify_hybrid_after_coarse())
+
+        with Session(engine) as session:
+            replace_scope_content(
+                session,
+                scope=pub_scope,
+                scope_id="*",
+                chunks=[
+                    {
+                        "chunk_id": "merged-sec",
+                        "type": "page",
+                        "content": "ocr text page one and two",
+                        "path": f"{scope.source_file_name}/Chapter1",
+                        "metadata": {
+                            "scope_id": "p1-1",
+                            "enrichment_state": "coarse",
+                            "page_nums": [1, 2],
+                        },
+                    }
+                ],
+            )
+            session.commit()
+            merged_emb_rows = list(
+                session.scalars(
+                    select(DocumentPageEmbedding)
+                    .where(DocumentPageEmbedding.document_id == doc_id)
+                    .order_by(DocumentPageEmbedding.page_num)
+                ).all()
+            )
+            assert [r.chunk_id for r in merged_emb_rows] == [
+                "merged-sec",
+                "merged-sec",
+            ]
+            assert [r.page_num for r in merged_emb_rows] == [1, 2]
+
+        async def _verify_chunk_max_pool_and_flag_off() -> None:
+            async with get_db_context() as async_db:
+                merged_res = await visual_page_discovery(
+                    async_db,
+                    user_id=scope.user_ref,
+                    namespace=scope.namespace_ref,
+                    query="second page chart",
+                    top_k=2,
+                )
+                merged_rows = merged_res.payload["fused_rows"]
+                assert len(merged_rows) == 1
+                assert merged_rows[0]["chunk_id"] == "merged-sec"
+                assert abs(float(merged_rows[0]["score"]) - page2_score) < 1e-9
 
                 monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", False)
                 off_res = await visual_page_discovery(
@@ -1466,7 +1543,7 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                 )
                 assert off_res.payload["fused_rows"] == []
 
-        asyncio.run(_verify_hybrid_after_coarse_and_flag_off())
+        asyncio.run(_verify_chunk_max_pool_and_flag_off())
     finally:
         engine.dispose()
 
