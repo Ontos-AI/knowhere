@@ -152,7 +152,12 @@ def execute_structure_enrichment(
             job_id=target.job_id,
             raw_prefix=target.raw_prefix,
             workspace_dir=workspace_dir,
-            artifact_refs={PHASE_B_MANIFEST_REL, PHASE_B_ANATOMY_REL}
+            artifact_refs={
+                PHASE_B_MANIFEST_REL,
+                PHASE_B_ANATOMY_REL,
+                PHASE_B_FULL_TEXT_REL,
+                PHASE_B_BODY_TEXT_REL,
+            }
             & set(phase_b_refs),
         )
         coarse_chunks = cast(
@@ -541,6 +546,8 @@ def _resume_profile_from_m0_workspace(
     bb.global_signals = dict(bb_raw.get("global_signals") or {})
     bb.page_full_text_cache = page_bands_map(bb_raw["page_full_text_bands"])
     bb.page_text_search_view = None
+    if doc_profile.is_scanned and not bb.page_full_text_cache:
+        coordinator._run_text_scan()
     coordinator._ensure_toc_profile(strict=False)
 
     routing_category = PdfRoutingCategory.normalize(doc_profile.routing_category)

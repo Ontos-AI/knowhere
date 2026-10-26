@@ -153,7 +153,8 @@ def format_still_structuring_note(file_names: list[str]) -> str:
     return (
         f"{joined} is still being structured (state=text); no section outline yet. "
         "Do not retry outline, node_filter, or assets on it in this session — "
-        "use corpus.recall, corpus.grep, and corpus.read on page text directly."
+        "use corpus.recall (including visual semantic recall for scanned pages), "
+        "corpus.grep, and corpus.read on pages directly."
     )
 
 

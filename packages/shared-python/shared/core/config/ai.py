@@ -44,6 +44,33 @@ class AIConfig(BaseModel):
             "Empty follows IMAGE_MODEL."
         ),
     )
+    EMBEDDING_MODEL: str = Field(
+        default="multimodal-embedding-v1",
+        description=(
+            "DashScope multimodal embedding model producing shared-space "
+            "image and text vectors. Legacy text-embedding-v4 is routed to "
+            "multimodal-embedding-v1."
+        ),
+    )
+    EMBEDDING_DIM: int = Field(
+        default=1024,
+        description="Dimension of multimodal page and query embeddings.",
+    )
+    EMBEDDING_ENDPOINT: str = Field(
+        default="https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding",
+        description="DashScope native multimodal embedding HTTP endpoint.",
+    )
+    VISUAL_RETRIEVAL_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "Enable pure-visual M0 page embeddings for scanned progressive "
+            "documents and hybrid visual+lexical retrieval."
+        ),
+    )
+    PAGE_MEMORY_EMBED_CONCURRENCY: int = Field(
+        default=8,
+        description="Local per-job page embedding concurrency for scanned M0 documents.",
+    )
 
     # Runtime LLM controls.
     LLM_MOCK_ENABLED: bool = Field(

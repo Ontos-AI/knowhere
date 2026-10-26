@@ -1551,7 +1551,7 @@ requires-dist = [
     { name = "kombu", specifier = "==5.5.4" },
     { name = "loguru", specifier = "==0.7.3" },
     { name = "openai", specifier = ">=1.0.0" },
-    { name = "pgvector", specifier = "==0.2.4" },
+    { name = "pgvector", specifier = ">=0.2.4" },
     { name = "pillow", specifier = "==12.2.0" },
     { name = "posthog", specifier = "==7.18.1" },
     { name = "psutil", specifier = "==5.9.8" },

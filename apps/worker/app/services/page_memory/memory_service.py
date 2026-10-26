@@ -33,11 +33,13 @@ from app.services.page_memory._serialization import (
 from app.services.page_memory.phase_a import (
     build_coarse_text_dataframe,
     build_phase_a,
+    build_visual_page_dataframe,
     persist_m0_inputs,
 )
 
 from loguru import logger
 
+from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.models.schemas.page_memory_config import PageMemoryConfig, resolve_asset_model
 from app.services.page_memory.body_text_preview import build_body_text_preview
@@ -91,6 +93,9 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
             )
         _persist_source_pdf(pdf_path=pdf_path, output_dir=full_output_dir)
         is_progressive = str(request.ingestion_mode or "full").strip().lower() == "progressive"
+        visual_m0_enabled = is_progressive and bool(
+            getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
+        )
         with stage_timer("page_memory.profile", filename=pdf_filename):
             profile = profile_document(
                 pdf_path,
@@ -100,6 +105,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 skip_shard_plan=True,
                 oversized_policy="page_memory",
                 stop_after="asset_probe" if is_progressive else None,
+                skip_scanned_ocr=visual_m0_enabled,
             )
         trace_recorder = getattr(profile, "trace_recorder", None)
         page_count = max(int(profile.page_count or 0), 0)
@@ -133,16 +139,24 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 body_text_by_page=getattr(profile, "page_body_text_cache", None),
             )
         elif is_progressive:
-            parsed_df = build_coarse_text_dataframe(
-                page_texts=coerce_page_text_cache(
-                    getattr(profile, "page_full_text_cache", None)
-                ),
-                body_text_by_page=coerce_page_text_cache(
-                    getattr(profile, "page_body_text_cache", None)
-                ),
-                page_count=page_count,
-                filename=request.filename,
-            )
+            if visual_m0_enabled and bool(getattr(profile, "is_scanned", False)):
+                parsed_df = _build_visual_m0_dataframe(
+                    pdf_path=pdf_path,
+                    filename=request.filename,
+                    output_dir=full_output_dir,
+                    page_count=page_count,
+                )
+            else:
+                parsed_df = build_coarse_text_dataframe(
+                    page_texts=coerce_page_text_cache(
+                        getattr(profile, "page_full_text_cache", None)
+                    ),
+                    body_text_by_page=coerce_page_text_cache(
+                        getattr(profile, "page_body_text_cache", None)
+                    ),
+                    page_count=page_count,
+                    filename=request.filename,
+                )
             persist_m0_inputs(
                 output_dir=full_output_dir,
                 profile=profile,
@@ -185,6 +199,54 @@ def _persist_source_pdf(*, pdf_path: str, output_dir: str) -> str:
     if Path(pdf_path).resolve() != Path(source_pdf_path).resolve():
         shutil.copyfile(pdf_path, source_pdf_path)
     return source_pdf_path
+
+
+def _build_visual_m0_dataframe(
+    *,
+    pdf_path: str,
+    filename: str,
+    output_dir: str,
+    page_count: int,
+) -> pd.DataFrame:
+    from app.services.page_memory.page_renderer import render_document_pages
+    from shared.services.ai.embedding import embed_images
+
+    pages = list(range(1, max(int(page_count or 0), 0) + 1))
+    with stage_timer("page_memory.m0_render", filename=filename, page_count=len(pages)):
+        rendered = render_document_pages(
+            pdf_path=pdf_path,
+            page_count=page_count,
+            output_dir=output_dir,
+            scope_id="m0",
+            pages=pages,
+            page_texts={},
+        )
+    image_path_by_page = {
+        int(item.page_index): str(item.image_path)
+        for item in rendered
+        if item.image_path
+    }
+    ordered_pages = [page for page in pages if page in image_path_by_page]
+    with stage_timer(
+        "page_memory.m0_embed",
+        filename=filename,
+        page_count=len(ordered_pages),
+    ):
+        vectors = embed_images(
+            [image_path_by_page[page] for page in ordered_pages],
+            usage_task="page_memory.m0_embed",
+        )
+    embeddings_by_page = {
+        page: vec
+        for page, vec in zip(ordered_pages, vectors, strict=True)
+    }
+    return build_visual_page_dataframe(
+        page_count=page_count,
+        filename=filename,
+        image_path_by_page=image_path_by_page,
+        embeddings_by_page=embeddings_by_page,
+        output_dir=output_dir,
+    )
 
 
 def _decide_granularity(profile: Any) -> str:

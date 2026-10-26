@@ -315,6 +315,55 @@ def build_coarse_text_dataframe(
     return pd.DataFrame(rows, columns=pd.Index(PARSER_DF_COLUMNS))
 
 
+def build_visual_page_dataframe(
+    *,
+    page_count: int,
+    filename: str,
+    image_path_by_page: dict[int, str],
+    embeddings_by_page: dict[int, list[float]],
+    output_dir: str,
+) -> pd.DataFrame:
+    """Pure-visual M0 baseline for scanned PDFs: empty text, page_assets + _page_embedding."""
+    from app.services.page_memory.node_assembler import _build_page_citation_assets
+
+    rows: list[dict[str, Any]] = []
+    for page in range(1, max(int(page_count or 0), 0) + 1):
+        scope_id = f"p{page}-{page}"
+        path = join_document_path([filename, f"p{page}"])
+        page_assets = _build_page_citation_assets(
+            pages=[page],
+            image_path_by_page=image_path_by_page,
+            output_dir=output_dir,
+        )
+        extra_metadata: dict[str, Any] = {
+            "scope_id": scope_id,
+            "enrichment_state": TEXT_ENRICHMENT_STATE,
+            "body_text_preview": "",
+        }
+        if page_assets:
+            extra_metadata["page_assets"] = page_assets
+        embedding = embeddings_by_page.get(page)
+        if isinstance(embedding, list) and embedding:
+            extra_metadata["_page_embedding"] = [float(val) for val in embedding]
+        rows.append(
+            {
+                "content": "",
+                "path": path,
+                "type": "page",
+                "length": 0,
+                "keywords": "",
+                "summary": "",
+                "know_id": f"node_{gen_str_codes(f'{filename}::{path}')}",
+                "tokens": "",
+                "connectto": "",
+                "addtime": get_str_time(),
+                "page_nums": str(page),
+                "extra_metadata": extra_metadata,
+            }
+        )
+    return pd.DataFrame(rows, columns=pd.Index(PARSER_DF_COLUMNS))
+
+
 def persist_m0_inputs(
     *,
     output_dir: str,

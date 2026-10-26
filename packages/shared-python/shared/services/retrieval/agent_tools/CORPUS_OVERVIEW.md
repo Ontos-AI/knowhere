@@ -28,9 +28,11 @@ Addresses from this example:
 
 Documents may still be loading progressively (`status` is `text`, `coarse`, or
 `complete`):
-- Page text is always searchable immediately via `corpus.recall`, `corpus.grep`,
-  and `corpus.read`.
+- Pages are always searchable immediately via `corpus.recall` (lexical and
+  visual semantic for scanned pages), `corpus.grep` (once text/OCR is present),
+  and `corpus.read` (returns page text or the rendered page image).
 - `corpus.outline` and `corpus.node_filter` require `coarse` or `complete`.
-- `corpus.assets` and `corpus.query_table` require per-scope refinement.
+- Extracted figure and table tools require per-scope refinement.
 A "not ready yet" tool note means background processing is still running — do
-not retry that tool on the same scope in this session; answer from page text.
+not retry that tool on the same scope in this session; answer from page text
+or page images returned by `corpus.read`.

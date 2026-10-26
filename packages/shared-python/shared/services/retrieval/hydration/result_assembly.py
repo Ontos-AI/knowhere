@@ -71,7 +71,9 @@ async def assemble_retrieval_results(
         if chunk_type == 'page':
             if page_enrichment_state(row) in {'text', 'coarse', 'queued'}:
                 assembled_row['content'] = base_content
-                assembled_row['content_source'] = 'raw'
+                assembled_row['content_source'] = (
+                    'raw' if base_content.strip() else 'page_image'
+                )
             else:
                 assembled_row['content'] = page_summary(row)
                 assembled_row['content_source'] = 'summary'

@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     CheckConstraint,
@@ -429,6 +430,74 @@ class DemoDocumentMapUnitIndex(Base):
             "idx_demo_document_map_unit_indexes_revision",
             "document_id",
             "job_result_id",
+        ),
+    )
+
+
+class DemoDocumentPageEmbedding(Base):
+    """Persisted multimodal page embedding for one shared demo document revision."""
+
+    __tablename__ = "demo_document_page_embeddings"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: f"dpe_{uuid4().hex[:12]}"
+    )
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    namespace: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="__knowhere_demo__"
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("demo_documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_result_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("job_results.id", ondelete="RESTRICT"), nullable=False
+    )
+    chunk_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    page_num: Mapped[int] = mapped_column(Integer, nullable=False)
+    modality: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="visual"
+    )
+    model: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="multimodal-embedding-v1"
+    )
+    dims: Mapped[int] = mapped_column(Integer, nullable=False, default=1024)
+    embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_result_id", "document_id"],
+            ["job_results.id", "job_results.demo_document_id"],
+            ondelete="RESTRICT",
+            name="fk_demo_documentpageembedding_revision",
+        ),
+        UniqueConstraint(
+            "document_id",
+            "job_result_id",
+            "page_num",
+            name="uq_demo_document_page_embeddings_revision_page",
+        ),
+        Index(
+            "idx_demo_document_page_embeddings_scope",
+            "user_id",
+            "namespace",
+            "job_result_id",
+        ),
+        Index(
+            "idx_demo_document_page_embeddings_revision",
+            "document_id",
+            "job_result_id",
+            "page_num",
+        ),
+        Index(
+            "idx_demo_document_page_embeddings_hnsw_cosine",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
 

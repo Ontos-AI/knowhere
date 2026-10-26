@@ -14,6 +14,12 @@ from shared.services.retrieval.cache_service import (
 )
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.map_unit_index import replace_document_map_units
+from shared.services.retrieval.page_embedding_index import (
+    extract_and_strip_page_embeddings,
+    inherit_missing_page_assets,
+    load_revision_page_assets_by_page,
+    replace_document_page_embeddings,
+)
 from shared.services.retrieval.publication_chunk_copy import insert_chunks_with_copy
 from shared.services.retrieval.publication_content import (
     DocumentSectionPublisher,
@@ -48,6 +54,10 @@ def replace_document_scope_content(
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
     with trace_publication_stage(trace, "chunks_prepare"):
         deduped_chunks = deduplicate_chunks_by_source_path(chunks)
+        prior_page_assets_by_page = load_revision_page_assets_by_page(
+            db,
+            scope=scope,
+        )
 
     with trace_publication_stage(trace, "chunks_persist"):
         delete_stmt = (
@@ -78,10 +88,14 @@ def replace_document_scope_content(
     prepared_chunks: list[
         tuple[int, dict[str, Any], dict[str, Any], str | None, DocumentSection]
     ] = []
+    incoming_embeddings_by_page: dict[int, list[float]] = {}
     with trace_publication_stage(trace, "sections_prepare"):
         for index, chunk in enumerate(deduped_chunks):
             safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
             chunk_metadata = dict(_get_chunk_metadata(safe_chunk))
+            incoming_embeddings_by_page.update(
+                extract_and_strip_page_embeddings(chunk_metadata)
+            )
             if scope_id != "*":
                 chunk_metadata["scope_id"] = scope_id
             chunk_type = str(
@@ -94,6 +108,10 @@ def replace_document_scope_content(
                     chunk_metadata.setdefault(
                         "enrichment_state", _REFINED_ENRICHMENT_STATE
                     )
+                inherit_missing_page_assets(
+                    chunk_metadata,
+                    prior_page_assets_by_page,
+                )
             source_path = _get_source_path(
                 chunk=safe_chunk,
                 chunk_metadata=chunk_metadata,
@@ -132,6 +150,12 @@ def replace_document_scope_content(
         scope=scope,
         trace=trace,
         clear_existing=True,
+    )
+    replace_document_page_embeddings(
+        db,
+        scope=scope,
+        incoming_embeddings_by_page=incoming_embeddings_by_page or None,
+        trace=trace,
     )
     manifest_payload = persist_revision_serving_state(db, scope=scope, trace=trace)
     bump_retrieval_namespace_cache_version_sync(

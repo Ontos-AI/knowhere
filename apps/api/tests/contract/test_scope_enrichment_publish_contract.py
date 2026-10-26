@@ -1146,3 +1146,320 @@ def test_m0_text_publish_enqueues_structure_and_supports_any_stage_explore_and_a
     finally:
         engine.dispose()
 
+
+def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
+    monkeypatch,
+    postgresql_proc: PostgreSQLProcess,
+    tmp_path,
+) -> None:
+    import base64
+    from pathlib import Path
+
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    database_url = make_url(get_contract_database_url()).set(
+        drivername="postgresql+psycopg2"
+    )
+    engine = create_engine(database_url)
+    scope = _scope("vism0")
+
+    from shared.core.config import settings
+    from shared.core.database import get_db_context
+    from shared.models.database.document import DocumentPageEmbedding
+    from shared.services.ai.embedding import multimodal_client
+    from shared.services.retrieval.agent_tools.tools.read import read as fresh_read
+    from shared.services.retrieval.agent_tools.tools.recall import recall as fresh_recall
+    from shared.services.retrieval.execution.route_types import RetrievalRouteContext
+    from shared.services.retrieval.execution.routes import _run_classic_topk_route
+    from shared.services.retrieval.publication_scope_content import (
+        replace_document_scope_content as replace_scope_content,
+    )
+    from shared.services.retrieval.search.visual_discovery import (
+        hybrid_discovery,
+        visual_page_discovery,
+    )
+    from shared.services.storage.result_storage import JobResultStorage
+
+    vec_p1 = [1.0] + [0.0] * 1023
+    vec_p2 = [0.0, 1.0] + [0.0] * 1022
+    monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
+    monkeypatch.setattr(
+        multimodal_client,
+        "_call_dashscope_multimodal_embedding",
+        lambda *, content_item, **kw: (
+            vec_p2
+            if "second page chart" in str(content_item.get("text") or "")
+            else vec_p1
+        ),
+    )
+
+    fake_png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    fake_png_file = Path(tmp_path) / "page.png"
+    fake_png_file.write_bytes(fake_png_bytes)
+
+    monkeypatch.setattr(
+        JobResultStorage,
+        "download_raw_to_temp",
+        lambda self, **kwargs: str(fake_png_file),
+    )
+    monkeypatch.setattr(
+        JobResultStorage,
+        "generate_artifact_url",
+        lambda self, **kwargs: f"https://assets.knowhere.test/{kwargs.get('artifact_ref', 'page.png')}",
+    )
+
+    try:
+        with Session(engine) as session:
+            seed_publication_fixture(session, scope=scope)
+            _set_job_progressive(
+                session,
+                job_id=scope.job_ref,
+                ingestion_mode="progressive",
+                enrichment_status="text",
+            )
+            session.commit()
+
+        # Publish pure-visual M0 (empty content, _page_embedding + page_assets).
+        m0_chunks: list[dict[str, object]] = [
+            {
+                "chunk_id": "scan-m0-p1",
+                "type": "page",
+                "content": "",
+                "path": f"{scope.source_file_name}/p1",
+                "metadata": {
+                    "scope_id": "p1-1",
+                    "enrichment_state": "text",
+                    "page_nums": [1],
+                    "_page_embedding": vec_p1,
+                    "page_assets": [
+                        {
+                            "page_num": 1,
+                            "artifact_ref": "page_citation_assets/page-1.png",
+                            "content_type": "image/png",
+                            "source": "knowhere-rendered-page-citation-source",
+                        }
+                    ],
+                },
+            },
+            {
+                "chunk_id": "scan-m0-p2",
+                "type": "page",
+                "content": "",
+                "path": f"{scope.source_file_name}/p2",
+                "metadata": {
+                    "scope_id": "p2-2",
+                    "enrichment_state": "text",
+                    "page_nums": [2],
+                    "_page_embedding": vec_p2,
+                    "page_assets": [
+                        {
+                            "page_num": 2,
+                            "artifact_ref": "page_citation_assets/page-2.png",
+                            "content_type": "image/png",
+                            "source": "knowhere-rendered-page-citation-source",
+                        }
+                    ],
+                },
+            },
+        ]
+        with Session(engine) as session:
+            _finalize(session, job_id=scope.job_ref, chunks=m0_chunks)
+            doc_id = str(
+                session.execute(
+                    select(Document.document_id).where(
+                        Document.current_job_result_id == scope.revision_ref
+                    )
+                ).scalar_one()
+            )
+            session.commit()
+
+            emb_rows = list(
+                session.scalars(
+                    select(DocumentPageEmbedding)
+                    .where(DocumentPageEmbedding.document_id == doc_id)
+                    .order_by(DocumentPageEmbedding.page_num)
+                ).all()
+            )
+            assert len(emb_rows) == 2
+            assert [r.chunk_id for r in emb_rows] == ["scan-m0-p1", "scan-m0-p2"]
+            assert [r.page_num for r in emb_rows] == [1, 2]
+
+            persisted_chunks = list(
+                session.scalars(
+                    select(DocumentChunk)
+                    .where(DocumentChunk.document_id == doc_id)
+                    .order_by(DocumentChunk.sort_order)
+                ).all()
+            )
+            assert all(
+                "_page_embedding" not in (c.chunk_metadata or {})
+                for c in persisted_chunks
+            )
+
+        async def _verify_visual_m0_retrieval_and_tools() -> None:
+            async with get_db_context() as async_db:
+                # 1. Direct visual_page_discovery hits page 2 for query matching vec_p2.
+                vis_res = await visual_page_discovery(
+                    async_db,
+                    user_id=scope.user_ref,
+                    namespace=scope.namespace_ref,
+                    query="what does the second page chart show",
+                    top_k=2,
+                )
+                vis_rows = vis_res.payload["fused_rows"]
+                assert len(vis_rows) == 2
+                assert vis_rows[0]["chunk_id"] == "scan-m0-p2"
+
+                # 2. Classic route answers via visual channel even though lexical is empty.
+                classic_outcome = await _run_classic_topk_route(
+                    RetrievalRouteContext(
+                        db=async_db,
+                        user_id=scope.user_ref,
+                        namespace=scope.namespace_ref,
+                        query="what does the second page chart show",
+                        top_k=1,
+                        effective_recall_k=2,
+                        use_agentic=False,
+                        exclude_document_ids=[],
+                        exclude_sections=[],
+                        chunk_types=None,
+                        allowed_chunk_types=None,
+                        rerank=False,
+                        threshold=0.0,
+                        internal_recall_k=2,
+                        signal_paths=[],
+                        filter_mode="delete",
+                    )
+                )
+                classic_results = classic_outcome.response["results"]
+                assert len(classic_results) == 1
+                assert classic_results[0]["chunk_id"] == "scan-m0-p2"
+                assert classic_results[0]["content_source"] == "page_image"
+                assert classic_results[0]["page_nums"] == [2]
+                assert any(
+                    part.get("type") == "image"
+                    for part in classic_results[0]["composed"]
+                )
+
+                # 3. Agent corpus.recall + corpus.read work on pure-visual M0.
+                ctx = ToolContext(
+                    db=async_db,
+                    user_id=scope.user_ref,
+                    namespace=scope.namespace_ref,
+                    db_factory=get_db_context,
+                )
+                recall_res = await fresh_recall(
+                    ctx, {"query": "what does the second page chart show"}
+                )
+                assert recall_res.error is None
+                assert recall_res.payload["rows"][0]["section_path"] == "p2"
+                assert "scanned page image" in recall_res.text
+
+                read_res = await fresh_read(
+                    ctx,
+                    {
+                        "refs": [
+                            {"document_id": doc_id, "chunk_id": "scan-m0-p2"}
+                        ]
+                    },
+                )
+                assert read_res.error is None
+                assert "[Page image: https://assets.knowhere.test/page_citation_assets/page-2.png]" in read_res.text
+                assert read_res.media == [
+                    {
+                        "type": "image_url",
+                        "url": "https://assets.knowhere.test/page_citation_assets/page-2.png",
+                    }
+                ]
+
+        asyncio.run(_verify_visual_m0_retrieval_and_tools())
+
+        # 4. Background coarse + fine republish reuse M0 embeddings without recomputing,
+        # rebind chunk_id to new section chunks, and inherit page_assets.
+        with Session(engine) as session:
+            pub_scope = DocumentPublicationScope(
+                user_id=scope.user_ref,
+                namespace=scope.namespace_ref,
+                document_id=doc_id,
+                job_result_id=scope.revision_ref,
+                source_file_name=scope.source_file_name,
+            )
+            replace_scope_content(
+                session,
+                scope=pub_scope,
+                scope_id="*",
+                chunks=[
+                    {
+                        "chunk_id": "coarse-sec-1",
+                        "type": "page",
+                        "content": "ocr text page one",
+                        "path": f"{scope.source_file_name}/Chapter1/SecA",
+                        "metadata": {
+                            "scope_id": "p1-1",
+                            "enrichment_state": "coarse",
+                            "page_nums": [1],
+                        },
+                    },
+                    {
+                        "chunk_id": "coarse-sec-2",
+                        "type": "page",
+                        "content": "ocr text page two",
+                        "path": f"{scope.source_file_name}/Chapter1/SecB",
+                        "metadata": {
+                            "scope_id": "p2-2",
+                            "enrichment_state": "coarse",
+                            "page_nums": [2],
+                        },
+                    },
+                ],
+                section_summaries={"Chapter1 / SecB": "SecB summary"},
+            )
+            session.commit()
+
+            emb_rows_after_coarse = list(
+                session.scalars(
+                    select(DocumentPageEmbedding)
+                    .where(DocumentPageEmbedding.document_id == doc_id)
+                    .order_by(DocumentPageEmbedding.page_num)
+                ).all()
+            )
+            assert [r.chunk_id for r in emb_rows_after_coarse] == [
+                "coarse-sec-1",
+                "coarse-sec-2",
+            ]
+            sec2_chunk = session.execute(
+                select(DocumentChunk).where(
+                    DocumentChunk.document_id == doc_id,
+                    DocumentChunk.chunk_id == "coarse-sec-2",
+                )
+            ).scalar_one()
+            assert (sec2_chunk.chunk_metadata or {}).get("page_assets")
+
+        async def _verify_hybrid_after_coarse_and_flag_off() -> None:
+            async with get_db_context() as async_db:
+                hyb_res = await hybrid_discovery(
+                    async_db,
+                    user_id=scope.user_ref,
+                    namespace=scope.namespace_ref,
+                    query="second page chart",
+                    top_k=2,
+                )
+                assert hyb_res.payload["fused_rows"][0]["chunk_id"] == "coarse-sec-2"
+
+                monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", False)
+                off_res = await visual_page_discovery(
+                    async_db,
+                    user_id=scope.user_ref,
+                    namespace=scope.namespace_ref,
+                    query="second page chart",
+                    top_k=2,
+                )
+                assert off_res.payload["fused_rows"] == []
+
+        asyncio.run(_verify_hybrid_after_coarse_and_flag_off())
+    finally:
+        engine.dispose()
+
+

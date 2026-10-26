@@ -224,6 +224,27 @@ async def _resolve_same_as_markers(
         row["content"] = content
 
 
+def _page_image_display_content(row: dict[str, Any]) -> str:
+    metadata = row.get("chunk_metadata") or row.get("metadata") or {}
+    raw_assets = metadata.get("page_assets") if isinstance(metadata, dict) else None
+    lines: list[str] = []
+    if isinstance(raw_assets, list):
+        for item in raw_assets:
+            if not isinstance(item, dict):
+                continue
+            ref = (
+                str(item.get("asset_url") or "").strip()
+                or str(item.get("artifact_ref") or "").strip()
+            )
+            if ref:
+                lines.append(f"[Page image: {ref}]")
+    if not lines:
+        fallback_ref = str(row.get("asset_url") or "").strip()
+        if fallback_ref:
+            lines.append(f"[Page image: {fallback_ref}]")
+    return "\n".join(lines)
+
+
 def _compose_explore_text(
     row: dict[str, Any],
     rows_by_chunk_id: dict[str, dict[str, Any]],
@@ -231,6 +252,13 @@ def _compose_explore_text(
     char_budget: int,
 ) -> str:
     base_content = str(row.get("content") or "")
+    if (
+        not base_content.strip()
+        and normalize_chunk_type(row.get("chunk_type")) == "page"
+    ):
+        page_display = _page_image_display_content(row)
+        if page_display:
+            return page_display
     display = _explore_display_by_target(
         row,
         rows_by_chunk_id,
@@ -276,11 +304,31 @@ def _explore_display_by_target(
 
 
 def _https_image_media(row: dict[str, Any]) -> list[dict[str, str]]:
-    if normalize_chunk_type(row.get("chunk_type")) != "image":
+    chunk_type = normalize_chunk_type(row.get("chunk_type"))
+    if chunk_type == "image":
+        url = str(row.get("asset_url") or "").strip()
+        if url.startswith("https://"):
+            return [{"type": "image_url", "url": url}]
         return []
-    url = str(row.get("asset_url") or "").strip()
-    if url.startswith("https://"):
-        return [{"type": "image_url", "url": url}]
+    raw_content = str(row.get("content") or "").strip()
+    if chunk_type == "page" and (
+        not raw_content or raw_content == _page_image_display_content(row)
+    ):
+        media: list[dict[str, str]] = []
+        metadata = row.get("chunk_metadata") or row.get("metadata") or {}
+        raw_assets = metadata.get("page_assets") if isinstance(metadata, dict) else None
+        if isinstance(raw_assets, list):
+            for item in raw_assets:
+                if not isinstance(item, dict):
+                    continue
+                url = str(item.get("asset_url") or "").strip()
+                if url.startswith("https://"):
+                    media.append({"type": "image_url", "url": url})
+        if not media:
+            url = str(row.get("asset_url") or "").strip()
+            if url.startswith("https://"):
+                media.append({"type": "image_url", "url": url})
+        return media
     return []
 
 
@@ -727,7 +775,14 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                     char_budget=char_budget,
                 )
                 if include_assets
-                else row.get("content")
+                else (
+                    row.get("content")
+                    or (
+                        _page_image_display_content(row)
+                        if chunk_type == "page"
+                        else ""
+                    )
+                )
             )
         elif chunk_type == "table":
             composed["content"] = render_explore_table(

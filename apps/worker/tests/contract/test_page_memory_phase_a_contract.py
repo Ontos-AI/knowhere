@@ -497,3 +497,117 @@ def test_result_storage_uploads_phase_b_internal_files(tmp_path: Path) -> None:
     assert set(bundle.raw_files) == {PHASE_B_SOURCE_PDF_REL, PHASE_B_MANIFEST_REL}
     assert "results/job-1/phase_b/manifest.json" in adapter.uploaded_keys
     assert "results/job-1/pages/page-1.png" not in adapter.uploaded_keys
+
+
+def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services.document_agent.coordinator import ProfileCoordinator
+    from app.services.document_agent.manifest import DocumentProfile
+    from app.services.document_agent.registry import REGISTRY
+    from app.services.page_memory import memory_service, page_renderer
+    from app.services.page_memory.memory_service import PageMemoryInput
+    from shared.core.config import settings
+    from shared.services.ai import embedding as embedding_pkg
+
+    ocr_called: list[bool] = []
+    monkeypatch.setattr(
+        REGISTRY,
+        "dispatch",
+        lambda name, ctx, args: (
+            ocr_called.append(True)
+            if name == "ocr.pages"
+            else SimpleNamespace(status="ok", payload={}, output_summary={})
+        ),
+    )
+
+    source = tmp_path / "scanned.pdf"
+    source.write_bytes(b"%PDF")
+    coord = ProfileCoordinator(
+        pdf_path=str(source),
+        job_id="job-scan-m0",
+        output_dir=str(tmp_path / "_agent"),
+        db=None,
+        model="deepseek-flash",
+        settings={"skip_scanned_ocr": True},
+    )
+    coord.blackboard.page_count = 2
+    coord.blackboard.document_profile = DocumentProfile(
+        is_scanned=True,
+        category=["04000000"],
+        category_label="Scanned Report",
+        routing_category="scanned",
+        language="en",
+    )
+    coord._run_text_scan()  # noqa: SLF001
+    assert ocr_called == []
+    assert coord.blackboard.page_full_text_cache == {}
+
+    profile = _profile(
+        skeletons=[],
+        page_texts={},
+        body_texts={},
+        monkeypatch=monkeypatch,
+    )
+    profile.is_scanned = True
+    profile.page_count = 2
+    profile.blackboard = coord.blackboard
+
+    captured_skip_ocr: list[object] = []
+
+    def fake_profile(*args: object, **kwargs: object) -> SimpleNamespace:
+        del args
+        captured_skip_ocr.append(kwargs.get("skip_scanned_ocr"))
+        return profile
+
+    def fake_render(**kwargs: object) -> list[SimpleNamespace]:
+        out_dir = Path(str(kwargs["output_dir"])) / "pages" / "m0"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        items: list[SimpleNamespace] = []
+        for p in (1, 2):
+            img_path = out_dir / f"page-{p}.png"
+            img_path.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes([p]))
+            items.append(SimpleNamespace(page_index=p, image_path=str(img_path)))
+        return items
+
+    vec_p1 = [1.0] + [0.0] * 1023
+    vec_p2 = [0.0, 1.0] + [0.0] * 1022
+
+    monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
+    monkeypatch.setattr(
+        memory_service,
+        "normalize_to_pdf",
+        lambda **kwargs: (str(source), "scanned.pdf"),
+    )
+    monkeypatch.setattr(memory_service, "profile_document", fake_profile)
+    monkeypatch.setattr(page_renderer, "render_document_pages", fake_render)
+    monkeypatch.setattr(
+        embedding_pkg,
+        "embed_images",
+        lambda inputs, **kw: [vec_p1, vec_p2][: len(list(inputs))],
+    )
+
+    output_dir, dataframe = memory_service.run(
+        PageMemoryInput(
+            file_path=str(source),
+            filename="scanned.pdf",
+            output_dir=str(tmp_path / "out_scan"),
+            page_memory_config=PageMemoryConfig(asset_extraction_enabled=False),
+            ingestion_mode="progressive",
+        )
+    )
+    assert captured_skip_ocr == [True]
+    chunks = dataframe_to_chunks(dataframe)
+    assert len(chunks) == 2
+    assert [c["content"] for c in chunks] == ["", ""]
+    assert [c["metadata"]["enrichment_state"] for c in chunks] == ["text", "text"]
+    assert chunks[0]["metadata"]["_page_embedding"][:2] == [1.0, 0.0]
+    assert chunks[1]["metadata"]["_page_embedding"][:2] == [0.0, 1.0]
+    assert (
+        chunks[0]["metadata"]["page_assets"][0]["artifact_ref"]
+        == "page_citation_assets/page-1.png"
+    )
+    assert (
+        Path(output_dir) / "page_citation_assets" / "page-1.png"
+    ).is_file()
+

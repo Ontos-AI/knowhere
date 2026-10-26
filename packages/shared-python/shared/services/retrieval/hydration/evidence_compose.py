@@ -136,7 +136,7 @@ def _compose_page_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
         raw_text = str(row.get("content") or "").strip()
         if raw_text:
             parts.append(_text_part(raw_text))
-        return parts
+            return parts
     summary = page_summary(row)
     if summary:
         parts.append(_text_part(summary))

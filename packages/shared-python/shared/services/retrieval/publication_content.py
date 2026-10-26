@@ -13,6 +13,10 @@ from shared.models.database.document import (
     DocumentSection,
 )
 from shared.services.retrieval.map_unit_index import replace_document_map_units
+from shared.services.retrieval.page_embedding_index import (
+    extract_and_strip_page_embeddings,
+    replace_document_page_embeddings,
+)
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.publication_trace_stage import trace_publication_stage
 from shared.services.retrieval.serving_manifest import persist_revision_serving_state
@@ -77,10 +81,14 @@ def replace_document_revision_content(
     prepared_chunks: list[
         tuple[int, dict[str, Any], dict[str, Any], str | None, DocumentSection]
     ] = []
+    incoming_embeddings_by_page: dict[int, list[float]] = {}
     with trace_publication_stage(trace, "sections_prepare"):
         for index, chunk in enumerate(chunks):
             safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
-            chunk_metadata = _get_chunk_metadata(safe_chunk)
+            chunk_metadata = dict(_get_chunk_metadata(safe_chunk))
+            incoming_embeddings_by_page.update(
+                extract_and_strip_page_embeddings(chunk_metadata)
+            )
             source_path = _get_source_path(
                 chunk=safe_chunk,
                 chunk_metadata=chunk_metadata,
@@ -124,6 +132,12 @@ def replace_document_revision_content(
         scope=scope,
         trace=trace,
         clear_existing=False,
+    )
+    replace_document_page_embeddings(
+        db,
+        scope=scope,
+        incoming_embeddings_by_page=incoming_embeddings_by_page or None,
+        trace=trace,
     )
     manifest_payload = persist_revision_serving_state(db, scope=scope, trace=trace)
     return manifest_payload

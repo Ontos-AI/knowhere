@@ -38,6 +38,7 @@ from shared.services.retrieval.agent_tools.snippet import build_row, build_snipp
 from shared.services.retrieval.hydration.row_utils import normalize_chunk_type
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
+from shared.services.retrieval.search.visual_discovery import hybrid_discovery
 
 _DEFAULT_LIMIT = 10
 
@@ -47,13 +48,21 @@ def _identifier_snippet(row: dict[str, Any]) -> str:
     snippet = str(row.get("snippet") or "").strip()
     if snippet:
         return snippet
-    if normalize_chunk_type(row.get("chunk_type")) == "table":
+    chunk_type = normalize_chunk_type(row.get("chunk_type"))
+    if chunk_type == "table":
         metadata = row.get("chunk_metadata") or {}
         if not isinstance(metadata, dict):
             metadata = {}
         summary = str(metadata.get("summary") or "").strip()
         return build_snippet(summary) if summary else ""
-    return build_snippet(str(row.get("content") or ""))
+    text_snippet = build_snippet(str(row.get("content") or ""))
+    if text_snippet:
+        return text_snippet
+    if chunk_type == "page":
+        metadata = row.get("chunk_metadata") or {}
+        if isinstance(metadata, dict) and metadata.get("page_assets"):
+            return "(scanned page image — call corpus.read to inspect page image)"
+    return ""
 
 
 @register_tool(
@@ -116,7 +125,7 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     document_scope = (
         ctx.document_scope.narrow(scope_document_ids(scope)) if scope else ctx.document_scope
     )
-    discovery = await map_unit_discovery(
+    discovery = await hybrid_discovery(
         ctx.db,
         user_id=ctx.user_id,
         namespace=ctx.namespace,
@@ -131,6 +140,7 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             (target.document_id, target.section_path) for target in scope
         ]
         or None,
+        lexical_discovery_fn=map_unit_discovery,
     )
     rows = list(discovery.payload.get("fused_rows") or [])
 

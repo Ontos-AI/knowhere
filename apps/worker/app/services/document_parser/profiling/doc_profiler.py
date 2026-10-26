@@ -37,6 +37,7 @@ def profile_document(
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
     stop_after: Literal["asset_probe"] | None = None,
+    skip_scanned_ocr: bool = False,
 ) -> ParserDocumentProfile:
     """
     General document profiling entry point.
@@ -77,6 +78,7 @@ def profile_document(
                 oversized_policy=oversized_policy,
                 skip_toc_anchoring=skip_toc_anchoring,
                 stop_after=stop_after,
+                skip_scanned_ocr=skip_scanned_ocr,
             )
         finally:
             if not visual_debug_enabled():
@@ -100,6 +102,7 @@ def _profile_pdf(
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
     stop_after: Literal["asset_probe"] | None = None,
+    skip_scanned_ocr: bool = False,
 ) -> ParserDocumentProfile:
     with _profile_db_context(enabled=bool(job_id)) as db:
         return _profile_pdf_with_db(
@@ -112,6 +115,7 @@ def _profile_pdf(
             oversized_policy=oversized_policy,
             skip_toc_anchoring=skip_toc_anchoring,
             stop_after=stop_after,
+            skip_scanned_ocr=skip_scanned_ocr,
         )
 
 
@@ -126,6 +130,7 @@ def _profile_pdf_with_db(
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
     stop_after: Literal["asset_probe"] | None = None,
+    skip_scanned_ocr: bool = False,
 ) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
@@ -146,6 +151,7 @@ def _profile_pdf_with_db(
             "toc_profile_enabled": page_toc_enabled,
             "skip_toc_anchoring": bool(skip_toc_anchoring),
             "stop_after_asset_probe": stop_after == "asset_probe",
+            "skip_scanned_ocr": bool(skip_scanned_ocr),
             "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
         },
     )
