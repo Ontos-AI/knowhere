@@ -27,7 +27,7 @@ These tests should avoid:
 
 ## Command
 
-- `uv run python apps/api/scripts/ensure_test_environment.py --install`
+- `uv run python apps/api/scripts/ensure_test_environment.py --install` (includes pgvector)
 - `uv run python apps/api/scripts/ensure_test_environment.py`
 - `uv run pytest apps/worker/tests/contract -q`
 

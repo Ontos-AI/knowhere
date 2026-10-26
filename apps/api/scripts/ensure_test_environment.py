@@ -43,15 +43,35 @@ _REQUIRED_POSTGRESQL_EXECUTABLES: tuple[str, ...] = (
 _REQUIRED_POSTGRESQL_EXTENSIONS: tuple[str, ...] = (
     "uuid-ossp",
     "pg_trgm",
+    "vector",
 )
+
+
+def _postgresql_major_version() -> str:
+    pg_config_path: Path | None = find_executable("pg_config")
+    if pg_config_path is not None:
+        result: subprocess.CompletedProcess[str] = subprocess.run(
+            [str(pg_config_path), "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            parts = result.stdout.strip().split()
+            if len(parts) >= 2:
+                major = parts[1].split(".", 1)[0]
+                if major.isdigit():
+                    return major
+    return "16"
 
 
 def _get_postgresql_install_hint() -> str:
     return (
         "Run `uv run python apps/api/scripts/ensure_test_environment.py --install`, "
-        "or install PostgreSQL server binaries and contrib extensions manually. "
+        "or install PostgreSQL server binaries, contrib extensions, and pgvector. "
         "Ubuntu: sudo apt-get update && sudo apt-get install -y "
-        "postgresql postgresql-contrib. macOS: brew install postgresql@16 "
+        "postgresql postgresql-contrib, then install postgresql-<major>-pgvector "
+        "from PGDG. macOS: brew install postgresql@16 pgvector "
         "and add its bin directory to PATH. If needed, set "
         "PYTEST_POSTGRESQL_EXECUTABLE to the pg_ctl path."
     )
@@ -205,13 +225,33 @@ def get_install_commands() -> tuple[InstallCommand, ...]:
                     ("apt-get", "install", "-y", "postgresql", "postgresql-contrib")
                 ),
             ),
+            InstallCommand(
+                description="Enable the PostgreSQL APT repository",
+                command=_with_privilege(
+                    (
+                        "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh",
+                        "-y",
+                    )
+                ),
+            ),
+            InstallCommand(
+                description="Install pgvector for page-embedding migrations",
+                command=_with_privilege(
+                    (
+                        "apt-get",
+                        "install",
+                        "-y",
+                        f"postgresql-{_postgresql_major_version()}-pgvector",
+                    )
+                ),
+            ),
         )
 
     if system_name == "darwin" and shutil.which("brew") is not None:
         return (
             InstallCommand(
                 description="Install PostgreSQL server binaries and contrib extensions",
-                command=("brew", "install", "postgresql@16"),
+                command=("brew", "install", "postgresql@16", "pgvector"),
             ),
         )
 
