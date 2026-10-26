@@ -52,8 +52,9 @@ def _get_postgresql_install_hint() -> str:
         "Run `uv run python apps/api/scripts/ensure_test_environment.py --install`, "
         "or install PostgreSQL server binaries, contrib extensions, and pgvector. "
         "Ubuntu: sudo apt-get update && sudo apt-get install -y "
-        "postgresql postgresql-contrib, then install postgresql-<major>-pgvector "
-        "from PGDG. macOS: brew install postgresql@16 pgvector "
+        "postgresql postgresql-contrib, then install "
+        "postgresql-<same-major>-pgvector from PGDG without upgrading "
+        "the PostgreSQL metapackage. macOS: brew install postgresql@16 pgvector "
         "and add its bin directory to PATH. If needed, set "
         "PYTEST_POSTGRESQL_EXECUTABLE to the pg_ctl path."
     )
@@ -208,25 +209,19 @@ def get_install_commands() -> tuple[InstallCommand, ...]:
                 ),
             ),
             InstallCommand(
-                description="Enable the PostgreSQL APT repository",
-                command=_with_privilege(
-                    (
-                        "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh",
-                        "-y",
-                    )
+                description=(
+                    "Hold Ubuntu PostgreSQL and install matching PGDG pgvector"
                 ),
-            ),
-            InstallCommand(
-                description="Upgrade PostgreSQL from PGDG and install matching pgvector",
                 command=_with_privilege(
                     (
                         "bash",
                         "-lc",
                         (
-                            "apt-get install -y postgresql postgresql-contrib && "
-                            'apt-get install -y "postgresql-'
-                            "$(pg_config --version | awk '{print $2}' | cut -d. -f1)"
-                            '-pgvector"'
+                            "set -euo pipefail; "
+                            "major=$(pg_config --version | awk '{print $2}' | cut -d. -f1); "
+                            "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y; "
+                            'apt-mark hold postgresql postgresql-contrib "postgresql-${major}"; '
+                            'apt-get install -y --no-upgrade "postgresql-${major}-pgvector"'
                         ),
                     )
                 ),
