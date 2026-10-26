@@ -1,7 +1,8 @@
 # Progressive ingestion development plan
 
-Status: Implementation authorized and in progress. Publishing and deployment
-remain separate from local implementation and validation.
+Status: Implementation and local automated validation complete. SDK publication,
+dependency pinning, deployed acceptance and capacity validation remain pending.
+See the [implementation report](progressive-ingestion-implementation-report.md).
 
 The agreed behavior and investigation evidence are recorded in the
 [hardening plan](progressive-ingestion-hardening-plan.md) and
@@ -311,8 +312,7 @@ streamed-sync tests, and Hipo durable-sync/reader/Ask tests. Planned commands:
 - Hipo: `pnpm lint`, `pnpm typecheck`, relevant unit/boundary/component suites,
   then targeted Playwright acceptance against the actual new SDK build.
 
-These checks are planned, not results already obtained. Only documentation has
-changed during planning.
+The implementation report records the checks actually run and their results.
 
 ### Resource assessment
 
