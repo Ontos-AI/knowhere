@@ -41,7 +41,7 @@ class SyncJobWebhookOutbox:
         if not webhook_enabled or not webhook_url:
             return None
 
-        status = "completed" if event_type == "job.completed" else "failed"
+        status = "completed" if event_type in {"job.completed", "job.enrichment.completed"} else "failed"
         timestamp_key = f"{status}_at"
         payload: dict[str, Any] = {
             "event": event_type,

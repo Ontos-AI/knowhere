@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, event, select
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import DocumentChunk, DocumentSection
@@ -19,6 +19,7 @@ from shared.services.retrieval.page_embedding_index import (
     inherit_missing_page_assets,
     load_revision_page_assets_by_page,
     replace_document_page_embeddings,
+    upsert_document_page_embeddings,
 )
 from shared.services.retrieval.publication_chunk_copy import insert_chunks_with_copy
 from shared.services.retrieval.publication_content import (
@@ -151,13 +152,16 @@ def replace_document_scope_content(
         trace=trace,
         clear_existing=True,
     )
-    replace_document_page_embeddings(
-        db,
-        scope=scope,
-        incoming_embeddings_by_page=incoming_embeddings_by_page or None,
-    )
+    if incoming_embeddings_by_page:
+        upsert_document_page_embeddings(
+            db, scope=scope, incoming_embeddings_by_page=incoming_embeddings_by_page
+        )
+    else:
+        replace_document_page_embeddings(db, scope=scope)
+
     manifest_payload = persist_revision_serving_state(db, scope=scope, trace=trace)
-    bump_retrieval_namespace_cache_version_sync(
+    _invalidate_namespace_after_commit(
+        db,
         user_id=scope.user_id,
         namespace=scope.namespace,
     )
@@ -308,3 +312,26 @@ def _strict_ancestor_paths(section_path: str) -> list[str]:
     if len(parts) <= 1:
         return []
     return [" / ".join(parts[:depth]) for depth in range(1, len(parts))]
+
+
+def _invalidate_namespace_after_commit(
+    db: Session, *, user_id: str, namespace: str
+) -> None:
+    """Invalidate after SQL visibility; a rolled-back publication never advances Redis."""
+    is_active: list[bool] = [True]
+
+    def invalidate(session: Session) -> None:
+        del session
+        if is_active[0]:
+            bump_retrieval_namespace_cache_version_sync(
+                user_id=user_id, namespace=namespace
+            )
+        is_active[0] = False
+
+    def cancel(session: Session) -> None:
+        del session
+        is_active[0] = False
+
+    db.begin() if not db.in_transaction() else None
+    event.listen(db, "after_commit", invalidate, once=True)
+    event.listen(db, "after_rollback", cancel, once=True)

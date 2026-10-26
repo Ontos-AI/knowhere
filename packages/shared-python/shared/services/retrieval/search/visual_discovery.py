@@ -35,6 +35,7 @@ from shared.services.retrieval.search.map_unit_discovery import (
 )
 from shared.services.retrieval.search.scoring import normalize_row_scores
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
+from shared.services.retrieval.required_query_embedding import RequiredQueryEmbeddingException
 
 __all__ = ["hybrid_discovery", "visual_page_discovery"]
 
@@ -190,11 +191,15 @@ async def visual_page_discovery(
     if not has_embeddings:
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
 
-    query_vector = await asyncio.to_thread(
-        embed_query,
-        normalized_query,
-        usage_task="retrieval.query_embed",
-    )
+    try:
+        query_vector = await asyncio.to_thread(
+            embed_query, normalized_query, usage_task="retrieval.query_embed",
+        )
+    except Exception as exc:
+        raise RequiredQueryEmbeddingException(
+            internal_message="Required retrieval query embedding failed",
+            provider="query_embedding", original_exception=exc,
+        ) from exc
     vector_literal = HalfVector(query_vector).to_text()
 
     signal_clause, signal_params = _build_signal_clause(

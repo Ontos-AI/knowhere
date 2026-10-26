@@ -4,6 +4,7 @@ import os
 import logfire
 from collections.abc import Callable
 from datetime import datetime, timezone
+from uuid import uuid4
 from typing import Any
 
 from app.services.connect_builder.summary_builder import (
@@ -18,7 +19,9 @@ from app.services.document_ingestion.parse_result_package import (
     ParseResultPackage,
     build_generated_result_package,
 )
-from app.services.document_ingestion.artifact_refs import collect_referenced_artifact_refs
+from app.services.document_ingestion.artifact_refs import (
+    collect_referenced_artifact_refs,
+)
 from app.services.document_ingestion.processing_context import (
     ParseJobContext,
     persist_job_metadata_updates,
@@ -27,7 +30,10 @@ from loguru import logger
 
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.ai.token_tracking import get_current_token_tracker
-from app.services.document_parser.support.stage_profiler import get_current_stage_tracker, stage_timer
+from app.services.document_parser.support.stage_profiler import (
+    get_current_stage_tracker,
+    stage_timer,
+)
 from app.services.page_memory.phase_a import (
     PHASE_B_BLACKBOARD_REL,
     existing_phase_b_input_refs,
@@ -180,9 +186,7 @@ def _enrich_document_navigation(
         except Exception as exc:
             logger.warning(f"doc_nav enrichment failed (non-fatal): {exc}")
             enrich_results = {}
-        document_top_summary = str(
-            enrich_results.get(source_file_name) or ""
-        ).strip()
+        document_top_summary = str(enrich_results.get(source_file_name) or "").strip()
         if not document_top_summary:
             document_top_summary = load_nav_top_summary(str(add_dir), source_file_name)
     return document_top_summary, section_summaries
@@ -214,7 +218,9 @@ def _record_processing_completion(
         "processing_completed_at": processing_completed_at.isoformat(),
         "processing_duration_ms": max(
             0,
-            int((processing_completed_at - processing_started_at).total_seconds() * 1000),
+            int(
+                (processing_completed_at - processing_started_at).total_seconds() * 1000
+            ),
         ),
     }
     _refresh_processing_stages(job_context)
@@ -262,7 +268,9 @@ def _upload_result_package(
     job_context: ParseJobContext | None = None,
 ) -> str:
     artifact_refs = collect_referenced_artifact_refs(result_package.chunks)
-    add_dir = str(result_package.artifact.add_dir) if result_package.artifact.add_dir else ""
+    add_dir = (
+        str(result_package.artifact.add_dir) if result_package.artifact.add_dir else ""
+    )
     if add_dir and os.path.isfile(os.path.join(add_dir, "source.pdf")):
         artifact_refs.add("source.pdf")
     parse_track = (
@@ -278,16 +286,55 @@ def _upload_result_package(
     phase_b_refs = existing_phase_b_input_refs(add_dir) if add_dir else []
     if parse_track == "page_memory" and ingestion_mode == "progressive":
         artifact_refs.update(phase_b_refs)
-    with logfire.span("Upload result assets for {job_id}", job_id=job_id), stage_timer("worker.result.assets_upload", job_id=job_id):
-        result_bundle = result_storage_factory().upload(
+    snapshot_options: dict[str, str] = {}
+    if (
+        job_context is not None
+        and parse_track == "page_memory"
+        and ingestion_mode == "progressive"
+    ):
+        snapshot_id: str = f"snapshot_{uuid4().hex}"
+        snapshot_options["snapshot_id"] = snapshot_id
+        missing_pages: list[int] = sorted(
+            {
+                int(page)
+                for chunk in result_package.chunks
+                if (chunk.get("metadata") or {}).get("embedding_status") == "missing"
+                for page in (chunk.get("metadata") or {}).get("page_nums", [])
+            }
+        )
+        persist_job_metadata_updates(
+            job_id=job_id,
+            job_context=job_context,
+            metadata_updates={
+                "progressive_baseline_snapshot_id": snapshot_id,
+                "progressive_missing_embedding_pages": missing_pages,
+            },
+        )
+    result_storage: ResultStorage = result_storage_factory()
+    with (
+        logfire.span("Upload result assets for {job_id}", job_id=job_id),
+        stage_timer("worker.result.assets_upload", job_id=job_id),
+    ):
+        result_bundle = result_storage.upload(
             job_id=job_id,
             result_dir=add_dir,
             zip_file_path=generated_package.zip_file_path,
             artifact_refs=artifact_refs,
+            **snapshot_options,
         )
+    working_raw_prefix: str = result_bundle.raw_prefix
+    if snapshot_options:
+        working_raw_prefix = f"results/{job_id}/"
+        for relative_path in sorted(result_bundle.raw_files):
+            result_storage.upload_raw_file(
+                job_id=job_id,
+                relative_path=relative_path,
+                local_file_path=os.path.join(add_dir, relative_path),
+                raw_prefix=working_raw_prefix,
+            )
     metadata_updates: dict[str, object] = {}
     if job_context is not None and parse_track == "page_memory":
-        metadata_updates["result_raw_prefix"] = result_bundle.raw_prefix
+        metadata_updates["result_raw_prefix"] = working_raw_prefix
         if (
             ingestion_mode == "progressive"
             and add_dir
@@ -295,9 +342,12 @@ def _upload_result_package(
         ):
             metadata_updates["page_memory_phase_b"] = phase_b_refs
             metadata_updates["enrichment_status"] = "text"
-    if job_context is not None and job_context.job_metadata.get("corpus_target") == "DEMO":
+    if (
+        job_context is not None
+        and job_context.job_metadata.get("corpus_target") == "DEMO"
+    ):
         metadata_updates["demo_asset_manifest"] = sorted(result_bundle.raw_files)
-        metadata_updates.setdefault("result_raw_prefix", result_bundle.raw_prefix)
+        metadata_updates.setdefault("result_raw_prefix", working_raw_prefix)
     if job_context is not None and metadata_updates:
         persist_job_metadata_updates(
             job_id=job_id,

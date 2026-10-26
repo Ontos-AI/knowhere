@@ -6,13 +6,18 @@ import json
 import os
 import shutil
 import tempfile
-from dataclasses import dataclass
+from contextlib import nullcontext
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
+from hashlib import sha256
 from pathlib import Path
+from uuid import uuid4
 from typing import Any, Callable, cast
 
 import pandas as pd
 from loguru import logger
 from sqlalchemy import func, select, update
+from sqlalchemy.orm import Session, noload
 
 from app.services.connect_builder.summary_builder import (
     build_section_summary_lookup,
@@ -46,6 +51,7 @@ from app.services.page_memory.skeleton_extractor import (
     SectionSkeleton,
     collapse_single_child_chains,
 )
+from shared.core.config import app_config
 from shared.core.database_sync import get_sync_db_context
 from shared.models.database.document import (
     Document,
@@ -54,6 +60,15 @@ from shared.models.database.document import (
 )
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
+from shared.models.schemas.progressive_ingestion import (
+    EnhancementProgress,
+    EnhancementStage,
+    StoredSnapshot,
+)
+from shared.services.jobs.progressive_ingestion import (
+    read_progressive_state,
+    write_progressive_state,
+)
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.page_memory_config import PageMemoryConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
@@ -63,10 +78,6 @@ from shared.services.jobs.lifecycle.scope_enrichments import (
     enqueue_low_priority_scope_enrichments_after_commit,
     scope_claimable_filter,
     write_coarse_scope_enrichments,
-)
-from shared.services.redis.redis_sync_service import (
-    SyncJobMetadataService,
-    SyncRedisServiceFactory,
 )
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.publication_models import DocumentPublicationScope
@@ -89,6 +100,7 @@ class _ClaimedScopeTarget:
     raw_prefix: str | None
     job_metadata: dict[str, Any]
     page_memory_config: PageMemoryConfig
+    claim_generation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -147,18 +159,23 @@ def execute_structure_enrichment(
             profile=profile,
             manifest=phase_a.manifest,
         )
-        _upload_scope_artifacts(
-            storage=storage,
-            job_id=target.job_id,
-            raw_prefix=target.raw_prefix,
-            workspace_dir=workspace_dir,
-            artifact_refs={
+        phase_b_artifacts: dict[str, str] = {
+            relative_path: f"phase_b/{target.claim_generation}/{Path(relative_path).name}"
+            for relative_path in {
                 PHASE_B_MANIFEST_REL,
                 PHASE_B_ANATOMY_REL,
                 PHASE_B_FULL_TEXT_REL,
                 PHASE_B_BODY_TEXT_REL,
             }
-            & set(phase_b_refs),
+            & set(phase_b_refs)
+        }
+        _upload_scope_artifacts(
+            storage=storage,
+            job_id=target.job_id,
+            raw_prefix=target.raw_prefix,
+            workspace_dir=workspace_dir,
+            artifact_refs=set(phase_b_artifacts),
+            artifact_mapping=phase_b_artifacts,
         )
         coarse_chunks = cast(
             list[dict[str, Any]], dataframe_to_chunks(phase_a.coarse_df)
@@ -179,6 +196,7 @@ def execute_structure_enrichment(
             chunks=coarse_chunks,
             section_summaries=coarse_summaries,
             phase_b_refs=phase_b_refs,
+            phase_b_artifacts=phase_b_artifacts,
             scope_publisher=publisher,
         )
         if not published_ok:
@@ -195,7 +213,17 @@ def execute_structure_enrichment(
             "chunk_count": len(coarse_chunks),
         }
     except Exception:
-        _release_structure_claim(job_id=target.job_id, job_result_id=job_result_id)
+        _release_structure_claim(
+            job_id=target.job_id,
+            job_result_id=job_result_id,
+            claim_generation=target.claim_generation,
+        )
+        _finish_progressive_stage(
+            job_result_id=job_result_id,
+            stage_name="structure",
+            claim_generation=str(target.claim_generation),
+            error="Structure enhancement failed",
+        )
         raise
     finally:
         cleanup_llm_overrides()
@@ -232,6 +260,11 @@ def execute_scope_enrichment(
             scope_id=scope_id,
             storage=storage,
         )
+        output = _freeze_scope_artifacts(
+            output=output,
+            workspace_dir=workspace_dir,
+            claim_generation=str(target.claim_generation),
+        )
         _upload_scope_artifacts(
             storage=storage,
             job_id=target.job_id,
@@ -267,7 +300,11 @@ def execute_scope_enrichment(
             "all_refined": all_refined,
         }
     except Exception:
-        _mark_scope_failed(job_result_id=job_result_id, scope_id=scope_id)
+        _mark_scope_failed(
+            job_result_id=job_result_id,
+            scope_id=scope_id,
+            claim_generation=target.claim_generation,
+        )
         raise
     finally:
         cleanup_llm_overrides()
@@ -409,6 +446,7 @@ def _build_claimed_target(
     job: Job,
     job_metadata: dict[str, Any],
     source_file_name: str,
+    claim_generation: str | None = None,
 ) -> _ClaimedScopeTarget:
     raw_prefix_val = job_metadata.get("result_raw_prefix")
     raw_prefix = (
@@ -426,6 +464,7 @@ def _build_claimed_target(
         raw_prefix=raw_prefix,
         job_metadata=job_metadata,
         page_memory_config=JobMetadataHelper.get_page_memory_config(job_metadata),
+        claim_generation=claim_generation,
     )
 
 
@@ -435,39 +474,57 @@ def _structure_claim_expired(
     job: Job,
     now: Any,
 ) -> bool:
-    doc_meta = job_result.document_metadata if isinstance(job_result.document_metadata, dict) else {}
+    doc_meta = (
+        job_result.document_metadata
+        if isinstance(job_result.document_metadata, dict)
+        else {}
+    )
     job_meta = job.job_metadata if isinstance(job.job_metadata, dict) else {}
-    raw_claimed_at = doc_meta.get("structure_claimed_at") or job_meta.get("structure_claimed_at")
+    raw_claimed_at = doc_meta.get("structure_claimed_at") or job_meta.get(
+        "structure_claimed_at"
+    )
     if not raw_claimed_at:
         return True
     try:
         from datetime import datetime, timedelta
         from shared.core.config import app_config
 
-        claimed_at = datetime.fromisoformat(str(raw_claimed_at).replace("Z", "+00:00")).replace(tzinfo=None)
-        return (now - claimed_at) >= timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS)
+        claimed_at = datetime.fromisoformat(
+            str(raw_claimed_at).replace("Z", "+00:00")
+        ).replace(tzinfo=None)
+        return (now - claimed_at) >= timedelta(
+            seconds=app_config.TASK_TIME_LIMIT_SECONDS
+        )
     except Exception:
         return True
 
 
-def _release_structure_claim(*, job_id: str, job_result_id: str) -> None:
+def _release_structure_claim(
+    *, job_id: str, job_result_id: str, claim_generation: str | None = None
+) -> None:
     with get_sync_db_context() as db:
-        job = db.execute(select(Job).where(Job.job_id == job_id).with_for_update()).scalar_one_or_none()
+        jr = db.execute(
+            select(JobResult)
+            .where(JobResult.id == job_result_id)
+            .with_for_update(of=JobResult)
+        ).scalar_one_or_none()
+        job = db.execute(
+            select(Job).where(Job.job_id == job_id).with_for_update()
+        ).scalar_one_or_none()
         if job is not None and isinstance(job.job_metadata, dict):
             meta = dict(job.job_metadata)
-            if str(meta.get("enrichment_status") or "").strip().lower() == "text":
+            if (
+                str(meta.get("enrichment_status") or "").strip().lower() == "text"
+                and meta.get("structure_claim_generation") == claim_generation
+            ):
                 meta.pop("structure_claimed_at", None)
                 job.job_metadata = meta
-        jr = (
-            db.execute(
-                select(JobResult)
-                .where(JobResult.id == job_result_id)
-                .with_for_update(of=JobResult)
-            ).scalar_one_or_none()
-        )
         if jr is not None and isinstance(jr.document_metadata, dict):
             doc_meta = dict(jr.document_metadata)
-            if str(doc_meta.get("enrichment_status") or "").strip().lower() == "text":
+            if (
+                str(doc_meta.get("enrichment_status") or "").strip().lower() == "text"
+                and doc_meta.get("structure_claim_generation") == claim_generation
+            ):
                 doc_meta.pop("structure_claimed_at", None)
                 jr.document_metadata = doc_meta
 
@@ -526,13 +583,22 @@ def _load_and_validate_structure_target(
             return "skipped", None
         if not _structure_claim_expired(job_result=job_result, job=job, now=now):
             return "skipped", None
+        claim_generation: str | None = str(uuid4())
+        if read_progressive_state(job_result.document_metadata) is not None:
+            claim_generation = _claim_progressive_stage(
+                job_result_id=job_result_id, stage_name="structure", db=db
+            )
+            if claim_generation is None:
+                return "skipped", None
         claimed_iso = now.isoformat()
+        job_metadata["structure_claim_generation"] = claim_generation
         job_metadata["structure_claimed_at"] = claimed_iso
         job.job_metadata = job_metadata
         job.updated_at = now
         job_result.document_metadata = {
             **dict(job_result.document_metadata or {}),
             "structure_claimed_at": claimed_iso,
+            "structure_claim_generation": claim_generation,
         }
         return (
             "claimed",
@@ -541,6 +607,7 @@ def _load_and_validate_structure_target(
                 job=job,
                 job_metadata=job_metadata,
                 source_file_name=source_file_name,
+                claim_generation=claim_generation,
             ),
         )
 
@@ -636,9 +703,7 @@ def _resume_profile_from_m0_workspace(
         if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
             profile.anatomy = coordinator.run_structural(skip_shard_plan=True)
         else:
-            profile.anatomy = coordinator.run_lightweight_anatomy(
-                skip_shard_plan=True
-            )
+            profile.anatomy = coordinator.run_lightweight_anatomy(skip_shard_plan=True)
     profile.toc = _map_toc_profile(coordinator)
     return profile
 
@@ -651,6 +716,7 @@ def _publish_coarse_structure_and_write_scopes(
     section_summaries: dict[str, str],
     phase_b_refs: list[str],
     scope_publisher: ScopePublisher,
+    phase_b_artifacts: dict[str, str] | None = None,
 ) -> bool:
     publication_scope = DocumentPublicationScope(
         user_id=target.user_id,
@@ -671,6 +737,27 @@ def _publish_coarse_structure_and_write_scopes(
             or document.current_job_result_id != job_result_id
         ):
             return False
+        job_result = db.execute(
+            select(JobResult)
+            .options(noload("*"))
+            .where(JobResult.id == job_result_id)
+            .with_for_update(of=JobResult)
+        ).scalar_one_or_none()
+        if (
+            job_result is None
+            or (job_result.document_metadata or {}).get("structure_claim_generation")
+            != target.claim_generation
+        ):
+            return False
+        state = read_progressive_state(job_result.document_metadata)
+        if state is not None:
+            stage: EnhancementStage = state.stages.get("structure", {})
+            if (
+                stage.get("status") != "running"
+                or stage.get("claim_generation") != target.claim_generation
+                or state.enhancement.status == "failed"
+            ):
+                return False
         scope_publisher(
             db,
             scope=publication_scope,
@@ -683,14 +770,30 @@ def _publish_coarse_structure_and_write_scopes(
             document_id=target.document_id,
             job_result_id=job_result_id,
         )
-    _update_job_and_result_metadata(
-        job_id=target.job_id,
-        job_result_id=job_result_id,
-        updates={
+        job_result.document_metadata = {
+            **dict(job_result.document_metadata or {}),
             "enrichment_status": "coarse",
             "page_memory_phase_b": phase_b_refs,
-        },
-    )
+            "page_memory_phase_b_artifacts": dict(phase_b_artifacts or {}),
+        }
+        state = read_progressive_state(job_result.document_metadata)
+        if state is not None:
+            stages: dict[str, EnhancementStage] = dict(state.stages)
+            stages["structure"] = {**stages.get("structure", {}), "status": "complete"}
+            state.stages = stages
+            job_result.document_metadata = write_progressive_state(
+                job_result.document_metadata, state
+            )
+        job = db.execute(
+            select(Job).where(Job.job_id == target.job_id).with_for_update()
+        ).scalar_one()
+        job.job_metadata = {
+            **dict(job.job_metadata or {}),
+            "enrichment_status": "coarse",
+            "page_memory_phase_b": phase_b_refs,
+            "page_memory_phase_b_artifacts": dict(phase_b_artifacts or {}),
+        }
+
     return True
 
 
@@ -700,6 +803,7 @@ def _claim_and_validate_scope(
     scope_id: str,
 ) -> tuple[str, _ClaimedScopeTarget | None]:
     now = utc_now_naive()
+    claim_generation = str(uuid4())
     with get_sync_db_context() as db:
         claimed_doc_id = db.execute(
             update(DocumentScopeEnrichment)
@@ -708,6 +812,7 @@ def _claim_and_validate_scope(
             .where(scope_claimable_filter(now))
             .values(
                 state="running",
+                claim_generation=claim_generation,
                 attempts=DocumentScopeEnrichment.attempts + 1,
                 updated_at=now,
             )
@@ -761,6 +866,7 @@ def _claim_and_validate_scope(
                 job=job,
                 job_metadata=job_metadata,
                 source_file_name=source_file_name,
+                claim_generation=claim_generation,
             ),
         )
 
@@ -828,11 +934,17 @@ def _download_phase_b_inputs(
     if not isinstance(configured_refs, list) or not configured_refs:
         raise ValueError("job metadata is missing the page_memory_phase_b input list")
 
+    raw_mapping: object = job_metadata.get("page_memory_phase_b_artifacts")
+    artifact_mapping: dict[str, str] = (
+        {str(key): str(value) for key, value in raw_mapping.items()}
+        if isinstance(raw_mapping, dict)
+        else {}
+    )
     for relative_path in (str(item) for item in configured_refs):
         suffix = Path(relative_path).suffix or ".tmp"
         temp_path = storage.download_raw_to_temp(
             job_id=job_id,
-            relative_path=relative_path,
+            relative_path=artifact_mapping.get(relative_path, relative_path),
             raw_prefix=raw_prefix,
             suffix=suffix,
             temp_dir=output_dir,
@@ -849,6 +961,7 @@ def _upload_scope_artifacts(
     raw_prefix: str | None,
     workspace_dir: str,
     artifact_refs: set[str],
+    artifact_mapping: dict[str, str] | None = None,
 ) -> None:
     if not artifact_refs:
         return
@@ -866,7 +979,7 @@ def _upload_scope_artifacts(
             continue
         storage.upload_raw_file(
             job_id=job_id,
-            relative_path=relative_path,
+            relative_path=(artifact_mapping or {}).get(relative_path, relative_path),
             raw_prefix=raw_prefix,
             local_file_path=local_path,
         )
@@ -903,8 +1016,24 @@ def _publish_and_mark_refined(
                 update(DocumentScopeEnrichment)
                 .where(DocumentScopeEnrichment.job_result_id == job_result_id)
                 .where(DocumentScopeEnrichment.scope_id == scope_id)
+                .where(
+                    DocumentScopeEnrichment.claim_generation == target.claim_generation
+                )
                 .values(state="failed", updated_at=now)
             )
+            return None
+
+        claimed_scope = db.execute(
+            select(DocumentScopeEnrichment)
+            .where(DocumentScopeEnrichment.job_result_id == job_result_id)
+            .where(DocumentScopeEnrichment.scope_id == scope_id)
+            .with_for_update()
+        ).scalar_one_or_none()
+        if (
+            claimed_scope is None
+            or claimed_scope.state != "running"
+            or claimed_scope.claim_generation != target.claim_generation
+        ):
             return None
 
         scope_publisher(
@@ -942,25 +1071,115 @@ def _finalize_all_scopes_refined(
     storage: ResultStorage,
     workspace_dir: str,
 ) -> None:
+    from shared.services.jobs.progressive_completion import commit_final_completion
+    from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
+
+    with get_sync_db_context() as db:
+        result = db.get(JobResult, job_result_id)
+        state = (
+            read_progressive_state(result.document_metadata)
+            if result is not None
+            else None
+        )
+        remaining = db.scalar(
+            select(func.count())
+            .select_from(DocumentScopeEnrichment)
+            .where(DocumentScopeEnrichment.job_result_id == job_result_id)
+            .where(DocumentScopeEnrichment.state != "refined")
+        )
+        if remaining:
+            return
+        if state is not None:
+            stages = state.stages
+            if (
+                stages.get("structure", {}).get("status") != "complete"
+                or stages.get("vector_repair", {}).get("status") != "complete"
+            ):
+                return
+    token = (
+        _claim_progressive_stage(job_result_id=job_result_id, stage_name="finalization")
+        if state is not None
+        else None
+    )
+    if state is not None and token is None:
+        return
     try:
-        _regenerate_and_upload_full_package(
+        snapshot, zip_size = _regenerate_and_upload_full_package(
             job_result_id=job_result_id,
             target=target,
             storage=storage,
             workspace_dir=workspace_dir,
+            snapshot_id=f"snapshot_{uuid4().hex}",
         )
+        if snapshot is None:
+            raise ValueError("Final document package contains no chunks")
+        with get_sync_db_context() as db:
+            document = db.execute(
+                select(Document)
+                .where(Document.document_id == target.document_id)
+                .with_for_update()
+            ).scalar_one_or_none()
+            result = db.execute(
+                select(JobResult)
+                .options(noload("*"))
+                .where(JobResult.id == job_result_id)
+                .with_for_update(of=JobResult)
+            ).scalar_one_or_none()
+            if (
+                document is None
+                or result is None
+                or document.status != "active"
+                or document.current_job_result_id != job_result_id
+            ):
+                return
+            if state is not None:
+                current = read_progressive_state(result.document_metadata)
+                if current is None:
+                    return
+                stages: dict[str, EnhancementStage] = dict(current.stages)
+                stage: EnhancementStage = {**stages.get("finalization", {})}
+                if (
+                    stage.get("claim_generation") != token
+                    or stage.get("status") != "running"
+                ):
+                    return
+                stage["status"] = "complete"
+                stages["finalization"] = stage
+                current.stages = stages
+                result.document_metadata = write_progressive_state(
+                    result.document_metadata, current
+                )
+                event = commit_final_completion(
+                    db, job_id=target.job_id, job_result=result, snapshot=snapshot
+                )
+            else:
+                result.result_s3_key = snapshot.archive_key
+                result.inline_payload = {"checksum": snapshot.checksum}
+                result.document_metadata = {
+                    **dict(result.document_metadata or {}),
+                    "enrichment_status": "complete",
+                }
+                event = None
+            result.result_size = zip_size
+            job = db.execute(
+                select(Job).where(Job.job_id == target.job_id).with_for_update()
+            ).scalar_one()
+            job.job_metadata = {
+                **dict(job.job_metadata or {}),
+                "enrichment_status": "complete",
+            }
+        SyncJobWebhookOutbox().enqueue_after_commit(event)
     except Exception as exc:
+        if token is not None:
+            _finish_progressive_stage(
+                job_result_id=job_result_id,
+                stage_name="finalization",
+                claim_generation=token,
+                error="Final package upload failed",
+            )
         logger.warning(
-            "[page_memory] failed to regenerate ZIP after all scopes refined "
-            "job_result_id={}: {}",
-            job_result_id,
-            exc,
+            "[page_memory] final package incomplete for {}: {}", job_result_id, exc
         )
-        return
-    _mark_job_enrichment_complete(
-        job_id=target.job_id,
-        job_result_id=job_result_id,
-    )
 
 
 def _regenerate_and_upload_full_package(
@@ -969,7 +1188,8 @@ def _regenerate_and_upload_full_package(
     target: _ClaimedScopeTarget,
     storage: ResultStorage,
     workspace_dir: str,
-) -> None:
+    snapshot_id: str,
+) -> tuple[StoredSnapshot | None, int]:
     with get_sync_db_context() as db:
         rows = (
             db.execute(
@@ -993,11 +1213,14 @@ def _regenerate_and_upload_full_package(
             for row in rows
         ]
     if not chunks:
-        return
+        return None, 0
 
     package_dir = os.path.join(workspace_dir, "_full_package", target.source_file_name)
     os.makedirs(package_dir, exist_ok=True)
-    for relative_path in sorted(collect_referenced_artifact_refs(chunks)):
+    required_refs: set[str] = collect_referenced_artifact_refs(chunks) | {
+        PHASE_B_SOURCE_PDF_REL
+    }
+    for relative_path in sorted(required_refs):
         target_path = Path(package_dir) / relative_path
         if target_path.is_file():
             continue
@@ -1051,81 +1274,36 @@ def _regenerate_and_upload_full_package(
         job_id=target.job_id,
         result_dir=package_dir,
         zip_file_path=zip_path,
-        artifact_refs=set(),
+        artifact_refs=required_refs,
+        snapshot_id=snapshot_id,
     )
     checksum_value = (
         str(checksum.get("value") or "")
         if isinstance(checksum, dict)
         else str(checksum or "")
     )
-    with get_sync_db_context() as db:
-        db.execute(
-            update(JobResult)
-            .where(JobResult.id == job_result_id)
-            .values(
-                result_s3_key=bundle.zip_key,
-                result_size=zip_size,
-                inline_payload={"checksum": checksum_value},
-            )
-        )
-
-
-def _mark_job_enrichment_complete(
-    *,
-    job_id: str,
-    job_result_id: str | None = None,
-) -> None:
-    _update_job_and_result_metadata(
-        job_id=job_id,
+    return StoredSnapshot(
+        snapshot_id=snapshot_id,
+        stage="final",
+        job_id=target.job_id,
         job_result_id=job_result_id,
-        updates={"enrichment_status": "complete"},
-    )
+        document_id=target.document_id,
+        checksum=checksum_value,
+        archive_key=bundle.zip_key,
+    ), zip_size
 
 
-def _update_job_and_result_metadata(
-    *,
-    job_id: str,
-    job_result_id: str | None,
-    updates: dict[str, Any],
+def _mark_scope_failed(
+    *, job_result_id: str, scope_id: str, claim_generation: str | None
 ) -> None:
-    with get_sync_db_context() as db:
-        job = db.execute(
-            select(Job).where(Job.job_id == job_id).with_for_update()
-        ).scalar_one_or_none()
-        if job is not None:
-            job.job_metadata = {
-                **dict(job.job_metadata or {}),
-                **updates,
-            }
-        if job_result_id:
-            job_result = db.execute(
-                select(JobResult)
-                .where(JobResult.id == job_result_id)
-                .with_for_update(of=JobResult)
-            ).scalar_one_or_none()
-            if job_result is not None:
-                job_result.document_metadata = {
-                    **dict(job_result.document_metadata or {}),
-                    **updates,
-                }
-    try:
-        redis_service = SyncRedisServiceFactory.get_service()
-        SyncJobMetadataService(redis_service).update_metadata(job_id, updates)
-    except Exception as exc:
-        logger.debug(
-            "[page_memory] failed to update Redis job metadata for {}: {}",
-            job_id,
-            exc,
-        )
-
-
-def _mark_scope_failed(*, job_result_id: str, scope_id: str) -> None:
     now = utc_now_naive()
     with get_sync_db_context() as db:
         db.execute(
             update(DocumentScopeEnrichment)
             .where(DocumentScopeEnrichment.job_result_id == job_result_id)
             .where(DocumentScopeEnrichment.scope_id == scope_id)
+            .where(DocumentScopeEnrichment.claim_generation == claim_generation)
+            .where(DocumentScopeEnrichment.state == "running")
             .values(state="failed", updated_at=now)
         )
 
@@ -1246,3 +1424,425 @@ def _resolve_default_scope_publisher() -> ScopePublisher:
     )
 
     return replace_document_scope_content
+
+
+def _claim_progressive_stage(
+    *, job_result_id: str, stage_name: str, db: Session | None = None
+) -> str | None:
+    now: datetime = utc_now_naive()
+    with nullcontext(db) if db is not None else get_sync_db_context() as db:
+        result = db.execute(
+            select(JobResult)
+            .options(noload("*"))
+            .where(JobResult.id == job_result_id)
+            .with_for_update(of=JobResult)
+        ).scalar_one_or_none()
+        if result is None:
+            return None
+        state = read_progressive_state(result.document_metadata)
+        if state is None or state.enhancement.status in ("complete", "failed"):
+            return None
+        stages: dict[str, EnhancementStage] = dict(state.stages)
+        stage: EnhancementStage = {**stages.get(stage_name, {})}
+        if stage.get("status") == "complete":
+            return None
+        if stage.get("status") == "running" and stage.get("claimed_at"):
+            claimed_at = datetime.fromisoformat(str(stage.get("claimed_at"))).replace(
+                tzinfo=None
+            )
+            if now - claimed_at < timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS):
+                return None
+        attempts: int = int(stage.get("attempts", 0))
+        if attempts >= 3:
+            stages[stage_name] = {**stage, "status": "failed", "claim_generation": None}
+            state.stages = stages
+            state.enhancement = EnhancementProgress(
+                status="failed",
+                can_retry=True,
+                attempt=state.enhancement.attempt,
+                error="Background enhancement exhausted its automatic retries",
+            )
+            result.document_metadata = write_progressive_state(
+                result.document_metadata, state
+            )
+            return None
+        token: str = str(uuid4())
+        stages[stage_name] = {
+            **stage,
+            "status": "running",
+            "attempts": attempts + 1,
+            "claim_generation": token,
+            "claimed_at": now.isoformat(),
+            "error": None,
+        }
+        state.stages = stages
+        state.enhancement = EnhancementProgress(
+            status="running", attempt=state.enhancement.attempt
+        )
+        result.document_metadata = write_progressive_state(
+            result.document_metadata, state
+        )
+        return token
+
+
+def _finish_progressive_stage(
+    *,
+    job_result_id: str,
+    stage_name: str,
+    claim_generation: str,
+    error: str | None,
+    pending_pages: list[int] | None = None,
+) -> bool:
+    with get_sync_db_context() as db:
+        result = db.execute(
+            select(JobResult)
+            .options(noload("*"))
+            .where(JobResult.id == job_result_id)
+            .with_for_update(of=JobResult)
+        ).scalar_one_or_none()
+        if result is None:
+            return False
+        state = read_progressive_state(result.document_metadata)
+        if state is None:
+            return False
+        stages: dict[str, EnhancementStage] = dict(state.stages)
+        stage: EnhancementStage = {**stages.get(stage_name, {})}
+        if (
+            stage.get("claim_generation") != claim_generation
+            or stage.get("status") != "running"
+        ):
+            return False
+        stage["status"] = "failed" if error else "complete"
+        stage["error"] = error
+        if pending_pages is not None:
+            stage["pending_pages"] = pending_pages
+        stages[stage_name] = stage
+        state.stages = stages
+        if error and int(stage.get("attempts", 0)) >= 3:
+            state.enhancement = EnhancementProgress(
+                status="failed",
+                can_retry=True,
+                attempt=state.enhancement.attempt,
+                error="Background enhancement exhausted its automatic retries",
+            )
+        result.document_metadata = write_progressive_state(
+            result.document_metadata, state
+        )
+        return True
+
+
+def execute_progressive_recovery(
+    *,
+    job_result_id: str,
+    result_storage_factory: Callable[[], ResultStorage] = get_result_storage,
+) -> dict[str, Any]:
+    """Recover persisted stages without replaying parsing or completed scope work."""
+    with get_sync_db_context() as db:
+        result = db.get(JobResult, job_result_id)
+        if result is None:
+            return {"status": "aborted"}
+        state = read_progressive_state(result.document_metadata)
+        document = db.get(Document, result.document_id) if result.document_id else None
+        job = db.get(Job, result.job_id)
+        if (
+            state is None
+            or state.enhancement.status in ("failed", "complete")
+            or document is None
+            or job is None
+            or document.status != "active"
+            or document.current_job_result_id != job_result_id
+        ):
+            return {"status": "skipped"}
+        target = _build_claimed_target(
+            document=document,
+            job=job,
+            job_metadata=dict(job.job_metadata or {}),
+            source_file_name=str(document.source_file_name),
+        )
+        stages: dict[str, EnhancementStage] = dict(state.stages)
+        scope_states = db.execute(
+            select(
+                DocumentScopeEnrichment.state, DocumentScopeEnrichment.attempts
+            ).where(DocumentScopeEnrichment.job_result_id == job_result_id)
+        ).all()
+        if any(
+            status == "failed" and attempts >= 3 for status, attempts in scope_states
+        ):
+            state.enhancement = EnhancementProgress(
+                status="failed",
+                can_retry=True,
+                attempt=state.enhancement.attempt,
+                error="Scope enhancement exhausted its automatic retries",
+            )
+            result.document_metadata = write_progressive_state(
+                result.document_metadata, state
+            )
+            return {"status": "failed"}
+    if stages.get("structure", {}).get("status") != "complete":
+        from shared.services.jobs.lifecycle.scope_enrichments import (
+            enqueue_page_memory_structure_after_commit,
+        )
+
+        enqueue_page_memory_structure_after_commit(job_result_id)
+    else:
+        enqueue_low_priority_scope_enrichments_after_commit(job_result_id)
+    workspace: str = tempfile.mkdtemp(prefix="pm_recovery_")
+    storage = result_storage_factory()
+    try:
+        if stages.get("vector_repair", {}).get("status") != "complete":
+            _repair_missing_page_embeddings(
+                job_result_id=job_result_id,
+                target=target,
+                storage=storage,
+                workspace_dir=workspace,
+            )
+        _finalize_all_scopes_refined(
+            job_result_id=job_result_id,
+            target=target,
+            storage=storage,
+            workspace_dir=workspace,
+        )
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+    return {"status": "recovered", "job_result_id": job_result_id}
+
+
+def _repair_missing_page_embeddings(
+    *,
+    job_result_id: str,
+    target: _ClaimedScopeTarget,
+    storage: ResultStorage,
+    workspace_dir: str,
+) -> None:
+    from app.services.page_memory.page_renderer import render_document_pages
+    from shared.services.ai.embedding import embed_images
+    from shared.services.retrieval.page_embedding_index import (
+        upsert_document_page_embeddings,
+    )
+    from shared.services.retrieval.publication_scope_content import (
+        _invalidate_namespace_after_commit,
+    )
+
+    token = _claim_progressive_stage(
+        job_result_id=job_result_id, stage_name="vector_repair"
+    )
+    if token is None:
+        return
+    pending: list[int] = []
+    try:
+        with get_sync_db_context() as db:
+            result = db.get(JobResult, job_result_id)
+            if result is None:
+                return
+            state = read_progressive_state(result.document_metadata)
+            if state is None:
+                return
+            pending = sorted(
+                set(state.stages["vector_repair"].get("pending_pages", []))
+            )
+        if not pending:
+            _finish_progressive_stage(
+                job_result_id=job_result_id,
+                stage_name="vector_repair",
+                claim_generation=token,
+                error=None,
+                pending_pages=[],
+            )
+            return
+        source = storage.download_raw_to_temp(
+            job_id=target.job_id,
+            relative_path=PHASE_B_SOURCE_PDF_REL,
+            raw_prefix=target.raw_prefix,
+            suffix=".pdf",
+            temp_dir=workspace_dir,
+        )
+        rendered = render_document_pages(
+            pdf_path=source,
+            page_count=max(pending),
+            output_dir=workspace_dir,
+            scope_id="vector_repair",
+            pages=pending,
+            page_texts={},
+        )
+        paths: dict[int, str] = {
+            int(page.page_index): page.image_path
+            for page in rendered
+            if page.image_path
+        }
+        pages: list[int] = [page for page in pending if page in paths]
+        vectors = embed_images(
+            [paths[page] for page in pages], usage_task="page_memory.embedding_repair"
+        )
+        repaired: dict[int, list[float]] = {
+            page: vector for page, vector in zip(pages, vectors, strict=True) if vector
+        }
+        with get_sync_db_context() as db:
+            document = db.execute(
+                select(Document)
+                .where(Document.document_id == target.document_id)
+                .with_for_update()
+            ).scalar_one_or_none()
+            result = db.execute(
+                select(JobResult)
+                .options(noload("*"))
+                .where(JobResult.id == job_result_id)
+                .with_for_update(of=JobResult)
+            ).scalar_one()
+            state = read_progressive_state(result.document_metadata)
+            if state is None:
+                return
+            stages: dict[str, EnhancementStage] = dict(state.stages)
+            stage: EnhancementStage = {**stages["vector_repair"]}
+            if (
+                document is None
+                or document.current_job_result_id != job_result_id
+                or document.status != "active"
+                or stage.get("claim_generation") != token
+                or stage.get("status") != "running"
+            ):
+                return
+            upsert_document_page_embeddings(
+                db,
+                scope=DocumentPublicationScope(
+                    user_id=target.user_id,
+                    namespace=target.namespace,
+                    document_id=target.document_id,
+                    job_result_id=job_result_id,
+                    source_file_name=target.source_file_name,
+                ),
+                incoming_embeddings_by_page=repaired,
+            )
+            if repaired:
+                _invalidate_namespace_after_commit(
+                    db, user_id=target.user_id, namespace=target.namespace
+                )
+            corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(
+                target.namespace
+            )
+            persisted_pages: set[int] = set(
+                db.scalars(
+                    select(corpus_storage.DocumentPageEmbedding.page_num)
+                    .where(
+                        corpus_storage.DocumentPageEmbedding.document_id
+                        == target.document_id
+                    )
+                    .where(
+                        corpus_storage.DocumentPageEmbedding.job_result_id
+                        == job_result_id
+                    )
+                ).all()
+            )
+            pending = [page for page in pending if page not in persisted_pages]
+            stage["pending_pages"] = pending
+            stages["vector_repair"] = stage
+            state.stages = stages
+            result.document_metadata = write_progressive_state(
+                result.document_metadata, state
+            )
+        _finish_progressive_stage(
+            job_result_id=job_result_id,
+            stage_name="vector_repair",
+            claim_generation=token,
+            error="Page embedding provider left missing coverage" if pending else None,
+            pending_pages=pending,
+        )
+    except Exception as exc:
+        _finish_progressive_stage(
+            job_result_id=job_result_id,
+            stage_name="vector_repair",
+            claim_generation=token,
+            error="Page embedding repair failed",
+            pending_pages=pending,
+        )
+        logger.warning(
+            "[page_memory] embedding repair incomplete for {}: {}", job_result_id, exc
+        )
+
+
+def _freeze_scope_artifacts(
+    *, output: ScopeRefinementOutput, workspace_dir: str, claim_generation: str
+) -> ScopeRefinementOutput:
+    """Give one claim exclusive asset keys before any remote write.
+
+    Fencing only the SQL publication cannot protect objects uploaded earlier.
+    Claim-prefixed filenames make a late upload harmless while preserving the
+    existing flat client asset directory contract.
+    """
+    if not output.artifact_refs:
+        return output
+    artifact_mapping: dict[str, str] = {
+        reference: f"{reference.split('/', 1)[0]}/{claim_generation}-{sha256(reference.encode()).hexdigest()[:12]}-{Path(reference).name}"
+        for reference in output.artifact_refs
+    }
+    add_dirs: list[Path] = [
+        path for path in Path(workspace_dir).iterdir() if path.is_dir()
+    ]
+    if not add_dirs:
+        raise ValueError("Scope artifact directory is missing")
+    root: Path = add_dirs[0]
+    for reference, immutable_reference in artifact_mapping.items():
+        source: Path = root / reference
+        target: Path = root / immutable_reference
+        if not source.is_file():
+            raise ValueError(f"Scope is missing required result asset: {reference}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source.replace(target)
+        if target.suffix.lower() == ".html":
+            target.write_text(
+                _replace_artifact_references(
+                    target.read_text(encoding="utf-8"), artifact_mapping
+                ),
+                encoding="utf-8",
+            )
+    chunks = cast(
+        list[dict[str, Any]], _rewrite_artifact_value(output.chunks, artifact_mapping)
+    )
+    for previous, current in zip(output.chunks, chunks, strict=True):
+        previous_content: str = str(previous.get("content") or "")
+        metadata = current.get("metadata") or {}
+        if "length" in metadata:
+            metadata["length"] = len(str(current.get("content") or ""))
+        connections = (current.get("metadata") or {}).get("connect_to") or []
+        for connection in connections:
+            if not isinstance(connection, dict) or not isinstance(
+                connection.get("position"), dict
+            ):
+                continue
+            position: dict[str, Any] = connection["position"]
+            for boundary in ("start", "end"):
+                value: object = position.get(boundary)
+                if isinstance(value, int) and 0 <= value <= len(previous_content):
+                    position[boundary] = len(
+                        _replace_artifact_references(
+                            previous_content[:value], artifact_mapping
+                        )
+                    )
+    summaries = cast(
+        dict[str, str],
+        _rewrite_artifact_value(output.section_summaries, artifact_mapping),
+    )
+    return replace(
+        output,
+        chunks=chunks,
+        section_summaries=summaries,
+        artifact_refs=set(artifact_mapping.values()),
+    )
+
+
+def _replace_artifact_references(value: str, artifact_mapping: dict[str, str]) -> str:
+    for previous in sorted(artifact_mapping, key=len, reverse=True):
+        value = value.replace(previous, artifact_mapping[previous])
+    return value
+
+
+def _rewrite_artifact_value(value: object, artifact_mapping: dict[str, str]) -> object:
+    if isinstance(value, str):
+        return _replace_artifact_references(value, artifact_mapping)
+    if isinstance(value, list):
+        return [_rewrite_artifact_value(item, artifact_mapping) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _rewrite_artifact_value(item, artifact_mapping)
+            for key, item in value.items()
+        }
+    return value

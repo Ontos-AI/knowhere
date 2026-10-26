@@ -27,6 +27,7 @@ from shared.services.retrieval.document_scope import DocumentScope
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 from shared.services.retrieval.execution.revision_pins import capture_revision_pins
 from shared.services.retrieval.settings import EVIDENCE_TEXT_CHAR_BUDGET
+from shared.services.retrieval.required_query_embedding import RequiredQueryEmbeddingException
 
 DbFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
@@ -199,7 +200,9 @@ class ToolRegistry:
                 pins = await capture_revision_pins(ctx.db, user_id=ctx.user_id, namespace=ctx.namespace)
             with CorpusRevisionContext.bind(pins):
                 return await spec.run(replace(ctx, document_scope=ctx.document_scope.narrow(list(pins))), args)
-        except Exception as exc:  # noqa: BLE001 - one broken call must not end the caller's loop
+        except RequiredQueryEmbeddingException:
+            raise
+        except Exception as exc:  # noqa: BLE001 - ordinary tool errors remain recoverable
             logger.exception("corpus tool %s raised", name)
             return ToolResult(
                 text="",

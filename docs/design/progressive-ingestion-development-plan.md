@@ -1,7 +1,7 @@
 # Progressive ingestion development plan
 
-Status: Ready for implementation review. Application-code implementation,
-publishing, and deployment have not been authorized by the planning discussion.
+Status: Implementation authorized and in progress. Publishing and deployment
+remain separate from local implementation and validation.
 
 The agreed behavior and investigation evidence are recorded in the
 [hardening plan](progressive-ingestion-hardening-plan.md) and

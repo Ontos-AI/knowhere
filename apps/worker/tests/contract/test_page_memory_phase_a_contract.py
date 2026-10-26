@@ -329,9 +329,7 @@ def test_full_mode_run_invokes_full_page_dataframe_and_writes_no_phase_b_manifes
         lambda **kwargs: (str(source), "doc.pdf"),
     )
     monkeypatch.setattr(memory_service, "profile_document", fake_profile)
-    monkeypatch.setattr(
-        memory_service, "_build_page_dataframe", fake_build_page_df
-    )
+    monkeypatch.setattr(memory_service, "_build_page_dataframe", fake_build_page_df)
 
     output_dir, _df = memory_service.run(
         PageMemoryInput(
@@ -362,6 +360,9 @@ def test_page_memory_upload_m0_marks_text_status(
     zip_path.write_bytes(b"zip")
 
     class FakeStorage:
+        def upload_raw_file(self, **kwargs: object) -> None:
+            assert kwargs["raw_prefix"] == "results/job-m0/"
+
         def upload(self, **kwargs: object) -> SimpleNamespace:
             refs = sorted(kwargs["artifact_refs"] or [])
             return SimpleNamespace(
@@ -608,7 +609,22 @@ def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
         chunks[0]["metadata"]["page_assets"][0]["artifact_ref"]
         == "page_citation_assets/page-1.png"
     )
-    assert (
-        Path(output_dir) / "page_citation_assets" / "page-1.png"
-    ).is_file()
+    assert (Path(output_dir) / "page_citation_assets" / "page-1.png").is_file()
 
+
+def test_visual_baseline_records_missing_embedding_without_losing_page_row(
+    tmp_path: Path,
+) -> None:
+    from app.services.page_memory.phase_a import build_visual_page_dataframe
+
+    dataframe = build_visual_page_dataframe(
+        page_count=2,
+        filename="scan.pdf",
+        image_path_by_page={},
+        embeddings_by_page={1: [0.1]},
+        output_dir=str(tmp_path),
+    )
+    metadata = list(dataframe["extra_metadata"])
+    assert len(metadata) == 2
+    assert metadata[0]["embedding_status"] == "complete"
+    assert metadata[1]["embedding_status"] == "missing"

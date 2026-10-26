@@ -29,6 +29,7 @@ class ZipPackageWriteRequest:
     # Legacy chunk/docx/md packages may ship toc_hierarchies.json; page_memory
     # keeps human TOC as debug-root toc_hierarchy.json and omits the list dump.
     include_toc_hierarchies: bool = True
+    include_source_pdf: bool = False
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,13 @@ class ZipPackageWriter:
         zip_file_path = os.path.join(effective_temp_dir, f"result_{request.job_id}.zip")
 
         with zipfile.ZipFile(zip_file_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            if request.include_source_pdf:
+                # Retain the converted source for lazy page evidence in PDF and
+                # PPTX readers. No universal page rendering is needed at M0.
+                source_path: str = os.path.join(request.add_dir, "source.pdf")
+                if not os.path.isfile(source_path):
+                    raise FileNotFoundError("Progressive reader snapshot requires source.pdf")
+                zip_file.write(source_path, "source.pdf")
             chunks_json = json.dumps(
                 {"chunks": request.formatted_chunks},
                 ensure_ascii=False,

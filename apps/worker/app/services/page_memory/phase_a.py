@@ -202,9 +202,7 @@ def build_phase_a_manifest(
             toc_pages,
         )
         excluded_toc_pages = sorted(
-            page
-            for page in toc_pages
-            if scope.start_page <= page <= scope.end_page
+            page for page in toc_pages if scope.start_page <= page <= scope.end_page
         )
         scope_entries.append(
             {
@@ -343,6 +341,7 @@ def build_visual_page_dataframe(
         if page_assets:
             extra_metadata["page_assets"] = page_assets
         embedding = embeddings_by_page.get(page)
+        extra_metadata["embedding_status"] = "complete" if embedding else "missing"
         if isinstance(embedding, list) and embedding:
             extra_metadata["_page_embedding"] = [float(val) for val in embedding]
         rows.append(
