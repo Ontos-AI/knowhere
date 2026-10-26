@@ -75,3 +75,16 @@ async def test_invalid_tool_arguments_still_return_normal_error() -> None:
     registry = ToolRegistry()
     result = await registry.dispatch("unknown", Mock(), {})
     assert result.error == "unknown tool: unknown"
+
+
+@pytest.mark.asyncio
+async def test_hybrid_does_not_return_lexical_hits_after_required_visual_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from shared.services.retrieval.search.map_unit_discovery import DiscoveryResult
+
+    monkeypatch.setattr(visual_discovery.settings, "VISUAL_RETRIEVAL_ENABLED", True)
+    monkeypatch.setattr(visual_discovery, "map_unit_discovery", AsyncMock(return_value=DiscoveryResult(
+        status="discovery_done", payload={"fused_rows": [{"chunk_id": "lexical-hit"}]},
+    )))
+    monkeypatch.setattr(visual_discovery, "visual_page_discovery", AsyncMock(side_effect=RequiredQueryEmbeddingException(internal_message="provider unavailable")))
+    with pytest.raises(RequiredQueryEmbeddingException):
+        await visual_discovery.hybrid_discovery(Mock(), user_id="u", namespace="n", query="q", top_k=1)

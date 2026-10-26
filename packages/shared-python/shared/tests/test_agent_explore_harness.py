@@ -583,6 +583,33 @@ async def test_cursor_harness_cannot_finish_after_required_embedding_failure(mon
 
 
 @pytest.mark.asyncio
+async def test_cursor_budget_cannot_return_partial_success_with_recall_in_flight(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    from shared.services.retrieval.agent_explore.budget import EpisodeBudget
+    from shared.services.retrieval.agent_explore.harness import cursor_harness as cursor_mod
+    from shared.services.retrieval.required_query_embedding import RequiredQueryEmbeddingException
+
+    release = asyncio.Event()
+    async def blocked_dispatch(*args: object, **kwargs: object) -> ToolResult:
+        await release.wait()
+        return ToolResult(text="late recall")
+    script = [("m1", [("c1", "corpus_recall", {"query": "q"})])]
+    monkeypatch.setenv("CURSOR_API_KEY", "test-key")
+    monkeypatch.setattr(cursor_mod, "_require_cursor_sdk", lambda: _fake_cursor_sdk(script, {}))
+    monkeypatch.setattr(cursor_mod, "dispatch_tool_call", blocked_dispatch)
+    monkeypatch.setattr(cursor_mod, "_CANCEL_GRACE_SECONDS", 0.01)
+    try:
+        with pytest.raises(RequiredQueryEmbeddingException):
+            await cursor_mod.CursorHarness(model="test").run_episode(
+                db_factory=lambda: None, user_id="u", namespace="n", query="q",
+                budget=EpisodeBudget(max_steps=4, wall_clock_seconds=0.1),
+            )
+    finally:
+        release.set()
+        await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
 async def test_openai_harness_propagates_required_embedding_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     from types import SimpleNamespace
     from unittest.mock import Mock
