@@ -1166,7 +1166,7 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
     from shared.core.config import settings
     from shared.core.database import get_db_context
     from shared.models.database.document import DocumentPageEmbedding
-    from shared.services.ai.embedding import multimodal_client
+    from shared.services.ai.embedding import DEFAULT_EMBEDDING_DIM, multimodal_client
     from shared.services.retrieval.agent_tools.tools.grep import grep as fresh_grep
     from shared.services.retrieval.agent_tools.tools.read import read as fresh_read
     from shared.services.retrieval.agent_tools.tools.recall import recall as fresh_recall
@@ -1181,15 +1181,15 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
     )
     from shared.services.storage.result_storage import JobResultStorage
 
-    vec_p1 = [1.0] + [0.0] * 1023
-    vec_p2 = [0.0, 1.0] + [0.0] * 1022
+    vec_p1 = [1.0] + [0.0] * (DEFAULT_EMBEDDING_DIM - 1)
+    vec_p2 = [0.0, 1.0] + [0.0] * (DEFAULT_EMBEDDING_DIM - 2)
     monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
     monkeypatch.setattr(
         multimodal_client,
-        "_call_dashscope_multimodal_embedding",
-        lambda *, content_item, **kw: (
+        "_call_gateway_embedding",
+        lambda *, text=None, **kw: (
             vec_p2
-            if "second page chart" in str(content_item.get("text") or "")
+            if "second page chart" in str(text or "")
             else vec_p1
         ),
     )

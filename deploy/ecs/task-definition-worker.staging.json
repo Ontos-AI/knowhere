@@ -56,7 +56,7 @@
         {"name": "DS_URL", "value": "https://api.deepseek.com/v1/chat/completions"},
         {"name": "ALI_URL", "value": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"},
         {"name": "ARK_URL", "value": "https://ark.cn-beijing.volces.com/api/v3/chat/completions"},
-        {"name": "EMBEDDING_MODEL", "value": "multimodal-embedding-v1"},
+        {"name": "EMBEDDING_MODEL", "value": "google/gemini-embedding-2"},
         {"name": "HIERARCHY_LLM_MODEL", "value": "deepseek-chat"},
         {"name": "NORMOL_MODEL", "value": "deepseek-chat"},
         {"name": "IMAGE_MODEL", "value": "deepseek-flash"},
@@ -82,7 +82,8 @@
         {"name": "QSTASH_TOKEN", "valueFrom": "${SECRETS_ARN}:QSTASH_TOKEN::"},
         {"name": "QSTASH_CURRENT_SIGNING_KEY", "valueFrom": "${SECRETS_ARN}:QSTASH_CURRENT_SIGNING_KEY::"},
         {"name": "QSTASH_NEXT_SIGNING_KEY", "valueFrom": "${SECRETS_ARN}:QSTASH_NEXT_SIGNING_KEY::"},
-        {"name": "CURSOR_API_KEY", "valueFrom": "${SECRETS_ARN}:CURSOR_API_KEY::"}
+        {"name": "CURSOR_API_KEY", "valueFrom": "${SECRETS_ARN}:CURSOR_API_KEY::"},
+        {"name": "VERCEL_KEY", "valueFrom": "${SECRETS_ARN}:VERCEL_KEY::"}
       ],
       "healthCheck": {
         "command": ["CMD-SHELL", "python -c \"from shared.services.worker_health import assert_worker_healthy; assert_worker_healthy()\""],

@@ -427,10 +427,10 @@ class DocumentPageEmbedding(Base):
         String(16), nullable=False, default="visual"
     )
     model: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="multimodal-embedding-v1"
+        String(64), nullable=False, default="google/gemini-embedding-2"
     )
-    dims: Mapped[int] = mapped_column(Integer, nullable=False, default=1024)
-    embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=False)
+    dims: Mapped[int] = mapped_column(Integer, nullable=False, default=3072)
+    embedding: Mapped[Any] = mapped_column(Vector(3072), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False
     )

@@ -509,6 +509,7 @@ def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
     from app.services.page_memory.memory_service import PageMemoryInput
     from shared.core.config import settings
     from shared.services.ai import embedding as embedding_pkg
+    from shared.services.ai.embedding import DEFAULT_EMBEDDING_DIM
 
     ocr_called: list[bool] = []
     monkeypatch.setattr(
@@ -570,8 +571,8 @@ def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
             items.append(SimpleNamespace(page_index=p, image_path=str(img_path)))
         return items
 
-    vec_p1 = [1.0] + [0.0] * 1023
-    vec_p2 = [0.0, 1.0] + [0.0] * 1022
+    vec_p1 = [1.0] + [0.0] * (DEFAULT_EMBEDDING_DIM - 1)
+    vec_p2 = [0.0, 1.0] + [0.0] * (DEFAULT_EMBEDDING_DIM - 2)
 
     monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
     monkeypatch.setattr(

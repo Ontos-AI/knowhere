@@ -2,7 +2,7 @@
 
 from shared.services.ai.embedding.multimodal_client import (
     DEFAULT_EMBEDDING_DIM,
-    DEFAULT_MULTIMODAL_EMBEDDING_MODEL,
+    DEFAULT_EMBEDDING_MODEL,
     embed_images,
     embed_query,
     resolve_embedding_model,
@@ -10,7 +10,7 @@ from shared.services.ai.embedding.multimodal_client import (
 
 __all__ = [
     "DEFAULT_EMBEDDING_DIM",
-    "DEFAULT_MULTIMODAL_EMBEDDING_MODEL",
+    "DEFAULT_EMBEDDING_MODEL",
     "embed_images",
     "embed_query",
     "resolve_embedding_model",

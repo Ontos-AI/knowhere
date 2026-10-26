@@ -44,22 +44,24 @@ class AIConfig(BaseModel):
             "Empty follows IMAGE_MODEL."
         ),
     )
+    VERCEL_KEY: str = Field(
+        default="",
+        description="Vercel AI Gateway API key for page-image and query embeddings.",
+    )
     EMBEDDING_MODEL: str = Field(
-        default="multimodal-embedding-v1",
+        default="google/gemini-embedding-2",
         description=(
-            "DashScope multimodal embedding model producing shared-space "
-            "image and text vectors for scanned page retrieval."
+            "Vercel AI Gateway embedding model producing shared-space "
+            "page-image and query vectors for scanned page retrieval."
         ),
     )
-    # Reserved for future text-only chunk embedding:
-    # TEXT_EMBEDDING_MODEL: str = Field(default="text-embedding-v4")
     EMBEDDING_DIM: int = Field(
-        default=1024,
-        description="Dimension of multimodal page and query embeddings.",
+        default=3072,
+        description="Dimension of page-image and query embeddings.",
     )
     EMBEDDING_ENDPOINT: str = Field(
-        default="https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding",
-        description="DashScope native multimodal embedding HTTP endpoint.",
+        default="https://ai-gateway.vercel.sh/v1/embeddings",
+        description="Vercel AI Gateway OpenAI-compatible embeddings endpoint.",
     )
     VISUAL_RETRIEVAL_ENABLED: bool = Field(
         default=True,
