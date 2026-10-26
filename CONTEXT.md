@@ -55,6 +55,11 @@ publication.
 
 The hierarchical navigation node derived from parsed headings and section paths.
 
+### Document Tree
+
+A navigation representation of a Document. A baseline can expose its ordered
+source pages; an enriched snapshot can expose chapters and their resources.
+
 ### Document Chunk
 
 The retrieval-visible text, image, or table row attached to a Document Section.
@@ -75,6 +80,60 @@ first chapter.
 
 The workflow that creates a Job, accepts a file or URL source, confirms upload
 state, and starts parsing work.
+
+### Ingestion Mode
+
+The processing choice selected when a Job is created. Full ingestion publishes
+after complete parsing; progressive ingestion publishes an initial baseline
+before subsequent document enrichment.
+
+### Progressive Ingestion
+
+Document ingestion that publishes a usable baseline before automatically
+enriching every document scope. Accessed scopes receive priority; unaccessed
+scopes still receive enrichment.
+
+### Document Baseline
+
+The first published representation that can be read and used for retrieval before
+full document enrichment, with limited initial search coverage. A text-native PDF
+can provide page text; a scanned PDF can provide page images before OCR text is
+available.
+
+### Enriched Document Snapshot
+
+A coherent document representation produced after full-document enrichment.
+It becomes the default representation in a consuming reader after its content
+and required assets are available together. The baseline remains available for
+citations created against it.
+
+### Document Snapshot
+
+A fixed, readable representation of a Document and its required resources.
+Citations retain the snapshot they were created against, even after another
+snapshot becomes the default for ordinary reading.
+
+### Initial Completion
+
+The milestone at which a Document Baseline and its required resources have
+been durably published. It precedes full-document enrichment completion and
+does not imply that all search capabilities are available.
+
+### Retrieval Enhancement
+
+The improvement of a published Document's searchable text, structure, and visual
+coverage while its Document Baseline remains readable.
+
+### Enrichment Completion
+
+The milestone at which full-document refinement, any required missing-vector
+repair, and final result artifacts are complete. It does not create a new
+ingestion or repeat its usage charge.
+
+### Enrichment Failure
+
+A failure to finish processing after initial publication. The Document Baseline
+remains readable while unfinished enrichment can be retried.
 
 ### Document Ingestion Worker Dispatch
 
