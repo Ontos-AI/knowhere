@@ -47,24 +47,6 @@ _REQUIRED_POSTGRESQL_EXTENSIONS: tuple[str, ...] = (
 )
 
 
-def _postgresql_major_version() -> str:
-    pg_config_path: Path | None = find_executable("pg_config")
-    if pg_config_path is not None:
-        result: subprocess.CompletedProcess[str] = subprocess.run(
-            [str(pg_config_path), "--version"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode == 0:
-            parts = result.stdout.strip().split()
-            if len(parts) >= 2:
-                major = parts[1].split(".", 1)[0]
-                if major.isdigit():
-                    return major
-    return "16"
-
-
 def _get_postgresql_install_hint() -> str:
     return (
         "Run `uv run python apps/api/scripts/ensure_test_environment.py --install`, "
@@ -238,10 +220,13 @@ def get_install_commands() -> tuple[InstallCommand, ...]:
                 description="Install pgvector for page-embedding migrations",
                 command=_with_privilege(
                     (
-                        "apt-get",
-                        "install",
-                        "-y",
-                        f"postgresql-{_postgresql_major_version()}-pgvector",
+                        "bash",
+                        "-lc",
+                        (
+                            'apt-get install -y "postgresql-'
+                            "$(pg_config --version | awk '{print $2}' | cut -d. -f1)"
+                            '-pgvector"'
+                        ),
                     )
                 ),
             ),
