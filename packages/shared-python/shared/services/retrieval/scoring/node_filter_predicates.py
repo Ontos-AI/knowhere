@@ -1,7 +1,6 @@
 """Predicate compile/match for section path/summary filters.
 
-Extracted from the map-nav tree walker. Live consumers evaluate these
-predicates against persisted section rows, not an in-memory episode tree.
+Live consumers evaluate these predicates against persisted section rows.
 """
 
 from __future__ import annotations

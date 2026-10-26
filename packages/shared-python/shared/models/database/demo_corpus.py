@@ -270,9 +270,9 @@ class DemoDocumentChunk(Base):
 class DemoDocumentMapUnit(Base):
     """Persisted lexical map unit for one document revision.
 
-    These rows are a derived index of the exact leaf and interstitial units
-    used by map-nav. Full chunk payloads remain in ``demo_document_chunks`` and are
-    loaded separately for evidence hydration.
+    These rows are a derived index of the leaf and interstitial units used
+    by classic map-unit BM25 and agent recall. Full chunk payloads remain in
+    ``demo_document_chunks`` and are loaded separately for evidence hydration.
     """
 
     __tablename__ = "demo_document_map_units"
@@ -508,8 +508,9 @@ class DemoRetrievalNamespaceMapSnapshot(Base):
     """Persisted namespace-level MAP (sections + chunk index + map units).
 
     Incrementally patched at publish/archive time (one document's subtree at
-    a time); query time reads this row directly instead of merging per-file
-    manifests. Overwritten in place -- no generation history is retained.
+    a time). Live query and ``corpus.outline`` read ``document_sections``
+    instead of this blob. Overwritten in place -- no generation history is
+    retained.
     """
 
     __tablename__ = "demo_retrieval_namespace_map_snapshots"

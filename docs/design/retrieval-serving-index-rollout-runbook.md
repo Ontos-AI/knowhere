@@ -1,5 +1,8 @@
 # Retrieval Serving Index Rollout Runbook
 
+Status: historical. The map-nav smoke named below was later removed. Live
+routes are classic map-unit BM25 and agent_explore.
+
 ## Scope
 
 This runbook rolls out the retrieval serving-index performance changes without

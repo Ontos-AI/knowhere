@@ -1,4 +1,4 @@
-"""Backfill persisted MAP-NAV lexical indexes for existing revisions.
+"""Backfill persisted map-unit lexical indexes for existing revisions.
 
 Rebuilds, per active revision: the map-unit index, the revision serving
 manifest, that document's subtree in the namespace MAP snapshot, and the
@@ -88,7 +88,7 @@ from shared.services.retrieval.serving_manifest import (
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Backfill MAP-NAV indexes for current document revisions."
+        description="Backfill map-unit indexes for current document revisions."
     )
     parser.add_argument(
         "--apply",

@@ -117,10 +117,9 @@ are omitted when not yet known.
 
 The execution plan already starts a monotonic timer before cache lookup and
 logs elapsed time after the route. However, `TraceRecorder` currently starts a
-second timer in its constructor, and the map-nav route constructs it only
-after navigation, reference resolution, and result assembly. Persisted
-`retrieval_runs.latency_ms` and its aggregates therefore under-report retrieval
-latency and mostly measure trace flush time.
+second timer in its constructor. Persisted `retrieval_runs.latency_ms` and its
+aggregates therefore under-report retrieval latency and mostly measure trace
+flush time.
 
 The canonical `Retrieval Duration` is the execution-plan timer from retrieval
 start through final public-result assembly. It includes cache lookup and
@@ -150,13 +149,11 @@ its latency update must still use the captured execution timestamps and must
 not extend the user-visible retrieval duration with an unbounded database
 flush.
 
-Because the map-nav route deliberately rolls back its request session before
-the synchronous LLM episode, a trace row must not be created in that session
-before the rollback. Capture the execution start immediately, then create or
-update the trace record at the terminal persistence point with the captured
-start and an explicit end/duration supplied by the execution plan (or use a
-separate trace session). `TraceRecorder.complete()` must not silently choose a
-later local constructor time or include its own flush duration.
+Capture the execution start immediately, then create or update the trace
+record at the terminal persistence point with the captured start and an
+explicit end/duration supplied by the execution plan (or use a separate
+trace session). `TraceRecorder.complete()` must not silently choose a later
+local constructor time or include its own flush duration.
 
 ## Operational requirements
 

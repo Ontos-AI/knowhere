@@ -7,10 +7,10 @@ Accepted
 ## Context
 
 Online Brain users currently wait for the complete Retrieval response while
-map-nav planning, searching, and source review run. Knowhere owns retrieval and
-evidence, while answer generation belongs to downstream clients. A streaming
-contract must improve perceived latency without exposing chain-of-thought or
-making partial citations authoritative.
+classic or agent_explore planning, searching, and source review run. Knowhere
+owns retrieval and evidence, while answer generation belongs to downstream
+clients. A streaming contract must improve perceived latency without exposing
+chain-of-thought or making partial citations authoritative.
 
 ## Decision
 
@@ -23,18 +23,18 @@ include only safe aggregate counts. The stream terminates with a versioned
 envelope containing either the existing retrieval response as the authoritative
 result or a typed, user-safe failure (`failed`, `cancelled`, or `no_results`).
 
-The synchronous map-nav engine remains intact and publishes sanitized progress
-through an optional step callback bridged to the SSE route by an async queue.
-Answer-token streaming remains downstream. The endpoint sends heartbeats,
-disables proxy buffering, and uses per-connection event IDs without promising
-replay in the first version.
+Classic and agent_explore publish sanitized progress through an optional step
+callback bridged to the SSE route by an async queue. Answer-token streaming
+remains downstream. The endpoint sends heartbeats, disables proxy buffering,
+and uses per-connection event IDs without promising replay in the first
+version.
 
 Retrieval duration is measured from the execution plan's start through final
 public-result assembly. The same duration definition is used for persisted
 `retrieval_runs.latency_ms` and latency aggregates; cache hits are recorded too.
 Trace persistence must receive the execution start timestamp rather than
 starting its own timer after navigation and hydration. Timing and terminal
-outcomes must cover classic, map-nav, small-corpus, cache-hit, failed, and
+outcomes must cover classic, agent_explore, small-corpus, cache-hit, failed, and
 cancelled routes. `retrieval_runs` is the ledger for all of those routes and
 stores explicit route, cache, latency, and terminal-status fields.
 

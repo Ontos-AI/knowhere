@@ -2,9 +2,8 @@
 
 Reuses the exact predicate compile/match semantics from
 ``scoring.node_filter_predicates`` (path/summary substring|regex, fields AND
-together, terms OR together) — see that module's docstring — but walks
-``document_sections`` rows for the requested scope's current revision
-instead of the in-memory map-nav tree.
+together, terms OR together) — see that module's docstring — and walks
+``document_sections`` rows for the requested scope's current revision.
 
 Unlike a plain filter, the rendered result is not just the matched rows: it
 is each matched section's full ancestor chain (context) plus its entire
