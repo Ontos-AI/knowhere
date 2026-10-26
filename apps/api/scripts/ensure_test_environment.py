@@ -217,12 +217,13 @@ def get_install_commands() -> tuple[InstallCommand, ...]:
                 ),
             ),
             InstallCommand(
-                description="Install pgvector for page-embedding migrations",
+                description="Upgrade PostgreSQL from PGDG and install matching pgvector",
                 command=_with_privilege(
                     (
                         "bash",
                         "-lc",
                         (
+                            "apt-get install -y postgresql postgresql-contrib && "
                             'apt-get install -y "postgresql-'
                             "$(pg_config --version | awk '{print $2}' | cut -d. -f1)"
                             '-pgvector"'
