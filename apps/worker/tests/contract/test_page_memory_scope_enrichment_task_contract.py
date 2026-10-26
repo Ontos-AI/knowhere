@@ -975,6 +975,9 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
         execute_structure_enrichment,
     )
     from shared.core import celery_app as celery_app_mod
+    from shared.services.jobs.lifecycle.scope_enrichments import (
+        sweep_progressive_enrichments_sync,
+    )
 
     del worker_contract_environment
 
@@ -1159,6 +1162,23 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
                 select(Job).where(Job.job_id == job_id)
             ).scalar_one()
             assert (job.job_metadata or {}).get("enrichment_status") == "coarse"
+
+        # Reset to text while structure_claimed_at is still fresh: both a duplicate
+        # structure task and sweep must skip it rather than re-running or re-enqueuing.
+        with Session(engine) as session:
+            job = session.execute(select(Job).where(Job.job_id == job_id)).scalar_one()
+            jr = session.execute(select(JobResult).where(JobResult.id == revision_id)).scalar_one()
+            job.job_metadata = {**dict(job.job_metadata or {}), "enrichment_status": "text"}
+            jr.document_metadata = {**dict(jr.document_metadata or {}), "enrichment_status": "text"}
+            session.commit()
+
+        dup_res = execute_structure_enrichment(
+            job_result_id=revision_id,
+            result_storage_factory=lambda: storage,
+        )
+        assert dup_res["status"] == "skipped"
+        sweep_while_claimed = sweep_progressive_enrichments_sync(structure_timeout_seconds=0)
+        assert revision_id not in sweep_while_claimed["reenqueued_structures"]
     finally:
         engine.dispose()
 

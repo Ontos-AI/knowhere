@@ -1167,6 +1167,7 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
     from shared.core.database import get_db_context
     from shared.models.database.document import DocumentPageEmbedding
     from shared.services.ai.embedding import multimodal_client
+    from shared.services.retrieval.agent_tools.tools.grep import grep as fresh_grep
     from shared.services.retrieval.agent_tools.tools.read import read as fresh_read
     from shared.services.retrieval.agent_tools.tools.recall import recall as fresh_recall
     from shared.services.retrieval.execution.route_types import RetrievalRouteContext
@@ -1356,6 +1357,13 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                 assert recall_res.error is None
                 assert recall_res.payload["rows"][0]["section_path"] == "p2"
                 assert "scanned page image" in recall_res.text
+
+                grep_res = await fresh_grep(
+                    ctx, {"pattern": "chart"}
+                )
+                assert grep_res.error is None
+                assert "scanned document still awaiting background OCR" in grep_res.text
+                assert "corpus.recall" in grep_res.text
 
                 read_res = await fresh_read(
                     ctx,

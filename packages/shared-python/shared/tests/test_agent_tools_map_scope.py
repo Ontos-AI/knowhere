@@ -19,6 +19,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
+from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.agent_tools.registry import (
     MAP_TOOL_CHAR_BUDGET,
@@ -247,6 +248,7 @@ def map_ctx() -> ToolContext:
     def _disable_fk(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
         dbapi_connection.execute("PRAGMA foreign_keys=OFF")
 
+    Job.__table__.create(engine)
     JobResult.__table__.create(engine)
     Document.__table__.create(engine)
     DocumentSection.__table__.create(engine)
@@ -369,7 +371,7 @@ async def test_recall_passes_section_subtree_into_discovery(
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
 
     monkeypatch.setattr(
-        "shared.services.retrieval.agent_tools.tools.recall.map_unit_discovery",
+        "shared.services.retrieval.agent_tools.tools.recall.hybrid_discovery",
         _discovery,
     )
     result = await recall(

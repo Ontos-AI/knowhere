@@ -44,7 +44,7 @@ SHARED_STAGING_ENVIRONMENT: dict[str, str] = {
     "ARK_URL": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
     "BROKER_POOL_LIMIT": "5",
     "DS_URL": "https://api.deepseek.com/v1/chat/completions",
-    "EMBEDDING_MODEL": "text-embedding-v4",
+    "EMBEDDING_MODEL": "multimodal-embedding-v1",
     "S3_TEMP_PATH": "/tmp",
     "SUPPORTED_EXTENSIONS": ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.pptx,.md",
     "TMP_PATH": "/tmp/aismart_bid",

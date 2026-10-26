@@ -56,7 +56,7 @@
         {"name": "DS_URL", "value": "https://api.deepseek.com/v1/chat/completions"},
         {"name": "ALI_URL", "value": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"},
         {"name": "ARK_URL", "value": "https://ark.cn-beijing.volces.com/api/v3/chat/completions"},
-        {"name": "EMBEDDING_MODEL", "value": "text-embedding-v4"},
+        {"name": "EMBEDDING_MODEL", "value": "multimodal-embedding-v1"},
         {"name": "HIERARCHY_LLM_MODEL", "value": "deepseek-chat"},
         {"name": "NORMOL_MODEL", "value": "deepseek-chat"},
         {"name": "IMAGE_MODEL", "value": "deepseek-flash"},

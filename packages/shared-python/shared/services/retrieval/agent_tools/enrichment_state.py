@@ -165,3 +165,13 @@ def format_assets_not_refined_note(page_range_label: str, state: str = "coarse")
         "corpus.query_table on this range in this session — use page text "
         "via corpus.read, corpus.grep, or corpus.recall."
     )
+
+
+def format_scanned_pages_pending_ocr_note(file_names: list[str]) -> str:
+    joined = ", ".join(file_names) if file_names else "document"
+    return (
+        f"{joined} is a scanned document still awaiting background OCR (state=text); "
+        "no page text is indexed for exact string search yet. Do not retry "
+        "corpus.grep on it in this session — use corpus.recall (visual semantic "
+        "search over page images) and corpus.read to inspect page images."
+    )

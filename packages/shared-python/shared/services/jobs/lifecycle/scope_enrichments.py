@@ -352,6 +352,26 @@ async def promote_scopes_on_read(
     return sent
 
 
+def _structure_claim_still_active(
+    *,
+    doc_meta: object,
+    job_meta: object,
+    now: datetime,
+) -> bool:
+    doc_dict = doc_meta if isinstance(doc_meta, dict) else {}
+    job_dict = job_meta if isinstance(job_meta, dict) else {}
+    raw_claimed_at = doc_dict.get("structure_claimed_at") or job_dict.get("structure_claimed_at")
+    if not raw_claimed_at:
+        return False
+    try:
+        claimed_at = datetime.fromisoformat(
+            str(raw_claimed_at).replace("Z", "+00:00")
+        ).replace(tzinfo=None)
+        return (now - claimed_at) < timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS)
+    except Exception:
+        return False
+
+
 def sweep_progressive_enrichments_sync(
     *,
     structure_timeout_seconds: int = 300,
@@ -362,28 +382,36 @@ def sweep_progressive_enrichments_sync(
     retried_scopes: list[tuple[str, str]] = []
 
     with get_sync_db_context() as db:
+        structure_rows = db.execute(
+            select(
+                JobResult.id,
+                JobResult.document_metadata,
+                Job.job_metadata,
+            )
+            .select_from(JobResult)
+            .join(
+                Document,
+                and_(
+                    Document.current_job_result_id == JobResult.id,
+                    Document.status == "active",
+                ),
+            )
+            .join(Job, Job.job_id == JobResult.job_id)
+            .where(Job.updated_at < structure_cutoff)
+            .where(
+                func.coalesce(
+                    JobResult.document_metadata["enrichment_status"].as_string(),
+                    Job.job_metadata["enrichment_status"].as_string(),
+                )
+                == "text"
+            )
+        ).all()
         reenqueued_structures = [
             str(revision_id)
-            for revision_id in db.execute(
-                select(JobResult.id)
-                .select_from(JobResult)
-                .join(
-                    Document,
-                    and_(
-                        Document.current_job_result_id == JobResult.id,
-                        Document.status == "active",
-                    ),
-                )
-                .join(Job, Job.job_id == JobResult.job_id)
-                .where(Job.updated_at < structure_cutoff)
-                .where(
-                    func.coalesce(
-                        JobResult.document_metadata["enrichment_status"].as_string(),
-                        Job.job_metadata["enrichment_status"].as_string(),
-                    )
-                    == "text"
-                )
-            ).scalars()
+            for revision_id, doc_meta, job_meta in structure_rows
+            if not _structure_claim_still_active(
+                doc_meta=doc_meta, job_meta=job_meta, now=now
+            )
         ]
 
         scope_candidates = (

@@ -106,7 +106,6 @@ async def visual_page_discovery(
     filter_mode: str = "delete",
     revision_pins: Mapping[str, str] | None = None,
     section_targets: list[tuple[str, str | None]] | None = None,
-    **_kwargs: Any,
 ) -> DiscoveryResult:
     """Rank persisted page embeddings via pgvector cosine similarity."""
     if db is None:
@@ -329,15 +328,12 @@ async def hybrid_discovery(
     revision_pins: Mapping[str, str] | None = None,
     publish_index_readiness: bool = True,
     section_targets: list[tuple[str, str | None]] | None = None,
-    lexical_discovery_fn: Any = None,
-    **_kwargs: Any,
 ) -> DiscoveryResult:
     """Fuse persisted lexical map-unit BM25 discovery with visual page discovery via RRF."""
     exclude_doc_list = list(exclude_document_ids or [])
     exclude_sec_list = list(exclude_sections or [])
-    resolved_lexical_fn = lexical_discovery_fn or map_unit_discovery
 
-    lexical_result = await resolved_lexical_fn(
+    lexical_result = await map_unit_discovery(
         db,
         user_id=user_id,
         namespace=namespace,
@@ -353,10 +349,7 @@ async def hybrid_discovery(
         publish_index_readiness=publish_index_readiness,
         section_targets=section_targets,
     )
-    if (
-        resolved_lexical_fn is not map_unit_discovery
-        or not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True))
-    ):
+    if not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)):
         return lexical_result
 
     visual_result = await visual_page_discovery(

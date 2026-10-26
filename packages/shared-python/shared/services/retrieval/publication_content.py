@@ -137,7 +137,6 @@ def replace_document_revision_content(
         db,
         scope=scope,
         incoming_embeddings_by_page=incoming_embeddings_by_page or None,
-        trace=trace,
     )
     manifest_payload = persist_revision_serving_state(db, scope=scope, trace=trace)
     return manifest_payload

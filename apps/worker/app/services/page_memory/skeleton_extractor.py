@@ -135,7 +135,6 @@ def extract_section_skeletons(
         pending_tocs=pending_tocs,
         pending_records=pending_records,
     )
-    parallel_tocs = [toc for toc, _record in parallel_pending]
     primary_page_count = page_count
     primary_body_pages = body_pages
     pending_starts = [

@@ -194,6 +194,9 @@ def execute_structure_enrichment(
             "enqueued_scopes": enqueued_scopes,
             "chunk_count": len(coarse_chunks),
         }
+    except Exception:
+        _release_structure_claim(job_id=target.job_id, job_result_id=job_result_id)
+        raise
     finally:
         cleanup_llm_overrides()
         shutil.rmtree(workspace_dir, ignore_errors=True)
@@ -426,13 +429,59 @@ def _build_claimed_target(
     )
 
 
+def _structure_claim_expired(
+    *,
+    job_result: JobResult,
+    job: Job,
+    now: Any,
+) -> bool:
+    doc_meta = job_result.document_metadata if isinstance(job_result.document_metadata, dict) else {}
+    job_meta = job.job_metadata if isinstance(job.job_metadata, dict) else {}
+    raw_claimed_at = doc_meta.get("structure_claimed_at") or job_meta.get("structure_claimed_at")
+    if not raw_claimed_at:
+        return True
+    try:
+        from datetime import datetime, timedelta
+        from shared.core.config import app_config
+
+        claimed_at = datetime.fromisoformat(str(raw_claimed_at).replace("Z", "+00:00")).replace(tzinfo=None)
+        return (now - claimed_at) >= timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS)
+    except Exception:
+        return True
+
+
+def _release_structure_claim(*, job_id: str, job_result_id: str) -> None:
+    with get_sync_db_context() as db:
+        job = db.execute(select(Job).where(Job.job_id == job_id).with_for_update()).scalar_one_or_none()
+        if job is not None and isinstance(job.job_metadata, dict):
+            meta = dict(job.job_metadata)
+            if str(meta.get("enrichment_status") or "").strip().lower() == "text":
+                meta.pop("structure_claimed_at", None)
+                job.job_metadata = meta
+        jr = (
+            db.execute(
+                select(JobResult)
+                .where(JobResult.id == job_result_id)
+                .with_for_update(of=JobResult)
+            ).scalar_one_or_none()
+        )
+        if jr is not None and isinstance(jr.document_metadata, dict):
+            doc_meta = dict(jr.document_metadata)
+            if str(doc_meta.get("enrichment_status") or "").strip().lower() == "text":
+                doc_meta.pop("structure_claimed_at", None)
+                jr.document_metadata = doc_meta
+
+
 def _load_and_validate_structure_target(
     *,
     job_result_id: str,
 ) -> tuple[str, _ClaimedScopeTarget | None]:
+    now = utc_now_naive()
     with get_sync_db_context() as db:
         job_result = db.execute(
-            select(JobResult).where(JobResult.id == job_result_id)
+            select(JobResult)
+            .where(JobResult.id == job_result_id)
+            .with_for_update(of=JobResult)
         ).scalar_one_or_none()
         if job_result is None:
             return "aborted", None
@@ -445,7 +494,7 @@ def _load_and_validate_structure_target(
             else None
         )
         job = db.execute(
-            select(Job).where(Job.job_id == job_result.job_id)
+            select(Job).where(Job.job_id == job_result.job_id).with_for_update()
         ).scalar_one_or_none()
         job_metadata = dict(job.job_metadata or {}) if job is not None else {}
         source_file_name = (
@@ -475,6 +524,16 @@ def _load_and_validate_structure_target(
         )
         if enrichment_status != "text":
             return "skipped", None
+        if not _structure_claim_expired(job_result=job_result, job=job, now=now):
+            return "skipped", None
+        claimed_iso = now.isoformat()
+        job_metadata["structure_claimed_at"] = claimed_iso
+        job.job_metadata = job_metadata
+        job.updated_at = now
+        job_result.document_metadata = {
+            **dict(job_result.document_metadata or {}),
+            "structure_claimed_at": claimed_iso,
+        }
         return (
             "claimed",
             _build_claimed_target(

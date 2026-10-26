@@ -48,10 +48,11 @@ class AIConfig(BaseModel):
         default="multimodal-embedding-v1",
         description=(
             "DashScope multimodal embedding model producing shared-space "
-            "image and text vectors. Legacy text-embedding-v4 is routed to "
-            "multimodal-embedding-v1."
+            "image and text vectors for scanned page retrieval."
         ),
     )
+    # Reserved for future text-only chunk embedding:
+    # TEXT_EMBEDDING_MODEL: str = Field(default="text-embedding-v4")
     EMBEDDING_DIM: int = Field(
         default=1024,
         description="Dimension of multimodal page and query embeddings.",

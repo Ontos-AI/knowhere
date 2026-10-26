@@ -1,8 +1,9 @@
 """``corpus.recall`` — fuzzy ranked candidate search.
 
-One live scoring path: ``search.map_unit_discovery.map_unit_discovery``
-(persisted map-unit BM25 over path + content, already RRF-fused there).
-Exact-string lookup is ``corpus.grep``, not a second channel here.
+One live scoring path: ``search.visual_discovery.hybrid_discovery`` —
+persisted map-unit BM25 over path + content (already RRF-fused in
+``search.map_unit_discovery``) plus visual page-embedding hits for scanned
+pages. Exact-string lookup is ``corpus.grep``, not a second channel here.
 
 ``scope`` is applied in that same discovery SQL: a named section is that
 section and everything under it, scored before ranking. Classic retrieval
@@ -37,7 +38,6 @@ from shared.services.retrieval.agent_tools.scope import (
 from shared.services.retrieval.agent_tools.snippet import build_row, build_snippet, format_row
 from shared.services.retrieval.hydration.row_utils import normalize_chunk_type
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
-from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
 from shared.services.retrieval.search.visual_discovery import hybrid_discovery
 
 _DEFAULT_LIMIT = 10
@@ -140,7 +140,6 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             (target.document_id, target.section_path) for target in scope
         ]
         or None,
-        lexical_discovery_fn=map_unit_discovery,
     )
     rows = list(discovery.payload.get("fused_rows") or [])
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import delete, select
@@ -12,9 +12,6 @@ from shared.core.config import settings
 from shared.services.ai.embedding import resolve_embedding_model
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.publication_models import DocumentPublicationScope
-
-if TYPE_CHECKING:
-    from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
 
 __all__ = [
     "extract_and_strip_page_embeddings",
@@ -148,16 +145,13 @@ def replace_document_page_embeddings(
     *,
     scope: DocumentPublicationScope,
     incoming_embeddings_by_page: dict[int, list[float]] | None = None,
-    trace: PublicationTrace | None = None,
 ) -> int:
     """Persist new M0 page embeddings or rebind/copy existing page embeddings across stages/revisions."""
-    _ = trace
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
     owner_by_page = _build_owner_chunk_by_page(db, scope=scope)
     if not owner_by_page and not incoming_embeddings_by_page:
         return 0
 
-    fallback_chunk_id = next(iter(owner_by_page.values()), "")
     model_name = resolve_embedding_model(getattr(settings, "EMBEDDING_MODEL", None))
 
     if incoming_embeddings_by_page:
@@ -171,7 +165,7 @@ def replace_document_page_embeddings(
         inserted = 0
         for page_num in sorted(incoming_embeddings_by_page):
             vector = incoming_embeddings_by_page[page_num]
-            chunk_id = owner_by_page.get(page_num) or fallback_chunk_id
+            chunk_id = owner_by_page.get(page_num)
             if not chunk_id or not vector:
                 continue
             db.add(
@@ -237,7 +231,7 @@ def replace_document_page_embeddings(
     copied = 0
     for prior in prior_rows:
         page_num = int(prior.page_num)
-        chunk_id = owner_by_page.get(page_num) or fallback_chunk_id
+        chunk_id = owner_by_page.get(page_num)
         if not chunk_id:
             continue
         vec = (

@@ -34,17 +34,14 @@ DEFAULT_EMBEDDING_ENDPOINT = (
     "https://dashscope.aliyuncs.com/api/v1/services/embeddings/"
     "multimodal-embedding/multimodal-embedding"
 )
-_RETIRED_TEXT_ONLY_MODELS = frozenset({"text-embedding-v4", "text-embedding-v3"})
 
 
 def resolve_embedding_model(model: str | None = None) -> str:
-    """Resolve the active multimodal embedding model, routing retired text-only ids."""
+    """Resolve the active multimodal embedding model."""
     candidate = str(
         model if model is not None else getattr(settings, "EMBEDDING_MODEL", "")
     ).strip()
-    if not candidate or candidate.lower() in _RETIRED_TEXT_ONLY_MODELS:
-        return DEFAULT_MULTIMODAL_EMBEDDING_MODEL
-    return candidate
+    return candidate or DEFAULT_MULTIMODAL_EMBEDDING_MODEL
 
 
 def _resolve_embedding_dim() -> int:
