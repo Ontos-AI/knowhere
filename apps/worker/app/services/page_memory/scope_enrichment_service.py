@@ -1174,6 +1174,18 @@ def _finalize_all_scopes_refined(
         if snapshot is None:
             raise ValueError("Final document package contains no chunks")
         with get_sync_db_context() as db:
+            from shared.services.retrieval.serving_generation import (
+                advance_namespace_generation,
+                lock_namespace_generation,
+            )
+
+            generation = (
+                lock_namespace_generation(
+                    db, user_id=target.user_id, namespace=target.namespace
+                )
+                if staged is not None
+                else None
+            )
             document = db.execute(
                 select(Document)
                 .where(Document.document_id == target.document_id)
@@ -1212,7 +1224,8 @@ def _finalize_all_scopes_refined(
                         job_result_id=job_result_id,
                         source_file_name=target.source_file_name,
                     )
-                    (scope_publisher or _resolve_default_scope_publisher())(
+                    publisher = scope_publisher or _resolve_default_scope_publisher()
+                    manifest_payload = publisher(
                         db,
                         scope=publication_scope,
                         scope_id="*",
@@ -1229,6 +1242,22 @@ def _finalize_all_scopes_refined(
                             scope=publication_scope,
                             incoming_embeddings_by_page=staged.embeddings,
                         )
+                    from shared.services.retrieval.namespace_map_snapshot import (
+                        patch_namespace_map_snapshot,
+                    )
+
+                    patch_namespace_map_snapshot(
+                        db,
+                        scope=publication_scope,
+                        manifest_payload=manifest_payload,
+                        current_generation=generation,
+                    )
+                    advance_namespace_generation(
+                        db,
+                        user_id=target.user_id,
+                        namespace=target.namespace,
+                        locked_generation=generation,
+                    )
                 stage["status"] = "complete"
                 stages["finalization"] = stage
                 current.stages = stages

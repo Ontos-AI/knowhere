@@ -32,6 +32,11 @@ from shared.services.retrieval.execution.response_projection import (
     project_public_retrieval_response,
 )
 from shared.services.retrieval.execution.query_request import RetrievalQuery
+from shared.core.exceptions.domain_exceptions import ConflictException
+from shared.services.retrieval.manifest_cache import discard_cached_manifest_payloads
+from shared.services.retrieval.required_query_embedding import (
+    RequiredQueryEmbeddingException,
+)
 
 
 async def run_retrieval_query(
@@ -143,10 +148,18 @@ class RetrievalExecutionPlan:
         capturedDemoPins = None
         cache_extra = request.build_cache_extra()
         if CorpusStorage.resolve_namespace(request.namespace).is_demo:
-            capturedDemoPins = await capture_revision_pins(request.db, user_id=request.user_id, namespace=request.namespace)
-            await validate_demo_query_scope(request.db, include_document_ids=request.include_document_ids, pins=capturedDemoPins)
+            capturedDemoPins = await capture_revision_pins(
+                request.db, user_id=request.user_id, namespace=request.namespace
+            )
+            await validate_demo_query_scope(
+                request.db,
+                include_document_ids=request.include_document_ids,
+                pins=capturedDemoPins,
+            )
             cache_extra["corpus_generation"] = capturedDemoPins.generation
-            cache_extra["revision_digest"] = sha256(repr(sorted(capturedDemoPins.items())).encode()).hexdigest()
+            cache_extra["revision_digest"] = sha256(
+                repr(sorted(capturedDemoPins.items())).encode()
+            ).hexdigest()
 
         cache_version, cached_response = await _read_cached_response(
             user_id=request.user_id,
@@ -160,32 +173,74 @@ class RetrievalExecutionPlan:
         if cached_response is not None:
             return cached_response
 
-        logger.debug(f"  📦 Cache miss (version={cache_version}), running full pipeline")
+        logger.debug(
+            f"  📦 Cache miss (version={cache_version}), running full pipeline"
+        )
 
         route_context = request.build_route_context()
-        revision_pins = capturedDemoPins or await capture_revision_pins(
-            request.db,
-            user_id=request.user_id,
-            namespace=request.namespace,
-        )
-        if not await is_revision_generation_stable(
-            request.db,
-            user_id=request.user_id,
-            namespace=request.namespace,
-            pins=revision_pins,
-        ):
-            revision_pins = await capture_revision_pins(
+        for attempt in range(2):
+            revision_pins = (
+                capturedDemoPins if attempt == 0 else None
+            ) or await capture_revision_pins(
                 request.db,
                 user_id=request.user_id,
                 namespace=request.namespace,
             )
-        if capturedDemoPins is not None:
-            await validate_demo_query_scope(request.db, include_document_ids=request.include_document_ids, pins=revision_pins)
-            cache_extra["corpus_generation"] = revision_pins.generation
-            cache_extra["revision_digest"] = sha256(repr(sorted(revision_pins.items())).encode()).hexdigest()
-        with CorpusRevisionContext.bind(revision_pins):
-            outcome = await run_retrieval_route(
-                replace(route_context, revision_pins=revision_pins, document_scope=route_context.document_scope.narrow(list(revision_pins)))
+            if capturedDemoPins is not None:
+                await validate_demo_query_scope(
+                    request.db,
+                    include_document_ids=request.include_document_ids,
+                    pins=revision_pins,
+                )
+                cache_extra["corpus_generation"] = revision_pins.generation
+                cache_extra["revision_digest"] = sha256(
+                    repr(sorted(revision_pins.items())).encode()
+                ).hexdigest()
+            try:
+                with CorpusRevisionContext.bind(revision_pins):
+                    outcome = await run_retrieval_route(
+                        replace(
+                            route_context,
+                            revision_pins=revision_pins,
+                            document_scope=route_context.document_scope.narrow(
+                                list(revision_pins)
+                            ),
+                        )
+                    )
+            except RequiredQueryEmbeddingException:
+                raise
+            except Exception:
+                if await is_revision_generation_stable(
+                    request.db,
+                    user_id=request.user_id,
+                    namespace=request.namespace,
+                    pins=revision_pins,
+                    strict=True,
+                ):
+                    raise
+            else:
+                if await is_revision_generation_stable(
+                    request.db,
+                    user_id=request.user_id,
+                    namespace=request.namespace,
+                    pins=revision_pins,
+                    strict=True,
+                ):
+                    break
+            if attempt == 1:
+                raise ConflictException(
+                    user_message="Document search changed during retrieval. Please retry.",
+                    reason="ABORTED",
+                    resource="Namespace",
+                )
+            # Agent tools intentionally use short-lived sessions across LLM waits.
+            # Validate the whole episode instead of retaining a long DB snapshot.
+            await request.db.rollback()
+            discard_cached_manifest_payloads(request.db)
+            logger.warning(
+                "Retrieval serving generation changed; retrying once user={} namespace={}",
+                request.user_id,
+                request.namespace,
             )
 
         if cache_version is not None:
@@ -311,8 +366,7 @@ def _log_retrieval_start(
         f"  user={user_id}  ns={namespace}  top_k={top_k}  chunk_types={chunk_types}"
     )
     logger.info(
-        f"  exclude_docs={exclude_document_ids}  "
-        f"exclude_secs={len(exclude_sections)}"
+        f"  exclude_docs={exclude_document_ids}  exclude_secs={len(exclude_sections)}"
     )
     logger.info("█" * 70)
 
@@ -325,7 +379,7 @@ def _log_retrieval_complete(
     detail: str,
     elapsed_ms: int,
 ) -> None:
-    logger.info(f'\n{"█" * 70}')
+    logger.info(f"\n{'█' * 70}")
     logger.info(f"  ✅ {label} COMPLETE: {count} {detail} | {elapsed_ms}ms")
     results = outcome.get("results", [])
     if isinstance(results, list):
@@ -338,4 +392,4 @@ def _log_retrieval_complete(
             )
         if len(results) > 10:
             logger.info(f"    ... and {len(results) - 10} more")
-    logger.info(f'{"█" * 70}')
+    logger.info(f"{'█' * 70}")

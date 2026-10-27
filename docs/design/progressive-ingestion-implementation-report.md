@@ -8,7 +8,7 @@ or deployed-client acceptance.
 
 | Repository | Branch | Implementation commits |
 | --- | --- | --- |
-| Knowhere | `feat/wangbinqi/progressive-ingestion` | `ff162946`, `2d07a2ca` |
+| Knowhere | `feat/wangbinqi/progressive-ingestion` | `ff162946`, `2d07a2ca`, `851da937`, plus the final concurrency follow-up |
 | Knowhere Node SDK | `feat/wangbinqi/progressive-snapshots` | `2fcba08`, `2bba10f` |
 | Hipo | `feat/wangbinqi/progressive-ingestion` | `c5bd0980` |
 
@@ -28,6 +28,12 @@ Original checkouts were preserved. Planning is committed separately as `e9513bf1
   work on retry. Existing in-flight revisions retain their original protocol.
   No SDK/Hipo wire change or new public selector is required. BM25, visual RRF
   fusion and Agent retrieval algorithms are unchanged.
+- Final publication advances the namespace serving generation together with the
+  live content/index and namespace snapshot. Uncached classic and Agent retrieval
+  validate that generation before returning; a concurrent change retries once,
+  while repeated changes return an explicit conflict. Forced PostgreSQL races
+  now pass. Production deployment and capacity acceptance remain separate gates;
+  see [final publication validation](progressive-final-publication-validation.md).
 - Initial completion publishes an immutable readable baseline. The business Job
   stays done while independent structure, scope, vector repair and finalization
   tasks continue. No additional public ingestion selector or rollout framework
@@ -75,7 +81,7 @@ recovery timestamps and pending-work indexing. Existing migrations were preserve
 | Scope | Result |
 | --- | --- |
 | Knowhere shared lifecycle/delivery/retry/source-PDF/embedding/harness tests | 56 passed |
-| Knowhere API scope publication/retry/webhook/QStash contracts | 21 passed |
+| Knowhere API publication/retry/webhook/QStash/concurrency/router contracts | 38 passed after the final concurrency follow-up |
 | Knowhere worker Phase A/scope/reliability/retrieval contracts | 60 passed after the final-publication follow-up |
 | Knowhere Ruff and Pyright (`make check`) | Passed |
 | SDK complete suite | 400 passed across 22 suites |
@@ -93,6 +99,13 @@ final upload interruption, database rollback and recovery without rerunning
 successful scopes. They use real local PostgreSQL and mocked external providers/
 object storage. SDK/Hipo checks above belong to the preceding implementation;
 those repositories were not modified by this follow-up.
+
+The subsequent final concurrency/capacity investigation reran 47 selected shared
+tests, 38 API contracts and 60 Worker contracts, plus `make check` and explicit
+Pyright validation of the new concurrency contract. Its quota-limited Linux
+publication-core campaign completed 427 uncached queries successfully, including
+six generation-triggered retries. Production readiness is still blocked; see the
+separate validation report for resource measurements and evidence boundaries.
 
 Knowhere persistence tests ran against local PostgreSQL 16 with pgvector, with
 additional SQLite contracts for small failure cases. Hipo applied its complete
@@ -125,9 +138,10 @@ Hipo's `docs/progressive-ingestion-release.md` for the local installation eviden
 
 ## Remaining release validation
 
-1. Verify healthy deployment configuration, provider access, migrations and
-   halfvec support against the actual target environment. Earlier infrastructure
-   observations are not current deployment evidence.
+1. Restore healthy deployment configuration, then verify provider access,
+   migrations and halfvec support against the actual target environment. The
+   2026-10-27 read-only inspection found a missing `VERCEL_KEY` secret field and
+   only one of two desired Worker tasks running; see the final validation report.
 2. Publish/pin the compatible SDK and repeat Hipo acceptance against that exact
    installed release.
 3. Exercise real native PDF, scanned PDF and PPTX ingestion, early Ask visual
@@ -138,10 +152,10 @@ Hipo's `docs/progressive-ingestion-release.md` for the local installation eviden
    and large documents, including new admissions after earlier Jobs reach M0.
    Observe CPU/RSS/disk, queue delay, DB locks/connections, provider concurrency,
    retries, download amplification and end-to-end latency.
-   Include multi-statement/Agent retrieval spanning the final same-JobResult
-   replacement: one atomic write transaction does not by itself establish a
-   request-wide consistent read snapshot. This concurrency boundary remains an
-   explicit acceptance requirement; no live concurrency or latency claim is made.
+   The multi-statement/Agent race across final same-JobResult replacement was
+   reproduced and fixed with local PostgreSQL contracts. Repeat it against
+   deployed workers/services; isolated publication measurements do not establish
+   full ingestion capacity or production latency.
 
 Immutable baseline/final archives, source PDFs and retained Hipo objects increase
 storage and transfer. Processing uses separate mutable input storage and immutable

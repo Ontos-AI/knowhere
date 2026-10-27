@@ -400,7 +400,11 @@ def test_deferred_enrichment_keeps_baseline_until_final_package_is_durable(
     import json
 
     from app.services.page_memory import scope_enrichment_service as service
-    from shared.models.database.document import DocumentMapUnit, DocumentPageEmbedding
+    from shared.models.database.document import (
+        DocumentMapUnit,
+        DocumentPageEmbedding,
+        RetrievalNamespaceGeneration,
+    )
     from shared.models.schemas.progressive_ingestion import StoredSnapshot
     from shared.services.jobs.progressive_ingestion import (
         initialize_baseline_state,
@@ -512,6 +516,12 @@ def test_deferred_enrichment_keeps_baseline_until_final_package_is_durable(
                     )
                 )
             )
+            initial_generation: int = db.scalar(
+                select(RetrievalNamespaceGeneration.generation).where(
+                    RetrievalNamespaceGeneration.user_id
+                    == f"enrich-user-deferred-{failure_stage}"
+                )
+            ) or 0
 
         first = service.execute_scope_enrichment(
             job_result_id=revision_id,
@@ -659,6 +669,12 @@ def test_deferred_enrichment_keeps_baseline_until_final_package_is_durable(
                 "final",
             ]
             assert db.get(Job, job_id).status == "done"
+            assert db.scalar(
+                select(RetrievalNamespaceGeneration.generation).where(
+                    RetrievalNamespaceGeneration.user_id
+                    == f"enrich-user-deferred-{failure_stage}"
+                )
+            ) == initial_generation + 1
             if has_missing_vectors:
                 vector = db.scalars(
                     select(DocumentPageEmbedding).where(
