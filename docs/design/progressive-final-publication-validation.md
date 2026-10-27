@@ -2,6 +2,10 @@
 
 Date: 2026-10-26 Pacific / 2026-10-27 UTC.
 
+A subsequent full two-Worker source-to-retrieval campaign, evaluated independently
+of production deployment state, is documented in
+[the mixed capacity follow-up](progressive-mixed-capacity-validation.md).
+
 ## Release decision
 
 **Do not release against the currently observed production state.** Local
