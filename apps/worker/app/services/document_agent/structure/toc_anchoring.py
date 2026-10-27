@@ -418,8 +418,7 @@ def select_global_toc_hierarchies(
 def pages_excluding_toc(pages: Any, toc_pages: Any) -> list[int]:
     """Return ``pages`` with TOC pages removed (stable order).
 
-    Same exclusion source as TEXT-track MinerU ``exclude_pages`` and anchoring
-    ``body_pages``: ``toc_result.toc_pages``.
+    Same exclusion source as anchoring ``body_pages``: ``toc_result.toc_pages``.
     """
     excluded: set[int] = set()
     for raw in toc_pages or []:

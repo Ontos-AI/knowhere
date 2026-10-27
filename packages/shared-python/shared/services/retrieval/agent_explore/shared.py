@@ -33,12 +33,14 @@ def model_accepts_images(model: str) -> bool:
 
 
 def https_image_parts(result: ToolResult) -> list[dict[str, Any]]:
-    """HTTPS image blocks for a vision harness. ``filesystem://`` is omitted."""
+    """HTTP(S) image blocks for a vision harness. ``filesystem://`` is omitted."""
     parts: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in result.media:
         url = str(item.get("url") or "").strip()
-        if item.get("type") != "image_url" or not url.startswith("https://"):
+        if item.get("type") != "image_url" or not url.startswith(
+            ("http://", "https://")
+        ):
             continue
         if url in seen:
             continue

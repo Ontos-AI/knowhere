@@ -81,8 +81,9 @@ class DocumentIngestionService:
             payload=payload,
             current_user=current_user,
             api_version="v1",
-            build_command=lambda _file_extension: build_v1_ingestion_command(
+            build_command=lambda file_extension: build_v1_ingestion_command(
                 payload=payload,
+                file_extension=file_extension,
             ),
         )
 

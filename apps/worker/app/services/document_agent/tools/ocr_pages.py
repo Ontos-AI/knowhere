@@ -1,10 +1,11 @@
-"""OCR specified PDF pages with RapidOCR and persist page text on the blackboard."""
+"""RapidOCR runner: OCR already-rendered page PNGs through one persistent child process."""
 
 from __future__ import annotations
 
 import atexit
 import multiprocessing
 import time
+from collections.abc import Mapping
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from threading import RLock
@@ -12,14 +13,11 @@ from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 
 from loguru import logger
 
-from app.services.document_agent.manifest import ToolContext, ToolResult
 from app.services.document_agent.pdf_text import (
     LineDraft,
     PageTextBands,
     build_page_text_bands,
 )
-from app.services.document_agent.registry import has_page_features, register_tool
-from app.services.document_agent.visual import render_pages
 from shared.core.exceptions.domain_exceptions import PDFParsingException, TimeoutException
 
 if TYPE_CHECKING:
@@ -427,74 +425,42 @@ def _line_score(item: Any) -> float:
     return 0.0
 
 
-@register_tool(
-    name="ocr.pages",
-    description="Run RapidOCR on specified pages and return positioned text lines.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "pages": {
-                "type": "array",
-                "items": {"type": "integer"},
-            },
-        },
-        "required": ["pages"],
-    },
-    preconditions=(has_page_features,),
-)
-def ocr_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-    start = time.monotonic()
-    raw_pages = args.get("pages")
-    if not isinstance(raw_pages, list) or not raw_pages:
-        return ToolResult(
-            status="error",
-            error="ocr.pages requires pages",
-            latency_ms=int((time.monotonic() - start) * 1000),
-        )
-    pages = [int(page) for page in raw_pages]
-    pngs = render_pages(
-        ctx,
-        pages,
-        folder_name="ocr_pages",
-        prefix="ocr",
-        timeout=300,
-    )
-    png_by_page = {
-        int(item["page"]): str(item["png_path"])
-        for item in pngs
-        if item.get("page") is not None and item.get("png_path")
-    }
+def ocr_rendered_pages(
+    image_path_by_page: Mapping[int, str],
+    *,
+    timeout: int = OCR_TIMEOUT_SECONDS,
+) -> dict[int, str]:
+    """Run RapidOCR on already-rendered page images and return ``{page: text}``.
 
-    page_lines: dict[int, list[dict[str, Any]]] = {}
-    for page in pages:
-        image_path = png_by_page.get(page)
-        if not image_path:
-            page_lines[page] = []
+    Per-page failures log a warning and skip the failing page so callers keep
+    M0 text for that page without aborting sibling pages in the scope.
+    """
+    extracted: dict[int, str] = {}
+    for raw_page in sorted(image_path_by_page):
+        page = int(raw_page)
+        image_path = str(image_path_by_page.get(raw_page) or "").strip()
+        if page <= 0 or not image_path:
             continue
-        result = _OCR_RUNNER.run_page(
-            page,
-            image_path,
-            timeout=OCR_TIMEOUT_SECONDS,
-        )
-        result_page = int(result.get("page") or page)
-        page_lines[result_page] = list(result.get("lines") or [])
-    page_texts: dict[int, str] = {}
-    page_bands: dict[int, PageTextBands] = {}
-    for page in pages:
-        lines = page_lines.get(page, [])
-        page_lines[page] = lines
-        # OCR has no reliable Y bands; every OCR line is body.
-        bands = build_page_text_bands(LineDraft(text=line["text"]) for line in lines)
-        page_bands[page] = bands
-        page_texts[page] = bands.content
+        try:
+            result = _OCR_RUNNER.run_page(
+                page,
+                image_path,
+                timeout=timeout,
+            )
+            lines = list(result.get("lines") or [])
+            bands: PageTextBands = build_page_text_bands(
+                LineDraft(text=str(line.get("text") or ""))
+                for line in lines
+                if isinstance(line, dict)
+            )
+            text = bands.content.strip()
+            if text:
+                extracted[page] = text
+        except Exception as exc:
+            logger.warning(
+                "[ocr-runner] OCR failed on page {}; keeping M0 text: {}",
+                page,
+                exc,
+            )
+    return extracted
 
-    cache = dict(ctx.blackboard.page_full_text_cache)
-    cache.update(page_bands)
-    ctx.blackboard.page_full_text_cache = cache
-    ctx.blackboard.page_text_search_view = None
-    return ToolResult(
-        status="ok",
-        payload={"page_texts": page_texts, "page_lines": page_lines},
-        latency_ms=int((time.monotonic() - start) * 1000),
-        output_summary={"page_count": len(page_texts)},
-    )

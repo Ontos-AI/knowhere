@@ -2,8 +2,8 @@
 
 One live scoring path: ``search.visual_discovery.hybrid_discovery`` —
 persisted map-unit BM25 over path + content (already RRF-fused in
-``search.map_unit_discovery``) plus visual page-embedding hits for scanned
-pages. Exact-string lookup is ``corpus.grep``, not a second channel here.
+``search.map_unit_discovery``) plus visual page-embedding hits over every
+page image. Exact-string lookup is ``corpus.grep``, not a second channel here.
 
 ``scope`` is applied in that same discovery SQL: a named section is that
 section and everything under it, scored before ranking. Classic retrieval
@@ -36,7 +36,10 @@ from shared.services.retrieval.agent_tools.scope import (
     scope_document_ids,
 )
 from shared.services.retrieval.agent_tools.snippet import build_row, build_snippet, format_row
-from shared.services.retrieval.hydration.row_utils import normalize_chunk_type
+from shared.services.retrieval.hydration.row_utils import (
+    coerce_page_nums,
+    normalize_chunk_type,
+)
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 from shared.services.retrieval.search.visual_discovery import hybrid_discovery
 
@@ -151,6 +154,7 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     host_paths = await host_paths_for_hits(ctx, rows, scope)
 
     payload_rows: list[dict[str, Any]] = []
+    lit_pages: list[dict[str, Any]] = []
     lines = [f"candidates={len(rows)}"]
     if len(rows) < 2:
         # No tool name named here on purpose — this fires on *every* weak
@@ -190,6 +194,18 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         row["mounted_chunk_ids"] = hit["mounted_chunk_ids"]
         payload_rows.append(row)
         lines.append(format_row(row))
+        matched_pages = coerce_page_nums(hit.get("matched_page_nums"))
+        if matched_pages:
+            row["matched_page_nums"] = matched_pages
+            lit_pages.append(
+                {
+                    "document_id": str(hit.get("document_id") or ""),
+                    "chunk_id": str(hit.get("chunk_id") or ""),
+                    "section_path": str(section_path or ""),
+                    "matched_page_nums": matched_pages,
+                }
+            )
+            lines.append(f"  matched_pages={matched_pages}")
         rendered = str(hit.get("rendered") or "").strip()
         if rendered:
             lines.append(rendered)
@@ -199,6 +215,7 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         payload={
             "rows": payload_rows,
             "details": {"capped": requested_limit > limit},
+            "lit_pages": lit_pages,
         },
         refs=[
             {"document_id": hit.get("document_id"), "chunk_id": hit.get("chunk_id")}

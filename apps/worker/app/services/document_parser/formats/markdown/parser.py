@@ -14,7 +14,6 @@ from app.services.document_parser.formats.markdown.image_asset import (
     build_markdown_image_name,
     build_markdown_image_asset,
 )
-from app.services.document_parser.formats.markdown.layout_bbox_index import AssetRegion
 from app.services.document_parser.formats.markdown.parse_state import MarkdownParseState
 from app.services.document_parser.formats.markdown.table_asset import (
     MarkdownTableAssetRequest,
@@ -118,7 +117,6 @@ def eval_md_headings(
     model_name=None,
     output_dir=None,
     layout_json_path=None,
-    is_first_shard=True,
 ):
     """Evaluate markdown headings with optional TOC hierarchies context"""
     heading_preds = predict_heading_hierarchy(
@@ -131,7 +129,6 @@ def eval_md_headings(
             model_name=model_name,
             output_dir=output_dir,
             layout_json_path=layout_json_path,
-            is_first_shard=is_first_shard,
         )
     )
 
@@ -235,102 +232,74 @@ def parse_md(
     md_lines=None,
     base_llm_paras=None,
     relative_root=None,
-    toc_hierarchies=None,
-    lines_with_heading=None,
-    is_first_shard=True,
-    skip_toc_detection=False,
-    image_regions: dict[str, AssetRegion] | None = None,
 ):
-    if lines_with_heading is not None:
-        # ── Phase A bypass ──
-        # Caller (e.g. oversized PDF shard-first path) already ran per-shard
-        # heading prediction and passed in the merged lines_with_heading.
-        # Skip TOC detection and heading prediction entirely.
-        logger.info(
-            f"📌 Using pre-identified headings ({len(lines_with_heading)} lines), "
-            f"skipping TOC detection and heading prediction"
-        )
-    else:
-        # ── Phase A: TOC detection + heading prediction ──
-        if md_lines is None and file_path is not None:
-            from app.services.common.file_loading import is_remote, load_file_bytes
+    # ── Phase A: TOC detection + heading prediction ──
+    if md_lines is None and file_path is not None:
+        from app.services.common.file_loading import is_remote, load_file_bytes
 
-            if is_remote(file_path):
-                file_bytes = load_file_bytes(file_path)
-                md_content = file_bytes.decode("utf-8")
-                md_lines = md_content.splitlines()
-            else:
-                with open(file_path, "r", encoding="utf-8") as file:
-                    md_lines = file.readlines()
-
-        md_lines = [line.strip() for line in md_lines if line.strip() != ""]
-
-        # Preprocess: merge multi-line HTML tables into single lines
-        md_lines = merge_html_tables(md_lines)
-
-        # Detect TOC using async LLM-based detection
-        toc_model_name = (
-            base_llm_paras.get("model_name", settings.NORMOL_MODEL)
-            if base_llm_paras
-            else settings.NORMOL_MODEL
-        )
-        hierarchy_model_name = (
-            (base_llm_paras.get("hierarchy_model_name") or toc_model_name)
-            if base_llm_paras
-            else (settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL)
-        )
-
-        if toc_hierarchies is not None:
-            # Pre-detected TOC from upstream (e.g. PROFILE VLM-based extraction).
-            # Skip row-based detection entirely — TOC pages have already been
-            # physically stripped from the PDF, so no TOC rows exist in md_lines.
-            logger.info(
-                f"📌 Using pre-detected TOC hierarchies "
-                f"({len(toc_hierarchies)} regions), "
-                f"skipping detect_tocs_in_texts"
-            )
-        elif skip_toc_detection:
-            logger.info("📌 Skipping TOC detection by upstream parser decision")
+        if is_remote(file_path):
+            file_bytes = load_file_bytes(file_path)
+            md_content = file_bytes.decode("utf-8")
+            md_lines = md_content.splitlines()
         else:
-            with stage_timer(
-                "md.detect_toc", line_count=len(md_lines), model_name=toc_model_name
-            ):
-                toc_hierarchies, md_lines = detect_tocs_in_texts(
-                    md_lines,
-                    model_name=toc_model_name,
-                    hierarchy_model_name=hierarchy_model_name,
-                )
+            with open(file_path, "r", encoding="utf-8") as file:
+                md_lines = file.readlines()
 
-        # Save toc_hierarchies.json to output_dir (will be included in final zip package)
-        if toc_hierarchies:
-            toc_json_path = os.path.join(output_dir, "toc_hierarchies.json")
-            with open(toc_json_path, "w", encoding="utf-8") as f:
-                json.dump(toc_hierarchies, f, ensure_ascii=False, indent=2)
-            logger.info(f"Saved TOC hierarchies to {toc_json_path}")
+    md_lines = [line.strip() for line in md_lines if line.strip() != ""]
 
-        # Find layout.json path
-        layout_json_path = os.path.join(output_dir, "layout.json")
-        if not os.path.exists(layout_json_path):
-            layout_json_path = None
-            logger.debug("layout.json not found, META features will not be added")
+    # Preprocess: merge multi-line HTML tables into single lines
+    md_lines = merge_html_tables(md_lines)
 
-        # estimate hierarchies with toc_hierarchies context
-        with stage_timer(
-            "md.predict_headings",
-            line_count=len(md_lines),
+    # Detect TOC using async LLM-based detection
+    toc_model_name = (
+        base_llm_paras.get("model_name", settings.NORMOL_MODEL)
+        if base_llm_paras
+        else settings.NORMOL_MODEL
+    )
+    hierarchy_model_name = (
+        (base_llm_paras.get("hierarchy_model_name") or toc_model_name)
+        if base_llm_paras
+        else (settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL)
+    )
+
+    with stage_timer(
+        "md.detect_toc", line_count=len(md_lines), model_name=toc_model_name
+    ):
+        toc_hierarchies, md_lines = detect_tocs_in_texts(
+            md_lines,
+            model_name=toc_model_name,
+            hierarchy_model_name=hierarchy_model_name,
+        )
+
+    # Save toc_hierarchies.json to output_dir (will be included in final zip package)
+    if toc_hierarchies:
+        toc_json_path = os.path.join(output_dir, "toc_hierarchies.json")
+        with open(toc_json_path, "w", encoding="utf-8") as f:
+            json.dump(toc_hierarchies, f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved TOC hierarchies to {toc_json_path}")
+
+    # Find layout.json path
+    layout_json_path = os.path.join(output_dir, "layout.json")
+    if not os.path.exists(layout_json_path):
+        layout_json_path = None
+        logger.debug("layout.json not found, META features will not be added")
+
+    # estimate hierarchies with toc_hierarchies context
+    with stage_timer(
+        "md.predict_headings",
+        line_count=len(md_lines),
+        smart_parse=base_llm_paras["smart_title_parse"],
+        model_name=hierarchy_model_name,
+    ):
+        lines_with_heading = eval_md_headings(
+            md_lines,
+            source_type,
+            toc_hierarchies=toc_hierarchies,
             smart_parse=base_llm_paras["smart_title_parse"],
             model_name=hierarchy_model_name,
-        ):
-            lines_with_heading = eval_md_headings(
-                md_lines,
-                source_type,
-                toc_hierarchies=toc_hierarchies,
-                smart_parse=base_llm_paras["smart_title_parse"],
-                model_name=hierarchy_model_name,
-                output_dir=output_dir,
-                layout_json_path=layout_json_path,
-                is_first_shard=is_first_shard,
-            )
+            output_dir=output_dir,
+            layout_json_path=layout_json_path,
+        )
 
     # ── Phase B: MarkdownParseState traversal ──
     # Clean old artifacts to prevent accumulation across debug runs.
@@ -402,7 +371,6 @@ def parse_md(
                         seen_images=parser_state.seen_images,
                         summary_image=bool(base_llm_paras["summary_image"]),
                         row_index=len(parser_state.rows),
-                        image_regions=image_regions,
                     )
                 )
                 if (
@@ -457,7 +425,6 @@ def parse_md(
                     output_dir=output_dir,
                     image_dir=img_dir,
                     summary_image=bool(base_llm_paras["summary_image"]),
-                    image_regions=image_regions,
                 )
                 for image_asset in embedded.image_assets:
                     if image_asset.row_values is not None:

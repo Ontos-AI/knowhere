@@ -48,7 +48,7 @@ def apply_parse_postprocess(
 
 
 def cleanup_unreferenced_images(output_dir: str) -> int:
-    """Remove hash-named MinerU images that are not referenced by table HTML.
+    """Remove hash-named images that are not referenced by table HTML.
 
     Images extracted as ``image-N-*`` are never matched by the hash pattern and
     are always kept. Hash-named files still referenced from ``tables/*.html``

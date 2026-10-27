@@ -177,3 +177,41 @@ claim-specific outputs. SDK checksum verification uses temporary disk proportion
 to compressed archive size, including the progressive Range path. These costs
 must be included in capacity acceptance for both workers and the Hipo runtime;
 green local tests do not prove the current server configuration is sufficient.
+
+
+## Three-repository review and main integration (2026-10-27)
+
+Reviewed the complete Knowhere, Node SDK, and Hipo progressive feature branches
+against the approved plans, citation decisions, and repository standards. Integrated
+Knowhere main `eca92766` and Hipo main `c42e75a8`; the SDK branch already contains
+main `2baa533`. Review found and fixed the following regressions:
+
+- A late recovery could overwrite a newly accepted manual enhancement attempt.
+  Recovery now reads and updates state under Document then JobResult locks. A
+  deterministic two-session PostgreSQL contract reproduced attempt 2 reverting
+  to attempt 1 before the fix and preserves attempt 2 after it.
+- Historical progressive and full SDK synchronizations could replace ordinary
+  reads of a newer original-file revision. Publication now checks upstream
+  ownership under an adapter/document mutex while retaining immutable pins.
+  Contracts also preserve the first locally committed baseline when upstream
+  final publication occurs during that transfer. Generic read/write-only SDK
+  adapters still require external serialization across processes or distinct
+  adapter instances; Hipo selects exact revisions under its database fences.
+- Main's native M0 page-image generation must preserve deferred native visual
+  work without introducing intermediate serving changes. Native pages now mark
+  pending vectors durably, repair stages successful subsets, and final publication
+  waits for complete vector work. Contracts cover zero initial vectors, provider
+  failure, withholding final publication, and subsequent successful repair.
+
+Integrated Knowhere validation: `make check` passed; 95 selected Worker contracts
+and 41 selected API contracts passed, including final publish/concurrent retrieval,
+manual retry, archive staging, page ownership, and navigation. SDK validation at
+`abcae86`: 460 tests and 18 MCP tests passed; typecheck, lint, formatting, changeset,
+and SDK build passed. Hipo validation is recorded in its release and QA documents
+against the matching locally packed SDK artifact.
+
+Worker concurrency and scheduling configuration remain unchanged. Existing mixed
+capacity measurements predate main's native M0 page-image generation and are
+historical evidence, not a rerun of capacity acceptance for this integrated tree.
+PR creation does not publish the SDK, update Hipo's released dependency, deploy
+services, or close the remaining product/deployed acceptance work.

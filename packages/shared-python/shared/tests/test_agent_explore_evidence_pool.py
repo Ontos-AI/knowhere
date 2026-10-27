@@ -16,6 +16,7 @@ from shared.services.retrieval.agent_explore.evidence_pool import (
     Candidate,
     EvidencePool,
     PickOutcome,
+    attach_candidate_lit_pages,
     compose_pool_evidence,
     render_budget,
     render_pick_outcome,
@@ -465,6 +466,76 @@ def test_issue_ignores_other_tools_and_errors() -> None:
     assert pool.issue("corpus.grep", ToolResult(text="hits")) == []
     assert pool.issue("corpus.read", ToolResult(text="", error="bad args")) == []
     assert pool.issue("corpus.assets", ToolResult(text="assets")) == []
+
+
+def test_issue_recall_records_lit_pages() -> None:
+    pool = EvidencePool()
+    issued = pool.issue(
+        "corpus.recall",
+        ToolResult(
+            text="hits",
+            payload={
+                "rows": [],
+                "lit_pages": [
+                    {
+                        "document_id": "doc_a",
+                        "chunk_id": "c1",
+                        "section_path": "MIX",
+                        "matched_page_nums": [141, 142],
+                    }
+                ],
+            },
+        ),
+    )
+    assert issued == []
+    assert pool.lit_pages_by_chunk()[("doc_a", "c1")] == (141, 142)
+    assert pool.lit_pages_by_path()[("doc_a", "MIX")] == (141, 142)
+
+
+def test_issue_read_copies_matched_pages_onto_candidate() -> None:
+    pool = EvidencePool()
+    issued = pool.issue(
+        "corpus.read",
+        _ok_read(
+            refs=[
+                {
+                    "status": "ok",
+                    "document_id": "doc_a",
+                    "section_path": "MIX",
+                    "chunk_ids": ["c1"],
+                }
+            ],
+            chunks=[
+                {
+                    "chunk_id": "c1",
+                    "document_id": "doc_a",
+                    "source_file_name": "guide.pdf",
+                    "section_path": "MIX",
+                    "chunk_type": "page",
+                    "matched_page_nums": [141],
+                }
+            ],
+        ),
+    )
+    assert issued[0].lit_pages_by_chunk == {"c1": (141,)}
+
+
+def test_attach_candidate_lit_pages_writes_matched_page_nums() -> None:
+    rows = [{"document_id": "doc_a", "chunk_id": "c1", "content": "full"}]
+    attach_candidate_lit_pages(
+        rows,
+        [
+            Candidate(
+                handle="R1.1",
+                kind="read",
+                document_id="doc_a",
+                source_file_name="guide.pdf",
+                chunk_ids=("c1",),
+                lit_pages_by_chunk={"c1": (141, 142)},
+            )
+        ],
+    )
+    assert rows[0]["matched_page_nums"] == [141, 142]
 
 
 def test_query_table_records_last_successful_html_and_issues_nothing() -> None:

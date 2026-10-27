@@ -16,12 +16,12 @@ class AIConfig(BaseModel):
         default="https://api.deepseek.com/v1", description="DeepSeek API URL"
     )
     GPT_API_KEY: str = Field(default="", description="OpenAI API key")
-    # Default behavior: text/table summaries use deepseek-v4-flash. Hierarchy parsing
+    # Default behavior: text/table summaries use deepseek-flash. Hierarchy parsing
     # can be overridden independently with HIERARCHY_LLM_MODEL. Existing
     # environment overrides for NORMOL_MODEL / HIERARCHY_LLM_MODEL /
     # IMAGE_MODEL / ASSET_MODEL remain supported.
     NORMOL_MODEL: str = Field(
-        default="deepseek-v4-flash",
+        default="deepseek-flash",
         description="Default text model for summaries and general text LLM calls",
     )
     HIERARCHY_LLM_MODEL: str = Field(
@@ -71,8 +71,8 @@ class AIConfig(BaseModel):
         ),
     )
     PAGE_MEMORY_EMBED_CONCURRENCY: int = Field(
-        default=8,
-        description="Local per-job page embedding concurrency for scanned M0 documents.",
+        default=10,
+        description="Local per-job page-image embedding concurrency for progressive M0.",
     )
 
     # Runtime LLM controls.
@@ -118,6 +118,18 @@ class AIConfig(BaseModel):
     PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY: int = Field(
         default=3,
         description="Local per-job node OCR and summary concurrency for page-memory.",
+    )
+    PAGE_MEMORY_FINE_TEXT_EXTRACTOR: str = Field(
+        default="none",
+        description=(
+            "Fine-stage verbatim page-text extractor: none (default, summary only), "
+            "vlm (transcribe with OCR fallback on page error), ocr (RapidOCR), "
+            "or mineru (with OCR fallback on error). Advanced/opt-in."
+        ),
+    )
+    PAGE_MEMORY_FINE_TEXT_EXTRACTION_CONCURRENCY: int = Field(
+        default=4,
+        description="Local per-job concurrency for fine-stage VLM page transcription.",
     )
     TOKEN_PRICING_TABLE_JSON: str = Field(
         default="",

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
@@ -15,10 +14,6 @@ from app.services.document_parser.assets.inline_asset import build_image_asset_r
 from app.services.document_parser.formats.markdown.deferred_task import (
     ImageDeferredSummaryTask,
     MarkdownDeferredSummaryTask,
-)
-from app.services.document_parser.formats.markdown.layout_bbox_index import (
-    AssetRegion,
-    image_region_extra_metadata,
 )
 from app.services.document_parser.formats.markdown.parse_state import ParserRowValues
 from loguru import logger
@@ -53,7 +48,6 @@ class MarkdownImageAssetRequest:
     summary_image: bool
     row_index: int
     rename_on_summary: bool = True
-    image_regions: Mapping[str, AssetRegion] | None = None
 
 
 def build_markdown_image_asset(
@@ -78,19 +72,11 @@ def build_markdown_image_asset(
     with open(source_path, "rb") as image_file:
         image_binary_hash = perceptual_hash(image_file.read())
 
-    # Look up the region by this reference's original hash file name, before the
-    # file is renamed. A duplicate reuses the first image's content but keeps its
-    # own region.
-    extra_metadata = image_region_extra_metadata(
-        request.image_regions, request.image_path
-    )
-
     if image_binary_hash in request.seen_images:
         return _build_duplicate_image_asset(
             source_path=source_path,
             cache_entry=request.seen_images[image_binary_hash],
             timestamp=request.timestamp,
-            extra_metadata=extra_metadata,
         )
 
     relative_image_path = f"images/{request.image_name}{image_suffix}"
@@ -116,7 +102,6 @@ def build_markdown_image_asset(
         summary=image_summary_field,
         know_id=image_know_id,
         timestamp=request.timestamp,
-        extra_metadata=extra_metadata,
     )
     cache_entry = {
         "relative_img_path": relative_image_path,
@@ -196,7 +181,6 @@ def _build_duplicate_image_asset(
     source_path: Path,
     cache_entry: dict[str, str],
     timestamp: str,
-    extra_metadata: str,
 ) -> MarkdownImageAsset:
     relative_path = cache_entry["relative_img_path"]
     row_values = _build_image_row_values(
@@ -205,7 +189,6 @@ def _build_duplicate_image_asset(
         summary=cache_entry["img_summary_field"],
         know_id=cache_entry["temp_uid"],
         timestamp=timestamp,
-        extra_metadata=extra_metadata,
     )
     try:
         source_path.unlink()
@@ -237,7 +220,6 @@ def _build_image_row_values(
     summary: str,
     know_id: str,
     timestamp: str,
-    extra_metadata: str,
 ) -> ParserRowValues:
     image_row = build_image_asset_row(
         content=content,
@@ -245,7 +227,6 @@ def _build_image_row_values(
         summary=summary,
         know_id=know_id,
         addtime=timestamp,
-        extra_metadata=extra_metadata,
     )
     return cast(ParserRowValues, image_row.to_list())
 

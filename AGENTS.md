@@ -75,9 +75,9 @@ flowchart TB
     subgraph PARSE["② Document Parsing (Worker)"]
         Queue --> Router["parse_service.checkerboard_parse_output"]
         Router --> Profiler["profiling.doc_profiler.profile_document"]
-        Profiler --> PDF["formats.pdf.parser → MinerU"]
+        Profiler --> PDF["page_memory.memory_service.run"]
         Profiler --> DOCX["formats.docx.parser.parse_docx"]
-        Profiler --> PPTX["formats.pptx.parser → iLoveAPI → PDF"]
+        Profiler --> PPTX["normalize_to_pdf → page_memory"]
         Profiler --> XLSX["formats.excel.table_parser.parse_xlsx"]
         Profiler --> MD["formats.markdown.parser.parse_md"]
         Profiler --> IMG["formats.image.parser.parse_image"]
@@ -144,10 +144,10 @@ This is the typed `ParseOutput` entry for all file types. The parser flow:
 
 | Extension | Parser Module | Strategy |
 |:---|:---|:---|
-| `.pdf` | `formats.pdf.parser.parse_pdfs` | DOC_PROFILE category dispatch: `atlas` → atlas parser; oversized with entry anatomy → shard MinerU; otherwise MinerU API → Markdown parser → `structure.layout_parser.pred_titles` |
+| `.pdf` | `page_memory.memory_service.run` | v1/v2 both use the page-memory pipeline (M0 → coarse → fine). MinerU is an optional fine-stage text extractor, default off. |
 | `.docx` | `formats.docx.parser.parse_docx` + `convert_doc2dics` | OXML iteration → heading detection → hierarchical tree |
 | `.doc` | `conversion.legacy_converter.doc_to_docx` → `.docx` pipeline | LibreOffice headless conversion first |
-| `.pptx` | `formats.pptx.parser.parse_pptx` | iLoveAPI PPTX→PDF → MinerU pipeline |
+| `.pptx` | `page_memory.normalizer.normalize_to_pdf` → page-memory | PPTX→PDF then the same page-memory pipeline as PDF. |
 | `.xlsx` | `formats.excel.table_parser.parse_xlsx` | Sheet-by-sheet HTML table extraction |
 | `.xls` | `conversion.legacy_converter.xls_to_xlsx` → `.xlsx` pipeline | LibreOffice conversion first |
 | `.md` | `formats.markdown.parser.parse_md` | Markdown heading parsing + LLM summaries |
@@ -165,8 +165,8 @@ The core hierarchical recognition module. Determines heading levels using:
 3. **LLM smart parse**: When `smart_title_parse=True`, send candidate headings
    to the hierarchy model (`HIERARCHY_LLM_MODEL` or `NORMOL_MODEL`) for level
    assignment.
-4. **Font clustering (PDF)**: K-means on span heights from MinerU `layout.json`
-   to group headings into 5 discrete tiers.
+4. **Font clustering (optional `layout.json`)**: K-means on span heights from
+   a nearby `layout.json` to group headings into 5 discrete tiers.
 
 ### DOCX Parsing Deep Dive: `formats/docx/parser.py`
 
@@ -197,30 +197,23 @@ Key logic in `parse_docx()`:
 - **Table handling**: `table2html()` converts python-docx Table to HTML with
   accurate `rowspan`/`colspan` via direct OXML inspection.
 
-### PDF Parsing: DOC_PROFILE + MinerU Pipeline
+### PDF Parsing: page-memory pipeline
 
 ```mermaid
 flowchart LR
-    PDF[profiling.doc_profiler.profile_document] --> Probe[document_agent probe_page_features]
-    Probe --> Coarse[VLM coarse category]
-    Coarse -->|atlas| Atlas[formats.atlas.parser]
-    Coarse -->|oversized generic/scanned/slides| Anatomy[document_agent structural anatomy + shard_plan]
-    Coarse -->|standard| MinerU[MinerU Cloud API]
-    Anatomy --> Shards[Shard MinerU pipeline]
-    Shards --> MDFile[Markdown + layout.json]
-    Atlas --> Chunks[Atlas page chunks]
-    MinerU --> MDFile
-    MDFile --> MDParser[formats.markdown.parser.parse_md]
-    MDParser --> EvalHeadings[eval_md_headings + layout.json]
-    EvalHeadings --> PredTitles[structure.layout_parser.pred_titles]
-    PredTitles --> Chunks[Hierarchical Chunks]
+    PDF[normalize_to_pdf] --> Profile["profile_document stop_after=asset_probe"]
+    Profile --> M0[M0 text or visual baseline]
+    M0 --> Coarse["coarse: TOC + calibration + skeleton"]
+    Coarse --> Fine["fine per scope: summary + M0 text"]
+    Fine -.->|"fine_text_extractor on"| Extract["vlm transcribe, rapidocr or mineru"]
+    Extract -.-> Overwrite[overwrite M0 page content]
 ```
 
 ### LLM Models Used
 
 | Task | Config Key | Default Model |
 |:---|:---|:---|
-| Text/table summarization | `NORMOL_MODEL` | `deepseek-chat` |
+| Text/table summarization | `NORMOL_MODEL` | `deepseek-flash` |
 | Heading hierarchy recognition | `HIERARCHY_LLM_MODEL` | Falls back to `NORMOL_MODEL` |
 | Image description / OCR / classification (VLM) | `IMAGE_MODEL` | `deepseek-flash` |
 | Page-memory chart/table bbox (VLM) | `ASSET_MODEL` | Follows `IMAGE_MODEL` when empty |
@@ -665,7 +658,6 @@ PDF/PPT debug is track-split (not a single all-format one-shot):
 
 | Script | Purpose |
 |:---|:---|
-| `debug_text_track.py` | TEXT-TRACK (`chunk`) staged debug: `--stop-at profile/mineru/hierarchy/full`, `--clean` |
 | `page_memory/debug_pm_stage0..5.py` | PAGE-TRACK (`page_memory`) staged debug (bootstrap → finalize); shared `--clean` wipes output dir |
 | `debug_retrieval.py` | Retrieval debug |
 | `_debug_publish.py` | Optional `--run-db` publish helper for the scripts above |

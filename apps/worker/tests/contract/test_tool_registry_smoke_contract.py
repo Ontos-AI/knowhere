@@ -70,7 +70,6 @@ def test_probe_and_inspect_registered() -> None:
         "probe.links",
         "judge.toc_source",
         "inspect.pages",
-        "ocr.pages",
         "grep.text",
         "text.strip_header",
         "text.strip_footer",

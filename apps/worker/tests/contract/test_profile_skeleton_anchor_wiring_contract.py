@@ -1,4 +1,4 @@
-"""PROFILE writes skeleton_anchor; C4 and shard plan do not recalibrate."""
+"""PROFILE writes skeleton_anchor; C4 does not recalibrate."""
 
 from __future__ import annotations
 
@@ -35,7 +35,6 @@ from app.services.document_agent.structure.toc_anchoring import (
     classify_toc_relationship,
     run_toc_anchoring,
 )
-from app.services.document_agent.tools.propose_shard_plan import propose_shard_plan
 from app.services.page_memory.skeleton_extractor import extract_section_skeletons
 
 
@@ -183,73 +182,12 @@ def test_c4_resolve_does_not_call_calibration() -> None:
         )
 
     assert skeletons
-    assert skeletons[0].section_path == "doc.pdf"
-    assert skeletons[0].start_page == skeletons[0].end_page == 1
-    assert skeletons[1].title == "Ch1"
-    assert skeletons[1].section_path == "doc.pdf/Ch1"
-    assert skeletons[1].start_page == 2
-
-
-def test_shard_plan_reads_offset_and_does_not_calibrate() -> None:
-    ctx = _ctx(page_count=250)
-    ctx.blackboard.toc_hierarchies = [
-        {
-            "toc_range": [1, 2],
-            "toc_range_unit": "page",
-            "toc_with_level": [
-                {"heading": "Ch1", "level": 1, "page_number": 3},
-                {"heading": "Ch2", "level": 1, "page_number": 120},
-            ],
-        }
-    ]
-    ctx.blackboard.skeleton_nodes = [
-        serialize_title_node(TitleNode(title="Ch1", level=1, printed_page=3)),
-        serialize_title_node(TitleNode(title="Ch2", level=1, printed_page=120)),
-    ]
-    ctx.blackboard.skeleton_anchor = serialize_skeleton_anchor(
-        SkeletonAnchor(
-            offset=0,
-            offset_status="ok",
-            match_overrides={
-                ("Ch1",): TitleMatch(
-                    page=3,
-                    source="anchored",
-                    matched_line="Ch1",
-                    candidates=[3],
-                    evidence={},
-                ),
-                ("Ch2",): TitleMatch(
-                    page=120,
-                    source="anchored",
-                    matched_line="Ch2",
-                    candidates=[120],
-                    evidence={},
-                ),
-            },
-            null_page_report=[],
-            bulk_count=2,
-            pruned_count=0,
-            locate_method="offset_guided_bulk",
-        )
-    )
-    ctx.blackboard.toc_result = TocResult(method="vlm_batch")
-    ctx.blackboard.doc_stats = {"page_count": 250}
-    ctx.settings["shard_threshold"] = 200
-    ctx.settings["max_pages_per_shard"] = 200
-
-    def _boom(*_args, **_kwargs):
-        raise AssertionError("shard plan must not recalibrate")
-
-    with patch(
-        "app.services.document_agent.calibration.service.calibrate_offset",
-        side_effect=_boom,
-    ):
-        result = propose_shard_plan(ctx, {})
-
-    assert result.status == "ok"
-    assert ctx.blackboard.skeleton_anchor is not None
-    assert ctx.blackboard.skeleton_anchor["offset"] == 0
-    assert ctx.blackboard.shard_plan is not None
+    by_title = {item.title: item for item in skeletons}
+    assert by_title["TOC"].section_path == "doc.pdf/TOC"
+    assert by_title["TOC"].start_page == by_title["TOC"].end_page == 1
+    assert by_title["TOC"].evidence["source"] == "toc_node"
+    assert by_title["Ch1"].section_path == "doc.pdf/Ch1"
+    assert by_title["Ch1"].start_page == 2
 
 
 def _pending_tocs() -> list[dict[str, object]]:

@@ -14,12 +14,14 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.structure.hierarchy_locator import (
     ResolvedHierarchyRange,
+    deepest_covering_path,
     extract_toc_nodes,
     resolve_hierarchy_page_ranges,
 )
 from app.services.document_agent.structure.anchoring_primitives import (
     deserialize_skeleton_anchor,
     deserialize_title_node,
+    toc_range_end,
     toc_range_start,
 )
 from app.services.document_agent.structure.toc_anchoring import (
@@ -29,10 +31,15 @@ from app.services.document_agent.structure.toc_anchoring import (
     select_global_toc_hierarchies,
 )
 from loguru import logger
-from app.services.page_memory._utils import is_document_prefix
+from app.services.page_memory._utils import (
+    is_document_prefix,
+    is_fallback_root,
+    is_toc_node,
+)
 from shared.services.chunks.path_segments import (
     append_document_path,
     join_document_path,
+    split_escaped_document_path,
 )
 
 
@@ -205,6 +212,14 @@ def extract_section_skeletons(
             body_pages=body_pages,
         )
         skeletons.extend(secondary_skeletons)
+
+    skeletons.extend(
+        _toc_ownership_skeletons(
+            skeletons=skeletons,
+            filename=filename,
+            anatomy=anatomy,
+        )
+    )
 
     first_chapter_page: int = min(skeleton.start_page for skeleton in skeletons)
     if first_chapter_page > 1:
@@ -427,6 +442,107 @@ def _clamp_page(page: int, page_count: int) -> int:
     return min(max(page, 1), max(page_count, 1))
 
 
+def _toc_ownership_skeletons(
+    *,
+    skeletons: list[SectionSkeleton],
+    filename: str,
+    anatomy: Any,
+) -> list[SectionSkeleton]:
+    """Claim each TOC page range as a ``TOC`` node under its covering parent."""
+    toc_pages = sorted(
+        {
+            int(page)
+            for page in (
+                getattr(getattr(anatomy, "toc_result", None), "toc_pages", None) or []
+            )
+        }
+    )
+    if not toc_pages:
+        return []
+
+    coverage = _coverage_from_chapter_skeletons(skeletons, filename=filename)
+    pages_by_parent: dict[str, set[int]] = {}
+    for hierarchy in list(getattr(anatomy, "toc_hierarchies", None) or []):
+        start = toc_range_start(hierarchy)
+        end = toc_range_end(hierarchy)
+        if start is None or end is None:
+            continue
+        pages = [page for page in toc_pages if start <= page <= end]
+        if not pages:
+            continue
+        covering = deepest_covering_path(coverage, start=pages[0], end=pages[-1])
+        parent_path = (
+            join_document_path([filename, *covering]) if covering else filename
+        )
+        pages_by_parent.setdefault(parent_path, set()).update(pages)
+
+    by_path = {item.section_path: item for item in skeletons}
+    nodes: list[SectionSkeleton] = []
+    for parent_path, pages in pages_by_parent.items():
+        ordered = sorted(pages)
+        parent = by_path.get(parent_path)
+        section_path = (
+            append_document_path(parent_path, "TOC")
+            if parent_path != filename
+            else join_document_path([filename, "TOC"])
+        )
+        nodes.append(
+            SectionSkeleton(
+                section_path=section_path,
+                level=(parent.level + 1) if parent is not None else 1,
+                start_page=ordered[0],
+                end_page=ordered[-1],
+                title="TOC",
+                parent_path=parent_path,
+                evidence={"source": "toc_node"},
+            )
+        )
+    return nodes
+
+
+def _coverage_from_chapter_skeletons(
+    skeletons: list[SectionSkeleton],
+    *,
+    filename: str,
+) -> dict[tuple[str, ...], tuple[int, int]]:
+    coverage: dict[tuple[str, ...], tuple[int, int]] = {}
+    for skeleton in skeletons:
+        if (
+            is_toc_node(skeleton)
+            or is_document_prefix(skeleton)
+            or is_fallback_root(skeleton)
+        ):
+            continue
+        titles = _path_titles_for_coverage(skeleton, filename=filename)
+        if not titles:
+            continue
+        for depth in range(1, len(titles) + 1):
+            path = titles[:depth]
+            span = coverage.get(path)
+            if span is None:
+                coverage[path] = (skeleton.start_page, skeleton.end_page)
+            else:
+                coverage[path] = (
+                    min(span[0], skeleton.start_page),
+                    max(span[1], skeleton.end_page),
+                )
+    return coverage
+
+
+def _path_titles_for_coverage(
+    skeleton: SectionSkeleton,
+    *,
+    filename: str,
+) -> tuple[str, ...]:
+    raw = (skeleton.evidence or {}).get("path_titles")
+    if isinstance(raw, list) and raw:
+        return tuple(str(title).strip() for title in raw if str(title).strip())
+    parts = split_escaped_document_path(skeleton.section_path)
+    if parts and parts[0] == filename:
+        return tuple(parts[1:])
+    return tuple(parts[1:] if len(parts) > 1 else ())
+
+
 def _log_unlocated_title_warnings(
     *,
     filename: str,
@@ -489,7 +605,11 @@ def collapse_single_child_chains(
         # Re-read children after recursive collapse may have mutated by_path
         child_paths = children_of.get(path, [])
 
-        if len(child_paths) == 1 and not is_document_prefix(node):
+        if (
+            len(child_paths) == 1
+            and not is_document_prefix(node)
+            and not is_toc_node(by_path[child_paths[0]])
+        ):
             only_child_path = child_paths[0]
             only_child = by_path[only_child_path]
             grandchild_paths = children_of.get(only_child_path, [])

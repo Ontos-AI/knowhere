@@ -75,14 +75,15 @@ def test_table_search_text_uses_summary_keywords_and_caption_not_content() -> No
 
 
 @pytest.mark.asyncio
-async def test_page_result_assembly_uses_summary_not_raw_content() -> None:
+async def test_page_result_assembly_keeps_refined_content() -> None:
     rows = [
         {
             "chunk_id": "page-node-1",
             "chunk_type": "page",
-            "content": "RAW OCR SHOULD NOT LEAK",
+            "content": "verbatim refined body",
             "chunk_metadata": {
                 "summary": "制度标准总则摘要",
+                "enrichment_state": "refined",
                 "page_nums": [225],
             },
         }
@@ -94,7 +95,8 @@ async def test_page_result_assembly_uses_summary_not_raw_content() -> None:
         exclude_sections=[],
     )
 
-    assert assembled[0]["content"] == "制度标准总则摘要"
+    assert assembled[0]["content"] == "verbatim refined body"
+    assert assembled[0]["content_source"] == "content"
 
 
 @pytest.mark.asyncio

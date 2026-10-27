@@ -1,8 +1,9 @@
 """Compose retrieval evidence parts from raw chunks and connected assets.
 
 Text and standalone image/table chunks place table HTML and image bytes at
-path placeholders. Page chunks are summary plus the page image; they do not
-inline connected charts.
+path placeholders. Unrefined page chunks emit only query-lit pages. Refined
+page chunks emit the full node: content or summary, inlined charts, and page
+images.
 """
 
 from __future__ import annotations
@@ -20,9 +21,11 @@ from shared.services.retrieval.hydration.asset_inline import (
 )
 from shared.utils.chunk_refs import match_resource_path_ref
 from shared.services.retrieval.hydration.row_utils import (
+    coerce_page_nums,
+    extract_matched_page_nums,
     extract_page_nums,
+    is_unrefined_page,
     normalize_chunk_type,
-    page_enrichment_state,
     page_summary,
 )
 from shared.services.retrieval.hydration.table_grid import (
@@ -39,6 +42,11 @@ _IMAGE_MEDIA_TYPES = {
     ".png": "image/png",
     ".gif": "image/gif",
     ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
 }
 
 
@@ -49,7 +57,7 @@ def compose_evidence_parts(
 ) -> list[dict[str, Any]]:
     chunk_type = normalize_chunk_type(row.get("chunk_type"))
     if chunk_type == "page":
-        return _compose_page_parts(row)
+        return _compose_page_parts(row, rows_by_chunk_id, queried_tables)
     if chunk_type == "table":
         return _compose_standalone_table_parts(row, queried_tables)
     if chunk_type == "image":
@@ -130,21 +138,96 @@ def _indent_member_part(part: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _compose_page_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
+def _compose_page_parts(
+    row: dict[str, Any],
+    rows_by_chunk_id: dict[str, dict[str, Any]],
+    queried_tables: Mapping[tuple[str, str], str] | None = None,
+) -> list[dict[str, Any]]:
+    if is_unrefined_page(row):
+        return _compose_unrefined_page_parts(row)
+    return _compose_refined_page_parts(row, rows_by_chunk_id, queried_tables)
+
+
+def _compose_unrefined_page_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
     parts: list[dict[str, Any]] = []
-    if page_enrichment_state(row) in {"text", "coarse", "queued"}:
-        raw_text = str(row.get("content") or "").strip()
-        if raw_text:
-            parts.append(_text_part(raw_text))
-            return parts
+    raw_text = str(row.get("content") or "").strip()
+    if raw_text:
+        parts.append(_text_part(raw_text))
+    matched = extract_matched_page_nums(row)
+    pages = matched or coerce_page_nums(extract_page_nums(row))
+    images = _page_image_parts(row, pages) if pages else []
+    real_images = [part for part in images if part.get("type") == "image"]
+    if real_images:
+        parts.extend(real_images)
+    elif not parts:
+        warning = next((part for part in images if part.get("type") == "text"), None)
+        parts.append(
+            warning
+            if warning is not None
+            else _text_part("Page image unavailable: missing page image")
+        )
+    return parts
+
+
+def _compose_refined_page_parts(
+    row: dict[str, Any],
+    rows_by_chunk_id: dict[str, dict[str, Any]],
+    queried_tables: Mapping[tuple[str, str], str] | None,
+) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = []
+    raw_text = str(row.get("content") or "").strip()
     summary = page_summary(row)
-    if summary:
-        parts.append(_text_part(summary))
-    image, warning = _try_read_page_image(row)
-    if image is not None:
-        parts.append(image)
-    if warning:
-        parts.append(_text_part(f"Page image unavailable: {warning}"))
+    if raw_text:
+        if summary:
+            parts.append(_text_part(summary))
+        parts.extend(_compose_text_parts(row, rows_by_chunk_id, queried_tables))
+    else:
+        if summary:
+            parts.append(_text_part(summary))
+        parts.extend(_connected_asset_parts(row, rows_by_chunk_id, queried_tables))
+    page_nums = coerce_page_nums(extract_page_nums(row))
+    parts.extend(_page_image_parts(row, page_nums))
+    if not parts:
+        parts.append(_text_part("Page image unavailable: missing page image"))
+    return parts
+
+
+def _page_image_parts(row: dict[str, Any], page_nums: list[int]) -> list[dict[str, Any]]:
+    if not page_nums:
+        image, warning = _try_read_page_image(row)
+        if image is not None:
+            return [image]
+        if warning:
+            return [_text_part(f"Page image unavailable: {warning}")]
+        return []
+    parts: list[dict[str, Any]] = []
+    last_warning: str | None = None
+    for page_num in page_nums:
+        image, warning = _try_read_page_image(row, page_num=page_num)
+        if image is not None:
+            parts.append(image)
+        elif warning:
+            last_warning = warning
+    if not parts and last_warning:
+        parts.append(_text_part(f"Page image unavailable: {last_warning}"))
+    return parts
+
+
+def _connected_asset_parts(
+    row: dict[str, Any],
+    rows_by_chunk_id: dict[str, dict[str, Any]],
+    queried_tables: Mapping[tuple[str, str], str] | None,
+) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = []
+    tables, images = _embed_targets(row, rows_by_chunk_id)
+    for _target_id, target_row, _ref in tables:
+        html = _try_read_table_html(target_row, queried_tables)
+        if html:
+            parts.append(_text_part(f"\n{html}\n"))
+    for _target_id, target_row, _ref in images:
+        image = _try_read_image(target_row)
+        if image is not None:
+            parts.append(image)
     return parts
 
 
@@ -302,8 +385,12 @@ def _try_read_image(row: dict[str, Any]) -> dict[str, Any] | None:
     return _try_read_image_artifact(row, artifact, media_type=_media_type_from_path(artifact))
 
 
-def _try_read_page_image(row: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
-    asset, warning = _select_page_asset(row)
+def _try_read_page_image(
+    row: dict[str, Any],
+    *,
+    page_num: int | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    asset, warning = _select_page_asset(row, page_num=page_num)
     if asset is None:
         reason = warning or "missing page image"
         _warn_skipped(row, "image", reason)
@@ -357,7 +444,11 @@ def _try_read_image_artifact(
     }
 
 
-def _select_page_asset(row: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+def _select_page_asset(
+    row: dict[str, Any],
+    *,
+    page_num: int | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
     metadata = row.get("chunk_metadata") or row.get("metadata") or {}
     if not isinstance(metadata, dict):
         return None, "missing page image"
@@ -367,18 +458,12 @@ def _select_page_asset(row: dict[str, Any]) -> tuple[dict[str, Any] | None, str 
     candidates = [item for item in assets if isinstance(item, dict)]
     if not candidates:
         return None, "missing page image"
-    page_nums = extract_page_nums(row) or []
+    page_nums = [page_num] if page_num is not None else (extract_page_nums(row) or [])
     if not page_nums:
         return None, "missing page number"
     for item in candidates:
-        raw_page_num = item.get("page_num")
-        if raw_page_num is None:
-            continue
-        try:
-            page_num = int(raw_page_num)
-        except (TypeError, ValueError):
-            continue
-        if page_num in page_nums:
+        asset_pages = coerce_page_nums([item.get("page_num")])
+        if asset_pages and asset_pages[0] in page_nums:
             return item, None
     return None, "page image does not match this page"
 

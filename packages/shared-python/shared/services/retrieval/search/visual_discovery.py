@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from loguru import logger
@@ -18,6 +18,7 @@ from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.document_scope import DocumentScope
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.row_utils import (
+    coerce_page_nums,
     iter_connected_target_ids,
     normalize_chunk_type,
 )
@@ -116,6 +117,34 @@ def _build_visual_exclude_sections_clause(
     if not parts:
         return "", {}
     return f"AND NOT ({' OR '.join(parts)})", params
+
+
+def _aggregate_visual_page_hits(raw_rows: Sequence[Any]) -> list[dict[str, Any]]:
+    primaries: list[dict[str, Any]] = []
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for raw_row in raw_rows:
+        row = dict(raw_row._mapping)
+        similarity = max(0.0, float(row.pop("similarity", 0.0) or 0.0))
+        page_nums = coerce_page_nums([row.pop("page_num", None)])
+        key = (str(row.get("document_id") or ""), str(row.get("chunk_id") or ""))
+        existing = groups.get(key)
+        if existing is None:
+            row["chunk_metadata"] = _as_metadata_dict(row.get("chunk_metadata"))
+            row["score"] = similarity
+            row["matched_page_nums"] = list(page_nums)
+            groups[key] = row
+            primaries.append(row)
+            continue
+        for page in page_nums:
+            if page not in existing["matched_page_nums"]:
+                existing["matched_page_nums"].append(page)
+    return primaries
+
+
+def _copy_matched_page_nums(target: dict[str, Any], source: Mapping[str, Any]) -> None:
+    pages = coerce_page_nums(source.get("matched_page_nums"))
+    if pages:
+        target["matched_page_nums"] = pages
 
 
 async def visual_page_discovery(
@@ -222,81 +251,52 @@ async def visual_page_discovery(
 
     search_sql = f"""
         SELECT
-            ranked.page_num,
-            ranked.similarity,
-            ranked.chunk_id,
-            ranked.document_id,
-            ranked.section_id,
-            ranked.chunk_type,
-            ranked.content,
-            ranked.source_chunk_path,
-            ranked.file_path,
-            ranked.chunk_metadata,
-            ranked.job_result_id,
-            ranked.sort_order,
-            ranked.section_path,
-            ranked.source_file_name,
-            ranked.job_id,
-            ranked.result_raw_prefix
-        FROM (
-            SELECT DISTINCT ON (dpe.document_id, dpe.chunk_id)
-                dpe.page_num,
-                1.0 - (dpe.embedding <=> CAST(:query_embedding AS halfvec))
-                    AS similarity,
-                dc.chunk_id,
-                dc.document_id,
-                dc.section_id,
-                dc.chunk_type,
-                dc.content,
-                dc.source_chunk_path,
-                dc.file_path,
-                dc.chunk_metadata,
-                dc.job_result_id,
-                dc.sort_order,
-                ds.section_path,
-                d.source_file_name,
-                jr.job_id,
-                jr.document_metadata ->> 'result_raw_prefix' AS result_raw_prefix
-            FROM document_page_embeddings dpe
-            JOIN documents d
-                ON d.document_id = dpe.document_id
-                {revision_join}
-            JOIN document_chunks dc
-                ON dc.document_id = dpe.document_id
-                AND dc.job_result_id = dpe.job_result_id
-                AND dc.chunk_id = dpe.chunk_id
-            LEFT JOIN document_sections ds
-                ON ds.section_id = dc.section_id
-            LEFT JOIN job_results jr
-                ON jr.id = dc.job_result_id
-            WHERE d.user_id = :user_id
-                AND d.namespace = :namespace
-                AND d.status = 'active'
-                {revision_clause}
-                {document_scope_clause}
-                {signal_clause}
-                {section_clause}
-                {exclude_clause}
-            ORDER BY dpe.document_id,
-                     dpe.chunk_id,
-                     dpe.embedding <=> CAST(:query_embedding AS halfvec) ASC,
-                     dpe.page_num ASC
-        ) ranked
-        ORDER BY ranked.similarity DESC, ranked.page_num ASC
+            dpe.page_num,
+            1.0 - (dpe.embedding <=> CAST(:query_embedding AS halfvec))
+                AS similarity,
+            dc.chunk_id,
+            dc.document_id,
+            dc.section_id,
+            dc.chunk_type,
+            dc.content,
+            dc.source_chunk_path,
+            dc.file_path,
+            dc.chunk_metadata,
+            dc.job_result_id,
+            dc.sort_order,
+            ds.section_path,
+            d.source_file_name,
+            jr.job_id,
+            jr.document_metadata ->> 'result_raw_prefix' AS result_raw_prefix
+        FROM document_page_embeddings dpe
+        JOIN documents d
+            ON d.document_id = dpe.document_id
+            {revision_join}
+        JOIN document_chunks dc
+            ON dc.document_id = dpe.document_id
+            AND dc.job_result_id = dpe.job_result_id
+            AND dc.chunk_id = dpe.chunk_id
+        LEFT JOIN document_sections ds
+            ON ds.section_id = dc.section_id
+        LEFT JOIN job_results jr
+            ON jr.id = dc.job_result_id
+        WHERE d.user_id = :user_id
+            AND d.namespace = :namespace
+            AND d.status = 'active'
+            {revision_clause}
+            {document_scope_clause}
+            {signal_clause}
+            {section_clause}
+            {exclude_clause}
+        ORDER BY dpe.embedding <=> CAST(:query_embedding AS halfvec) ASC,
+                 dpe.page_num ASC
         LIMIT :top_k
     """
     result = await db.execute(
         text(corpusStorage.compile_sql(search_sql)), query_params
     )
 
-    primaries: list[dict[str, Any]] = []
-    for raw_row in result.all():
-        row = dict(raw_row._mapping)
-        similarity = max(0.0, float(row.pop("similarity", 0.0) or 0.0))
-        row.pop("page_num", None)
-        row["chunk_metadata"] = _as_metadata_dict(row.get("chunk_metadata"))
-        row["score"] = similarity
-        primaries.append(row)
+    primaries = _aggregate_visual_page_hits(result.all())
 
     if chunk_types is not None and chunk_types.issubset(ASSET_CHUNK_TYPES):
         connected = await hydrate_connected_target_rows(
@@ -432,7 +432,10 @@ async def hybrid_discovery(
 
     for rank, row in enumerate(visual_rows):
         key = (str(row.get("document_id") or ""), str(row.get("chunk_id") or ""))
-        rows_by_key.setdefault(key, dict(row))
+        if key not in rows_by_key:
+            rows_by_key[key] = dict(row)
+        else:
+            _copy_matched_page_nums(rows_by_key[key], row)
         rrf_scores[key] = rrf_scores.get(key, 0.0) + CHANNEL_WEIGHT_VISUAL / (
             RRF_K + rank + 1
         )

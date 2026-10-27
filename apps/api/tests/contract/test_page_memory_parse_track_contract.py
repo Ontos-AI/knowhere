@@ -23,11 +23,30 @@ def _build_job_create_v2(**values: object) -> JobCreateV2:
     return JobCreateV2.model_validate(values)
 
 
-def test_v1_ingestion_command_always_resolves_chunk_for_supported_files() -> None:
+@pytest.mark.parametrize("file_extension", [".pdf", ".pptx"])
+def test_v1_ingestion_command_resolves_page_memory_for_pdf_and_pptx(
+    file_extension: str,
+) -> None:
     from app.services.document_ingestion.command import build_v1_ingestion_command
 
     command = build_v1_ingestion_command(
-        payload=_build_job_create(source_type="file", file_name="policy.pdf"),
+        payload=_build_job_create(source_type="file", file_name=f"policy{file_extension}"),
+        file_extension=file_extension,
+    )
+
+    assert command.api_version == "v1"
+    assert command.parse_track == "page_memory"
+    assert command.processing_generation == "page_memory"
+    assert command.page_memory_config is not None
+    assert command.page_memory_config.fine_text_extractor == "none"
+
+
+def test_v1_ingestion_command_uses_chunk_for_non_page_memory_formats() -> None:
+    from app.services.document_ingestion.command import build_v1_ingestion_command
+
+    command = build_v1_ingestion_command(
+        payload=_build_job_create(source_type="file", file_name="policy.docx"),
+        file_extension=".docx",
     )
 
     assert command.api_version == "v1"

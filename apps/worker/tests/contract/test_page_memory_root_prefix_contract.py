@@ -24,14 +24,14 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
     ("page_count", "chapter_pages", "toc_pages"),
     [
         (9, [5, 6, 7, 8, 9], []),
-        (407, [20], [17, 18]),
+        (407, [19], [17, 18]),
         (9, [5], [2, 7]),
         (9, [1, 5], []),
         (9, [], []),
     ],
     ids=[
         "meta-outline-prefix",
-        "spacex-prefix-includes-toc",
+        "spacex-prefix-stops-before-toc",
         "chapter-toc-policy-unchanged",
         "chapter-on-first-page",
         "no-toc-fallback",
@@ -167,9 +167,17 @@ def test_opening_pages_keep_root_ownership_and_page_citation_assets(
         image_files_map={},
         table_files_map={},
     )
+    toc_range: list[int] = [17, 18] if toc_pages else [1, 1]
+    toc_owned: list[int] = [
+        page for page in toc_pages if toc_range[0] <= page <= toc_range[1]
+    ]
+    first_boundary: int | None = None
+    starts = list(chapter_pages) + toc_owned
+    if starts:
+        first_boundary = min(starts)
     expected_prefix_span: list[int] = (
-        list(range(1, chapter_pages[0]))
-        if chapter_pages
+        list(range(1, first_boundary))
+        if first_boundary is not None
         else list(range(1, page_count + 1))
     )
     expected_prefix: list[int] = [
@@ -201,15 +209,23 @@ def test_opening_pages_keep_root_ownership_and_page_citation_assets(
         if chapter_pages:
             assert not any(chunk["path"] == f"{filename}/Root" for chunk in published)
 
-    assert [chunk["path"] for chunk in published if chunk["path"] != root_path] == [
-        f"{filename}/{title}" for title in titles
-    ]
+    other_paths = [chunk["path"] for chunk in published if chunk["path"] != root_path]
+    expected_other = (
+        [f"{filename}/TOC"] if toc_owned else []
+    ) + [f"{filename}/{title}" for title in titles]
+    assert other_paths == expected_other
+    if toc_owned:
+        toc_chunks = [chunk for chunk in published if chunk["path"] == f"{filename}/TOC"]
+        assert len(toc_chunks) == 1
+        assert toc_chunks[0]["metadata"]["page_nums"] == toc_owned
     covered_pages: set[int] = {
         page for chunk in published for page in chunk["metadata"]["page_nums"]
     }
-    assert covered_pages == set(range(1, page_count + 1)) - set(toc_pages)
+    assert covered_pages == set(range(1, page_count + 1)) - (
+        set(toc_pages) - set(toc_owned)
+    )
     for chunk in published:
-        for asset in chunk["metadata"]["page_assets"]:
+        for asset in chunk["metadata"].get("page_assets") or []:
             assert (tmp_path / asset["artifact_ref"]).is_file()
 
 

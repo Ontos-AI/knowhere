@@ -238,6 +238,10 @@ class CursorHarness:
                 decided = pool.decided()
                 if tool_name == "corpus.recall":
                     active_recalls[ctx.tool_call_id] = None
+
+
+                lit_pages_by_chunk = pool.lit_pages_by_chunk()
+                lit_pages_by_path = pool.lit_pages_by_path()
             tool_started = time.perf_counter()
             future = asyncio.run_coroutine_threadsafe(
                 dispatch_tool_call(
@@ -251,6 +255,8 @@ class CursorHarness:
                     query=query,
                     readable=readable,
                     decided=decided,
+                    lit_pages_by_chunk=lit_pages_by_chunk,
+                    lit_pages_by_path=lit_pages_by_path,
                 ),
                 loop,
             )

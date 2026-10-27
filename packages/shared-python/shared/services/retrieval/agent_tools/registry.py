@@ -135,6 +135,10 @@ class ToolContext:
     # gate: an external MCP client calling one tool has no episode.
     readable: ReadableAddresses | None = None
     decided: Mapping[tuple[str, str], Decision] | None = None
+    # Pages lit by corpus.recall (or a later outline-direct lighting pass)
+    # in this episode. corpus.read uses them for unrefined page nodes.
+    lit_pages_by_chunk: Mapping[tuple[str, str], tuple[int, ...]] | None = None
+    lit_pages_by_path: Mapping[tuple[str, str], tuple[int, ...]] | None = None
 
 
 @dataclass

@@ -298,7 +298,7 @@ def _upload_result_package(
             {
                 int(page)
                 for chunk in result_package.chunks
-                if (chunk.get("metadata") or {}).get("embedding_status") == "missing"
+                if (chunk.get("metadata") or {}).get("embedding_status") in {"missing", "pending"}
                 for page in (chunk.get("metadata") or {}).get("page_nums", [])
             }
         )

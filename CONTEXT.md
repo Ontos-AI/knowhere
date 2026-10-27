@@ -218,12 +218,6 @@ The Worker Document Parsing module that selects one concrete parser adapter for
 the source document format while keeping format-specific conversion details out
 of the stable parser entrypoint.
 
-### Rendered PDF Transform
-
-The Worker Document Parsing module that reuses or creates rendered PDF artifacts
-for PDF-backed parsing paths, including PPTX-to-PDF fallback handling, image-only
-PDF rendering, temporary PDF materialization, MinerU handoff, and cleanup.
-
 ### Heading Hierarchy
 
 The Worker Document Parsing module that predicts section levels from Markdown
@@ -790,13 +784,6 @@ side effects.
 - `app/services/document_parser/assets/*`
 - `app/services/document_parser/support/*`
 
-### Rendered PDF Transform
-
-- `app/services/document_parser/formats/pdf/rendered_transform.py`
-- `app/services/document_parser/formats/pdf/pptx_rendering.py`
-- `app/services/document_parser/formats/pdf/parser.py`
-- `app/services/document_parser/formats/pptx/parser.py`
-
 ### Heading Hierarchy
 
 - `app/services/document_parser/structure/heading_hierarchy.py`
@@ -810,9 +797,9 @@ side effects.
   storage mechanics, and state-machine implementation mostly live outside the
   route modules.
 - Worker Document Parsing exposes `checkerboard_parse_output` as the stable
-  parser entrypoint; parser option shaping, format routing, rendered PDF
-  transforms, typed Parse Output, and heading inference stay behind that
-  entrypoint.
+  parser entrypoint for non-PDF/PPTX formats. PDF/PPTX use the page-memory
+  pipeline. Parser option shaping, format routing, typed Parse Output, and
+  heading inference stay behind those entries.
 - A Job and a Document are not the same thing. Jobs track intake and processing;
   Documents track retrieval-visible knowledge state.
 - Terminal Job finalization should plan post-commit effects with primitive

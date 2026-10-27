@@ -17,9 +17,10 @@ The agreed behavior and investigation evidence are recorded in the
 The user explicitly keeps this requirement unfinished and wants to continue
 discussing it. Retain the following points as the current checkpoint:
 
-1. **Page assets and List reading.** Text-native PDF/PPTX baselines do not
-   pre-generate per-page image assets or native-document visual indexes. They
-   retain page text and immutable `source.pdf` (the converted PDF for PPTX).
+1. **Page assets and List reading.** After integrating main `eca92766` on
+   2026-10-27, visual-enabled text-native PDF/PPTX baselines pre-generate page
+   image assets, while native visual vectors remain deferred. They also retain
+   page text and immutable `source.pdf` (the converted PDF for PPTX).
    Acceptance clarified on 2026-10-27: missing pre-generated `page_assets` is
    acceptable only when the client can display that PDF page by page, including
    original figures, tables and layout, before background enhancement completes.
@@ -28,7 +29,7 @@ discussing it. Retain the following points as the current checkpoint:
    reading must display original native pages from that retained PDF on demand,
    not only when opening a citation. Share the selected PDF document/worker and
    paint nearby visible pages; do not wait for VLM enhancement or render the
-   whole document during initial ingestion. This follow-up is implemented in
+   whole document in the client before showing its first page. This follow-up is implemented in
    Hipo commit `787846ed`, with local verification; implementation is not final
    acceptance or deployed-client evidence.
 2. **Tree reading.** The baseline is not empty: show the document root and
@@ -93,7 +94,10 @@ The native-text path does not call the visual M0 embedding builder merely becaus
 the asset probe found a figure. Pure bitmap/graphic information without
 extractable text therefore must not be described as already visually indexed in
 that path. This distinction preserves basic first-snapshot retrieval without
-claiming full enrichment has already occurred.
+claiming full enrichment has already occurred. Main now renders native M0 page
+images without embedding them. These deliberately deferred pages are persisted as
+pending vector work and repaired into immutable staging; final publication waits
+for them and publishes their vectors with the enhanced content in one transaction.
 
 ### Foreground scheduling discussion: deferred on 2026-10-27
 

@@ -46,7 +46,7 @@ SHARED_STAGING_ENVIRONMENT: dict[str, str] = {
     "DS_URL": "https://api.deepseek.com/v1/chat/completions",
     "EMBEDDING_MODEL": "google/gemini-embedding-2",
     "S3_TEMP_PATH": "/tmp",
-    "SUPPORTED_EXTENSIONS": ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.pptx,.md",
+    "SUPPORTED_EXTENSIONS": ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.pptx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif,.md,.html,.htm",
     "TMP_PATH": "/tmp/aismart_bid",
 }
 
@@ -61,15 +61,16 @@ WORKER_STAGING_ENVIRONMENT: dict[str, str] = {
     "ALL_DF_COLS": "content,path,type,length,keywords,summary,know_id,tokens,connectto,addtime,page_nums",
     "DB_SYNC_MAX_OVERFLOW": "2",
     "DB_SYNC_POOL_SIZE": "2",
-    "HIERARCHY_LLM_MODEL": "deepseek-chat",
+    "HIERARCHY_LLM_MODEL": "deepseek-flash",
     "IMAGE_MODEL": "deepseek-flash",
     "MAX_PDF_PAGE_LIMIT": "200",
-    "NORMOL_MODEL": "deepseek-chat",
+    "NORMOL_MODEL": "deepseek-flash",
     "OVERSIZED_PDF_SHARD_ENABLED": "true",
     "OVERSIZED_PDF_SOFT_LIMIT": "1500",
     "PDF_PROFILE_TOC_ENABLED": "true",
     "REDIS_SYNC_MAX_CONNECTIONS": "200",
     "SUMMARY_LLM_MAX_CONCURRENT": "8",
+    "PAGE_MEMORY_EMBED_CONCURRENCY": "10",
     "WORKER_CONCURRENCY": "10",
 }
 

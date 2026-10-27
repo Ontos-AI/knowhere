@@ -20,10 +20,6 @@ from app.services.document_parser.structure.heading_tree import (
 from app.services.document_parser.structure.heading_tree import (
     tree_to_dataframe as heading_tree_to_dataframe,
 )
-from app.services.document_parser.structure.body_boundary import (
-    extract_level1_titles,
-    find_first_body_boundary,
-)
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.document_parser.tables.table_text_parser import df2md
 from gevent.pool import Pool as GeventPool
@@ -408,29 +404,12 @@ def _apply_merge_signals(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _resolve_first_toc_boundary(toc_hierarchies=None, first_toc_ele_num=None):
-    """Resolve the earliest available first-TOC boundary across coordinate sources.
-
-    Page-based TOC boundaries (``toc_range_unit == "page"``, produced by
-    PROFILE/VLM for PDF/PPT) are in *page numbers*, NOT line/element IDs.
-    They must NOT be used for pre-TOC row removal because ``raw_preds["id"]``
-    are line indices that restart from 0 in each shard.  For these documents
-    PROFILE has already handled shard splitting around TOC pages.
-    """
+    """Resolve the earliest available first-TOC boundary across coordinate sources."""
     toc_range_start = None
-    toc_unit = None
     if toc_hierarchies:
         first_range = toc_hierarchies[0].get("toc_range")
         if first_range and len(first_range) == 2:
             toc_range_start = first_range[0]
-        toc_unit = toc_hierarchies[0].get("toc_range_unit")
-
-    # Page-based coordinates cannot be compared against line/element IDs.
-    if toc_unit == "page":
-        logger.debug(
-            "📌 Skipping pre-TOC removal: TOC uses page-based coordinates "
-            "(PROFILE already handled shard boundaries)"
-        )
-        return None
 
     candidates = [
         value for value in (toc_range_start, first_toc_ele_num) if value is not None
@@ -451,13 +430,6 @@ def _resolve_first_toc_boundary(toc_hierarchies=None, first_toc_ele_num=None):
     return resolved_start
 
 
-def _uses_page_toc_coordinates(toc_hierarchies=None) -> bool:
-    return bool(
-        toc_hierarchies
-        and toc_hierarchies[0].get("toc_range_unit") == "page"
-    )
-
-
 def _supports_multi_toc_zones(
     toc_hierarchies,
     *,
@@ -470,7 +442,6 @@ def _supports_multi_toc_zones(
         and len(toc_hierarchies) > 1
         and doc_type in {"md", "docx"}
         and smart_parse
-        and not _uses_page_toc_coordinates(toc_hierarchies)
     )
 
 
@@ -485,14 +456,13 @@ def pred_titles(
     output_dir=None,
     layout_json_path=None,
     first_toc_ele_num=None,
-    is_first_shard=True,
 ):
     """
     predict title hierarchy
 
     Args:
         infos: document information
-        doc_type: document type (pptx, md, docx)
+        doc_type: document type (md, docx)
         toc_hierarchies: TOC hierarchy information (if any)
         prompt_limt: prompt character limit
         enable_regx: whether to enable regex matching
@@ -501,16 +471,13 @@ def pred_titles(
         output_dir: output directory for saving intermediate CSV results
         layout_json_path: path to layout.json for META features (optional)
         first_toc_ele_num: ele_num of the first TOC block in DOCX (for pre-TOC exclusion)
-        is_first_shard: whether PDF-derived markdown belongs to the first document shard
     """
     model_name = _resolve_hierarchy_model_name(model_name)
     logger.info(
         f"Start to predict title hierarchy: doc_type={doc_type}, smart_parse={smart_parse}, candidate titles={len(infos)}"
     )
 
-    if doc_type == "pptx":
-        raw_preds = filter_markdown_headings(infos)
-    elif doc_type == "md":
+    if doc_type == "md":
         raw_preds = filter_markdown_headings(infos, layout_json_path=layout_json_path)
     elif doc_type == "docx":
         raw_preds = filter_document_headings(infos, enable_regex=enable_regx)
@@ -526,18 +493,6 @@ def pred_titles(
     first_toc_start = None
     if doc_type == "md":
         first_toc_start = _resolve_first_toc_boundary(toc_hierarchies=toc_hierarchies)
-        if (
-            first_toc_start is None
-            and is_first_shard
-            and _uses_page_toc_coordinates(toc_hierarchies)
-        ):
-            level1_titles = extract_level1_titles(toc_hierarchies or [])
-            first_toc_start = find_first_body_boundary(infos, level1_titles)
-            if first_toc_start is not None:
-                logger.info(
-                    f"📌 Demoting PDF front matter before first TOC H1 line "
-                    f"(id < {first_toc_start})"
-                )
     elif doc_type == "docx":
         first_toc_start = _resolve_first_toc_boundary(
             toc_hierarchies=toc_hierarchies,

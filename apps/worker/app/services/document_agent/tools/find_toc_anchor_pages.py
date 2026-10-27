@@ -7,7 +7,7 @@ import os
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from app.services.document_agent.manifest import TocAnchorPage, ToolContext, ToolResult
 from app.services.document_agent.pdf_text import (
@@ -38,7 +38,6 @@ DOMAIN_PREFIX_TOC_KEYWORDS: dict[str, frozenset[str]] = {
 }
 
 MAX_ANCHOR_CANDIDATES = 20
-HEAD_WINDOW_MAX_PAGES = 10
 # English keywords must sit at a line edge once candidates overflow; CJK 目录/目次 are exempt.
 EDGE_ANCHORED_KEYWORDS = frozenset({"contents", "table of contents"})
 MIN_CONSECUTIVE_DUPLICATE_RUN = 2
@@ -282,28 +281,55 @@ def _filter_body_region(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _select_anchor_pages(
     matches: list[dict[str, Any]],
+    *,
+    visual_pages: set[int] | None = None,
+    is_scanned: bool = False,
 ) -> tuple[set[int], dict[str, Any]]:
-    """Dedup unconditionally; narrow only while over the cap; never truncate."""
-    narrowing: dict[str, Any] = {"raw": len(_match_pages(matches))}
-    matches = _drop_consecutive_duplicate_pages(matches)
-    narrowing["after_dedup"] = len(_match_pages(matches))
-    if len(_match_pages(matches)) > MAX_ANCHOR_CANDIDATES:
-        matches = _filter_edge_anchored(matches)
-        narrowing["after_edge"] = len(_match_pages(matches))
-    if len(_match_pages(matches)) > MAX_ANCHOR_CANDIDATES:
-        matches = _filter_body_region(matches)
-        narrowing["after_body"] = len(_match_pages(matches))
-    if len(_match_pages(matches)) > MAX_ANCHOR_CANDIDATES:
+    """Select TOC candidate pages from text matches and optional visual candidates."""
+    raw_text_pages = _match_pages(matches)
+    visual = set(visual_pages or ())
+    narrowing: dict[str, Any] = {"raw": len(raw_text_pages)}
+    if visual:
+        narrowing["visual"] = len(visual)
+
+    if is_scanned:
+        selected_text_pages = raw_text_pages
+    else:
+        filtered = _drop_consecutive_duplicate_pages(matches)
+        narrowing["after_dedup"] = len(_match_pages(filtered))
+        if len(_match_pages(filtered)) > MAX_ANCHOR_CANDIDATES:
+            filtered = _filter_edge_anchored(filtered)
+            narrowing["after_edge"] = len(_match_pages(filtered))
+        if len(_match_pages(filtered)) > MAX_ANCHOR_CANDIDATES:
+            filtered = _filter_body_region(filtered)
+            narrowing["after_body"] = len(_match_pages(filtered))
+        if len(_match_pages(filtered)) > MAX_ANCHOR_CANDIDATES:
+            narrowing["gave_up"] = True
+            return set(), narrowing
+        selected_text_pages = _match_pages(filtered)
+
+    candidate = selected_text_pages | visual
+    if visual or is_scanned:
+        narrowing["union"] = len(candidate)
+    if len(candidate) > MAX_ANCHOR_CANDIDATES:
         narrowing["gave_up"] = True
         return set(), narrowing
-    return _match_pages(matches), narrowing
+    return candidate, narrowing
 
 
-def _head_window_pages(page_count: int) -> set[int]:
-    """First ``min(page_count, 10)`` pages when keyword scan found nothing."""
-    if page_count <= 0:
-        return set()
-    return set(range(1, min(page_count, HEAD_WINDOW_MAX_PAGES) + 1))
+def _anchor_source(
+    page: int,
+    *,
+    text_pages: set[int],
+    visual_pages: set[int],
+) -> Literal["text_scan", "visual", "hybrid"]:
+    in_text = page in text_pages
+    in_visual = page in visual_pages
+    if in_text and in_visual:
+        return "hybrid"
+    if in_visual:
+        return "visual"
+    return "text_scan"
 
 
 @worker
@@ -337,9 +363,8 @@ def _render_pages_worker(
 @register_tool(
     name="find.toc_anchor_pages",
     description=(
-        "Scan Stage-0 line records for TOC keywords, drop consecutive-page "
-        "duplicate signatures, narrow by edge anchoring and body region only "
-        "when over the cap, then render candidate PNGs for VLM confirmation."
+        "Scan Stage-0 line records for TOC keywords, narrow running headers on "
+        "born-digital PDFs, union with visual TOC candidate pages, and render PNGs."
     ),
     preconditions=(has_page_labels, has_page_full_text),
 )
@@ -348,6 +373,7 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
     total_pages = ctx.blackboard.page_count
 
     profile = ctx.blackboard.document_profile
+    is_scanned = bool(getattr(profile, "is_scanned", False))
     prefix_keywords = _prefix_toc_keywords_for_categories(
         getattr(profile, "category", None)
     )
@@ -360,15 +386,15 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
         page_count=total_pages,
         prefix_keywords=prefix_keywords,
     )
-    anchor_pages, narrowing = _select_anchor_pages(keyword_matches)
-    if not anchor_pages and narrowing.get("raw") == 0:
-        anchor_pages = _head_window_pages(total_pages)
-        narrowing["head_window"] = len(anchor_pages)
-        logger.info(
-            "[find.toc_anchor_pages] no keyword candidates; "
-            "using first {} pages as head-window fallback",
-            len(anchor_pages),
-        )
+    text_pages = _match_pages(keyword_matches)
+    visual_pages = {
+        int(page) for page in (ctx.settings.get("toc_visual_candidate_pages") or [])
+    }
+    anchor_pages, narrowing = _select_anchor_pages(
+        keyword_matches,
+        visual_pages=visual_pages,
+        is_scanned=is_scanned,
+    )
     logger.info("[find.toc_anchor_pages] candidate narrowing: {}", narrowing)
     if narrowing.get("gave_up"):
         logger.warning(
@@ -402,8 +428,13 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
     anchors: list[TocAnchorPage] = []
     for item in result.get("results") or []:
         page = int(item["page"])
+        source = _anchor_source(
+            page,
+            text_pages=text_pages,
+            visual_pages=visual_pages,
+        )
         anchors.append(
-            TocAnchorPage(page=page, png_path=item["png_path"], source="text_scan")
+            TocAnchorPage(page=page, png_path=item["png_path"], source=source)
         )
 
     ctx.blackboard.toc_anchor_pages = anchors

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import json
 import os
 from pathlib import Path
@@ -30,17 +29,12 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.tools import find_toc_anchor_pages as toc_anchor_tool
 from app.services.document_agent.validators import validate_shard_plan
-from app.services.document_parser.formats.atlas import parser as atlas_parser
-from app.services.document_parser.formats.pdf import parser as pdf_parser
-from app.services.document_parser.formats.pdf import shard_splitter
 from app.services.document_parser.profiling import doc_profiler
 from app.services.document_parser.profiling.doc_profiler import profile_document
 from app.services.document_parser.profiling.profile_model import (
     ParserDocumentProfile,
-    ParserTocProfile,
 )
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
-from app.services.document_parser.structure.layout_parser import pred_titles
 
 
 def _page_feature(page: int = 1) -> PageFeature:
@@ -331,6 +325,35 @@ def test_parse_run_recorder_profile_only_row_is_updated_by_anatomy_flush() -> No
     assert db.rows[0].doc_profile["toc"]["method"] == "vlm_batch"
 
 
+def test_classify_page_kinds_keeps_profile_json_serializable() -> None:
+    from app.services.document_agent.manifest import ToolContext
+    from app.services.document_agent.state import ProfileBlackboard
+    from app.services.document_agent.tools.classify_page_kinds import (
+        classify_page_kinds,
+    )
+
+    blackboard = ProfileBlackboard(
+        page_count=2,
+        page_features=[_page_feature(1), _page_feature(2)],
+    )
+    ctx = ToolContext(
+        pdf_path="/tmp/doc.pdf",
+        job_id="job-json-counts",
+        blackboard=blackboard,
+        trace=None,
+    )
+    classify_page_kinds(ctx, {})
+    profile = ParserDocumentProfile(
+        file_type="pdf",
+        page_count=2,
+        metrics={
+            "page_kind_counts": blackboard.global_signals["page_kind_counts"],
+        },
+    )
+    serialized = json.loads(json.dumps(profile.to_dict()))
+    assert serialized["metrics"]["page_kind_counts"] == {"normal": 2}
+
+
 def test_run_structural_retries_transient_confirm_failed_toc_result(
     monkeypatch,
     tmp_path: Path,
@@ -387,42 +410,19 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
         ),
     )
 
-    def fake_finalize() -> None:
-        coordinator.blackboard.shard_plan = ShardPlan(
-            enabled=True,
-            reason="too_large",
-            shards=[
-                Shard(
-                    shard_index=0,
-                    page_start=1,
-                    page_end=3,
-                    page_offset=0,
-                    anchor_type="forced_max_size",
-                    anchor_evidence="fixture",
-                )
-            ],
-        )
-        from app.services.document_agent.manifest import ProfileVerdict
-
-        coordinator.blackboard.verdict = ProfileVerdict(
-            status="success", rationale="ok"
-        )
-
-    monkeypatch.setattr(coordinator, "_finalize_shard_plan", fake_finalize)
-
     anatomy = coordinator.run_structural()
 
     assert calls == ["toc", "persist"]
     assert anatomy.toc_result.toc_pages == [17]
 
 
-def test_run_structural_skip_shard_plan_uses_placeholder_without_finalize(
+def test_run_structural_uses_single_shard_placeholder_without_finalize(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "oversized.pdf"),
-        job_id="job-structural-skip-shard",
+        job_id="job-structural-single-shard",
         output_dir=str(tmp_path / "profile"),
     )
     (tmp_path / "profile").mkdir()
@@ -462,15 +462,7 @@ def test_run_structural_skip_shard_plan_uses_placeholder_without_finalize(
         ),
     )
 
-    class BoomFinalize:
-        def __call__(self) -> None:
-            raise AssertionError(
-                "_finalize_shard_plan must not run when skip_shard_plan"
-            )
-
-    monkeypatch.setattr(coordinator, "_finalize_shard_plan", BoomFinalize())
-
-    anatomy = coordinator.run_structural(skip_shard_plan=True)
+    anatomy = coordinator.run_structural()
 
     assert anatomy.shard_plan.enabled is False
     assert len(anatomy.shard_plan.shards) == 1
@@ -528,29 +520,6 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
         ),
     )
 
-    def fake_finalize() -> None:
-        coordinator.blackboard.shard_plan = ShardPlan(
-            enabled=True,
-            reason="too_large",
-            shards=[
-                Shard(
-                    shard_index=0,
-                    page_start=1,
-                    page_end=3,
-                    page_offset=0,
-                    anchor_type="forced_max_size",
-                    anchor_evidence="fixture",
-                )
-            ],
-        )
-        from app.services.document_agent.manifest import ProfileVerdict
-
-        coordinator.blackboard.verdict = ProfileVerdict(
-            status="success", rationale="ok"
-        )
-
-    monkeypatch.setattr(coordinator, "_finalize_shard_plan", fake_finalize)
-
     anatomy = coordinator.run_structural()
 
     assert calls == ["persist"]
@@ -603,29 +572,6 @@ def test_run_coarse_runs_coarse_profile_then_text_scan_then_toc(
         )
 
     monkeypatch.setattr(coordinator_module.CoarseProfiler, "classify", fake_classify)
-
-    def fake_finalize() -> None:
-        coordinator.blackboard.shard_plan = ShardPlan(
-            enabled=True,
-            reason="too_large",
-            shards=[
-                Shard(
-                    shard_index=0,
-                    page_start=1,
-                    page_end=3,
-                    page_offset=0,
-                    anchor_type="forced_max_size",
-                    anchor_evidence="fixture",
-                )
-            ],
-        )
-        from app.services.document_agent.manifest import ProfileVerdict
-
-        coordinator.blackboard.verdict = ProfileVerdict(
-            status="success", rationale="ok"
-        )
-
-    monkeypatch.setattr(coordinator, "_finalize_shard_plan", fake_finalize)
 
     coordinator.run_coarse()
     anatomy = coordinator.run_structural()
@@ -693,15 +639,19 @@ def test_run_text_scan_native_uses_read_page_text_bands(
     assert coordinator.blackboard.page_text_search_view is None
 
 
-def test_run_text_scan_scanned_dispatches_ocr_pages(
+def test_run_text_scan_scanned_uses_read_page_text_bands(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from app.services.document_agent.pdf_text import PageTextBands
+    from app.services.document_agent.pdf_text import (
+        LineDraft,
+        PageTextBands,
+        build_page_text_bands,
+    )
 
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "doc.pdf"),
-        job_id="job-scan-ocr",
+        job_id="job-scan-bands",
         output_dir=str(tmp_path / "profile"),
     )
     coordinator.blackboard.page_count = 2
@@ -709,23 +659,44 @@ def test_run_text_scan_scanned_dispatches_ocr_pages(
         is_scanned=True,
         category=["OTHER"], category_label="Report",
         routing_category=PdfRoutingCategory.GENERIC.value,
+        header_y=0.06,
+        footer_y=0.95,
     )
+    page_one = build_page_text_bands(
+        (
+            LineDraft(text="CONTENTS", region="header"),
+            LineDraft(text="body"),
+        )
+    )
+    page_two = build_page_text_bands((LineDraft(text="f2", region="footer"),))
+    dispatched: list[str] = []
 
-    def fake_dispatch(name: str, ctx, args):
-        assert name == "ocr.pages"
-        assert args == {"pages": [1, 2]}
-        ctx.blackboard.page_full_text_cache = {
-            1: PageTextBands.from_text("ocr-1"),
-            2: PageTextBands.from_text("ocr-2"),
-        }
+    def fake_read(
+        _pdf_path: str,
+        pages: list[int],
+        *,
+        header_y: float | None = None,
+        footer_y: float | None = None,
+        timeout: int = 300,
+    ) -> dict[int, PageTextBands]:
+        assert pages == [1, 2]
+        assert header_y == 0.06
+        assert footer_y == 0.95
+        return {1: page_one, 2: page_two}
+
+    def fake_dispatch(name: str, _ctx, _args):
+        dispatched.append(name)
         return ToolResult(status="ok", payload={})
 
+    monkeypatch.setattr(coordinator_module, "read_page_text_bands", fake_read)
     monkeypatch.setattr(coordinator_module.REGISTRY, "dispatch", fake_dispatch)
     coordinator._run_text_scan()
+    assert dispatched == []
     assert coordinator.blackboard.page_full_text_cache == {
-        1: PageTextBands.from_text("ocr-1"),
-        2: PageTextBands.from_text("ocr-2"),
+        1: page_one,
+        2: page_two,
     }
+    assert coordinator.blackboard.page_text_search_view is None
 
 
 def test_anchor_confirmation_failure_requires_one_strict_retry(tmp_path: Path) -> None:
@@ -805,7 +776,7 @@ def test_standard_pdf_profile_builds_page_toc_and_lightweight_anatomy_by_default
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
+        def run_lightweight_anatomy(self):
             self.calls.append("run_lightweight_anatomy")
             return fake_anatomy
 
@@ -856,7 +827,7 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
+        def run_lightweight_anatomy(self):
             self.calls.append("run_lightweight_anatomy")
             self.blackboard.toc_result = TocResult(
                 method="none",
@@ -913,7 +884,7 @@ def test_page_memory_forces_toc_profiling_despite_kill_switch(
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
+        def run_lightweight_anatomy(self):
             self.calls.append("run_lightweight_anatomy")
             return fake_anatomy
 
@@ -927,7 +898,6 @@ def test_page_memory_forces_toc_profiling_despite_kill_switch(
         "standard.pdf",
         job_id="job-page-memory-toc-forced",
         output_dir=str(tmp_path),
-        skip_shard_plan=True,
         oversized_policy="page_memory",
     )
 
@@ -964,9 +934,8 @@ def test_page_memory_profile_bypasses_chunk_oversized_gate(
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_structural(self, *, skip_shard_plan: bool = False):
+        def run_structural(self):
             self.calls.append("run_structural")
-            self.skip_shard_plan = skip_shard_plan
             return fake_anatomy
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
@@ -978,13 +947,11 @@ def test_page_memory_profile_bypasses_chunk_oversized_gate(
         "oversized.pdf",
         job_id="job-page-memory-oversized",
         output_dir=str(tmp_path),
-        skip_shard_plan=True,
         oversized_policy="page_memory",
     )
 
     assert profile.anatomy is fake_anatomy
     assert fake_instances[0].calls == ["run_coarse", "run_structural"]
-    assert fake_instances[0].skip_shard_plan is True
 
 
 def test_standard_pdf_profile_maps_page_toc_evidence(
@@ -1027,7 +994,7 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
+        def run_lightweight_anatomy(self):
             self.calls.append("run_lightweight_anatomy")
             return fake_anatomy
 
@@ -1098,10 +1065,10 @@ def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
                 routing_category=PdfRoutingCategory.ATLAS.value,
             )
 
-        def run_structural(self, *, skip_shard_plan: bool = False):
+        def run_structural(self):
             raise AssertionError("oversized atlas should not run structural anatomy")
 
-        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
+        def run_lightweight_anatomy(self):
             raise AssertionError("oversized atlas should not run lightweight anatomy")
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
@@ -1124,350 +1091,136 @@ def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
     assert profile.toc.toc_pages == [4]
 
 
-def _patch_atlas_page_pipeline(
-    monkeypatch,
-    page_texts: list[str],
-) -> list[set[int]]:
-    render_skip_pages: list[set[int]] = []
-
-    def fake_run_in_child_process(func, *_args, **_kwargs):
-        if func is atlas_parser._atlas_extract_texts_worker:
-            return {"total_pages": len(page_texts), "page_texts": page_texts}
-
-        if func is atlas_parser._atlas_render_pages_worker:
-            _pdf_path, img_dir, skip_pages_list, _dpi, page_texts_list = _args
-            skip_pages = set(skip_pages_list)
-            render_skip_pages.append(skip_pages)
-            page_data = []
-            for page_idx, page_text in enumerate(page_texts_list):
-                page_num = page_idx + 1
-                if page_num in skip_pages:
-                    continue
-                img_name = f"page-{page_num}.jpg"
-                Path(img_dir, img_name).write_bytes(f"image-{page_num}".encode())
-                page_data.append((page_num, page_text, img_name))
-            return {"page_data": page_data}
-
-        raise AssertionError(f"unexpected atlas worker: {func}")
-
-    monkeypatch.setattr(atlas_parser, "run_in_child_process", fake_run_in_child_process)
-    monkeypatch.setattr(
-        atlas_parser,
-        "_vlm_extract_page_info",
-        lambda _output_dir, img_name: f"Drawing info for {img_name}",
-    )
-    return render_skip_pages
-
-
-def test_atlas_consumes_profile_toc_without_internal_detector(
+def test_find_toc_anchor_pages_scanned_unions_text_and_visual(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    render_skip_pages = _patch_atlas_page_pipeline(
-        monkeypatch,
-        ["Cover", "Contents", "Drawing page"],
+    from app.services.document_agent.manifest import ToolContext
+    from app.services.document_agent.pdf_text import LineDraft, build_page_text_bands
+    from app.services.document_agent.state import ProfileBlackboard
+
+    blackboard = ProfileBlackboard(page_count=20)
+    blackboard.document_profile = DocumentProfile(
+        is_scanned=True,
+        category=["OTHER"],
+        category_label="Scanned Book",
+        routing_category="scanned",
+    )
+    blackboard.page_labels = [PageLabel(page=page, kind="normal") for page in range(1, 21)]
+    blackboard.page_full_text_cache = {
+        14: build_page_text_bands((LineDraft(text="CONTENTS"),)),
+        15: build_page_text_bands((LineDraft(text="CONTENTS"),)),
+    }
+    ctx = ToolContext(
+        pdf_path=str(tmp_path / "scan.pdf"),
+        job_id="job-scan-toc",
+        blackboard=blackboard,
+        trace=None,
+        output_dir=str(tmp_path / "out"),
+        settings={"toc_visual_candidate_pages": [14, 15, 16]},
     )
 
-    profile = SimpleNamespace(
+    def fake_render(_worker, _pdf_path, pages, output_dir, _dpi, timeout=120):
+        del timeout
+        results = []
+        for page in pages:
+            png = Path(output_dir) / f"toc_anchor_page_{page}.png"
+            png.write_bytes(b"png")
+            results.append({"page": page, "png_path": str(png)})
+        return {"ok": True, "results": results}
+
+    monkeypatch.setattr(toc_anchor_tool, "run_in_child_process", fake_render)
+    result = toc_anchor_tool.find_toc_anchor_pages(ctx, {})
+    pages = [item.page for item in blackboard.toc_anchor_pages]
+    sources = {item.page: item.source for item in blackboard.toc_anchor_pages}
+    assert result.status == "ok"
+    assert pages == [14, 15, 16]
+    assert sources == {14: "hybrid", 15: "hybrid", 16: "visual"}
+    assert result.output_summary is not None
+    assert result.output_summary["narrowing"]["union"] == 3
+
+
+def test_find_toc_anchor_pages_empty_text_and_visual_returns_no_anchors(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_agent.manifest import ToolContext
+    from app.services.document_agent.state import ProfileBlackboard
+
+    blackboard = ProfileBlackboard(page_count=20)
+    blackboard.document_profile = DocumentProfile(
         is_scanned=False,
-        toc=ParserTocProfile(
-            toc_pages=[2],
-            hierarchies=[
-                {"toc_range": [2, 2], "toc_range_unit": "page", "toc_tree": {}}
-            ],
-            source="pdf_vlm",
-            method="vlm_batch",
-            attempted=True,
-        ),
+        category=["OTHER"],
+        category_label="Report",
+        routing_category=PdfRoutingCategory.GENERIC.value,
+    )
+    blackboard.page_labels = [PageLabel(page=page, kind="normal") for page in range(1, 21)]
+    blackboard.page_full_text_cache = {}
+    ctx = ToolContext(
+        pdf_path=str(tmp_path / "empty.pdf"),
+        job_id="job-empty-toc",
+        blackboard=blackboard,
+        trace=None,
+        output_dir=str(tmp_path / "out"),
+        settings={},
     )
 
-    df = atlas_parser.parse_atlas(
-        str(tmp_path / "atlas.pdf"),
-        str(tmp_path / "out"),
-        {"stopwords": [], "model_name": "test-model"},
-        relative_root="kb/atlas.pdf",
-        profile=profile,
-    )
+    def fail_if_rendered(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise AssertionError("empty text and visual candidates must not render pages")
 
-    assert render_skip_pages == [{2}]
-    assert len(df) == 2
-    assert not any("[page-2]" in content for content in df["content"])
-    toc_json = tmp_path / "out" / "toc_hierarchies.json"
-    assert toc_json.exists()
+    monkeypatch.setattr(toc_anchor_tool, "run_in_child_process", fail_if_rendered)
+    result = toc_anchor_tool.find_toc_anchor_pages(ctx, {})
+    assert result.status == "ok"
+    assert blackboard.toc_anchor_pages == []
+    assert result.payload == {"anchor_count": 0}
+    assert result.output_summary is not None
+    assert result.output_summary["narrowing"]["raw"] == 0
+    assert "head_window" not in result.output_summary["narrowing"]
 
 
-def test_atlas_does_not_fallback_when_profile_toc_not_attempted(
+def test_find_toc_anchor_pages_born_digital_drops_consecutive_duplicates_and_keeps_visual(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    render_skip_pages = _patch_atlas_page_pipeline(
-        monkeypatch,
-        ["Contents", "Drawing page"],
-    )
-    profile = SimpleNamespace(
+    from app.services.document_agent.manifest import ToolContext
+    from app.services.document_agent.pdf_text import LineDraft, build_page_text_bands
+    from app.services.document_agent.state import ProfileBlackboard
+
+    blackboard = ProfileBlackboard(page_count=20)
+    blackboard.document_profile = DocumentProfile(
         is_scanned=False,
-        toc=ParserTocProfile(toc_pages=[2], attempted=False),
+        category=["OTHER"],
+        category_label="Report",
+        routing_category=PdfRoutingCategory.GENERIC.value,
+    )
+    blackboard.page_labels = [PageLabel(page=page, kind="normal") for page in range(1, 21)]
+    blackboard.page_full_text_cache = {
+        10: build_page_text_bands((LineDraft(text="Contents"),)),
+        11: build_page_text_bands((LineDraft(text="Contents"),)),
+    }
+    ctx = ToolContext(
+        pdf_path=str(tmp_path / "native.pdf"),
+        job_id="job-native-toc",
+        blackboard=blackboard,
+        trace=None,
+        output_dir=str(tmp_path / "out"),
+        settings={"toc_visual_candidate_pages": [4]},
     )
 
-    df = atlas_parser.parse_atlas(
-        str(tmp_path / "atlas.pdf"),
-        str(tmp_path / "out"),
-        {
-            "stopwords": [],
-            "model_name": "content-model",
-            "hierarchy_model_name": "hierarchy-model",
-        },
-        relative_root="kb/atlas.pdf",
-        profile=profile,
-    )
+    def fake_render(_worker, _pdf_path, pages, output_dir, _dpi, timeout=120):
+        del timeout
+        results = []
+        for page in pages:
+            png = Path(output_dir) / f"toc_anchor_page_{page}.png"
+            png.write_bytes(b"png")
+            results.append({"page": page, "png_path": str(png)})
+        return {"ok": True, "results": results}
 
-    assert render_skip_pages == [set()]
-    assert len(df) == 2
-    assert any("[page-1]" in content for content in df["content"])
-
-
-def test_pdf_standard_single_pass_skips_markdown_toc_detection(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    output_dir = tmp_path / "out"
-    output_dir.mkdir()
-    calls: dict[str, object] = {}
-
-    def fake_parse_via_full(_pdf_path, _filename, out_dir, s3_key=None):
-        calls["s3_key"] = s3_key
-        Path(out_dir, "full.md").write_text("Contents\nBody\n", encoding="utf-8")
-
-    def fake_parse_md(*_args, **kwargs):
-        calls["skip_toc_detection"] = kwargs.get("skip_toc_detection")
-        return {"ok": True}
-
-    monkeypatch.setattr(pdf_parser, "parse_via_full", fake_parse_via_full)
-    monkeypatch.setattr(pdf_parser, "parse_md", fake_parse_md)
-
-    result = pdf_parser.parse_pdfs(
-        str(tmp_path / "standard.pdf"),
-        "standard.pdf",
-        str(output_dir),
-        {"smart_title_parse": False},
-        profile=SimpleNamespace(
-            routing_category=PdfRoutingCategory.GENERIC,
-            anatomy=None,
-            page_count=2,
-        ),
-        s3_key="uploads/source.pdf",
-    )
-
-    assert result == {"ok": True}
-    assert calls == {"s3_key": "uploads/source.pdf", "skip_toc_detection": True}
-
-
-def test_pdf_shard_pipeline_accepts_single_shard_fast_path(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    output_dir = tmp_path / "out"
-    output_dir.mkdir()
-    calls: list[str] = []
-
-    def fake_parse_via_full(pdf_path, filename, out_dir, s3_key=None):
-        calls.append(f"parse:{filename}:{s3_key}")
-        Path(out_dir, "full.md").write_text("1. Introduction\nBody\n", encoding="utf-8")
-
-    def fail_split(*_args, **_kwargs):
-        raise AssertionError("single shard without TOC should not split")
-
-    def fake_eval_md_headings(md_lines, *_args, **_kwargs):
-        return [f"# {line}" if line.startswith("1.") else line for line in md_lines]
-
-    def fake_parse_md(*_args, **kwargs):
-        calls.append("parse_md")
-        return {"lines": kwargs["lines_with_heading"]}
-
-    active_markdown_parser = importlib.import_module(
-        "app.services.document_parser.formats.markdown.parser"
-    )
-    monkeypatch.setattr(pdf_parser, "parse_via_full", fake_parse_via_full)
-    monkeypatch.setattr(shard_splitter, "split_pdf", fail_split)
-    monkeypatch.setattr(
-        active_markdown_parser,
-        "eval_md_headings",
-        fake_eval_md_headings,
-    )
-    monkeypatch.setattr(pdf_parser, "parse_md", fake_parse_md)
-
-    profile = SimpleNamespace(
-        anatomy=PageAnatomyMap(
-            job_id="job-single-shard",
-            file_path=str(tmp_path / "standard.pdf"),
-            page_count=2,
-            page_features=[_page_feature(1), _page_feature(2)],
-            page_labels=[
-                PageLabel(page=1, kind="normal"),
-                PageLabel(page=2, kind="normal"),
-            ],
-            toc_result=TocResult(method="none"),
-            shard_plan=ShardPlan(
-                enabled=False,
-                reason="not_needed",
-                shards=[
-                    Shard(
-                        shard_index=0,
-                        page_start=1,
-                        page_end=2,
-                        page_offset=0,
-                        anchor_type="forced_max_size",
-                        anchor_evidence="document within shard threshold",
-                    )
-                ],
-            ),
-        )
-    )
-
-    result = pdf_parser._parse_pdf_via_shards(
-        str(tmp_path / "standard.pdf"),
-        "standard.pdf",
-        str(output_dir),
-        {"smart_title_parse": False, "model_name": "test-model"},
-        profile=profile,
-        s3_key="uploads/source.pdf",
-    )
-
-    assert calls == ["parse:standard.pdf:uploads/source.pdf", "parse_md"]
-    assert result["lines"] == ["# 1. Introduction", "Body"]
-
-
-def test_pdf_shard_pipeline_does_not_use_markdown_toc_detector(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    output_dir = tmp_path / "out"
-    output_dir.mkdir()
-    heading_contexts: list[object] = []
-
-    def fake_parse_via_full(_pdf_path, _filename, out_dir, s3_key=None):
-        Path(out_dir, "full.md").write_text(
-            "Contents\n1 Introduction .... 2\n1 Introduction\nBody\n",
-            encoding="utf-8",
-        )
-
-    def fail_detect_tocs_in_texts(*_args, **_kwargs):
-        raise AssertionError("PDF shard pipeline must not call markdown TOC detector")
-
-    def fake_eval_md_headings(md_lines, *_args, **kwargs):
-        heading_contexts.append(kwargs.get("toc_hierarchies"))
-        return [f"# {line}" if line.startswith("1 ") else line for line in md_lines]
-
-    active_markdown_parser = importlib.import_module(
-        "app.services.document_parser.formats.markdown.parser"
-    )
-    active_toc_parser = importlib.import_module(
-        "app.services.document_parser.structure.toc_parser"
-    )
-    monkeypatch.setattr(pdf_parser, "parse_via_full", fake_parse_via_full)
-    monkeypatch.setattr(
-        active_toc_parser,
-        "detect_tocs_in_texts",
-        fail_detect_tocs_in_texts,
-    )
-    monkeypatch.setattr(
-        active_markdown_parser,
-        "eval_md_headings",
-        fake_eval_md_headings,
-    )
-    monkeypatch.setattr(
-        pdf_parser,
-        "parse_md",
-        lambda *_args, **kwargs: {"lines": kwargs["lines_with_heading"]},
-    )
-
-    profile = SimpleNamespace(
-        anatomy=PageAnatomyMap(
-            job_id="job-missed-toc",
-            file_path=str(tmp_path / "standard.pdf"),
-            page_count=3,
-            page_features=[_page_feature(1), _page_feature(2), _page_feature(3)],
-            page_labels=[
-                PageLabel(page=1, kind="normal"),
-                PageLabel(page=2, kind="normal"),
-                PageLabel(page=3, kind="normal"),
-            ],
-            toc_result=TocResult(method="none"),
-            shard_plan=ShardPlan(
-                enabled=False,
-                reason="not_needed",
-                shards=[
-                    Shard(
-                        shard_index=0,
-                        page_start=1,
-                        page_end=3,
-                        page_offset=0,
-                        anchor_type="forced_max_size",
-                        anchor_evidence="document within shard threshold",
-                    )
-                ],
-            ),
-        )
-    )
-
-    result = pdf_parser._parse_pdf_via_shards(
-        str(tmp_path / "standard.pdf"),
-        "standard.pdf",
-        str(output_dir),
-        {"smart_title_parse": False, "model_name": "test-model"},
-        profile=profile,
-    )
-
-    assert heading_contexts == [None]
-    assert result["lines"] == [
-        "Contents",
-        "# 1 Introduction .... 2",
-        "# 1 Introduction",
-        "Body",
-    ]
-
-
-def test_page_based_toc_demotes_front_matter_only_on_first_shard() -> None:
-    # Production TEXT-TRACK shape from propose.shard_plan: calibrated slice
-    # carries toc_with_level only (no toc_tree).
-    toc_hierarchies = [
-        {
-            "toc_range": [1, 10],
-            "toc_range_unit": "page",
-            "source": "calibrated_shard_split",
-            "toc_with_level": [
-                {"heading": "Risk Factors", "level": 1},
-                {"heading": "Business Overview", "level": 2},
-            ],
-        }
-    ]
-    lines = [
-        "1. Cover",
-        "2. Legal Notice",
-        "3. Risk Factors",
-        "4. Business",
-    ]
-
-    first_shard = pred_titles(
-        lines,
-        doc_type="md",
-        toc_hierarchies=toc_hierarchies,
-        smart_parse=False,
-        is_first_shard=True,
-    )
-    continuation = pred_titles(
-        lines,
-        doc_type="md",
-        toc_hierarchies=toc_hierarchies,
-        smart_parse=False,
-        is_first_shard=False,
-    )
-
-    first_levels = dict(zip(first_shard["id"], first_shard["level"], strict=False))
-    continuation_levels = dict(
-        zip(continuation["id"], continuation["level"], strict=False)
-    )
-    assert first_levels[0] == -1
-    assert first_levels[1] == -1
-    assert first_levels[2] > 0
-    assert continuation_levels[0] > 0
+    monkeypatch.setattr(toc_anchor_tool, "run_in_child_process", fake_render)
+    result = toc_anchor_tool.find_toc_anchor_pages(ctx, {})
+    assert result.status == "ok"
+    assert [item.page for item in blackboard.toc_anchor_pages] == [4]
+    assert [item.source for item in blackboard.toc_anchor_pages] == ["visual"]
+    assert result.output_summary is not None
+    assert result.output_summary["narrowing"]["after_dedup"] == 0
+    assert result.output_summary["narrowing"]["union"] == 1

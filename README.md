@@ -105,7 +105,7 @@ Knowhere provides the document-memory substrate; the agent decides how to explor
 
 **Q: What is Knowhere's relationship with MinerU?**
 
-A: MinerU remains the default raw PDF extractor for Knowhere's V1 chunk-based pipeline. PDF and PowerPoint uploads through the V2 API use Vision Page instead: Knowhere renders the source pages, combines their visual interpretation with document profiling and TOC structure, and assembles page-grounded hierarchy nodes. MinerU is still useful, but V2 no longer treats parser-generated Markdown as the only source of truth.
+A: PDF and PowerPoint use the page-memory pipeline: Knowhere renders source pages, combines visual interpretation with document profiling and TOC structure, and assembles page-grounded hierarchy nodes. MinerU is an optional fine-stage page-text extractor and is off by default. Knowhere does not treat parser-generated Markdown as the source of truth.
 
 **Q: What LLM / VLM dependencies does Knowhere have?**
 
@@ -207,7 +207,7 @@ cp apps/worker/.env.example apps/worker/.env
 - S3-compatible storage credentials
 - at least one LLM provider key: `DS_KEY`, `ALI_API_KEYS`, `GPT_API_KEY`, or `GLM_API_KEY`
 - a vision-capable model provider for V2 PDF/PowerPoint parsing, page understanding, image summaries, OCR, atlas classification, or image-aware retrieval
-- `MINERU_API_KEYS` only if you use the V1 chunk-based PDF/PowerPoint pipeline
+- `MINERU_API_KEYS` only if you turn on the optional MinerU fine-stage page-text extractor
 - any optional billing or webhook providers you want to enable
 
 Most parser and retrieval tuning values have code defaults. Start with the

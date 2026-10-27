@@ -34,6 +34,7 @@ from shared.core.celery_app import celery_app
 from shared.models.database.document import (
     Document,
     DocumentChunk,
+    DocumentPageEmbedding,
     DocumentScopeEnrichment,
 )
 from shared.models.database.job import Job
@@ -773,6 +774,9 @@ def test_deferred_structure_schedules_staged_ranges_without_republishing_baselin
         assert service._publish_coarse_structure_and_write_scopes(
             job_result_id=revision_id,
             target=target,
+            publication_scope=service._build_publication_scope(
+                target=target, job_result_id=revision_id
+            ),
             chunks=[
                 {
                     "chunk_id": "staged-scope",
@@ -1460,9 +1464,52 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
         "_resume_profile_from_m0_workspace",
         lambda **_kw: fake_profile,
     )
+    import app.services.page_memory.page_renderer as page_renderer_mod
     import app.services.page_memory.skeleton_extractor as skel_mod
+    from shared.core.config import settings
+    from shared.services.ai import embedding as embedding_pkg
+    from shared.services.ai.embedding import DEFAULT_EMBEDDING_DIM
 
-    monkeypatch.setattr(skel_mod, "extract_section_skeletons", lambda **_kw: skeletons)
+    monkeypatch.setattr(
+        skel_mod, "extract_section_skeletons", lambda **_kw: skeletons
+    )
+    monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
+
+    def _fake_defer_render(
+        *,
+        output_dir: str,
+        scope_id: str,
+        pages: list[int],
+        page_texts: dict[int, str],
+        **_kw: object,
+    ) -> list[PageRenderResult]:
+        render_dir = Path(output_dir) / "pages" / scope_id
+        render_dir.mkdir(parents=True, exist_ok=True)
+        out: list[PageRenderResult] = []
+        for page in pages:
+            img_path = render_dir / f"page-{page}.png"
+            img_path.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes([page]))
+            out.append(
+                PageRenderResult(
+                    page_index=page,
+                    image_path=str(img_path),
+                    raw_text=page_texts.get(page, ""),
+                    width=600.0,
+                    height=800.0,
+                    is_landscape=False,
+                )
+            )
+        return out
+
+    vec_one = [1.0] + [0.0] * (DEFAULT_EMBEDDING_DIM - 1)
+    monkeypatch.setattr(
+        page_renderer_mod, "render_document_pages", _fake_defer_render
+    )
+    monkeypatch.setattr(
+        embedding_pkg,
+        "embed_images",
+        lambda inputs, **_kw: [vec_one for _ in inputs],
+    )
 
     storage = _InMemoryResultStorage(
         {
@@ -1583,6 +1630,21 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
             assert {
                 (c.chunk_metadata or {}).get("enrichment_state") for c in chunks_after
             } == {"coarse"}
+            emb_rows = list(
+                session.scalars(
+                    select(DocumentPageEmbedding)
+                    .where(DocumentPageEmbedding.document_id == doc_id)
+                    .where(DocumentPageEmbedding.job_result_id == revision_id)
+                    .order_by(DocumentPageEmbedding.page_num)
+                ).all()
+            )
+            assert [r.page_num for r in emb_rows] == [1, 2, 3, 4]
+            assert [r.chunk_id for r in emb_rows] == [
+                chunks_after[0].chunk_id,
+                chunks_after[0].chunk_id,
+                chunks_after[1].chunk_id,
+                chunks_after[1].chunk_id,
+            ]
             scope_rows = list(
                 session.scalars(
                     select(DocumentScopeEnrichment)
@@ -1815,11 +1877,13 @@ def test_final_upload_failure_recovers_without_reparsing_completed_scopes(
 
 
 @pytest.mark.parametrize("has_deferred_publication", [False, True])
+@pytest.mark.parametrize("has_initial_vectors", [True, False])
 def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors(
     worker_contract_environment: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     has_deferred_publication: bool,
+    has_initial_vectors: bool,
 ) -> None:
     from types import SimpleNamespace
     from app.services.page_memory import (
@@ -1859,7 +1923,10 @@ def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors
         ]
 
     monkeypatch.setattr(page_renderer, "render_document_pages", render)
-    vectors: list[list[list[float] | None]] = [[[0.25] * 3072, None], [[0.5] * 3072]]
+    vectors: list[list[list[float] | None]] = [
+        ([[0.25] * 3072] if has_initial_vectors else [[0.25] * 3072, [0.25] * 3072]) + [None],
+        [[0.5] * 3072],
+    ]
     monkeypatch.setattr(
         embedding, "embed_images", lambda *args, **kwargs: vectors.pop(0)
     )
@@ -1879,7 +1946,7 @@ def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors
                     checksum="a" * 64,
                     archive_key="baseline.zip",
                 ),
-                missing_pages=[2, 3],
+                missing_pages=[2, 3] if has_initial_vectors else [1, 2, 3],
             )
             if not has_deferred_publication:
                 state.publication_mode = "incremental"
@@ -1892,21 +1959,22 @@ def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors
             )
             chunk.chunk_metadata = {**chunk.chunk_metadata, "page_nums": [1, 2, 3]}
             owner = chunk.chunk_id
-            db.add(
-                DocumentPageEmbedding(
-                    id="existing-page-one",
-                    user_id="enrich-user-repair-partial",
-                    namespace="ns-repair-partial",
-                    document_id=doc_id,
-                    job_result_id=revision,
-                    chunk_id=owner,
-                    page_num=1,
-                    modality="visual",
-                    model="test",
-                    dims=3072,
-                    embedding=[0.1] * 3072,
+            if has_initial_vectors:
+                db.add(
+                    DocumentPageEmbedding(
+                        id="existing-page-one",
+                        user_id="enrich-user-repair-partial",
+                        namespace="ns-repair-partial",
+                        document_id=doc_id,
+                        job_result_id=revision,
+                        chunk_id=owner,
+                        page_num=1,
+                        modality="visual",
+                        model="test",
+                        dims=3072,
+                        embedding=[0.1] * 3072,
+                    )
                 )
-            )
             db.commit()
             target = service._build_claimed_target(
                 document=db.get(Document, doc_id),
@@ -1914,21 +1982,30 @@ def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors
                 job_metadata=dict(db.get(Job, job_id).job_metadata or {}),
                 source_file_name="doc.pdf",
             )
-        for _ in range(2):
+        for attempt in range(2):
             service._repair_missing_page_embeddings(
                 job_result_id=revision,
                 target=target,
                 storage=storage,
                 workspace_dir=str(tmp_path),
             )
+            if attempt == 0:
+                service._finalize_all_scopes_refined(
+                    job_result_id=revision, target=target, storage=storage,
+                    workspace_dir=str(tmp_path),
+                )
+                assert storage.uploaded_zips == [], "Missing required vectors must withhold final publication"
         with Session(engine) as db:
             rows = db.scalars(
                 select(DocumentPageEmbedding)
                 .where(DocumentPageEmbedding.job_result_id == revision)
                 .order_by(DocumentPageEmbedding.page_num)
             ).all()
-            assert [row.page_num for row in rows] == ([1] if has_deferred_publication else [1, 2, 3])
-            assert rows[0].id == "existing-page-one"
+            assert [row.page_num for row in rows] == (
+                ([1] if has_initial_vectors else []) if has_deferred_publication else [1, 2, 3]
+            )
+            if has_initial_vectors:
+                assert rows[0].id == "existing-page-one"
             if has_deferred_publication:
                 from app.services.page_memory.staged_enrichment import StagedEnrichment
                 references = db.get(JobResult, revision).document_metadata["page_memory_staged_vectors"]
@@ -1940,14 +2017,14 @@ def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors
                         job_result_id=revision, scope_id="vector-repair",
                     )
                     repaired.update(output.embeddings)
-                assert set(repaired) == {2, 3}
+                assert set(repaired) == ({2, 3} if has_initial_vectors else {1, 2, 3})
             assert (
                 read_progressive_state(
                     db.get(JobResult, revision).document_metadata
                 ).stages["vector_repair"]["status"]
                 == "complete"
             )
-        assert rendered_pages == [[2, 3], [3]]
+        assert rendered_pages == [([2, 3] if has_initial_vectors else [1, 2, 3]), [3]]
         assert invalidations == ([] if has_deferred_publication else [target.namespace, target.namespace])
     finally:
         engine.dispose()
@@ -2114,6 +2191,9 @@ def test_structure_publication_rejects_an_exhausted_stage_generation(
         published = service._publish_coarse_structure_and_write_scopes(
             job_result_id=revision,
             target=target,
+            publication_scope=service._build_publication_scope(
+                target=target, job_result_id=revision
+            ),
             chunks=[],
             section_summaries={},
             phase_b_refs=[],
@@ -2121,5 +2201,104 @@ def test_structure_publication_rejects_an_exhausted_stage_generation(
         )
         assert published is False
         assert called == []
+    finally:
+        engine.dispose()
+
+
+def test_recovery_cannot_overwrite_a_concurrent_manual_retry(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from threading import Event, current_thread
+    from sqlalchemy import event
+    from app.services.page_memory import scope_enrichment_service as service
+    from shared.models.schemas.progressive_ingestion import StoredSnapshot
+    from shared.services.jobs.progressive_ingestion import (
+        initialize_baseline_state, read_progressive_state, write_progressive_state,
+    )
+    from shared.services.jobs.progressive_retry import renew_failed_enhancement
+
+    del worker_contract_environment
+    engine = create_engine(
+        make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2")
+    )
+    has_scope_read: Event = Event()
+    has_retry_started: Event = Event()
+    has_retry_finished: Event = Event()
+    try:
+        with Session(engine) as db:
+            document_id, job_id, revision_id = _seed_published_coarse_doc(
+                db, suffix="recovery-retry-race", scope_states=[("p1-2", 1, 2, "failed")],
+            )
+            revision = db.get(JobResult, revision_id)
+            assert revision is not None
+            state = initialize_baseline_state(
+                snapshot=StoredSnapshot(
+                    snapshot_id="baseline", stage="baseline", job_id=job_id,
+                    job_result_id=revision_id, document_id=document_id,
+                    checksum="a" * 64, archive_key="baseline.zip",
+                ), missing_pages=[],
+            )
+            state.enhancement.status = "running"
+            revision.document_metadata = write_progressive_state({}, state)
+            db.execute(update(DocumentScopeEnrichment).where(
+                DocumentScopeEnrichment.job_result_id == revision_id
+            ).values(attempts=3))
+            db.commit()
+
+        @contextmanager
+        def database():
+            with Session(engine) as db:
+                yield db
+                db.commit()
+
+        def pause_scope_read(connection, cursor, statement, parameters, context, many):
+            del connection, cursor, parameters, context, many
+            if (
+                current_thread().name.startswith("recovery-race")
+                and statement.startswith("SELECT document_scope_enrichments.state")
+            ):
+                has_scope_read.set()
+                assert has_retry_started.wait(5)
+                # A guarded recovery keeps the retry blocked until its commit.
+                has_retry_finished.wait(0.5)
+
+        event.listen(engine, "after_cursor_execute", pause_scope_read)
+        monkeypatch.setattr(service, "get_sync_db_context", database)
+
+        def retry() -> None:
+            assert has_scope_read.wait(5)
+            has_retry_started.set()
+            with Session(engine) as db:
+                db.execute(select(Document).where(
+                    Document.document_id == document_id
+                ).with_for_update()).scalar_one()
+                revision = db.execute(select(JobResult).where(
+                    JobResult.id == revision_id
+                ).with_for_update(of=JobResult)).scalar_one()
+                state = read_progressive_state(revision.document_metadata)
+                assert state is not None
+                state.enhancement.status = "failed"
+                state.enhancement.can_retry = True
+                renewed = renew_failed_enhancement(state, job_id=job_id)
+                revision.document_metadata = write_progressive_state({}, renewed)
+                db.execute(update(DocumentScopeEnrichment).where(
+                    DocumentScopeEnrichment.job_result_id == revision_id
+                ).values(state="coarse", attempts=0, claim_generation=None))
+                db.commit()
+            has_retry_finished.set()
+
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="recovery-race") as executor:
+            recovery = executor.submit(service.execute_progressive_recovery, job_result_id=revision_id)
+            renewal = executor.submit(retry)
+            assert recovery.result(timeout=10)["status"] == "failed"
+            renewal.result(timeout=10)
+        with Session(engine) as db:
+            state = read_progressive_state(db.get(JobResult, revision_id).document_metadata)
+            assert state is not None
+            assert state.enhancement.attempt == 2
+            assert state.enhancement.status == "pending"
     finally:
         engine.dispose()

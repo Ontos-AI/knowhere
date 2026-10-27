@@ -653,7 +653,11 @@ unproven.
    Run Ask before final enhancement, including missing initial vectors and an
    upstream scope already refined while Hipo still shows M0. Verify that each
    retained citation opens its corresponding source page and required visual
-   evidence, including text-native baselines without initial page-image assets.
+   evidence, including retained text-native baselines without initial page-image assets.
+   Main `eca92766` now adds native M0 page images when visual retrieval is enabled;
+   native vectors remain durable pending background work and publish only at final.
+   Prior capacity measurements predate this main integration and are historical
+   evidence, not a fresh capacity measurement of the integrated tree.
    Existing source-page fallback is a useful primitive, not proof of acceptance.
 4. Compare full and progressive with the same permitted fixtures. Include small,
    representative, and large documents, multiple scopes, and one then several

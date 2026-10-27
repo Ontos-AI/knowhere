@@ -22,6 +22,7 @@ from app.services.page_memory._serialization import (
 from app.services.page_memory._utils import (
     CoarseScope,
     build_hierarchy_scopes,
+    is_toc_node,
     page_scope_info,
 )
 from app.services.page_memory.body_text_preview import build_body_text_preview
@@ -194,12 +195,16 @@ def build_phase_a_manifest(
         skeleton_paths = [
             str(getattr(item, "section_path", "") or "") for item in scope.skeletons
         ]
-        processing_pages = pages_excluding_toc(
-            derive_hierarchy_page_scope(
-                skeletons=scope.skeletons,
-                page_count=page_count,
-            ),
-            toc_pages,
+        processing_pages = (
+            []
+            if scope.skeletons and all(is_toc_node(item) for item in scope.skeletons)
+            else pages_excluding_toc(
+                derive_hierarchy_page_scope(
+                    skeletons=scope.skeletons,
+                    page_count=page_count,
+                ),
+                toc_pages,
+            )
         )
         excluded_toc_pages = sorted(
             page for page in toc_pages if scope.start_page <= page <= scope.end_page
@@ -281,75 +286,50 @@ def build_coarse_text_dataframe(
     body_text_by_page: dict[int, str],
     page_count: int,
     filename: str,
+    image_path_by_page: dict[int, str] | None = None,
+    embeddings_by_page: dict[int, list[float]] | None = None,
+    output_dir: str | None = None,
 ) -> pd.DataFrame:
-    """M0 baseline: one flat per-page row (path=filename/p{n}, enrichment_state='text')."""
+    """M0 baseline: one flat per-page row (path=filename/p{n}, enrichment_state='text').
+
+    Every PDF carries PyMuPDF band text; when page images/embeddings are supplied
+    the row also carries ``page_assets`` and ``_page_embedding``.
+    """
+    from app.services.page_memory.node_assembler import _build_page_citation_assets
+
     rows: list[dict[str, Any]] = []
     for page in range(1, max(int(page_count or 0), 0) + 1):
         content = str(page_texts.get(page, "") or "").strip()
         scope_id = f"p{page}-{page}"
         path = join_document_path([filename, f"p{page}"])
+        extra_metadata: dict[str, Any] = {
+            "scope_id": scope_id,
+            "enrichment_state": TEXT_ENRICHMENT_STATE,
+            "body_text_preview": build_body_text_preview(
+                [body_text_by_page.get(page, "")]
+            ),
+        }
+        if image_path_by_page and output_dir:
+            page_assets = _build_page_citation_assets(
+                pages=[page],
+                image_path_by_page=image_path_by_page,
+                output_dir=output_dir,
+            )
+            if page_assets:
+                extra_metadata["page_assets"] = page_assets
+        if image_path_by_page is not None and embeddings_by_page is None:
+            extra_metadata["embedding_status"] = "pending"
+        if embeddings_by_page is not None:
+            embedding = embeddings_by_page.get(page)
+            extra_metadata["embedding_status"] = "complete" if embedding else "missing"
+            if isinstance(embedding, list) and embedding:
+                extra_metadata["_page_embedding"] = [float(val) for val in embedding]
         rows.append(
             {
                 "content": content,
                 "path": path,
                 "type": "page",
                 "length": len(content),
-                "keywords": "",
-                "summary": "",
-                "know_id": f"node_{gen_str_codes(f'{filename}::{path}')}",
-                "tokens": "",
-                "connectto": "",
-                "addtime": get_str_time(),
-                "page_nums": str(page),
-                "extra_metadata": {
-                    "scope_id": scope_id,
-                    "enrichment_state": TEXT_ENRICHMENT_STATE,
-                    "body_text_preview": build_body_text_preview(
-                        [body_text_by_page.get(page, "")]
-                    ),
-                },
-            }
-        )
-    return pd.DataFrame(rows, columns=pd.Index(PARSER_DF_COLUMNS))
-
-
-def build_visual_page_dataframe(
-    *,
-    page_count: int,
-    filename: str,
-    image_path_by_page: dict[int, str],
-    embeddings_by_page: dict[int, list[float]],
-    output_dir: str,
-) -> pd.DataFrame:
-    """Pure-visual M0 baseline for scanned PDFs: empty text, page_assets + _page_embedding."""
-    from app.services.page_memory.node_assembler import _build_page_citation_assets
-
-    rows: list[dict[str, Any]] = []
-    for page in range(1, max(int(page_count or 0), 0) + 1):
-        scope_id = f"p{page}-{page}"
-        path = join_document_path([filename, f"p{page}"])
-        page_assets = _build_page_citation_assets(
-            pages=[page],
-            image_path_by_page=image_path_by_page,
-            output_dir=output_dir,
-        )
-        extra_metadata: dict[str, Any] = {
-            "scope_id": scope_id,
-            "enrichment_state": TEXT_ENRICHMENT_STATE,
-            "body_text_preview": "",
-        }
-        if page_assets:
-            extra_metadata["page_assets"] = page_assets
-        embedding = embeddings_by_page.get(page)
-        extra_metadata["embedding_status"] = "complete" if embedding else "missing"
-        if isinstance(embedding, list) and embedding:
-            extra_metadata["_page_embedding"] = [float(val) for val in embedding]
-        rows.append(
-            {
-                "content": "",
-                "path": path,
-                "type": "page",
-                "length": 0,
                 "keywords": "",
                 "summary": "",
                 "know_id": f"node_{gen_str_codes(f'{filename}::{path}')}",
@@ -530,7 +510,11 @@ def _skeleton_pages(
     )
     if end_page < start_page or page_count <= 0:
         return []
-    return pages_excluding_toc(list(range(start_page, end_page + 1)), toc_pages)
+    pages = list(range(start_page, end_page + 1))
+    if is_toc_node(skeleton):
+        claimed = {int(page) for page in toc_pages}
+        return [page for page in pages if page in claimed]
+    return pages_excluding_toc(pages, toc_pages)
 
 
 def _jsonable_page_map(raw: Any) -> dict[str, str]:

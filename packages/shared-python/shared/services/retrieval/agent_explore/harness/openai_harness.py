@@ -4,7 +4,7 @@ via an OpenAI-compatible (DeepSeek) function-calling loop.
 Uses ``OpenAICompatibleClientSync.chat_completion_raw_with_usage`` — the RAW
 response, not ``chat_completion_with_usage`` — because the latter only
 returns ``.content`` and silently drops ``message.tool_calls``. Verified live
-(2026-09-08) against ``deepseek-v4-flash`` via this codebase's client:
+(2026-09-08) against ``deepseek-flash`` via this codebase's client:
 single tool call, parallel tool calls in one turn, tool-result feedback +
 final synthesis, and forced ``tool_choice`` (used for the budget-exhaustion
 cutoff and the pick phase below) all work.
@@ -391,6 +391,8 @@ class OpenAIHarness:
                         query=query,
                         readable=readable,
                         decided=decided,
+                        lit_pages_by_chunk=pool.lit_pages_by_chunk(),
+                        lit_pages_by_path=pool.lit_pages_by_path(),
                     )
                     trace_result = tool_result
                 tool_elapsed_ms = int((time.perf_counter() - tool_started) * 1000)
