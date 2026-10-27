@@ -771,7 +771,7 @@ def test_deferred_structure_schedules_staged_ranges_without_republishing_baselin
                 claim_generation="structure",
                 result_metadata=result.document_metadata,
             )
-        assert service._publish_coarse_structure_and_write_scopes(
+        has_published_structure: bool = service._publish_coarse_structure_and_write_scopes(
             job_result_id=revision_id,
             target=target,
             publication_scope=service._build_publication_scope(
@@ -792,6 +792,7 @@ def test_deferred_structure_schedules_staged_ranges_without_republishing_baselin
                 kwargs["scope_id"]
             ),
         )
+        assert has_published_structure
         assert publications == []
         with Session(engine) as db:
             assert (
