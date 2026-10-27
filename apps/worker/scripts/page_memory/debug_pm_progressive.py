@@ -242,18 +242,20 @@ def _run_coarse(
     )
 
     page_memory_config = PageMemoryConfig.default()
+    state = _load_debug_state(out_dir)
     profile = _resume_profile_from_m0_workspace(
         add_dir=str(out_dir),
         target=_ClaimedScopeTarget(
-            document_id="debug",
-            job_id=filename,
-            user_id="debug_local_user",
-            namespace="default",
+            document_id=str(state["document_id"]) if state else "debug",
+            job_id=str(state["job_id"]) if state else filename,
+            user_id=str(state["user_id"]) if state else "debug_local_user",
+            namespace=str(state["namespace"]) if state else "default",
             source_file_name=filename,
             raw_prefix=None,
             job_metadata={},
             page_memory_config=page_memory_config,
         ),
+        job_result_id=str(state["job_result_id"]) if state else "debug",
     )
     phase_a = build_phase_a(profile=profile, filename=filename)
     persist_phase_b_inputs(

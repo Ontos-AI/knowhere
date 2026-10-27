@@ -11,11 +11,13 @@ from app.services.document_agent.pdf_text import (
 from app.services.document_agent.tools.find_toc_anchor_pages import (
     HEAD_WINDOW_MAX_PAGES,
     MAX_ANCHOR_CANDIDATES,
+    _anchor_source,
     _filter_edge_anchored,
     _head_window_pages,
     _prefix_toc_keywords_for_categories,
     _scan_toc_matches,
     _select_anchor_pages,
+    _select_scanned_anchor_pages,
 )
 from app.services.document_parser.profiling.domain_taxonomy import (
     ECONOMY_BUSINESS_FINANCE_CODE,
@@ -206,3 +208,27 @@ def test_finance_prefix_keywords_match_only_at_line_start_when_enabled() -> None
         (3, "keyword:exhibit index"),
         (4, "keyword:index to"),
     ]
+
+
+def test_scanned_union_keeps_consecutive_text_and_visual_pages() -> None:
+    pages, narrowing = _select_scanned_anchor_pages({14, 15}, {14, 15, 16})
+    assert pages == {14, 15, 16}
+    assert narrowing == {"raw": 2, "visual": 3, "union": 3}
+    assert "gave_up" not in narrowing
+
+
+def test_scanned_union_over_cap_gives_up() -> None:
+    text_pages = set(range(1, MAX_ANCHOR_CANDIDATES + 1))
+    visual_pages = {MAX_ANCHOR_CANDIDATES + 1}
+    pages, narrowing = _select_scanned_anchor_pages(text_pages, visual_pages)
+    assert pages == set()
+    assert narrowing["union"] == MAX_ANCHOR_CANDIDATES + 1
+    assert narrowing["gave_up"] is True
+
+
+def test_scanned_anchor_source_labels_text_visual_and_hybrid() -> None:
+    text_pages = {14}
+    visual_pages = {14, 15}
+    assert _anchor_source(14, text_pages=text_pages, visual_pages=visual_pages) == "hybrid"
+    assert _anchor_source(15, text_pages=text_pages, visual_pages=visual_pages) == "visual"
+    assert _anchor_source(16, text_pages=text_pages, visual_pages=visual_pages) == "text_scan"

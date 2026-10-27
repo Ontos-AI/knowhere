@@ -499,51 +499,17 @@ def test_result_storage_uploads_phase_b_internal_files(tmp_path: Path) -> None:
     assert "results/job-1/pages/page-1.png" not in adapter.uploaded_keys
 
 
-def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
+def test_scanned_progressive_m0_builds_visual_page_chunks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from app.services.document_agent.coordinator import ProfileCoordinator
-    from app.services.document_agent.manifest import DocumentProfile
-    from app.services.document_agent.registry import REGISTRY
     from app.services.page_memory import memory_service, page_renderer
     from app.services.page_memory.memory_service import PageMemoryInput
     from shared.core.config import settings
     from shared.services.ai import embedding as embedding_pkg
     from shared.services.ai.embedding import DEFAULT_EMBEDDING_DIM
 
-    ocr_called: list[bool] = []
-    monkeypatch.setattr(
-        REGISTRY,
-        "dispatch",
-        lambda name, ctx, args: (
-            ocr_called.append(True)
-            if name == "ocr.pages"
-            else SimpleNamespace(status="ok", payload={}, output_summary={})
-        ),
-    )
-
     source = tmp_path / "scanned.pdf"
     source.write_bytes(b"%PDF")
-    coord = ProfileCoordinator(
-        pdf_path=str(source),
-        job_id="job-scan-m0",
-        output_dir=str(tmp_path / "_agent"),
-        db=None,
-        model="deepseek-flash",
-        settings={"skip_scanned_ocr": True},
-    )
-    coord.blackboard.page_count = 2
-    coord.blackboard.document_profile = DocumentProfile(
-        is_scanned=True,
-        category=["04000000"],
-        category_label="Scanned Report",
-        routing_category="scanned",
-        language="en",
-    )
-    coord._run_text_scan()  # noqa: SLF001
-    assert ocr_called == []
-    assert coord.blackboard.page_full_text_cache == {}
-
     profile = _profile(
         skeletons=[],
         page_texts={},
@@ -552,13 +518,9 @@ def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
     )
     profile.is_scanned = True
     profile.page_count = 2
-    profile.blackboard = coord.blackboard
-
-    captured_skip_ocr: list[object] = []
 
     def fake_profile(*args: object, **kwargs: object) -> SimpleNamespace:
-        del args
-        captured_skip_ocr.append(kwargs.get("skip_scanned_ocr"))
+        del args, kwargs
         return profile
 
     def fake_render(**kwargs: object) -> list[SimpleNamespace]:
@@ -597,7 +559,6 @@ def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
             ingestion_mode="progressive",
         )
     )
-    assert captured_skip_ocr == [True]
     chunks = dataframe_to_chunks(dataframe)
     assert len(chunks) == 2
     assert [c["content"] for c in chunks] == ["", ""]

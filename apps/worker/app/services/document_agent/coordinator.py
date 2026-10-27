@@ -299,24 +299,6 @@ class ProfileCoordinator:
             self.blackboard.page_full_text_cache = {}
             self.blackboard.page_text_search_view = None
             return
-        if profile.is_scanned:
-            if self.ctx.settings.get("skip_scanned_ocr"):
-                self.blackboard.page_full_text_cache = {}
-                self.blackboard.page_text_search_view = None
-                return
-            result = REGISTRY.dispatch("ocr.pages", self.ctx, {"pages": pages})
-            self.trace.record_step(
-                round_index=self.round_index,
-                actor="scan:ocr.pages",
-                action_type="scan",
-                result=result,
-                tool_name="ocr.pages",
-                tool_args={"pages": pages},
-            )
-            if result.status != "ok":
-                raise RuntimeError(result.error or "ocr.pages failed")
-            self.round_index += 1
-            return
         bands = read_page_text_bands(
             self.ctx.pdf_path,
             pages,

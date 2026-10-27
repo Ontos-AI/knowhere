@@ -78,7 +78,7 @@ class TocAnchorPage:
 
     page: int  # 1-based page number
     png_path: str  # local PNG path for VLM inspection
-    source: Literal["text_scan"] = "text_scan"
+    source: Literal["text_scan", "visual", "hybrid"] = "text_scan"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

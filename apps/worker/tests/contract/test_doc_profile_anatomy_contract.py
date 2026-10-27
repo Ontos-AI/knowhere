@@ -693,15 +693,19 @@ def test_run_text_scan_native_uses_read_page_text_bands(
     assert coordinator.blackboard.page_text_search_view is None
 
 
-def test_run_text_scan_scanned_dispatches_ocr_pages(
+def test_run_text_scan_scanned_uses_read_page_text_bands(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from app.services.document_agent.pdf_text import PageTextBands
+    from app.services.document_agent.pdf_text import (
+        LineDraft,
+        PageTextBands,
+        build_page_text_bands,
+    )
 
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "doc.pdf"),
-        job_id="job-scan-ocr",
+        job_id="job-scan-bands",
         output_dir=str(tmp_path / "profile"),
     )
     coordinator.blackboard.page_count = 2
@@ -709,23 +713,44 @@ def test_run_text_scan_scanned_dispatches_ocr_pages(
         is_scanned=True,
         category=["OTHER"], category_label="Report",
         routing_category=PdfRoutingCategory.GENERIC.value,
+        header_y=0.06,
+        footer_y=0.95,
     )
+    page_one = build_page_text_bands(
+        (
+            LineDraft(text="CONTENTS", region="header"),
+            LineDraft(text="body"),
+        )
+    )
+    page_two = build_page_text_bands((LineDraft(text="f2", region="footer"),))
+    dispatched: list[str] = []
 
-    def fake_dispatch(name: str, ctx, args):
-        assert name == "ocr.pages"
-        assert args == {"pages": [1, 2]}
-        ctx.blackboard.page_full_text_cache = {
-            1: PageTextBands.from_text("ocr-1"),
-            2: PageTextBands.from_text("ocr-2"),
-        }
+    def fake_read(
+        _pdf_path: str,
+        pages: list[int],
+        *,
+        header_y: float | None = None,
+        footer_y: float | None = None,
+        timeout: int = 300,
+    ) -> dict[int, PageTextBands]:
+        assert pages == [1, 2]
+        assert header_y == 0.06
+        assert footer_y == 0.95
+        return {1: page_one, 2: page_two}
+
+    def fake_dispatch(name: str, _ctx, _args):
+        dispatched.append(name)
         return ToolResult(status="ok", payload={})
 
+    monkeypatch.setattr(coordinator_module, "read_page_text_bands", fake_read)
     monkeypatch.setattr(coordinator_module.REGISTRY, "dispatch", fake_dispatch)
     coordinator._run_text_scan()
+    assert dispatched == []
     assert coordinator.blackboard.page_full_text_cache == {
-        1: PageTextBands.from_text("ocr-1"),
-        2: PageTextBands.from_text("ocr-2"),
+        1: page_one,
+        2: page_two,
     }
+    assert coordinator.blackboard.page_text_search_view is None
 
 
 def test_anchor_confirmation_failure_requires_one_strict_retry(tmp_path: Path) -> None:
@@ -1471,3 +1496,94 @@ def test_page_based_toc_demotes_front_matter_only_on_first_shard() -> None:
     assert first_levels[1] == -1
     assert first_levels[2] > 0
     assert continuation_levels[0] > 0
+
+
+def test_find_toc_anchor_pages_scanned_unions_text_and_visual(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_agent.manifest import ToolContext
+    from app.services.document_agent.pdf_text import LineDraft, build_page_text_bands
+    from app.services.document_agent.state import ProfileBlackboard
+
+    blackboard = ProfileBlackboard(page_count=20)
+    blackboard.document_profile = DocumentProfile(
+        is_scanned=True,
+        category=["OTHER"],
+        category_label="Scanned Book",
+        routing_category="scanned",
+    )
+    blackboard.page_labels = [PageLabel(page=page, kind="normal") for page in range(1, 21)]
+    blackboard.page_full_text_cache = {
+        14: build_page_text_bands((LineDraft(text="CONTENTS"),)),
+        15: build_page_text_bands((LineDraft(text="CONTENTS"),)),
+    }
+    ctx = ToolContext(
+        pdf_path=str(tmp_path / "scan.pdf"),
+        job_id="job-scan-toc",
+        blackboard=blackboard,
+        trace=None,
+        output_dir=str(tmp_path / "out"),
+        settings={"toc_visual_candidate_pages": [14, 15, 16]},
+    )
+
+    def fake_render(_worker, _pdf_path, pages, output_dir, _dpi, timeout=120):
+        del timeout
+        results = []
+        for page in pages:
+            png = Path(output_dir) / f"toc_anchor_page_{page}.png"
+            png.write_bytes(b"png")
+            results.append({"page": page, "png_path": str(png)})
+        return {"ok": True, "results": results}
+
+    monkeypatch.setattr(toc_anchor_tool, "run_in_child_process", fake_render)
+    result = toc_anchor_tool.find_toc_anchor_pages(ctx, {})
+    pages = [item.page for item in blackboard.toc_anchor_pages]
+    sources = {item.page: item.source for item in blackboard.toc_anchor_pages}
+    assert result.status == "ok"
+    assert pages == [14, 15, 16]
+    assert sources == {14: "hybrid", 15: "hybrid", 16: "visual"}
+    assert result.output_summary is not None
+    assert result.output_summary["narrowing"]["union"] == 3
+    assert "head_window" not in result.output_summary["narrowing"]
+
+
+def test_find_toc_anchor_pages_born_digital_still_drops_consecutive_duplicates(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_agent.manifest import ToolContext
+    from app.services.document_agent.pdf_text import LineDraft, build_page_text_bands
+    from app.services.document_agent.state import ProfileBlackboard
+
+    blackboard = ProfileBlackboard(page_count=20)
+    blackboard.document_profile = DocumentProfile(
+        is_scanned=False,
+        category=["OTHER"],
+        category_label="Report",
+        routing_category=PdfRoutingCategory.GENERIC.value,
+    )
+    blackboard.page_labels = [PageLabel(page=page, kind="normal") for page in range(1, 21)]
+    blackboard.page_full_text_cache = {
+        10: build_page_text_bands((LineDraft(text="Contents"),)),
+        11: build_page_text_bands((LineDraft(text="Contents"),)),
+    }
+    ctx = ToolContext(
+        pdf_path=str(tmp_path / "native.pdf"),
+        job_id="job-native-toc",
+        blackboard=blackboard,
+        trace=None,
+        output_dir=str(tmp_path / "out"),
+        settings={"toc_visual_candidate_pages": [10, 11, 12]},
+    )
+
+    def fake_render(_worker, _pdf_path, pages, output_dir, _dpi, timeout=120):
+        del _worker, _pdf_path, pages, output_dir, _dpi, timeout
+        raise AssertionError("born-digital consecutive duplicates should not render")
+
+    monkeypatch.setattr(toc_anchor_tool, "run_in_child_process", fake_render)
+    result = toc_anchor_tool.find_toc_anchor_pages(ctx, {})
+    assert result.status == "ok"
+    assert blackboard.toc_anchor_pages == []
+    assert result.output_summary is not None
+    assert result.output_summary["narrowing"]["after_dedup"] == 0

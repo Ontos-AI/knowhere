@@ -105,7 +105,6 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 skip_shard_plan=True,
                 oversized_policy="page_memory",
                 stop_after="asset_probe" if is_progressive else None,
-                skip_scanned_ocr=visual_m0_enabled,
             )
         trace_recorder = getattr(profile, "trace_recorder", None)
         page_count = max(int(profile.page_count or 0), 0)

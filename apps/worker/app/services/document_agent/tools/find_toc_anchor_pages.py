@@ -7,7 +7,7 @@ import os
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from app.services.document_agent.manifest import TocAnchorPage, ToolContext, ToolResult
 from app.services.document_agent.pdf_text import (
@@ -299,6 +299,38 @@ def _select_anchor_pages(
     return _match_pages(matches), narrowing
 
 
+def _select_scanned_anchor_pages(
+    text_pages: set[int],
+    visual_pages: set[int],
+) -> tuple[set[int], dict[str, Any]]:
+    """Union text hits with visual pages; cap only, no heuristic narrowing."""
+    candidate = set(text_pages) | set(visual_pages)
+    narrowing: dict[str, Any] = {
+        "raw": len(text_pages),
+        "visual": len(visual_pages),
+        "union": len(candidate),
+    }
+    if len(candidate) > MAX_ANCHOR_CANDIDATES:
+        narrowing["gave_up"] = True
+        return set(), narrowing
+    return candidate, narrowing
+
+
+def _anchor_source(
+    page: int,
+    *,
+    text_pages: set[int],
+    visual_pages: set[int],
+) -> Literal["text_scan", "visual", "hybrid"]:
+    in_text = page in text_pages
+    in_visual = page in visual_pages
+    if in_text and in_visual:
+        return "hybrid"
+    if in_visual:
+        return "visual"
+    return "text_scan"
+
+
 def _head_window_pages(page_count: int) -> set[int]:
     """First ``min(page_count, 10)`` pages when keyword scan found nothing."""
     if page_count <= 0:
@@ -337,9 +369,10 @@ def _render_pages_worker(
 @register_tool(
     name="find.toc_anchor_pages",
     description=(
-        "Scan Stage-0 line records for TOC keywords, drop consecutive-page "
-        "duplicate signatures, narrow by edge anchoring and body region only "
-        "when over the cap, then render candidate PNGs for VLM confirmation."
+        "Scan Stage-0 line records for TOC keywords. Born-digital PDFs drop "
+        "consecutive-page duplicate signatures and narrow by edge/body only "
+        "when over the cap. Scanned PDFs union text hits with visual keyword "
+        "pages and apply only the candidate cap, then render PNGs for VLM."
     ),
     preconditions=(has_page_labels, has_page_full_text),
 )
@@ -348,6 +381,7 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
     total_pages = ctx.blackboard.page_count
 
     profile = ctx.blackboard.document_profile
+    is_scanned = bool(getattr(profile, "is_scanned", False))
     prefix_keywords = _prefix_toc_keywords_for_categories(
         getattr(profile, "category", None)
     )
@@ -360,15 +394,22 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
         page_count=total_pages,
         prefix_keywords=prefix_keywords,
     )
-    anchor_pages, narrowing = _select_anchor_pages(keyword_matches)
-    if not anchor_pages and narrowing.get("raw") == 0:
-        anchor_pages = _head_window_pages(total_pages)
-        narrowing["head_window"] = len(anchor_pages)
-        logger.info(
-            "[find.toc_anchor_pages] no keyword candidates; "
-            "using first {} pages as head-window fallback",
-            len(anchor_pages),
-        )
+    text_pages = _match_pages(keyword_matches)
+    visual_pages = {
+        int(page) for page in (ctx.settings.get("toc_visual_candidate_pages") or [])
+    }
+    if is_scanned:
+        anchor_pages, narrowing = _select_scanned_anchor_pages(text_pages, visual_pages)
+    else:
+        anchor_pages, narrowing = _select_anchor_pages(keyword_matches)
+        if not anchor_pages and narrowing.get("raw") == 0:
+            anchor_pages = _head_window_pages(total_pages)
+            narrowing["head_window"] = len(anchor_pages)
+            logger.info(
+                "[find.toc_anchor_pages] no keyword candidates; "
+                "using first {} pages as head-window fallback",
+                len(anchor_pages),
+            )
     logger.info("[find.toc_anchor_pages] candidate narrowing: {}", narrowing)
     if narrowing.get("gave_up"):
         logger.warning(
@@ -402,8 +443,13 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
     anchors: list[TocAnchorPage] = []
     for item in result.get("results") or []:
         page = int(item["page"])
+        source = (
+            _anchor_source(page, text_pages=text_pages, visual_pages=visual_pages)
+            if is_scanned
+            else "text_scan"
+        )
         anchors.append(
-            TocAnchorPage(page=page, png_path=item["png_path"], source="text_scan")
+            TocAnchorPage(page=page, png_path=item["png_path"], source=source)
         )
 
     ctx.blackboard.toc_anchor_pages = anchors
