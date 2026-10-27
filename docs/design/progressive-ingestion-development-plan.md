@@ -20,6 +20,10 @@ discussing it. Retain the following points as the current checkpoint:
 1. **Page assets and List reading.** Text-native PDF/PPTX baselines do not
    pre-generate per-page image assets or native-document visual indexes. They
    retain page text and immutable `source.pdf` (the converted PDF for PPTX).
+   Acceptance clarified on 2026-10-27: missing pre-generated `page_assets` is
+   acceptable only when the client can display that PDF page by page, including
+   original figures, tables and layout, before background enhancement completes.
+   Extracted text alone does not satisfy this original-page viewing condition.
    Scanned/textless visual baselines already carry page images. Ordinary List
    reading must display original native pages from that retained PDF on demand,
    not only when opening a citation. Share the selected PDF document/worker and

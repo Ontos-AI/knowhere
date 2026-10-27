@@ -78,17 +78,19 @@ concerns searches that actually enter this branch with eligible page vectors.
   scopes receive priority, but access is not required for refinement. This
   preserves the current scheduling behavior; demand-only refinement is not the
   target. See [ADR 0011](../adr/0011-complete-progressive-enrichment-automatically.md).
-- The user's acceptance condition for early completion is actual client view
-  availability, including required page assets. Initial Job completion alone
-  is not sufficient evidence that Hipohipo can display the document.
+- The user's acceptance condition for early completion is actual client
+  original-page viewing. Native PDF/PPTX baselines may omit pre-generated page
+  assets if the client can display the immutable source PDF page by page,
+  including figures, tables and layout, without waiting for enrichment.
+  Initial Job completion or extracted text alone is not proof of that experience.
 - Once baseline synchronization makes a Hipo Source ready, include it in Ask
   immediately. Enhancement can continue with limited initial search coverage;
   citations must open corresponding source pages. Do not add a final-enhancement
   admission gate or a separate public request switch. Required query-embedding
   errors still fail the search request under the accepted error policy.
-- Text-native PDFs may show text-only M0; scanned PDFs may show page images
-  before complete OCR text. Do not add universal M0 page rendering for
-  text-native PDFs. Preserve initial Job completion after baseline publication;
+- Native PDF/PPTX M0 need not pre-render page images on the server; the client
+  must support original-page display from the retained source PDF. Scanned PDFs
+  keep their page-image baseline before complete OCR. Preserve initial Job completion after baseline publication;
   Hipohipo readiness follows successful baseline and asset synchronization.
   Full-document enrichment is a separate completion milestone. See
   [ADR 0012](../adr/0012-publish-a-viewable-baseline-before-enrichment-completes.md).
