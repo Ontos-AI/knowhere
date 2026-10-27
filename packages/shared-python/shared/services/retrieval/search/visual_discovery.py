@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from loguru import logger
@@ -118,7 +118,7 @@ def _build_visual_exclude_sections_clause(
     return f"AND NOT ({' OR '.join(parts)})", params
 
 
-def _aggregate_visual_page_hits(raw_rows: list[Any]) -> list[dict[str, Any]]:
+def _aggregate_visual_page_hits(raw_rows: Sequence[Any]) -> list[dict[str, Any]]:
     primaries: list[dict[str, Any]] = []
     groups: dict[tuple[str, str], dict[str, Any]] = {}
     for raw_row in raw_rows:

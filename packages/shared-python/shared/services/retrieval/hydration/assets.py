@@ -16,6 +16,7 @@ from shared.services.retrieval.hydration.row_utils import (
     MEDIA_CHUNK_TYPES,
     coerce_page_nums,
     extract_matched_page_nums,
+    is_unrefined_page,
     normalize_chunk_type,
 )
 from shared.services.storage.page_pdf_crop import crop_source_pdf_pages
@@ -125,7 +126,7 @@ def _iter_page_assets(raw_assets: object) -> list[dict[str, Any]]:
 
 def _page_assets_for_row(row: dict[str, Any]) -> list[dict[str, Any]]:
     assets = _iter_page_assets(_metadata_for_row(row).get("page_assets"))
-    matched = extract_matched_page_nums(row)
+    matched = extract_matched_page_nums(row) if is_unrefined_page(row) else []
     if not matched:
         return assets
     assets_by_page: dict[int, dict[str, Any]] = {}
@@ -147,7 +148,8 @@ def _resolve_page_pdf_request(row: dict[str, Any]) -> PagePdfRequestKey | None:
         return None
 
     metadata = _metadata_for_row(row)
-    pages = extract_matched_page_nums(row) or coerce_page_nums(
+    matched = extract_matched_page_nums(row) if is_unrefined_page(row) else []
+    pages = matched or coerce_page_nums(
         metadata.get("page_nums") or row.get("page_nums")
     )
     if not pages:

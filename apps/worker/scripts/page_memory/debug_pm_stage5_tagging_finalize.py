@@ -400,6 +400,7 @@ def main() -> int:
     for sr in scope_results:
         for rp in sr.rendered:
             rendered_by_page[rp.page_index] = rp
+    all_rendered = sorted(rendered_by_page.values(), key=lambda rp: rp.page_index)
 
     # ── C4c: global collapse ──
     pre_collapse = len(all_skeletons)
