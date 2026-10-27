@@ -73,6 +73,85 @@ def test_persist_job_metadata_updates_merges_stages_into_job_row(
     assert job_context.job_metadata["stages"] == stages
 
 
+def test_merge_persisted_job_token_usage_adds_delta_under_existing_stages(
+    monkeypatch: object,
+) -> None:
+    job = SimpleNamespace(
+        job_metadata={
+            "namespace": "default",
+            "stages": {
+                "token_usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 4,
+                    "total_tokens": 14,
+                    "calls": 1,
+                    "duration_ms": 20,
+                    "by_task": {
+                        "document_agent.coarse_profile": {
+                            "total_tokens": 14,
+                            "calls": 1,
+                            "duration_ms": 20,
+                        }
+                    },
+                },
+                "timing_ms": {"worker.parse.document": 1200},
+            },
+        }
+    )
+    session = Mock()
+    monkeypatch.setattr(
+        processing_context,
+        "get_sync_db_context",
+        lambda: _FakeDbContext(session),
+    )
+    monkeypatch.setattr(
+        processing_context,
+        "_select_job_row_for_update",
+        lambda _db, _job_id: job,
+    )
+    redis = Mock()
+    monkeypatch.setattr(
+        processing_context,
+        "SyncJobMetadataService",
+        lambda _service: redis,
+    )
+    monkeypatch.setattr(
+        processing_context,
+        "SyncRedisServiceFactory",
+        SimpleNamespace(get_service=lambda: object()),
+    )
+
+    processing_context.merge_persisted_job_token_usage(
+        job_id="job_enrich",
+        delta={
+            "prompt_tokens": 8,
+            "completion_tokens": 2,
+            "total_tokens": 10,
+            "calls": 1,
+            "duration_ms": 15,
+            "by_task": {
+                "page_memory.tag": {
+                    "total_tokens": 10,
+                    "calls": 1,
+                    "duration_ms": 15,
+                }
+            },
+        },
+    )
+
+    usage = job.job_metadata["stages"]["token_usage"]
+    assert usage["total_tokens"] == 24
+    assert usage["calls"] == 2
+    assert usage["duration_ms"] == 35
+    assert usage["by_task"]["document_agent.coarse_profile"]["calls"] == 1
+    assert usage["by_task"]["page_memory.tag"]["total_tokens"] == 10
+    assert job.job_metadata["stages"]["timing_ms"]["worker.parse.document"] == 1200
+    redis.update_metadata.assert_called_once()
+    written_stages = redis.update_metadata.call_args.args[1]["stages"]
+    assert written_stages["token_usage"]["total_tokens"] == 24
+    assert written_stages["timing_ms"]["worker.parse.document"] == 1200
+
+
 def test_record_processing_completion_persists_token_usage_to_job_row(
     monkeypatch: object,
 ) -> None:

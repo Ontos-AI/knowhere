@@ -142,6 +142,25 @@ def _seed_published_coarse_doc(
                 PHASE_B_BODY_TEXT_REL,
             ],
             "parsing_params": {"top_summary_use_llm": False},
+            "stages": {
+                "token_usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 4,
+                    "total_tokens": 14,
+                    "calls": 1,
+                    "duration_ms": 20,
+                    "by_task": {
+                        "document_agent.coarse_profile": {
+                            "prompt_tokens": 10,
+                            "completion_tokens": 4,
+                            "total_tokens": 14,
+                            "calls": 1,
+                            "duration_ms": 20,
+                        }
+                    },
+                },
+                "timing_ms": {"worker.parse.document": 1200},
+            },
         },
     )
     session.add(job)
@@ -330,6 +349,14 @@ def _install_fake_scope_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
         *, pages: list[PageRenderResult], **kwargs: object
     ) -> list[PageTagResult]:
         del kwargs
+        from shared.services.ai.token_tracking import record_tokens
+
+        record_tokens(
+            {"prompt_tokens": 8, "completion_tokens": 2, "total_tokens": 10},
+            model="test-tag-model",
+            task="page_memory.tag",
+            duration_ms=15,
+        )
         return [
             PageTagResult(
                 page_index=item.page_index,
@@ -930,6 +957,19 @@ def test_execute_scope_enrichment_claims_runs_subtree_and_completes_when_all_ref
 
             job = session.execute(select(Job).where(Job.job_id == job_id)).scalar_one()
             assert (job.job_metadata or {}).get("enrichment_status") == "complete"
+            usage = ((job.job_metadata or {}).get("stages") or {}).get("token_usage") or {}
+            assert usage.get("total_tokens") == 24
+            assert usage.get("calls") == 2
+            assert usage.get("duration_ms") == 35
+            assert usage.get("by_task", {}).get("document_agent.coarse_profile", {}).get(
+                "calls"
+            ) == 1
+            assert usage.get("by_task", {}).get("page_memory.tag", {}).get(
+                "total_tokens"
+            ) == 10
+            assert ((job.job_metadata or {}).get("stages") or {}).get("timing_ms", {}).get(
+                "worker.parse.document"
+            ) == 1200
             job_result = session.execute(
                 select(JobResult).where(JobResult.id == revision_id)
             ).scalar_one()
@@ -947,6 +987,11 @@ def test_execute_scope_enrichment_claims_runs_subtree_and_completes_when_all_ref
             result_storage_factory=lambda: storage,
         )
         assert second["status"] == "skipped"
+        with Session(engine) as session:
+            job = session.execute(select(Job).where(Job.job_id == job_id)).scalar_one()
+            usage = ((job.job_metadata or {}).get("stages") or {}).get("token_usage") or {}
+            assert usage.get("total_tokens") == 24
+            assert usage.get("calls") == 2
     finally:
         engine.dispose()
 
@@ -1460,10 +1505,21 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
         page_full_text_cache={1: "p1 text", 2: "p2 text", 3: "p3 text", 4: "p4 text"},
         page_body_text_cache={1: "p1 body", 2: "p2 body", 3: "p3 body", 4: "p4 body"},
     )
+    def _resume_and_record(**_kw: object) -> object:
+        from shared.services.ai.token_tracking import record_tokens
+
+        record_tokens(
+            {"prompt_tokens": 6, "completion_tokens": 1, "total_tokens": 7},
+            model="test-toc-model",
+            task="document_agent.toc_anchor_confirm",
+            duration_ms=11,
+        )
+        return fake_profile
+
     monkeypatch.setattr(
         ses_mod,
         "_resume_profile_from_m0_workspace",
-        lambda **_kw: fake_profile,
+        _resume_and_record,
     )
     import app.services.page_memory.page_renderer as page_renderer_mod
     import app.services.page_memory.skeleton_extractor as skel_mod
@@ -1553,6 +1609,25 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
                     "source_file_name": "doc.pdf",
                     "result_raw_prefix": f"results/{job_id}/",
                     "enrichment_status": "text",
+                    "stages": {
+                        "token_usage": {
+                            "prompt_tokens": 10,
+                            "completion_tokens": 4,
+                            "total_tokens": 14,
+                            "calls": 1,
+                            "duration_ms": 20,
+                            "by_task": {
+                                "document_agent.coarse_profile": {
+                                    "prompt_tokens": 10,
+                                    "completion_tokens": 4,
+                                    "total_tokens": 14,
+                                    "calls": 1,
+                                    "duration_ms": 20,
+                                }
+                            },
+                        },
+                        "timing_ms": {"worker.parse.document": 800},
+                    },
                     "page_memory_phase_b": [
                         PHASE_B_SOURCE_PDF_REL,
                         PHASE_B_BLACKBOARD_REL,
@@ -1659,6 +1734,16 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
             ]
             job = session.execute(select(Job).where(Job.job_id == job_id)).scalar_one()
             assert (job.job_metadata or {}).get("enrichment_status") == "coarse"
+            usage = ((job.job_metadata or {}).get("stages") or {}).get("token_usage") or {}
+            assert usage.get("total_tokens") == 21
+            assert usage.get("calls") == 2
+            assert usage.get("duration_ms") == 31
+            assert usage.get("by_task", {}).get("document_agent.toc_anchor_confirm", {}).get(
+                "total_tokens"
+            ) == 7
+            assert ((job.job_metadata or {}).get("stages") or {}).get("timing_ms", {}).get(
+                "worker.parse.document"
+            ) == 800
 
         # Reset to text while structure_claimed_at is still fresh: both a duplicate
         # structure task and sweep must skip it rather than re-running or re-enqueuing.

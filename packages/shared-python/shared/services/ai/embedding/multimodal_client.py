@@ -24,7 +24,7 @@ from shared.core.exceptions.domain_exceptions import LLMServiceException
 from shared.services.ai.token_tracking import (
     bind_token_tracker,
     get_current_token_tracker_root_id,
-    record_tokens,
+    record_provider_usage,
 )
 from shared.services.http.client_pool import get_sync_client
 from shared.utils.security_utils import mask_api_key
@@ -174,10 +174,11 @@ def _call_gateway_embedding(
     expected_dim = _resolve_embedding_dim()
 
     if _should_mock_embeddings():
-        record_tokens(
+        record_provider_usage(
             {"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1},
             model=resolved_model,
             task=usage_task,
+            duration_ms=0,
         )
         return _build_deterministic_mock_vector(seed_bytes, dim=expected_dim)
 
@@ -201,6 +202,7 @@ def _call_gateway_embedding(
     last_error: Exception | None = None
     for attempt in range(_MAX_EMBEDDING_RETRIES):
         try:
+            started_at = time.monotonic()
             response = http_client.post(
                 endpoint,
                 json=request_body,
@@ -210,6 +212,7 @@ def _call_gateway_embedding(
                 },
                 timeout=timeout_seconds,
             )
+            duration_ms = max(int((time.monotonic() - started_at) * 1000), 0)
             if _is_retryable_http_status(response.status_code):
                 last_error = LLMServiceException(
                     internal_message=(
@@ -248,7 +251,12 @@ def _call_gateway_embedding(
                 model=resolved_model,
             )
             usage = _extract_embedding_usage(payload)
-            record_tokens(usage, model=resolved_model, task=usage_task)
+            record_provider_usage(
+                usage,
+                model=resolved_model,
+                task=usage_task,
+                duration_ms=duration_ms,
+            )
             return vector
         except LLMServiceException:
             raise

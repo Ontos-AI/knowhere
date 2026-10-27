@@ -74,14 +74,7 @@ def init_token_tracker() -> dict[str, Any]:
     accumulate all token usage for the lifetime of this task.
     """
     gid = _current_greenlet_id()
-    tracker: dict[str, Any] = {
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "total_tokens": 0,
-        "calls": 0,
-        "by_model": {},
-        "by_task": {},
-    }
+    tracker = empty_token_usage()
     with _lock:
         _trackers[gid] = tracker
     return tracker
@@ -137,11 +130,40 @@ def _normalize_bucket_key(value: str | None, fallback: str) -> str:
     return normalized or fallback
 
 
-def _add_usage(bucket: dict[str, Any], usage: dict[str, int]) -> None:
+def empty_token_usage() -> dict[str, Any]:
+    return {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "calls": 0,
+        "duration_ms": 0,
+        "by_model": {},
+        "by_task": {},
+    }
+
+
+def merge_token_usage(destination: dict[str, Any], source: dict[str, Any]) -> None:
+    """Add ``source`` token buckets into ``destination`` in place."""
+    for key, value in source.items():
+        if isinstance(value, dict):
+            child = destination.setdefault(str(key), {})
+            if isinstance(child, dict):
+                merge_token_usage(child, value)
+        elif isinstance(value, int | float) and not isinstance(value, bool):
+            destination[str(key)] = int(destination.get(str(key), 0) or 0) + int(value)
+
+
+def _add_usage(
+    bucket: dict[str, Any],
+    usage: dict[str, int],
+    *,
+    duration_ms: int = 0,
+) -> None:
     bucket["prompt_tokens"] = bucket.get("prompt_tokens", 0) + usage.get("prompt_tokens", 0)
     bucket["completion_tokens"] = bucket.get("completion_tokens", 0) + usage.get("completion_tokens", 0)
     bucket["total_tokens"] = bucket.get("total_tokens", 0) + usage.get("total_tokens", 0)
     bucket["calls"] = bucket.get("calls", 0) + 1
+    bucket["duration_ms"] = int(bucket.get("duration_ms", 0) or 0) + max(int(duration_ms), 0)
 
 
 def record_tokens(
@@ -149,6 +171,7 @@ def record_tokens(
     *,
     model: str | None = None,
     task: str | None = None,
+    duration_ms: int = 0,
 ) -> None:
     """Accumulate token usage into the current task's tracker.
 
@@ -164,20 +187,40 @@ def record_tokens(
         return
     model_key = _normalize_bucket_key(model, "unknown")
     task_key = _normalize_bucket_key(task, "unknown")
+    elapsed_ms = max(int(duration_ms), 0)
     with _lock:
-        _add_usage(tracker, usage)
+        _add_usage(tracker, usage, duration_ms=elapsed_ms)
         by_model = tracker.setdefault("by_model", {})
         if isinstance(by_model, dict):
             model_bucket = by_model.setdefault(model_key, {})
             if isinstance(model_bucket, dict):
-                _add_usage(model_bucket, usage)
+                _add_usage(model_bucket, usage, duration_ms=elapsed_ms)
         by_task = tracker.setdefault("by_task", {})
         if isinstance(by_task, dict):
             task_bucket = by_task.setdefault(task_key, {})
             if isinstance(task_bucket, dict):
-                _add_usage(task_bucket, usage)
+                _add_usage(task_bucket, usage, duration_ms=elapsed_ms)
                 task_models = task_bucket.setdefault("models", {})
                 if isinstance(task_models, dict):
                     task_model_bucket = task_models.setdefault(model_key, {})
                     if isinstance(task_model_bucket, dict):
-                        _add_usage(task_model_bucket, usage)
+                        _add_usage(task_model_bucket, usage, duration_ms=elapsed_ms)
+
+
+def record_provider_usage(
+    usage: dict[str, int],
+    *,
+    model: str | None = None,
+    task: str | None = None,
+    duration_ms: int = 0,
+) -> None:
+    """Record one successful provider call onto the active parse or retrieval ledger."""
+    record_tokens(usage, model=model, task=task, duration_ms=duration_ms)
+    from shared.services.ai.retrieval_ledger import record_retrieval_call
+
+    record_retrieval_call(
+        usage,
+        model=model,
+        task=task,
+        duration_ms=duration_ms,
+    )

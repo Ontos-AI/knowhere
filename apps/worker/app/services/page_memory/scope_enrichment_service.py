@@ -29,6 +29,9 @@ from app.services.document_agent.pdf_text import coerce_page_text_cache
 from app.services.document_ingestion.artifact_refs import (
     collect_referenced_artifact_refs,
 )
+from app.services.document_ingestion.processing_context import (
+    merge_persisted_job_token_usage,
+)
 from app.services.document_parser.support.parser_rows import PARSER_DF_COLUMNS
 from app.services.page_memory._utils import CoarseScope, sort_skeletons
 from app.services.page_memory.memory_service import (
@@ -76,6 +79,11 @@ from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.page_memory_config import PageMemoryConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.ai.llm_overrides import cleanup_llm_overrides, init_llm_overrides
+from shared.services.ai.token_tracking import (
+    cleanup_token_tracker,
+    get_current_token_tracker,
+    init_token_tracker,
+)
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.jobs.lifecycle.scope_enrichments import (
     enqueue_low_priority_scope_enrichments_after_commit,
@@ -89,6 +97,20 @@ from shared.services.storage.zip_result_service import ZipResultService
 from shared.utils.utc_now import utc_now_naive
 
 REFINED_ENRICHMENT_STATE = "refined"
+
+
+def _flush_parse_token_usage(job_id: str) -> None:
+    tracker = get_current_token_tracker()
+    if tracker is None:
+        return
+    try:
+        merge_persisted_job_token_usage(job_id=job_id, delta=dict(tracker))
+    except Exception as exc:
+        logger.warning(
+            "[page_memory] failed to merge enrichment token usage job_id={}: {}",
+            job_id,
+            exc,
+        )
 
 ScopePublisher = Callable[..., Any]
 
@@ -136,6 +158,7 @@ def execute_structure_enrichment(
     publisher = scope_publisher or _resolve_default_scope_publisher()
     workspace_dir = tempfile.mkdtemp(prefix=f"pm_struct_{job_result_id}_")
     init_llm_overrides(JobMetadataHelper.get_llm_config(target.job_metadata))
+    init_token_tracker()
     try:
         add_dir = os.path.join(
             workspace_dir,
@@ -244,6 +267,8 @@ def execute_structure_enrichment(
         )
         raise
     finally:
+        _flush_parse_token_usage(target.job_id)
+        cleanup_token_tracker()
         cleanup_llm_overrides()
         shutil.rmtree(workspace_dir, ignore_errors=True)
 
@@ -271,6 +296,7 @@ def execute_scope_enrichment(
     publisher = scope_publisher or _resolve_default_scope_publisher()
     workspace_dir = tempfile.mkdtemp(prefix=f"pm_scope_{scope_id}_")
     init_llm_overrides(JobMetadataHelper.get_llm_config(target.job_metadata))
+    init_token_tracker()
     try:
         output = _run_scope_in_workspace(
             workspace_dir=workspace_dir,
@@ -343,6 +369,8 @@ def execute_scope_enrichment(
         )
         raise
     finally:
+        _flush_parse_token_usage(target.job_id)
+        cleanup_token_tracker()
         cleanup_llm_overrides()
         shutil.rmtree(workspace_dir, ignore_errors=True)
 
