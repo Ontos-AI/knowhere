@@ -39,7 +39,7 @@ discussing it. Retain the following points as the current checkpoint:
    while preserving List/Tree mode and source-page position. The tree behavior
    is implemented and locally tested; the citation default is amended by point 3
    and overall scope and acceptance remain under discussion.
-3. **Stable page citations; accepted, implementation pending.** Existing citations
+3. **Stable page citations; implemented and locally verified.** Existing citations
    default to the committed enhanced reader at the same original file version
    and physical page. Creation-time snapshots remain available only for explicit
    provenance inspection. Do not make users open the baseline first or choose
@@ -51,12 +51,17 @@ discussing it. Retain the following points as the current checkpoint:
    This supersedes the previous default-pinned-citation behavior; see
    [ADR 0022](../adr/0022-open-citations-on-the-enhanced-original-page.md).
 
-   Required follow-up: normalize existing page coordinates across the Knowhere
-   response, SDK and Hipo's direct retrieval path through citation persistence
-   and reader navigation. In particular, preserve `page_nums` when decoding
-   direct responses and unify it with the camel-case fields consumed downstream.
-   Current code and earlier pinned-snapshot tests do not implement or accept this
-   new default. Record it as unfinished work, not a completed citation feature.
+   Implemented follow-up on 2026-10-27: preserve and normalize existing page
+   coordinates across SDK and direct retrieval decoding, citation persistence
+   and reader navigation. Keep the complete page range and validate any selected
+   supporting page. Ordinary navigation follows the locally committed snapshot
+   only when both snapshots identify the same original ingestion revision;
+   explicit tracing retains the creation-time snapshot. Highlight lookups use
+   the selected snapshot/page and do not overwrite saved evidence. Earlier
+   default-pinning tests were updated to exercise explicit tracing. Local tests
+   establish this implementation; SDK publication and deployed acceptance remain
+   pending. Hipo records the evidence in
+   `docs/qa/progressive-citation-2026-10-27.md`.
 4. **Existing Ask answers; accepted on 2026-10-27.** Enhancement completion does
    not automatically rerun retrieval, regenerate completed answers or rewrite
    historical conversation content. Subsequent questions and explicit user
@@ -90,16 +95,18 @@ extractable text therefore must not be described as already visually indexed in
 that path. This distinction preserves basic first-snapshot retrieval without
 claiming full enrichment has already occurred.
 
-### Foreground scheduling discussion: not yet agreed
+### Foreground scheduling discussion: deferred on 2026-10-27
 
-The open question is whether to reserve processing capacity for initial parsing
-while background enhancement is busy. It is distinct from reducing the total
-concurrency of every Worker: a smaller shared pool can still be entirely occupied
-by background tasks. Current Workers consume the initial and enrichment queues
-through one shared gevent pool; queue priority cannot preempt running tasks.
-Any background concurrency cap, reserved initial capacity, dedicated consumption
-or overall concurrency adjustment remains to be evaluated and agreed. No
-concurrency/configuration change is authorized by this discussion checkpoint.
+The user explicitly deferred Worker concurrency tuning. Retain the existing
+two-Worker baseline with concurrency 10 per Worker; do not implement the proposed
+2-foreground / 4-background allocation, dedicated consumer pools or capacity
+reservation as part of this discussion checkpoint.
+
+Current Workers consume the initial and enrichment queues through one shared
+gevent pool. The measured follow-up queueing delay does not establish a regression
+against full ingestion: no matched full/progressive workload comparison was run.
+CPU saturation alone does not justify lowering concurrency. Revisit scheduling
+only with comparative evidence and a separate decision.
 
 Continue requirements discussion from these points. Do not describe the overall
 progressive requirement as complete merely because this subset's tests pass.

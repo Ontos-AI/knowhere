@@ -10,10 +10,13 @@ The original implementation described below was not pushed, published, merged,
 or deployed at the time of that report.
 
 The accepted 2026-10-27 [citation navigation amendment](../adr/0022-open-citations-on-the-enhanced-original-page.md)
-is not implemented by the historical snapshot-pinning behavior described below.
-Existing citations must default to the enhanced reader's same original-file page;
-retained snapshots become explicit provenance views. Earlier passing citation
-tests do not establish acceptance of this follow-up.
+is implemented and locally verified by the subsequent Hipo/SDK follow-up.
+Existing citations default to the committed enhanced reader's same original-file
+page; retained snapshots are explicit provenance views. The historical
+snapshot-pinning behavior and test counts below predate that follow-up. Its
+current evidence is recorded in Hipo's
+`docs/qa/progressive-citation-2026-10-27.md`; SDK publication and deployed-client
+acceptance remain pending.
 
 ## Delivery locations
 

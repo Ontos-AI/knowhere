@@ -253,6 +253,17 @@ def test_query_retries_if_final_publication_crosses_a_serving_read(
         expected_stage = "final" if mutation_count else "baseline"
         assert {row["chunk_id"] for row in results} == {f"{expected_stage}-1"}
         assert expected_stage in results[0]["content"]
+        assert results[0]["source"]["document_id"] == document_id
+        assert results[0]["source"]["job_result_id"] == scope.revision_ref
+        assert results[0]["source"]["page_nums"] == [1]
+        references: object = response.get("referenced_chunks", [])
+        assert isinstance(references, list)
+        if boundary == "agent":
+            assert references
+        for reference in references:
+            assert isinstance(reference, dict)
+            assert reference["job_result_id"] == scope.revision_ref
+            assert reference["page_nums"] == [1]
     finally:
         event.remove(Engine, "after_cursor_execute", pause_between_serving_reads)
         engine.dispose()

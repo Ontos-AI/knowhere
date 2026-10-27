@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted on 2026-10-27. Implementation and acceptance of this follow-up remain
-pending; the overall progressive requirement remains under discussion.
+Accepted on 2026-10-27 and implemented with local verification on the same date.
+SDK publication and deployed acceptance remain pending; the overall progressive
+requirement remains under discussion.
 Partially supersedes [ADR 0015](0015-retain-baseline-and-final-citation-snapshots.md):
 snapshot retention stays; default historical-snapshot navigation changes.
 
@@ -36,3 +37,11 @@ ordinary source-page navigation from explicit historical tracing. Old chunk
 boundaries and tree node IDs cannot be required to locate the enhanced page.
 Existing tests of default pinned-snapshot navigation do not establish acceptance
 of this new default.
+
+The local implementation follows only the committed Hipo snapshot when its
+original ingestion revision matches the cited snapshot. Unknown or replacement
+source versions retain the original pin. Page ranges are stored independently
+of an optional selected supporting page. Reader and preview tracing is explicit,
+and locating highlights in another snapshot or page never rewrites the saved
+citation. Knowhere's concurrent-publication contracts assert stable source pages
+and revision identity while chunk IDs change.
