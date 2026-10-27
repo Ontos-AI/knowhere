@@ -154,14 +154,18 @@ def _compose_unrefined_page_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
     if raw_text:
         parts.append(_text_part(raw_text))
     matched = extract_matched_page_nums(row)
-    images = (
-        _page_image_parts(row, matched)
-        if matched
-        else _page_image_parts(row, [])
-    )
-    parts.extend(images)
-    if not images and not parts:
-        parts.append(_text_part("Page image unavailable: missing page image"))
+    pages = matched or coerce_page_nums(extract_page_nums(row))
+    images = _page_image_parts(row, pages) if pages else []
+    real_images = [part for part in images if part.get("type") == "image"]
+    if real_images:
+        parts.extend(real_images)
+    elif not parts:
+        warning = next((part for part in images if part.get("type") == "text"), None)
+        parts.append(
+            warning
+            if warning is not None
+            else _text_part("Page image unavailable: missing page image")
+        )
     return parts
 
 

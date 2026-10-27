@@ -371,12 +371,12 @@ def test_result_assembly_branches_explicitly_on_page_enrichment_state() -> None:
     assert by_id["page-queued"]["content"] == "raw page three text"
     assert by_id["page-queued"]["content_source"] == "raw"
 
-    assert by_id["page-refined-with-summary"]["content"] == "refined vlm summary"
-    assert by_id["page-refined-with-summary"]["content_source"] == "summary"
+    assert by_id["page-refined-with-summary"]["content"] == "raw page five text"
+    assert by_id["page-refined-with-summary"]["content_source"] == "content"
 
-    # Explicit branch: refined never falls back to raw content when summary is empty.
-    assert by_id["page-refined-empty-summary"]["content"] == ""
-    assert by_id["page-refined-empty-summary"]["content_source"] == "summary"
+    # Refined keeps verbatim content when present; empty content falls back to summary.
+    assert by_id["page-refined-empty-summary"]["content"] == "raw text must not leak on refined"
+    assert by_id["page-refined-empty-summary"]["content_source"] == "content"
 
 
 def test_replace_document_scope_content_isolates_scope_reuses_ancestor_rebuilds_map_units_and_bumps_cache(
@@ -606,12 +606,12 @@ def test_replace_document_scope_content_isolates_scope_reuses_ancestor_rebuilds_
             ).scalar_one()
             assert map_index.unit_count == 4
 
-        # Refined scope now serves summary, while unrefined sibling scope still serves raw.
+        # Refined scope serves verbatim content; unrefined sibling scope still serves raw.
         refined_hits = asyncio.run(_discover_and_assemble("delta refined first"))
         assert any(
             row["chunk_id"] == "refined-a1"
-            and row["content"] == "delta refined summary a1"
-            and row["content_source"] == "summary"
+            and row["content"] == "delta refined first leaf raw body"
+            and row["content_source"] == "content"
             for row in refined_hits
         )
         sibling_hits = asyncio.run(_discover_and_assemble("bravo sibling untouched"))
