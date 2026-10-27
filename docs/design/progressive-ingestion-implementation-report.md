@@ -215,3 +215,12 @@ capacity measurements predate main's native M0 page-image generation and are
 historical evidence, not a rerun of capacity acceptance for this integrated tree.
 PR creation does not publish the SDK, update Hipo's released dependency, deploy
 services, or close the remaining product/deployed acceptance work.
+
+
+An expanded full Worker run also exposed a namespace-generation initialization
+race: simultaneous first publications generated the same primary key, while the
+insert's conflict target only covered the owner/namespace constraint. Use the
+model's independent UUID primary keys and retain owner/namespace conflict
+arbitration. The existing concurrent parse/billing contract reproduced the failure;
+new PostgreSQL contracts cover first-publication contention and distinct scopes
+whose colon-joined identifiers previously aliased.

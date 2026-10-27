@@ -367,3 +367,64 @@ def test_empty_namespace_with_an_existing_generation_remains_searchable(
         asyncio.run(query())
     finally:
         engine.dispose()
+
+
+def test_namespace_generation_primary_keys_do_not_alias_distinct_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    engine: Engine = create_engine(
+        make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2")
+    )
+    try:
+        with Session(engine) as db:
+            first: int = advance_namespace_generation(db, user_id="owner:part", namespace="scope")
+            db.commit()
+        with Session(engine) as db:
+            second: int = advance_namespace_generation(db, user_id="owner", namespace="part:scope")
+            db.commit()
+        assert (first, second) == (1, 1)
+    finally:
+        engine.dispose()
+
+
+def test_simultaneous_first_publications_share_one_namespace_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    from threading import Barrier
+    from shared.models.database.document import RetrievalNamespaceGeneration
+
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    engine: Engine = create_engine(
+        make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2")
+    )
+    try:
+        for attempt in range(4):
+            barrier: Barrier = Barrier(2)
+            namespace: str = f"first-publication-{attempt}"
+
+            def publish() -> int:
+                barrier.wait(timeout=5)
+                with Session(engine) as db:
+                    generation: int = advance_namespace_generation(
+                        db, user_id="parallel-owner", namespace=namespace,
+                    )
+                    db.commit()
+                    return generation
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                publications = [executor.submit(publish) for _ in range(2)]
+                assert sorted(task.result(timeout=10) for task in publications) == [1, 2]
+            with Session(engine) as db:
+                rows = db.scalars(select(RetrievalNamespaceGeneration).where(
+                    RetrievalNamespaceGeneration.user_id == "parallel-owner",
+                    RetrievalNamespaceGeneration.namespace == namespace,
+                )).all()
+                assert len(rows) == 1
+                assert rows[0].generation == 2
+    finally:
+        engine.dispose()

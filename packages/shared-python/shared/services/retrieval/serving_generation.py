@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
 
-from hashlib import sha256
-
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -22,11 +20,9 @@ def lock_namespace_generation(
     """Create if needed, then lock and return one namespace generation row."""
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     user_id = corpusStorage.resolve_owner(user_id)
-    generation_id = f"rng_{sha256(f'{user_id}:{namespace}'.encode()).hexdigest()}"
     db.execute(
         insert(corpusStorage.RetrievalNamespaceGeneration)
         .values(
-            id=generation_id,
             user_id=user_id,
             namespace=namespace,
             generation=0,
