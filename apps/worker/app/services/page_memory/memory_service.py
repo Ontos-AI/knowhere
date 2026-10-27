@@ -33,7 +33,6 @@ from app.services.page_memory._serialization import (
 from app.services.page_memory.phase_a import (
     build_coarse_text_dataframe,
     build_phase_a,
-    build_visual_page_dataframe,
     persist_m0_inputs,
 )
 
@@ -138,21 +137,25 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 body_text_by_page=getattr(profile, "page_body_text_cache", None),
             )
         elif is_progressive:
-            if visual_m0_enabled and bool(getattr(profile, "is_scanned", False)):
+            page_texts = coerce_page_text_cache(
+                getattr(profile, "page_full_text_cache", None)
+            )
+            body_text_by_page = coerce_page_text_cache(
+                getattr(profile, "page_body_text_cache", None)
+            )
+            if visual_m0_enabled:
                 parsed_df = _build_visual_m0_dataframe(
                     pdf_path=pdf_path,
                     filename=request.filename,
                     output_dir=full_output_dir,
                     page_count=page_count,
+                    page_texts=page_texts,
+                    body_text_by_page=body_text_by_page,
                 )
             else:
                 parsed_df = build_coarse_text_dataframe(
-                    page_texts=coerce_page_text_cache(
-                        getattr(profile, "page_full_text_cache", None)
-                    ),
-                    body_text_by_page=coerce_page_text_cache(
-                        getattr(profile, "page_body_text_cache", None)
-                    ),
+                    page_texts=page_texts,
+                    body_text_by_page=body_text_by_page,
                     page_count=page_count,
                     filename=request.filename,
                 )
@@ -206,6 +209,8 @@ def _build_visual_m0_dataframe(
     filename: str,
     output_dir: str,
     page_count: int,
+    page_texts: dict[int, str],
+    body_text_by_page: dict[int, str],
 ) -> pd.DataFrame:
     from app.services.page_memory.page_renderer import render_document_pages
     from shared.services.ai.embedding import embed_images
@@ -218,7 +223,7 @@ def _build_visual_m0_dataframe(
             output_dir=output_dir,
             scope_id="m0",
             pages=pages,
-            page_texts={},
+            page_texts=page_texts,
         )
     image_path_by_page = {
         int(item.page_index): str(item.image_path)
@@ -247,7 +252,9 @@ def _build_visual_m0_dataframe(
             "Skipped page embeddings after retries; document continues: pages={}",
             skipped_pages,
         )
-    return build_visual_page_dataframe(
+    return build_coarse_text_dataframe(
+        page_texts=page_texts,
+        body_text_by_page=body_text_by_page,
         page_count=page_count,
         filename=filename,
         image_path_by_page=image_path_by_page,

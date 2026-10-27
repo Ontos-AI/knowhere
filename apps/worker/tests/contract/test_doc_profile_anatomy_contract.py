@@ -1109,10 +1109,47 @@ def test_find_toc_anchor_pages_scanned_unions_text_and_visual(
     assert sources == {14: "hybrid", 15: "hybrid", 16: "visual"}
     assert result.output_summary is not None
     assert result.output_summary["narrowing"]["union"] == 3
+
+
+def test_find_toc_anchor_pages_empty_text_and_visual_returns_no_anchors(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_agent.manifest import ToolContext
+    from app.services.document_agent.state import ProfileBlackboard
+
+    blackboard = ProfileBlackboard(page_count=20)
+    blackboard.document_profile = DocumentProfile(
+        is_scanned=False,
+        category=["OTHER"],
+        category_label="Report",
+        routing_category=PdfRoutingCategory.GENERIC.value,
+    )
+    blackboard.page_labels = [PageLabel(page=page, kind="normal") for page in range(1, 21)]
+    blackboard.page_full_text_cache = {}
+    ctx = ToolContext(
+        pdf_path=str(tmp_path / "empty.pdf"),
+        job_id="job-empty-toc",
+        blackboard=blackboard,
+        trace=None,
+        output_dir=str(tmp_path / "out"),
+        settings={},
+    )
+
+    def fail_if_rendered(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise AssertionError("empty text and visual candidates must not render pages")
+
+    monkeypatch.setattr(toc_anchor_tool, "run_in_child_process", fail_if_rendered)
+    result = toc_anchor_tool.find_toc_anchor_pages(ctx, {})
+    assert result.status == "ok"
+    assert blackboard.toc_anchor_pages == []
+    assert result.payload == {"anchor_count": 0}
+    assert result.output_summary is not None
+    assert result.output_summary["narrowing"]["raw"] == 0
     assert "head_window" not in result.output_summary["narrowing"]
 
 
-def test_find_toc_anchor_pages_born_digital_still_drops_consecutive_duplicates(
+def test_find_toc_anchor_pages_born_digital_drops_consecutive_duplicates_and_keeps_visual(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1138,16 +1175,23 @@ def test_find_toc_anchor_pages_born_digital_still_drops_consecutive_duplicates(
         blackboard=blackboard,
         trace=None,
         output_dir=str(tmp_path / "out"),
-        settings={"toc_visual_candidate_pages": [10, 11, 12]},
+        settings={"toc_visual_candidate_pages": [4]},
     )
 
     def fake_render(_worker, _pdf_path, pages, output_dir, _dpi, timeout=120):
-        del _worker, _pdf_path, pages, output_dir, _dpi, timeout
-        raise AssertionError("born-digital consecutive duplicates should not render")
+        del timeout
+        results = []
+        for page in pages:
+            png = Path(output_dir) / f"toc_anchor_page_{page}.png"
+            png.write_bytes(b"png")
+            results.append({"page": page, "png_path": str(png)})
+        return {"ok": True, "results": results}
 
     monkeypatch.setattr(toc_anchor_tool, "run_in_child_process", fake_render)
     result = toc_anchor_tool.find_toc_anchor_pages(ctx, {})
     assert result.status == "ok"
-    assert blackboard.toc_anchor_pages == []
+    assert [item.page for item in blackboard.toc_anchor_pages] == [4]
+    assert [item.source for item in blackboard.toc_anchor_pages] == ["visual"]
     assert result.output_summary is not None
     assert result.output_summary["narrowing"]["after_dedup"] == 0
+    assert result.output_summary["narrowing"]["union"] == 1

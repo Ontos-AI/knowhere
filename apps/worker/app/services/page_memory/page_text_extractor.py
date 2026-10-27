@@ -147,26 +147,24 @@ def _extract_via_vlm(
     extracted: dict[int, str] = {}
     failed_pages: list[int] = []
     for (job_page, _), greenlet in zip(jobs, greenlets, strict=True):
+        error: BaseException | None
+        text = ""
         if greenlet.value is None:
-            exc = getattr(greenlet, "exception", None)
-            logger.warning(
-                "[page_text_extractor] vlm transcribe failed on page {} ({}); falling back to ocr",
-                job_page,
-                exc,
+            error = getattr(greenlet, "exception", None) or RuntimeError(
+                "vlm greenlet returned no result"
             )
-            failed_pages.append(int(job_page))
-            continue
-        page, text, error = greenlet.value
+        else:
+            _, text, error = greenlet.value
         if error is not None:
             logger.warning(
                 "[page_text_extractor] vlm transcribe failed on page {} ({}); falling back to ocr",
-                page,
+                job_page,
                 error,
             )
-            failed_pages.append(int(page))
+            failed_pages.append(int(job_page))
             continue
         if text:
-            extracted[int(page)] = text
+            extracted[int(job_page)] = text
     if failed_pages:
         extracted.update(
             _extract_via_ocr(

@@ -137,18 +137,19 @@ def _indent_member_part(part: dict[str, Any]) -> dict[str, Any]:
 
 def _compose_page_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
     parts: list[dict[str, Any]] = []
-    if page_enrichment_state(row) in {"text", "coarse", "queued"}:
+    is_unrefined = page_enrichment_state(row) in {"text", "coarse", "queued"}
+    if is_unrefined:
         raw_text = str(row.get("content") or "").strip()
         if raw_text:
             parts.append(_text_part(raw_text))
-            return parts
-    summary = page_summary(row)
-    if summary:
-        parts.append(_text_part(summary))
+    else:
+        summary = page_summary(row)
+        if summary:
+            parts.append(_text_part(summary))
     image, warning = _try_read_page_image(row)
     if image is not None:
         parts.append(image)
-    if warning:
+    elif warning and not (is_unrefined and parts):
         parts.append(_text_part(f"Page image unavailable: {warning}"))
     return parts
 

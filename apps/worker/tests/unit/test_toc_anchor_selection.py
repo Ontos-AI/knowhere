@@ -9,15 +9,12 @@ from app.services.document_agent.pdf_text import (
     line_fingerprint,
 )
 from app.services.document_agent.tools.find_toc_anchor_pages import (
-    HEAD_WINDOW_MAX_PAGES,
     MAX_ANCHOR_CANDIDATES,
     _anchor_source,
     _filter_edge_anchored,
-    _head_window_pages,
     _prefix_toc_keywords_for_categories,
     _scan_toc_matches,
     _select_anchor_pages,
-    _select_scanned_anchor_pages,
 )
 from app.services.document_parser.profiling.domain_taxonomy import (
     ECONOMY_BUSINESS_FINANCE_CODE,
@@ -147,13 +144,6 @@ def test_under_cap_does_not_apply_edge_or_body() -> None:
     assert "after_body" not in narrowing
 
 
-def test_head_window_is_at_most_ten_pages() -> None:
-    assert _head_window_pages(0) == set()
-    assert _head_window_pages(5) == {1, 2, 3, 4, 5}
-    assert _head_window_pages(10) == set(range(1, 11))
-    assert _head_window_pages(200) == set(range(1, HEAD_WINDOW_MAX_PAGES + 1))
-
-
 def test_scan_uses_stage0_lines() -> None:
     bands = {
         1: build_page_text_bands((LineDraft(text="General table of contents"),)),
@@ -211,16 +201,36 @@ def test_finance_prefix_keywords_match_only_at_line_start_when_enabled() -> None
 
 
 def test_scanned_union_keeps_consecutive_text_and_visual_pages() -> None:
-    pages, narrowing = _select_scanned_anchor_pages({14, 15}, {14, 15, 16})
+    pages, narrowing = _select_anchor_pages(
+        [_match(14, "CONTENTS"), _match(15, "CONTENTS")],
+        visual_pages={14, 15, 16},
+        is_scanned=True,
+    )
     assert pages == {14, 15, 16}
     assert narrowing == {"raw": 2, "visual": 3, "union": 3}
     assert "gave_up" not in narrowing
 
 
+def test_born_digital_drops_running_headers_then_unions_visual_pages() -> None:
+    run = [_match(page, "Table of Contents") for page in range(18, 50)]
+    pages, narrowing = _select_anchor_pages(
+        run,
+        visual_pages={4, 5},
+        is_scanned=False,
+    )
+    assert pages == {4, 5}
+    assert narrowing["after_dedup"] == 0
+    assert narrowing["union"] == 2
+    assert "gave_up" not in narrowing
+
+
 def test_scanned_union_over_cap_gives_up() -> None:
-    text_pages = set(range(1, MAX_ANCHOR_CANDIDATES + 1))
-    visual_pages = {MAX_ANCHOR_CANDIDATES + 1}
-    pages, narrowing = _select_scanned_anchor_pages(text_pages, visual_pages)
+    matches = [_match(page, "CONTENTS") for page in range(1, MAX_ANCHOR_CANDIDATES + 1)]
+    pages, narrowing = _select_anchor_pages(
+        matches,
+        visual_pages={MAX_ANCHOR_CANDIDATES + 1},
+        is_scanned=True,
+    )
     assert pages == set()
     assert narrowing["union"] == MAX_ANCHOR_CANDIDATES + 1
     assert narrowing["gave_up"] is True

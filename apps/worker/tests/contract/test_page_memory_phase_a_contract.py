@@ -205,8 +205,11 @@ def test_coarse_rows_omit_excluded_toc_pages(
 def test_progressive_run_returns_m0_text_baseline_without_toc_or_scope_vlm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from app.services.page_memory import memory_service, page_tagger
+    from app.services.page_memory import memory_service, page_renderer, page_tagger
     from app.services.page_memory.memory_service import PageMemoryInput
+    from shared.core.config import settings
+    from shared.services.ai import embedding as embedding_pkg
+    from shared.services.ai.embedding import DEFAULT_EMBEDDING_DIM
 
     skeletons = [
         SectionSkeleton("doc.pdf/A", 1, 1, 2, "A", "doc.pdf"),
@@ -242,12 +245,30 @@ def test_progressive_run_returns_m0_text_baseline_without_toc_or_scope_vlm(
         captured_stop_after.append(kwargs.get("stop_after"))
         return profile
 
+    def fake_render(**kwargs: object) -> list[SimpleNamespace]:
+        out_dir = Path(str(kwargs["output_dir"])) / "pages" / "m0"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        items: list[SimpleNamespace] = []
+        for p in (1, 2, 3, 4):
+            img_path = out_dir / f"page-{p}.png"
+            img_path.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes([p]))
+            items.append(SimpleNamespace(page_index=p, image_path=str(img_path)))
+        return items
+
+    vec = [1.0] + [0.0] * (DEFAULT_EMBEDDING_DIM - 1)
+    monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
     monkeypatch.setattr(
         memory_service,
         "normalize_to_pdf",
         lambda **kwargs: (str(source), "doc.pdf"),
     )
     monkeypatch.setattr(memory_service, "profile_document", fake_profile)
+    monkeypatch.setattr(page_renderer, "render_document_pages", fake_render)
+    monkeypatch.setattr(
+        embedding_pkg,
+        "embed_images",
+        lambda inputs, **kw: [vec for _ in inputs],
+    )
     monkeypatch.setattr(page_tagger, "tag_pages", fail_if_tagged)
     monkeypatch.setattr(page_tagger, "tag_page_titles", fail_if_tagged)
 
@@ -262,6 +283,7 @@ def test_progressive_run_returns_m0_text_baseline_without_toc_or_scope_vlm(
     )
     assert captured_stop_after == ["asset_probe"]
     chunks = dataframe_to_chunks(dataframe)
+    assert [chunk["content"] for chunk in chunks] == ["one", "two", "three", "four"]
     assert [chunk["metadata"]["enrichment_state"] for chunk in chunks] == [
         "text",
         "text",
@@ -279,6 +301,15 @@ def test_progressive_run_returns_m0_text_baseline_without_toc_or_scope_vlm(
         "doc.pdf/p2",
         "doc.pdf/p3",
         "doc.pdf/p4",
+    ]
+    assert all(chunk["metadata"]["_page_embedding"][0] == 1.0 for chunk in chunks)
+    assert [
+        chunk["metadata"]["page_assets"][0]["artifact_ref"] for chunk in chunks
+    ] == [
+        "page_citation_assets/page-1.png",
+        "page_citation_assets/page-2.png",
+        "page_citation_assets/page-3.png",
+        "page_citation_assets/page-4.png",
     ]
     assert (Path(output_dir) / PHASE_B_BLACKBOARD_REL).is_file()
     assert (Path(output_dir) / PHASE_B_FULL_TEXT_REL).is_file()

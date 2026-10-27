@@ -62,6 +62,7 @@ from shared.services.retrieval.hydration.result_assembly import _image_display_c
 from shared.services.retrieval.hydration.row_utils import (
     iter_connected_target_ids,
     normalize_chunk_type,
+    page_enrichment_state,
 )
 from shared.services.retrieval.hydration.table_grid import render_explore_table
 from shared.services.retrieval.agent_tools.section_path_lookup import (
@@ -311,8 +312,11 @@ def _https_image_media(row: dict[str, Any]) -> list[dict[str, str]]:
             return [{"type": "image_url", "url": url}]
         return []
     raw_content = str(row.get("content") or "").strip()
+    is_unrefined_page = page_enrichment_state(row) in {"text", "coarse", "queued"}
     if chunk_type == "page" and (
-        not raw_content or raw_content == _page_image_display_content(row)
+        is_unrefined_page
+        or not raw_content
+        or raw_content == _page_image_display_content(row)
     ):
         media: list[dict[str, str]] = []
         metadata = row.get("chunk_metadata") or row.get("metadata") or {}

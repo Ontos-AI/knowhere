@@ -159,22 +159,32 @@ def test_resume_scanned_injects_visual_candidate_pages(
     assert captured["toc_strict"] is False
 
 
-def test_resume_born_digital_does_not_query_visual_pages(
+def test_resume_born_digital_also_injects_visual_candidate_pages(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     called: list[str] = []
+    injected: list[int] = []
 
     def fake_query(*_args: object, **_kwargs: object) -> set[int]:
         called.append("query")
-        return {99}
+        return {4, 5}
 
     def fake_toc(self, *, strict: bool) -> None:
+        del strict
         called.append("toc")
-        assert self.ctx.settings.get("toc_visual_candidate_pages") is None
+        injected.extend(self.ctx.settings.get("toc_visual_candidate_pages") or [])
+
+    @contextmanager
+    def fake_db_context():
+        yield SimpleNamespace()
 
     monkeypatch.setattr(
         page_embedding_index_mod, "query_visual_candidate_pages", fake_query
+    )
+    monkeypatch.setattr(
+        "app.services.page_memory.scope_enrichment_service.get_sync_db_context",
+        fake_db_context,
     )
     monkeypatch.setattr(
         "app.services.document_agent.coordinator.ProfileCoordinator._ensure_toc_profile",
@@ -195,7 +205,8 @@ def test_resume_born_digital_does_not_query_visual_pages(
         target=_target(),
         job_result_id="jr_native",
     )
-    assert called == ["toc"]
+    assert called == ["query", "toc"]
+    assert injected == [4, 5]
 
 
 def test_query_visual_candidate_pages_unions_per_keyword_top3(

@@ -283,74 +283,47 @@ def build_coarse_text_dataframe(
     body_text_by_page: dict[int, str],
     page_count: int,
     filename: str,
+    image_path_by_page: dict[int, str] | None = None,
+    embeddings_by_page: dict[int, list[float]] | None = None,
+    output_dir: str | None = None,
 ) -> pd.DataFrame:
-    """M0 baseline: one flat per-page row (path=filename/p{n}, enrichment_state='text')."""
+    """M0 baseline: one flat per-page row (path=filename/p{n}, enrichment_state='text').
+
+    Every PDF carries PyMuPDF band text; when page images/embeddings are supplied
+    the row also carries ``page_assets`` and ``_page_embedding``.
+    """
+    from app.services.page_memory.node_assembler import _build_page_citation_assets
+
     rows: list[dict[str, Any]] = []
     for page in range(1, max(int(page_count or 0), 0) + 1):
         content = str(page_texts.get(page, "") or "").strip()
         scope_id = f"p{page}-{page}"
         path = join_document_path([filename, f"p{page}"])
+        extra_metadata: dict[str, Any] = {
+            "scope_id": scope_id,
+            "enrichment_state": TEXT_ENRICHMENT_STATE,
+            "body_text_preview": build_body_text_preview(
+                [body_text_by_page.get(page, "")]
+            ),
+        }
+        if image_path_by_page and output_dir:
+            page_assets = _build_page_citation_assets(
+                pages=[page],
+                image_path_by_page=image_path_by_page,
+                output_dir=output_dir,
+            )
+            if page_assets:
+                extra_metadata["page_assets"] = page_assets
+        if embeddings_by_page:
+            embedding = embeddings_by_page.get(page)
+            if isinstance(embedding, list) and embedding:
+                extra_metadata["_page_embedding"] = [float(val) for val in embedding]
         rows.append(
             {
                 "content": content,
                 "path": path,
                 "type": "page",
                 "length": len(content),
-                "keywords": "",
-                "summary": "",
-                "know_id": f"node_{gen_str_codes(f'{filename}::{path}')}",
-                "tokens": "",
-                "connectto": "",
-                "addtime": get_str_time(),
-                "page_nums": str(page),
-                "extra_metadata": {
-                    "scope_id": scope_id,
-                    "enrichment_state": TEXT_ENRICHMENT_STATE,
-                    "body_text_preview": build_body_text_preview(
-                        [body_text_by_page.get(page, "")]
-                    ),
-                },
-            }
-        )
-    return pd.DataFrame(rows, columns=pd.Index(PARSER_DF_COLUMNS))
-
-
-def build_visual_page_dataframe(
-    *,
-    page_count: int,
-    filename: str,
-    image_path_by_page: dict[int, str],
-    embeddings_by_page: dict[int, list[float]],
-    output_dir: str,
-) -> pd.DataFrame:
-    """Pure-visual M0 baseline for scanned PDFs: empty text, page_assets + _page_embedding."""
-    from app.services.page_memory.node_assembler import _build_page_citation_assets
-
-    rows: list[dict[str, Any]] = []
-    for page in range(1, max(int(page_count or 0), 0) + 1):
-        scope_id = f"p{page}-{page}"
-        path = join_document_path([filename, f"p{page}"])
-        page_assets = _build_page_citation_assets(
-            pages=[page],
-            image_path_by_page=image_path_by_page,
-            output_dir=output_dir,
-        )
-        extra_metadata: dict[str, Any] = {
-            "scope_id": scope_id,
-            "enrichment_state": TEXT_ENRICHMENT_STATE,
-            "body_text_preview": "",
-        }
-        if page_assets:
-            extra_metadata["page_assets"] = page_assets
-        embedding = embeddings_by_page.get(page)
-        if isinstance(embedding, list) and embedding:
-            extra_metadata["_page_embedding"] = [float(val) for val in embedding]
-        rows.append(
-            {
-                "content": "",
-                "path": path,
-                "type": "page",
-                "length": 0,
                 "keywords": "",
                 "summary": "",
                 "know_id": f"node_{gen_str_codes(f'{filename}::{path}')}",

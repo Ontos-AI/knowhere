@@ -42,6 +42,38 @@ def test_page_parts_are_summary_then_page_image(monkeypatch) -> None:
     assert parts[1]["media_type"] == "image/png"
 
 
+def test_unrefined_page_parts_include_raw_text_and_page_image(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.evidence_compose._try_read_image_artifact",
+        lambda row, artifact, media_type: {
+            "type": "image",
+            "media_type": media_type,
+            "data": base64.b64encode(b"page").decode("ascii"),
+        },
+    )
+    parts = compose_evidence_parts(
+        {
+            "chunk_type": "page",
+            "content": "M0 born-digital text",
+            "chunk_metadata": {
+                "enrichment_state": "text",
+                "page_nums": [1],
+                "page_assets": [
+                    {
+                        "page_num": 1,
+                        "artifact_ref": "page_citation_assets/page-1.png",
+                        "content_type": "image/png",
+                    }
+                ],
+            },
+        },
+        {},
+    )
+    assert parts[0] == {"type": "text", "text": "M0 born-digital text"}
+    assert parts[1]["type"] == "image"
+    assert parts[1]["media_type"] == "image/png"
+
+
 def test_page_parts_do_not_inline_connected_charts() -> None:
     parts = compose_evidence_parts(
         {

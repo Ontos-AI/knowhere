@@ -2,8 +2,8 @@
 
 One live scoring path: ``search.visual_discovery.hybrid_discovery`` —
 persisted map-unit BM25 over path + content (already RRF-fused in
-``search.map_unit_discovery``) plus visual page-embedding hits for scanned
-pages. Exact-string lookup is ``corpus.grep``, not a second channel here.
+``search.map_unit_discovery``) plus visual page-embedding hits over every
+page image. Exact-string lookup is ``corpus.grep``, not a second channel here.
 
 ``scope`` is applied in that same discovery SQL: a named section is that
 section and everything under it, scored before ranking. Classic retrieval

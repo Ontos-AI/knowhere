@@ -619,22 +619,22 @@ def _resume_profile_from_m0_workspace(
     bb.page_text_search_view = None
     if not bb.page_full_text_cache:
         coordinator._run_text_scan()
-    if doc_profile.is_scanned:
-        queries = sorted(
-            _all_scan_keywords(
-                prefix_keywords=_prefix_toc_keywords_for_categories(
-                    doc_profile.category
-                )
+    queries = sorted(
+        _all_scan_keywords(
+            prefix_keywords=_prefix_toc_keywords_for_categories(
+                doc_profile.category
             )
         )
-        with get_sync_db_context() as db:
-            visual_pages = query_visual_candidate_pages(
-                db,
-                namespace=target.namespace,
-                document_id=target.document_id,
-                job_result_id=job_result_id,
-                queries=queries,
-            )
+    )
+    with get_sync_db_context() as db:
+        visual_pages = query_visual_candidate_pages(
+            db,
+            namespace=target.namespace,
+            document_id=target.document_id,
+            job_result_id=job_result_id,
+            queries=queries,
+        )
+    if visual_pages:
         coordinator.ctx.settings["toc_visual_candidate_pages"] = sorted(visual_pages)
     coordinator._ensure_toc_profile(strict=False)
 

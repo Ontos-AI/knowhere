@@ -205,7 +205,7 @@ flowchart LR
     Profile --> M0[M0 text or visual baseline]
     M0 --> Coarse["coarse: TOC + calibration + skeleton"]
     Coarse --> Fine["fine per scope: summary + M0 text"]
-    Fine -.->|"fine_text_extractor on"| Extract["vlm transcribe or mineru"]
+    Fine -.->|"fine_text_extractor on"| Extract["vlm transcribe, rapidocr or mineru"]
     Extract -.-> Overwrite[overwrite M0 page content]
 ```
 

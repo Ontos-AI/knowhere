@@ -1,4 +1,4 @@
-"""OCR specified PDF pages with RapidOCR and persist page text on the blackboard."""
+"""RapidOCR runner: OCR already-rendered page PNGs through one persistent child process."""
 
 from __future__ import annotations
 
