@@ -132,20 +132,7 @@ def ask_image(
     if max_tokens is None:
         max_tokens = ProcessingConstants.IMG_MAX_TOKENS
 
-    # Filter unsupported formats (sxjg logic)
-    valid_exts = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-    valid_paths = []
-    for p in paths_:
-        ext = os.path.splitext(p)[-1].lower()
-        if ext in valid_exts:
-            valid_paths.append(p)
-        else:
-            logger.debug(f"Skipping unsupported image format: {p}")
-
-    if not valid_paths:
-        return None
-
-    urls_ = process_img_path4read(valid_paths, image_root_dir, size_cut)
+    urls_ = process_img_path4read(paths_, image_root_dir, size_cut)
 
     image_model = settings.IMAGE_MODEL or "deepseek-flash"
 

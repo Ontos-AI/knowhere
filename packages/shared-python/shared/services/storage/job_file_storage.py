@@ -328,7 +328,6 @@ class JobFileStorage:
             ".tiff": "image/tiff",
             ".heic": "image/heic",
             ".heif": "image/heif",
-            ".svg": "image/svg+xml",
             ".zip": "application/zip",
             ".rar": "application/x-rar-compressed",
             ".7z": "application/x-7z-compressed",

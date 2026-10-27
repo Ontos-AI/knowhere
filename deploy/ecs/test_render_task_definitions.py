@@ -46,7 +46,7 @@ SHARED_STAGING_ENVIRONMENT: dict[str, str] = {
     "DS_URL": "https://api.deepseek.com/v1/chat/completions",
     "EMBEDDING_MODEL": "google/gemini-embedding-2",
     "S3_TEMP_PATH": "/tmp",
-    "SUPPORTED_EXTENSIONS": ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.pptx,.md",
+    "SUPPORTED_EXTENSIONS": ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.pptx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif,.md,.html,.htm",
     "TMP_PATH": "/tmp/aismart_bid",
 }
 

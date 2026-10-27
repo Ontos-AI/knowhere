@@ -40,7 +40,6 @@ CONTENT_TYPE_TO_EXTENSION: dict[str, str] = {
     "image/tiff": ".tiff",
     "image/heic": ".heic",
     "image/heif": ".heif",
-    "image/svg+xml": ".svg",
 }
 
 REDIRECT_STATUS_CODES: set[int] = {301, 302, 303, 307, 308}
