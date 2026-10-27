@@ -371,12 +371,12 @@ def test_result_assembly_branches_explicitly_on_page_enrichment_state() -> None:
     assert by_id["page-queued"]["content"] == "raw page three text"
     assert by_id["page-queued"]["content_source"] == "raw"
 
-    assert by_id["page-refined-with-summary"]["content"] == "refined vlm summary"
-    assert by_id["page-refined-with-summary"]["content_source"] == "summary"
+    assert by_id["page-refined-with-summary"]["content"] == "raw page five text"
+    assert by_id["page-refined-with-summary"]["content_source"] == "content"
 
-    # Explicit branch: refined never falls back to raw content when summary is empty.
-    assert by_id["page-refined-empty-summary"]["content"] == ""
-    assert by_id["page-refined-empty-summary"]["content_source"] == "summary"
+    # Refined keeps verbatim content when present; empty content falls back to summary.
+    assert by_id["page-refined-empty-summary"]["content"] == "raw text must not leak on refined"
+    assert by_id["page-refined-empty-summary"]["content_source"] == "content"
 
 
 def test_replace_document_scope_content_isolates_scope_reuses_ancestor_rebuilds_map_units_and_bumps_cache(
@@ -606,12 +606,12 @@ def test_replace_document_scope_content_isolates_scope_reuses_ancestor_rebuilds_
             ).scalar_one()
             assert map_index.unit_count == 4
 
-        # Refined scope now serves summary, while unrefined sibling scope still serves raw.
+        # Refined scope serves verbatim content; unrefined sibling scope still serves raw.
         refined_hits = asyncio.run(_discover_and_assemble("delta refined first"))
         assert any(
             row["chunk_id"] == "refined-a1"
-            and row["content"] == "delta refined summary a1"
-            and row["content_source"] == "summary"
+            and row["content"] == "delta refined first leaf raw body"
+            and row["content_source"] == "content"
             for row in refined_hits
         )
         sibling_hits = asyncio.run(_discover_and_assemble("bravo sibling untouched"))
@@ -1298,6 +1298,19 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                 "_page_embedding" not in (c.chunk_metadata or {})
                 for c in persisted_chunks
             )
+            from shared.models.database.job_result import JobChunk
+
+            persisted_job_chunks = list(
+                session.scalars(
+                    select(JobChunk)
+                    .where(JobChunk.job_result_id == scope.revision_ref)
+                    .order_by(JobChunk.sort_order)
+                ).all()
+            )
+            assert all(
+                "_page_embedding" not in (c.chunk_metadata or {})
+                for c in persisted_job_chunks
+            )
 
         async def _verify_visual_m0_retrieval_and_tools() -> None:
             async with get_db_context() as async_db:
@@ -1312,6 +1325,7 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                 vis_rows = vis_res.payload["fused_rows"]
                 assert len(vis_rows) == 2
                 assert vis_rows[0]["chunk_id"] == "scan-m0-p2"
+                assert vis_rows[0]["matched_page_nums"] == [2]
 
                 # 2. Classic route answers via visual channel even though lexical is empty.
                 classic_outcome = await _run_classic_topk_route(
@@ -1531,6 +1545,7 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                 merged_rows = merged_res.payload["fused_rows"]
                 assert len(merged_rows) == 1
                 assert merged_rows[0]["chunk_id"] == "merged-sec"
+                assert merged_rows[0]["matched_page_nums"] == [2, 1]
                 assert abs(float(merged_rows[0]["score"]) - page2_score) < 1e-9
 
                 monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", False)

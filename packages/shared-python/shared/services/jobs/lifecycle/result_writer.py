@@ -94,7 +94,12 @@ class SyncJobResultWriter:
         for index, chunk in enumerate(chunks):
             safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
             chunk_identifier = safe_chunk.get("chunk_id") or str(uuid4())
-            metadata = safe_chunk.get("metadata")
+            raw_metadata = safe_chunk.get("metadata")
+            metadata = (
+                {k: v for k, v in raw_metadata.items() if k != "_page_embedding"}
+                if isinstance(raw_metadata, dict) and "_page_embedding" in raw_metadata
+                else raw_metadata
+            )
             chunk_text = safe_chunk.get("text") or safe_chunk.get("content")
             chunk_path = (
                 metadata.get("path")

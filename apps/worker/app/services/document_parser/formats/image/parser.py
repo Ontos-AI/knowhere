@@ -4,14 +4,11 @@ import hashlib
 import io
 import os
 import re
-import threading
 from pathlib import Path
 
-import pandas as pd
 from app.services.document_parser.tables.dataframe_helpers import process_dup_paths_df
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import (
-    PARSER_DF_COLUMNS,
     ParsedRow,
     ParsedRowsBuilder,
 )
@@ -29,12 +26,15 @@ from shared.services.ai.response_process_service import eval_response
 from shared.utils.chunk_refs import build_chunk_ref
 from app.services.common.file_loading import is_remote, load_file_bytes
 from app.services.common.file_utils import path_handle
+from app.services.document_parser.formats.image.vlm_input import prepare_vlm_image_input
+from app.services.document_parser.orchestration.format_router import (
+    IMAGE_SOURCE_EXTENSIONS,
+)
 from shared.services.ai.summary.engine import summarize, transcribe
 from shared.services.ai.llm_overrides import get_vision_client
 from shared.services.ai.openai_compatible_client_sync import OpenAICompatibleClientSync
 
 MD_IMAGE_PATTERN = r"!\[[^\]]*?\]\((.*?\.(?:png|jpe?g|gif))\)"
-g_img_lock = threading.Lock()
 
 
 def perceptual_hash(data: bytes) -> str:
@@ -123,33 +123,24 @@ def ask_image(
     query="",
     max_tokens=None,
     size_cut=True,
+    prompt_paras=None,
 ):
     from shared.core.constants import ProcessingConstants
 
     if max_tokens is None:
         max_tokens = ProcessingConstants.IMG_MAX_TOKENS
 
-    # Filter unsupported formats (sxjg logic)
-    valid_exts = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-    valid_paths = []
-    for p in paths_:
-        ext = os.path.splitext(p)[-1].lower()
-        if ext in valid_exts:
-            valid_paths.append(p)
-        else:
-            logger.debug(f"Skipping unsupported image format: {p}")
-
-    if not valid_paths:
-        return None
-
-    urls_ = process_img_path4read(valid_paths, image_root_dir, size_cut)
+    urls_ = process_img_path4read(paths_, image_root_dir, size_cut)
 
     image_model = settings.IMAGE_MODEL or "deepseek-flash"
 
     if len(urls_) > 0:
         client, image_model = get_vision_client(requested_model=image_model)
+        paras = {"max_tokens": max_tokens}
+        if prompt_paras:
+            paras.update(prompt_paras)
         prompt, temperature, top_p, max_tokens = build_prompt(
-            task=task, texts=title_text, query=query, paras={"max_tokens": max_tokens}
+            task=task, texts=title_text, query=query, paras=paras
         )
         messages = [
             {
@@ -220,27 +211,23 @@ def parse_image(
     img_dir = os.path.join(output_dir, "images")
     os.makedirs(img_dir, exist_ok=True)
 
+    vlm_input = None
     try:
         # Store standalone image uploads under images/ so downstream packaging
         # can collect them with the same convention as document-extracted images.
-        relative_source_path = f"images/{filename}"
         img_path = os.path.join(img_dir, filename)
         img_bytes = load_file_bytes(image_path, file_url=baseurl)
-        img_obj = Image.open(io.BytesIO(img_bytes))
-        img_obj.save(img_path)
+        with open(img_path, "wb") as image_file:
+            image_file.write(img_bytes)
 
-        # Early exit: skip images smaller than IMG_MIN_SIZE before VLM work.
-        from app.services.document_parser.assets.image_size_filter import (
-            discard_undersized_image_file,
-        )
         from shared.core.constants import ProcessingConstants
 
-        if discard_undersized_image_file(img_path, label=f"image {filename}"):
-            return pd.DataFrame(columns=list(PARSER_DF_COLUMNS))
+        vlm_input = prepare_vlm_image_input(source_path=img_path, filename=filename)
+        working_paths = list(vlm_input.working_paths)
+        sequence_paras = vlm_input.prompt_paras()
 
         # Extract image content
         client = _get_vision_client()
-        abs_image_path = os.path.join(output_dir, relative_source_path)
 
         ## Classify the image so text-heavy scans go through OCR (§4.2) and
         ## everything else through the asset summary contract (§4.1).
@@ -248,10 +235,11 @@ def parse_image(
         type_resp = ask_image(
             client,
             output_dir,
-            paths_=[relative_source_path],
+            paths_=working_paths,
             title_text=img_context,
             task="judge-image-type",
             size_cut=False,
+            prompt_paras=sequence_paras,
         )
         is_text_image = bool(
             isinstance(type_resp, dict) and type_resp.get("answer") == "text"
@@ -264,17 +252,19 @@ def parse_image(
         elif is_text_image:
             # Text scan: transcribe the body (→ content) and summarize for title.
             transcribed = transcribe(
-                image_paths=[abs_image_path],
+                image_paths=working_paths,
                 max_tokens=ProcessingConstants.IMG_OCR_MAX_TOKENS,
                 usage_task="parser.image.transcribe",
+                prompt_paras=sequence_paras,
             )
             image_content = transcribed or filename
             asset = summarize(
                 mode="asset",
-                image_paths=[abs_image_path],
+                image_paths=working_paths,
                 text=filename,
                 summary_len=ProcessingConstants.IMG_MAX_TOKENS,
                 usage_task="parser.image.summary",
+                prompt_paras=sequence_paras,
             )
             img_title = asset.title or None
             image_summary = asset.summary or image_content
@@ -283,10 +273,11 @@ def parse_image(
             # the summary doubles as the chunk content.
             asset = summarize(
                 mode="asset",
-                image_paths=[abs_image_path],
+                image_paths=working_paths,
                 text=img_context,
                 summary_len=ProcessingConstants.IMG_MAX_TOKENS,
                 usage_task="parser.image.summary",
+                prompt_paras=sequence_paras,
             )
             img_title = asset.title or None
             image_summary = asset.summary or filename
@@ -296,7 +287,7 @@ def parse_image(
         img_name = path_handle((img_title or image_summary)[:20], mode="clean_single")
         img_suffix = os.path.splitext(img_path)[-1]
         img_stem, inferred_suffix = os.path.splitext(img_name)
-        if inferred_suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+        if inferred_suffix.lower() in IMAGE_SOURCE_EXTENSIONS:
             img_name = img_stem or img_name
         if auto_rename:
             target_img_path = os.path.join(img_dir, f"{img_name}{img_suffix}")
@@ -322,6 +313,9 @@ def parse_image(
             internal_message=f"Storage error: {str(e)}",
             original_exception=e,
         )
+    finally:
+        if vlm_input is not None:
+            vlm_input.cleanup()
 
     # Deterministic know_id: use image binary hash
     temp_uid = gen_str_codes(hashlib.sha256(img_bytes).hexdigest())

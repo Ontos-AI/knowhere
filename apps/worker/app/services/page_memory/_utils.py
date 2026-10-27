@@ -11,6 +11,11 @@ def is_document_prefix(skeleton: Any) -> bool:
     return (getattr(skeleton, "evidence", {}) or {}).get("source") == "document_prefix"
 
 
+def is_toc_node(skeleton: Any) -> bool:
+    """Identify a skeleton that owns TOC pages rather than body text."""
+    return (getattr(skeleton, "evidence", {}) or {}).get("source") == "toc_node"
+
+
 def is_fallback_root(skeleton: Any) -> bool:
     """Keep prefix ownership separate from the full-document Root fallback."""
     if is_document_prefix(skeleton):

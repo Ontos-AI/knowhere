@@ -71,8 +71,8 @@ class AIConfig(BaseModel):
         ),
     )
     PAGE_MEMORY_EMBED_CONCURRENCY: int = Field(
-        default=8,
-        description="Local per-job page embedding concurrency for scanned M0 documents.",
+        default=10,
+        description="Local per-job page-image embedding concurrency for progressive M0.",
     )
 
     # Runtime LLM controls.
@@ -118,6 +118,18 @@ class AIConfig(BaseModel):
     PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY: int = Field(
         default=3,
         description="Local per-job node OCR and summary concurrency for page-memory.",
+    )
+    PAGE_MEMORY_FINE_TEXT_EXTRACTOR: str = Field(
+        default="none",
+        description=(
+            "Fine-stage verbatim page-text extractor: none (default, summary only), "
+            "vlm (transcribe with OCR fallback on page error), ocr (RapidOCR), "
+            "or mineru (with OCR fallback on error). Advanced/opt-in."
+        ),
+    )
+    PAGE_MEMORY_FINE_TEXT_EXTRACTION_CONCURRENCY: int = Field(
+        default=4,
+        description="Local per-job concurrency for fine-stage VLM page transcription.",
     )
     TOKEN_PRICING_TABLE_JSON: str = Field(
         default="",

@@ -83,7 +83,7 @@ def poll_mineru_task(
 
         try:
             logger.debug(
-                f"parse_pdfs status_url: {status_url} "
+                f"mineru status_url: {status_url} "
                 f"(attempt {attempt + 1}/{max_polling_attempts})"
             )
             lease = quota_manager.acquire_request(
@@ -148,7 +148,7 @@ def poll_mineru_task(
                     download_and_extract_zip(
                         status["full_zip_url"],
                         dest_dir=output_dir,
-                        keep_exts=(".md", ".jpg", ".jpeg", ".png", ".gif", ".json"),
+                        keep_exts=(".json",),
                         exclude_patterns=("content_list", "middle.json", "model.json"),
                     )
                     polling_logger.bind(token_id=lease.token_id).info(

@@ -7,10 +7,11 @@ are within reasonable size/dimension limits for downstream consumption.
 
 Design decisions:
 - PNG with alpha channel (transparency) are kept as PNG — these are typically
-  formula renderings from MinerU where lossless + transparency matters.
+  formula renderings where lossless + transparency matters.
 - PNG without alpha (opaque) are converted to JPEG — these are typically
   page renders, photos, screenshots where JPEG is more efficient.
 - JPEG files above the max dimension are resized.
+- Uploaded originals in other raster formats are left untouched.
 - Very small images (< 50KB) are skipped to avoid degrading icons/logos.
 - Extremely large images (dimensions > max_side) are resized with LANCZOS.
 """
@@ -24,7 +25,7 @@ from loguru import logger
 OUTPUT_MAX_SIDE = 2400  # max pixels on longest side
 OUTPUT_JPEG_QUALITY = 85  # JPEG quality (85 is visually lossless)
 SKIP_BELOW_BYTES = 50_000  # skip images smaller than 50KB
-SUPPORTED_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+SUPPORTED_EXTS = {".png", ".jpg", ".jpeg"}
 
 
 class CompressionStats(NamedTuple):
@@ -52,7 +53,7 @@ def compress_output_images(
     - Opaque PNGs → JPEG (significant size reduction)
     - Large dimensions → resize to max_side
     - Transparent PNGs → keep as PNG but resize if oversized
-    - JPEG/WebP → resize if oversized, re-encode if quality can be reduced
+    - JPEG → resize if oversized, re-encode if quality can be reduced
 
     Returns a CompressionStats summary (includes rename_map for updating
     DataFrame references when PNG→JPG conversions occurred).
@@ -110,19 +111,14 @@ def compress_output_images(
                 total_after += os.path.getsize(file_path)
 
             else:
-                # JPEG / WebP — only resize if dimension exceeds limit
+                # JPEG — only resize if dimension exceeds limit
                 if needs_resize:
                     ratio = max_side / max(w, h)
                     new_w, new_h = int(w * ratio), int(h * ratio)
                     img = img.resize((new_w, new_h), Image.LANCZOS)
-
-                    if ext in (".jpg", ".jpeg"):
-                        if img.mode in ("RGBA", "P", "LA"):
-                            img = img.convert("RGB")
-                        img.save(file_path, "JPEG", quality=jpeg_quality, optimize=True)
-                    elif ext == ".webp":
-                        img.save(file_path, "WebP", quality=jpeg_quality)
-
+                    if img.mode in ("RGBA", "P", "LA"):
+                        img = img.convert("RGB")
+                    img.save(file_path, "JPEG", quality=jpeg_quality, optimize=True)
                     resized_count += 1
                     processed += 1
                 else:

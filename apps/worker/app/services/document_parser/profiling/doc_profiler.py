@@ -33,11 +33,9 @@ def profile_document(
     *,
     job_id: str | None = None,
     output_dir: str | None = None,
-    skip_shard_plan: bool = False,
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
     stop_after: Literal["asset_probe"] | None = None,
-    skip_scanned_ocr: bool = False,
 ) -> ParserDocumentProfile:
     """
     General document profiling entry point.
@@ -47,14 +45,9 @@ def profile_document(
         filename: File name (used to infer type)
         job_id: Parse job id for profile trace artifacts
         output_dir: Parser output directory
-        skip_shard_plan: When True, lightweight and structural anatomy skip
-            LLM shard planning and populate a single-shard placeholder.
-            Used by the page-memory track, which never consumes the shard plan.
-            Chunk-track keeps the default (False) so oversized MinerU sharding
-            still receives a real plan.
         oversized_policy: Controls oversized PDF admission. ``chunk`` applies
-            the MinerU shard gate, while ``page_memory`` lets the page-memory
-            track continue to structural profiling.
+            the page-limit / oversized-admission gate; ``page_memory`` continues
+            to structural profiling.
         skip_toc_anchoring: When True, TOC find/extract still run, but
             ``run_toc_anchoring`` is skipped. Used by the staged debug path
             (Stage-1 TOC after Stage-0 bootstrap) so calibration stays in
@@ -74,11 +67,9 @@ def profile_document(
                 filename,
                 job_id=job_id,
                 output_dir=output_dir,
-                skip_shard_plan=skip_shard_plan,
                 oversized_policy=oversized_policy,
                 skip_toc_anchoring=skip_toc_anchoring,
                 stop_after=stop_after,
-                skip_scanned_ocr=skip_scanned_ocr,
             )
         finally:
             if not visual_debug_enabled():
@@ -98,11 +89,9 @@ def _profile_pdf(
     *,
     job_id: str | None,
     output_dir: str | None,
-    skip_shard_plan: bool = False,
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
     stop_after: Literal["asset_probe"] | None = None,
-    skip_scanned_ocr: bool = False,
 ) -> ParserDocumentProfile:
     with _profile_db_context(enabled=bool(job_id)) as db:
         return _profile_pdf_with_db(
@@ -111,11 +100,9 @@ def _profile_pdf(
             job_id=job_id,
             output_dir=output_dir,
             db=db,
-            skip_shard_plan=skip_shard_plan,
             oversized_policy=oversized_policy,
             skip_toc_anchoring=skip_toc_anchoring,
             stop_after=stop_after,
-            skip_scanned_ocr=skip_scanned_ocr,
         )
 
 
@@ -126,17 +113,14 @@ def _profile_pdf_with_db(
     job_id: str | None,
     output_dir: str | None,
     db: Any | None,
-    skip_shard_plan: bool = False,
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
     stop_after: Literal["asset_probe"] | None = None,
-    skip_scanned_ocr: bool = False,
 ) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
-    # PROFILE TOC is default-on for both tracks. page_memory always forces it
-    # on (sections are TOC-anchored) even if PDF_PROFILE_TOC_ENABLED is used as
-    # an emergency kill switch for the chunk track.
+    # PROFILE TOC is default-on. page_memory always forces it on (sections are
+    # TOC-anchored) even if PDF_PROFILE_TOC_ENABLED is off.
     page_toc_enabled = (
         oversized_policy == "page_memory" or settings.PDF_PROFILE_TOC_ENABLED
     )
@@ -151,7 +135,6 @@ def _profile_pdf_with_db(
             "toc_profile_enabled": page_toc_enabled,
             "skip_toc_anchoring": bool(skip_toc_anchoring),
             "stop_after_asset_probe": stop_after == "asset_probe",
-            "skip_scanned_ocr": bool(skip_scanned_ocr),
             "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
         },
     )
@@ -191,9 +174,7 @@ def _profile_pdf_with_db(
             raise_if_oversized_pdf_not_supported(page_count=profile.page_count)
         if not profile.is_atlas:
             try:
-                profile.anatomy = coordinator.run_structural(
-                    skip_shard_plan=skip_shard_plan
-                )
+                profile.anatomy = coordinator.run_structural()
                 profile.toc = _map_toc_profile(coordinator)
             except Exception as exc:
                 if oversized_policy == "page_memory":
@@ -213,9 +194,7 @@ def _profile_pdf_with_db(
         # TODO(page_memory): non-oversized atlas skips anatomy; coarse
         # has_asset / page_features never reach page_memory via profile.anatomy.
         if not profile.is_atlas:
-            profile.anatomy = coordinator.run_lightweight_anatomy(
-                skip_shard_plan=skip_shard_plan
-            )
+            profile.anatomy = coordinator.run_lightweight_anatomy()
         profile.toc = _map_toc_profile(coordinator)
 
     if trace := getattr(coordinator, "trace", None):

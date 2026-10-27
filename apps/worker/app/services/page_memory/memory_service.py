@@ -21,6 +21,7 @@ from app.services.page_memory.normalizer import normalize_to_pdf
 from app.services.page_memory._utils import (
     CoarseScope,
     collapse_page_ranges,
+    is_toc_node,
     page_scope_info,
     sort_skeletons,
 )
@@ -33,7 +34,6 @@ from app.services.page_memory._serialization import (
 from app.services.page_memory.phase_a import (
     build_coarse_text_dataframe,
     build_phase_a,
-    build_visual_page_dataframe,
     persist_m0_inputs,
 )
 
@@ -67,6 +67,7 @@ class _ScopeRunResult:
     assets_by_page: dict[int, list[Any]]
     rendered: list[Any]
     final_pages: list[int]
+    fine_text_by_page: dict[int, str] = field(default_factory=dict)
 
 
 def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
@@ -102,10 +103,8 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 pdf_filename,
                 job_id=request.job_id,
                 output_dir=full_output_dir,
-                skip_shard_plan=True,
                 oversized_policy="page_memory",
                 stop_after="asset_probe" if is_progressive else None,
-                skip_scanned_ocr=visual_m0_enabled,
             )
         trace_recorder = getattr(profile, "trace_recorder", None)
         page_count = max(int(profile.page_count or 0), 0)
@@ -139,21 +138,25 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 body_text_by_page=getattr(profile, "page_body_text_cache", None),
             )
         elif is_progressive:
-            if visual_m0_enabled and bool(getattr(profile, "is_scanned", False)):
+            page_texts = coerce_page_text_cache(
+                getattr(profile, "page_full_text_cache", None)
+            )
+            body_text_by_page = coerce_page_text_cache(
+                getattr(profile, "page_body_text_cache", None)
+            )
+            if visual_m0_enabled:
                 parsed_df = _build_visual_m0_dataframe(
                     pdf_path=pdf_path,
                     filename=request.filename,
                     output_dir=full_output_dir,
                     page_count=page_count,
+                    page_texts=page_texts,
+                    body_text_by_page=body_text_by_page,
                 )
             else:
                 parsed_df = build_coarse_text_dataframe(
-                    page_texts=coerce_page_text_cache(
-                        getattr(profile, "page_full_text_cache", None)
-                    ),
-                    body_text_by_page=coerce_page_text_cache(
-                        getattr(profile, "page_body_text_cache", None)
-                    ),
+                    page_texts=page_texts,
+                    body_text_by_page=body_text_by_page,
                     page_count=page_count,
                     filename=request.filename,
                 )
@@ -207,6 +210,8 @@ def _build_visual_m0_dataframe(
     filename: str,
     output_dir: str,
     page_count: int,
+    page_texts: dict[int, str],
+    body_text_by_page: dict[int, str],
 ) -> pd.DataFrame:
     from app.services.page_memory.page_renderer import render_document_pages
     from shared.services.ai.embedding import embed_images
@@ -219,7 +224,7 @@ def _build_visual_m0_dataframe(
             output_dir=output_dir,
             scope_id="m0",
             pages=pages,
-            page_texts={},
+            page_texts=page_texts,
         )
     image_path_by_page = {
         int(item.page_index): str(item.image_path)
@@ -248,7 +253,9 @@ def _build_visual_m0_dataframe(
             "Skipped page embeddings after retries; document continues: pages={}",
             skipped_pages,
         )
-    return build_visual_page_dataframe(
+    return build_coarse_text_dataframe(
+        page_texts=page_texts,
+        body_text_by_page=body_text_by_page,
         page_count=page_count,
         filename=filename,
         image_path_by_page=image_path_by_page,
@@ -262,9 +269,8 @@ def _decide_granularity(profile: Any) -> str:
 
     Page-based track processes pages individually via VLM — no physical
     document splitting is needed regardless of page count.  The old
-    ``shard_page`` verdict (>200 pages) was only meaningful for the
-    MinerU batch API pipeline (``_parse_pdf_via_shards``) which splits
-    long PDFs into physical sub-documents.
+    ``shard_page`` verdict (>200 pages) was only meaningful when long
+    PDFs were cut into physical sub-documents.
     """
     page_count = int(getattr(profile, "page_count", 0) or 0)
     toc = getattr(profile, "toc", None)
@@ -301,6 +307,7 @@ def assemble_c7_node_rows(
     verdict: str,
     vlm_model: str | None,
     page_memory_config: PageMemoryConfig,
+    fine_text_by_page: dict[int, str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[int]]:
     """Shared C7 node-row assembly used by whole-doc ``_build_page_dataframe`` and per-scope refinement."""
     from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
@@ -316,18 +323,31 @@ def assemble_c7_node_rows(
         for lbl in page_labels:
             label_map[lbl.page] = lbl.kind
 
-    final_pages = pages_excluding_toc(
-        _derive_hierarchy_page_scope(
-            skeletons=skeletons,
-            page_count=page_count,
-        ),
-        toc_pages,
+    hierarchy_pages = _derive_hierarchy_page_scope(
+        skeletons=skeletons,
+        page_count=page_count,
     )
+    body_pages = pages_excluding_toc(hierarchy_pages, toc_pages)
+    toc_set = {int(page) for page in toc_pages}
+    toc_claimed: list[int] = []
+    for skeleton in skeletons:
+        if not is_toc_node(skeleton):
+            continue
+        start_page = max(1, int(skeleton.start_page))
+        end_page = max(start_page, int(skeleton.end_page))
+        toc_claimed.extend(
+            page
+            for page in range(start_page, end_page + 1)
+            if page in toc_set
+        )
+    final_pages = sorted(set(body_pages) | set(toc_claimed))
+    fine_text = fine_text_by_page or {}
     raw_text_by_page: dict[int, str] = {}
     image_path_by_page: dict[int, str] = {}
     for page in final_pages:
         rend = render_map.get(page)
-        raw_text_by_page[page] = (rend.raw_text if rend else page_texts.get(page, "")) or ""
+        fallback = (rend.raw_text if rend else page_texts.get(page, "")) or ""
+        raw_text_by_page[page] = (fine_text.get(page) or fallback)
         if rend and rend.image_path and os.path.exists(rend.image_path):
             image_path_by_page[page] = rend.image_path
 
@@ -345,6 +365,7 @@ def assemble_c7_node_rows(
         node_summary_max_pages=page_memory_config.node_summary_max_pages,
         node_assembly_concurrency=page_memory_config.node_assembly_concurrency,
         body_text_by_page=body_text_by_page,
+        toc_pages=toc_pages,
     )
     return rows, final_pages
 
@@ -463,9 +484,12 @@ def _build_page_dataframe(
         result.assets_by_page for result in scope_results
     )
     rendered_map: dict[int, Any] = {}
+    fine_text_by_page: dict[int, str] = {}
     for result in scope_results:
         for rendered_page in result.rendered:
             rendered_map.setdefault(rendered_page.page_index, rendered_page)
+        for page, text in result.fine_text_by_page.items():
+            fine_text_by_page.setdefault(int(page), text)
 
     _write_top_level_artifacts(
         output_dir=output_dir,
@@ -491,6 +515,7 @@ def _build_page_dataframe(
             verdict=verdict,
             vlm_model=vlm_model,
             page_memory_config=page_memory_config,
+            fine_text_by_page=fine_text_by_page,
         )
     logger.info(
         "[page_memory] C7 assembled {} node rows (verdict={})",
@@ -584,18 +609,25 @@ def _run_hierarchy_scope(
 
     scope_skeletons = sort_skeletons(scope.skeletons)
     toc_pages = sorted({int(page) for page in (toc_pages or [])})
+    toc_only_scope = bool(scope_skeletons) and all(
+        is_toc_node(item) for item in scope_skeletons
+    )
     scope_manifest = _scope_manifest(
         scope_id=scope.scope_id,
         skeletons=scope_skeletons,
         page_count=page_count,
         strategy=scope.strategy,
     )
-    coarse_pages = pages_excluding_toc(
-        _derive_hierarchy_page_scope(
-            skeletons=scope_skeletons,
-            page_count=page_count,
-        ),
-        toc_pages,
+    coarse_pages = (
+        []
+        if toc_only_scope
+        else pages_excluding_toc(
+            _derive_hierarchy_page_scope(
+                skeletons=scope_skeletons,
+                page_count=page_count,
+            ),
+            toc_pages,
+        )
     )
     logger.info(
         "[page_memory] scope {}/{} {} coarse ranges={}",
@@ -695,12 +727,16 @@ def _run_hierarchy_scope(
         },
     )
 
-    final_pages = pages_excluding_toc(
-        _derive_hierarchy_page_scope(
-            skeletons=scope_skeletons,
-            page_count=page_count,
-        ),
-        toc_pages,
+    final_pages = (
+        []
+        if toc_only_scope
+        else pages_excluding_toc(
+            _derive_hierarchy_page_scope(
+                skeletons=scope_skeletons,
+                page_count=page_count,
+            ),
+            toc_pages,
+        )
     )
     final_scope_summary = _summarize_tag_scope(
         skeletons=scope_skeletons,
@@ -716,6 +752,18 @@ def _run_hierarchy_scope(
             pages=final_pages,
             page_features=page_features,
             page_texts=page_texts,
+        )
+    from app.services.page_memory.page_text_extractor import extract_fine_page_text
+
+    with stage_timer("page_memory.fine_text", page_count=len(final_pages)):
+        fine_text_by_page = extract_fine_page_text(
+            pdf_path=pdf_path,
+            rendered=rendered,
+            final_pages=final_pages,
+            extractor=page_memory_config.fine_text_extractor,
+            vlm_model=vlm_model,
+            output_dir=os.path.join(output_dir, "_fine_text", scope.scope_id),
+            concurrency=page_memory_config.fine_text_extraction_concurrency,
         )
     _record_trace_stage(
         trace_recorder,
@@ -810,6 +858,7 @@ def _run_hierarchy_scope(
         assets_by_page=assets_by_page,
         rendered=rendered,
         final_pages=final_pages,
+        fine_text_by_page=fine_text_by_page,
     )
 
 

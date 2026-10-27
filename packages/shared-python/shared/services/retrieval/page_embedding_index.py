@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+from pgvector import HalfVector
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from shared.core.config import settings
-from shared.services.ai.embedding import resolve_embedding_model
+from shared.services.ai.embedding import embed_query, resolve_embedding_model
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 
@@ -17,6 +18,7 @@ __all__ = [
     "extract_and_strip_page_embeddings",
     "inherit_missing_page_assets",
     "load_revision_page_assets_by_page",
+    "query_visual_candidate_pages",
     "replace_document_page_embeddings",
 ]
 
@@ -203,3 +205,33 @@ def replace_document_page_embeddings(
     if current_rows:
         db.flush()
     return len(current_rows)
+
+
+def query_visual_candidate_pages(
+    db: Session,
+    *,
+    namespace: str,
+    document_id: str,
+    job_result_id: str,
+    queries: list[str],
+    per_keyword_top_k: int = 3,
+) -> set[int]:
+    """Union of per-keyword visual nearest pages for one published revision."""
+    if not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)):
+        return set()
+    if not queries:
+        return set()
+
+    embedding_cls = CorpusStorage.resolve_namespace(namespace).DocumentPageEmbedding
+    pages: set[int] = set()
+    for query in queries:
+        vector = embed_query(query, usage_task="page_memory.toc_visual_query")
+        rows = db.scalars(
+            select(embedding_cls.page_num)
+            .where(embedding_cls.document_id == document_id)
+            .where(embedding_cls.job_result_id == job_result_id)
+            .order_by(embedding_cls.embedding.cosine_distance(HalfVector(vector)))
+            .limit(per_keyword_top_k)
+        ).all()
+        pages.update(int(page) for page in rows)
+    return pages

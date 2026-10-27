@@ -16,6 +16,7 @@ from shared.services.retrieval.agent_explore.budget import EpisodeBudget
 from shared.services.retrieval.agent_tools import Decision, ReadableAddresses, ToolResult
 from shared.services.retrieval.hydration.evidence_compose import group_evidence_units
 from shared.services.retrieval.hydration.row_utils import (
+    coerce_page_nums,
     iter_connected_target_ids,
     normalize_chunk_type,
 )
@@ -34,6 +35,7 @@ class Candidate:
     summary: str = ""
     extra_sections: int = 0
     outline_lines: tuple[str, ...] = ()
+    lit_pages_by_chunk: dict[str, tuple[int, ...]] = field(default_factory=dict)
 
 
 @dataclass
@@ -57,6 +59,8 @@ class EvidencePool:
         self._batch_round = 0
         self._decided: dict[tuple[str, str], Decision] = {}
         self._queried_tables: dict[tuple[str, str], str] = {}
+        self._lit_pages_by_chunk: dict[tuple[str, str], tuple[int, ...]] = {}
+        self._lit_pages_by_path: dict[tuple[str, str], tuple[int, ...]] = {}
 
     def begin_round(self) -> None:
         self.round_index += 1
@@ -73,6 +77,9 @@ class EvidencePool:
             return []
         self._collect_seen(result)
         self._record_queried_table(tool_name, result)
+        if tool_name == "corpus.recall":
+            self._record_lit_pages(result)
+            return []
         if tool_name == "corpus.read":
             return self._issue_read(result)
         if tool_name == "corpus.outline":
@@ -121,6 +128,12 @@ class EvidencePool:
     def queried_tables(self) -> Mapping[tuple[str, str], str]:
         return MappingProxyType(self._queried_tables)
 
+    def lit_pages_by_chunk(self) -> Mapping[tuple[str, str], tuple[int, ...]]:
+        return MappingProxyType(dict(self._lit_pages_by_chunk))
+
+    def lit_pages_by_path(self) -> Mapping[tuple[str, str], tuple[int, ...]]:
+        return MappingProxyType(dict(self._lit_pages_by_path))
+
     def render_candidates(self, candidates: list[Candidate]) -> str:
         if not candidates:
             return ""
@@ -159,6 +172,49 @@ class EvidencePool:
             (candidate.document_id, chunk_id) in self._chunk_keys
             for chunk_id in candidate.chunk_ids
         )
+
+    def _record_lit_pages(self, result: ToolResult) -> None:
+        records = result.payload.get("lit_pages")
+        if not isinstance(records, list):
+            return
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            document_id = str(record.get("document_id") or "").strip()
+            pages = coerce_page_nums(record.get("matched_page_nums"))
+            if not document_id or not pages:
+                continue
+            chunk_id = str(record.get("chunk_id") or "").strip()
+            section_path = str(record.get("section_path") or "").strip()
+            self._store_lit_pages(
+                document_id=document_id,
+                section_path=section_path,
+                pages_by_chunk={chunk_id: tuple(pages)} if chunk_id else {},
+                path_pages=tuple(pages) if section_path else None,
+            )
+
+    def _store_lit_pages(
+        self,
+        *,
+        document_id: str,
+        section_path: str,
+        pages_by_chunk: Mapping[str, tuple[int, ...]],
+        path_pages: tuple[int, ...] | None = None,
+    ) -> None:
+        for chunk_id, pages in pages_by_chunk.items():
+            if chunk_id and pages:
+                self._lit_pages_by_chunk[(document_id, chunk_id)] = tuple(pages)
+        if section_path:
+            pages = path_pages
+            if pages is None:
+                merged: list[int] = []
+                for chunk_pages in pages_by_chunk.values():
+                    for page in chunk_pages:
+                        if page not in merged:
+                            merged.append(page)
+                pages = tuple(merged)
+            if pages:
+                self._lit_pages_by_path[(document_id, section_path)] = pages
 
     def _record_queried_table(self, tool_name: str, result: ToolResult) -> None:
         if tool_name != "corpus.query_table":
@@ -219,6 +275,12 @@ class EvidencePool:
                 section_path = str(first.get("section_path") or "").strip() or None
             chunk_type = normalize_chunk_type((first or {}).get("chunk_type"))
             summary = _read_summary(first, chunk_type)
+            lit_pages_by_chunk = _lit_pages_from_rows(chunk_ids, rows_by_id)
+            self._store_lit_pages(
+                document_id=document_id,
+                section_path=section_path or "",
+                pages_by_chunk=lit_pages_by_chunk,
+            )
             candidate = Candidate(
                 handle=f"R{self._read_calls}.{index}",
                 kind="read",
@@ -229,6 +291,7 @@ class EvidencePool:
                 chunk_ids=chunk_ids,
                 summary=summary,
                 extra_sections=max(len(chunk_ids) - 1, 0),
+                lit_pages_by_chunk=lit_pages_by_chunk,
             )
             issued.append(candidate)
             self._batch_staged[candidate.handle] = candidate
@@ -290,6 +353,22 @@ def pool_chunk_refs(entries: list[Candidate]) -> list[dict[str, str]]:
         for chunk_id in candidate.chunk_ids:
             refs.append({"document_id": candidate.document_id, "chunk_id": chunk_id})
     return refs
+
+
+def attach_candidate_lit_pages(
+    rows: list[dict[str, Any]],
+    candidates: list[Candidate],
+) -> None:
+    pages_by_key: dict[tuple[str, str], list[int]] = {}
+    for candidate in candidates:
+        for chunk_id, pages in candidate.lit_pages_by_chunk.items():
+            if pages:
+                pages_by_key[(candidate.document_id, chunk_id)] = list(pages)
+    for row in rows:
+        key = (str(row.get("document_id") or ""), str(row.get("chunk_id") or ""))
+        pages = pages_by_key.get(key)
+        if pages:
+            row["matched_page_nums"] = pages
 
 
 def compose_pool_evidence(
@@ -366,6 +445,21 @@ def trace_status(result: ToolResult) -> str:
         if failures:
             return "partial: " + "; ".join(failures)
     return "ok"
+
+
+def _lit_pages_from_rows(
+    chunk_ids: tuple[str, ...],
+    rows_by_id: Mapping[str, dict[str, Any]],
+) -> dict[str, tuple[int, ...]]:
+    pages_by_chunk: dict[str, tuple[int, ...]] = {}
+    for chunk_id in chunk_ids:
+        row = rows_by_id.get(chunk_id)
+        if row is None:
+            continue
+        pages = coerce_page_nums(row.get("matched_page_nums"))
+        if pages:
+            pages_by_chunk[chunk_id] = tuple(pages)
+    return pages_by_chunk
 
 
 def _read_summary(row: dict[str, Any] | None, chunk_type: str) -> str:

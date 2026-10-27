@@ -391,6 +391,8 @@ class OpenAIHarness:
                         query=query,
                         readable=readable,
                         decided=decided,
+                        lit_pages_by_chunk=pool.lit_pages_by_chunk(),
+                        lit_pages_by_path=pool.lit_pages_by_path(),
                     )
                     trace_result = tool_result
                 tool_elapsed_ms = int((time.perf_counter() - tool_started) * 1000)

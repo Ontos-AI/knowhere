@@ -26,6 +26,7 @@ from app.services.page_memory.hierarchy_level_resolver import PageHierarchyLevel
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
 from app.services.page_memory._utils import (
     is_document_prefix,
+    is_toc_node,
     page_scope_info,
     sort_skeletons,
 )
@@ -61,7 +62,7 @@ def refine_fat_leaf_skeletons(
     refined: list[SectionSkeleton] = []
 
     for index, skeleton in enumerate(coarse_skeletons):
-        if is_document_prefix(skeleton):
+        if is_document_prefix(skeleton) or is_toc_node(skeleton):
             refined.append(skeleton)
             continue
         exclusive_end = _exclusive_end(coarse_skeletons, index)
@@ -133,7 +134,7 @@ def compute_fat_leaf_pages(
     excluded = {int(page) for page in (toc_pages or [])}
     fat_pages: set[int] = set()
     for idx, skel in enumerate(skeletons):
-        if is_document_prefix(skel):
+        if is_document_prefix(skel) or is_toc_node(skel):
             continue
         exclusive_end = _exclusive_end(skeletons, idx)
         body_pages = [
@@ -424,7 +425,7 @@ def _exclusive_end(skeletons: list[SectionSkeleton], index: int) -> int:
     later_starts = [
         skel.start_page
         for skel in skeletons
-        if skel.start_page > skeleton.start_page
+        if skel.start_page > skeleton.start_page and not is_toc_node(skel)
     ]
     if not later_starts:
         return skeleton.end_page

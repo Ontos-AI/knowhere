@@ -356,7 +356,8 @@ def configure_contract_environment(
         "FREE_PLAN_INITIAL_CREDITS": "5",
         "SUPPORTED_EXTENSIONS": (
             ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.pptx,"
-            ".jpg,.jpeg,.png,.md,.html,.htm"
+            ".jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif,"
+            ".md,.html,.htm"
         ),
     }
 

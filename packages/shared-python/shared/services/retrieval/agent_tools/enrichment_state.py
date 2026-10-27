@@ -12,6 +12,7 @@ from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.hydration.row_utils import (
+    UNREFINED_PAGE_STATES,
     extract_page_nums,
     page_enrichment_state,
 )
@@ -19,7 +20,6 @@ from shared.services.retrieval.hydration.row_utils import (
 STATUS_TEXT = "text"
 STATUS_COARSE = "coarse"
 STATUS_COMPLETE = "complete"
-UNREFINED_PAGE_STATES = frozenset({"text", "coarse", "queued"})
 
 
 @dataclass(frozen=True)
@@ -153,7 +153,7 @@ def format_still_structuring_note(file_names: list[str]) -> str:
     return (
         f"{joined} is still being structured (state=text); no section outline yet. "
         "Do not retry outline, node_filter, or assets on it in this session — "
-        "use corpus.recall (including visual semantic recall for scanned pages), "
+        "use corpus.recall (hybrid text and visual semantic recall), "
         "corpus.grep, and corpus.read on pages directly."
     )
 

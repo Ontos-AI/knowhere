@@ -20,10 +20,10 @@ _DEBUG_VISUAL_DIRS = {
     "calibration_verify",
     "calibration_scan",
     "toc_pages",
-    "ocr_pages",
     "inspect_pages",
     "profile_visuals",
     # Legacy artifact dirs from older runs; keep listed so purge still cleans them.
+    "ocr_pages",
     "agent_visuals",
     "planner_pages",
     "page_locate_pages",

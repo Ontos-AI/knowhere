@@ -25,12 +25,23 @@ class DocumentFormat(str, Enum):
     HTML = "html"
 
 
-SUPPORTED_FILE_TYPES: tuple[str, ...] = (
-    ".txt",
-    ".fragment",
+IMAGE_SOURCE_EXTENSIONS: tuple[str, ...] = (
     ".png",
     ".jpg",
     ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".heic",
+    ".heif",
+)
+
+SUPPORTED_FILE_TYPES: tuple[str, ...] = (
+    ".txt",
+    ".fragment",
+    *IMAGE_SOURCE_EXTENSIONS,
     ".pdf",
     ".doc",
     ".docx",
@@ -50,7 +61,7 @@ def resolve_document_format(file_path: str) -> DocumentFormat:
         return DocumentFormat.FRAGMENT
     if extension == ".txt":
         return DocumentFormat.TEXT
-    if extension in (".png", ".jpg", ".jpeg"):
+    if extension in IMAGE_SOURCE_EXTENSIONS:
         return DocumentFormat.IMAGE
     if extension == ".pdf":
         return DocumentFormat.PDF

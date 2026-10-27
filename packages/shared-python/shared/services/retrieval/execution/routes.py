@@ -250,6 +250,7 @@ async def _run_agent_explore_route(
     )
     from shared.services.retrieval.agent_explore.budget import EpisodeBudget
     from shared.services.retrieval.agent_explore.evidence_pool import (
+        attach_candidate_lit_pages,
         compose_pool_evidence,
         pool_chunk_refs,
     )
@@ -295,6 +296,7 @@ async def _run_agent_explore_route(
             refs=chunk_refs,
             revision_pins=context.revision_pins,
         )
+        attach_candidate_lit_pages(resolved.rows, episode.pool)
         assembled_rows = await assemble_retrieval_results(
             db=final_db,
             rows=resolved.rows,

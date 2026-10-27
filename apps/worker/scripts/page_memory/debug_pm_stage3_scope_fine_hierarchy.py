@@ -67,12 +67,15 @@ def _resolve_scope_processing_pages(
     toc_pages: list[int],
 ) -> tuple[list[int], list[int]]:
     from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
+    from app.services.page_memory._utils import is_toc_node
 
     toc_pages = sorted({int(page) for page in (toc_pages or [])})
-    processing_pages = [
-        int(page) for page in (scope_meta.get("processing_pages") or [])
-    ]
-    if not processing_pages:
+    recorded_pages = scope_meta.get("processing_pages")
+    if isinstance(recorded_pages, list):
+        processing_pages = [int(page) for page in recorded_pages]
+    elif skeletons and all(is_toc_node(item) for item in skeletons):
+        processing_pages = []
+    else:
         processing_pages = pages_excluding_toc(
             _derive_hierarchy_page_scope(
                 skeletons=skeletons,

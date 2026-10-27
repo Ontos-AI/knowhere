@@ -355,7 +355,7 @@ def tb_htmlstr_to_df(html_str):
 def merge_html_tables(lines: list) -> list:
     """Merge multi-line HTML tables into single lines.
 
-    MinerU and some parsers output HTML tables with line breaks inside.
+    Some parsers output HTML tables with line breaks inside.
     This function joins all lines from <table> to </table> into a single line.
 
     Args:

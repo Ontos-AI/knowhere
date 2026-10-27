@@ -14,6 +14,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.services.document_parser.orchestration.format_router import (
+    IMAGE_SOURCE_EXTENSIONS,
+)
 from shared.core.logging import logger
 from shared.utils.text_utils import count_cn_en
 
@@ -60,7 +63,7 @@ class PageEstimator:
             return cls._estimate_with_fallback("xlsx_rows", cls._count_xlsx, file_path)
         if suffix in [".txt", ".md", ".json", ".fragment"]:
             return cls._estimate_with_fallback("text_words", cls._count_text, file_path)
-        if suffix in [".png", ".jpg", ".jpeg"]:
+        if suffix in IMAGE_SOURCE_EXTENSIONS:
             return WorkloadEstimate(page_count=1, method="image_default")
 
         fallback_reason = f"unknown_file_type:{suffix or '<none>'}"
