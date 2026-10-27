@@ -138,6 +138,38 @@ def test_extract_fine_page_text_mineru_maps_layout_pages(monkeypatch, tmp_path: 
     )
 
     assert extracted == {1: "page one body", 3: "page three body"}
+    assert not (tmp_path / "fine").exists()
+
+
+def test_extract_fine_page_text_mineru_failure_keeps_m0(monkeypatch, tmp_path: Path) -> None:
+    calls: list[object] = []
+
+    def boom(*_args, **_kwargs):
+        calls.append(True)
+        raise AssertionError("transcribe must not run when mineru falls back to none")
+
+    monkeypatch.setattr(
+        "app.services.page_memory.page_text_extractor.transcribe",
+        boom,
+    )
+    monkeypatch.setattr(
+        "app.services.document_parser.formats.pdf.shard_splitter.split_pdf",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("split failed")),
+    )
+
+    extracted = extract_fine_page_text(
+        pdf_path=str(tmp_path / "doc.pdf"),
+        rendered=[SimpleNamespace(page_index=1, image_path="/tmp/p1.png")],
+        final_pages=[1],
+        extractor="mineru",
+        vlm_model="vision",
+        output_dir=str(tmp_path / "fine"),
+        concurrency=1,
+    )
+
+    assert extracted == {}
+    assert calls == []
+    assert not (tmp_path / "fine").exists()
 
 
 def test_assemble_c7_prefers_fine_text_over_m0_bands(tmp_path: Path) -> None:

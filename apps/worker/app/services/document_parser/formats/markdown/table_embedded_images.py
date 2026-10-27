@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from dataclasses import dataclass
 
 from bs4 import BeautifulSoup, Tag
@@ -15,7 +14,6 @@ from app.services.document_parser.formats.markdown.image_asset import (
     build_markdown_image_asset,
     build_markdown_image_name,
 )
-from app.services.document_parser.formats.markdown.layout_bbox_index import AssetRegion
 from app.services.document_parser.formats.markdown.parse_state import MarkdownParseState
 from shared.utils.chunk_refs import build_chunk_ref
 
@@ -48,7 +46,6 @@ def extract_table_embedded_images(
     output_dir: str,
     image_dir: str,
     summary_image: bool,
-    image_regions: Mapping[str, AssetRegion] | None = None,
 ) -> TableEmbeddedImagesResult:
     """Pull <img> assets out of a table, rename them, and rewrite HTML srcs.
 
@@ -91,7 +88,6 @@ def extract_table_embedded_images(
                 summary_image=summary_image,
                 row_index=len(parser_state.rows) + len(image_assets),
                 rename_on_summary=False,
-                image_regions=image_regions,
             )
         )
         if image_asset.discarded_undersized:

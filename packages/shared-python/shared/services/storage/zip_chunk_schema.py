@@ -265,7 +265,7 @@ def _normalize_asset_region(value: Any) -> dict[str, Any] | None:
         "page_width": page_width,
         "page_height": page_height,
     }
-    # Only the page track crops with a margin; the text track does not crop.
+    # Only page-memory crops with a margin.
     if (crop_margin_px := _non_negative_int_or_none(value.get("crop_margin_px"))) is not None:
         region["crop_margin_px"] = crop_margin_px
     return region

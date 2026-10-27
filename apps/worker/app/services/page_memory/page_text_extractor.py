@@ -1,14 +1,17 @@
 """Fine-stage verbatim page-text extraction (advanced, default off).
 
 Called unconditionally after fine render. ``extractor="none"`` returns immediately
-with no extra model or MinerU calls. ``vlm`` / ``mineru`` fill page text used to
-overwrite M0 band content when the advanced switch is on.
+with no extra model or parser calls. ``vlm`` / ``mineru`` fill page text used to
+overwrite M0 band content when the advanced switch is on. MinerU is one
+optional backend; only page text is consumed, and its work directory is
+deleted after the read.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 from typing import Any
 
 from loguru import logger
@@ -44,15 +47,10 @@ def extract_fine_page_text(
             )
         except Exception as exc:
             logger.warning(
-                "[page_text_extractor] mineru failed; falling back to vlm: {}",
+                "[page_text_extractor] mineru failed; keeping M0 text: {}",
                 exc,
             )
-            return _extract_via_vlm(
-                rendered=rendered,
-                final_pages=pages,
-                vlm_model=vlm_model,
-                concurrency=concurrency,
-            )
+            return {}
     if resolved == "vlm":
         return _extract_via_vlm(
             rendered=rendered,
@@ -121,27 +119,30 @@ def _extract_via_mineru(
         return {}
     work_dir = os.path.join(output_dir, "mineru")
     os.makedirs(work_dir, exist_ok=True)
-    page_start = ordered[0]
-    page_end = ordered[-1]
-    exclude_pages = set(range(page_start, page_end + 1)) - set(ordered)
-    live_shards = split_pdf(
-        pdf_path,
-        [MergedShard(0, page_start=page_start, page_end=page_end)],
-        work_dir,
-        exclude_pages=exclude_pages or None,
-    )
-    if not live_shards:
-        return {}
-    live = live_shards[0]
-    parse_via_full(
-        live.pdf_path,
-        os.path.basename(live.pdf_path) or "scope.pdf",
-        work_dir,
-    )
-    return _page_text_from_layout(
-        os.path.join(work_dir, "layout.json"),
-        live.page_numbers,
-    )
+    try:
+        page_start = ordered[0]
+        page_end = ordered[-1]
+        exclude_pages = set(range(page_start, page_end + 1)) - set(ordered)
+        live_shards = split_pdf(
+            pdf_path,
+            [MergedShard(0, page_start=page_start, page_end=page_end)],
+            work_dir,
+            exclude_pages=exclude_pages or None,
+        )
+        if not live_shards:
+            return {}
+        live = live_shards[0]
+        parse_via_full(
+            live.pdf_path,
+            os.path.basename(live.pdf_path) or "scope.pdf",
+            work_dir,
+        )
+        return _page_text_from_layout(
+            os.path.join(work_dir, "layout.json"),
+            live.page_numbers,
+        )
+    finally:
+        shutil.rmtree(output_dir, ignore_errors=True)
 
 
 def _page_text_from_layout(layout_json_path: str, page_numbers: list[int]) -> dict[int, str]:
