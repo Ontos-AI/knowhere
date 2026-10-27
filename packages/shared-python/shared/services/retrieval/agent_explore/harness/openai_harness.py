@@ -4,7 +4,7 @@ via an OpenAI-compatible (DeepSeek) function-calling loop.
 Uses ``OpenAICompatibleClientSync.chat_completion_raw_with_usage`` — the RAW
 response, not ``chat_completion_with_usage`` — because the latter only
 returns ``.content`` and silently drops ``message.tool_calls``. Verified live
-(2026-09-08) against ``deepseek-v4-flash`` via this codebase's client:
+(2026-09-08) against ``deepseek-flash`` via this codebase's client:
 single tool call, parallel tool calls in one turn, tool-result feedback +
 final synthesis, and forced ``tool_choice`` (used for the budget-exhaustion
 cutoff and the pick phase below) all work.

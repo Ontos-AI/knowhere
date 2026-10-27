@@ -86,7 +86,7 @@ class OpenAICompatibleClientSync:
         timeout: int = 300,
         max_retries: int = 2,
     ):
-        self.default_model = default_model or getattr(settings, "NORMOL_MODEL", "deepseek-v4-flash")
+        self.default_model = default_model or getattr(settings, "NORMOL_MODEL", "deepseek-flash")
         self._explicit_api_key = api_key
         self._explicit_api_url = api_url
         self._max_retries = max_retries

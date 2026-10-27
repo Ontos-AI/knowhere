@@ -1,21 +1,22 @@
 """Production config for the ``agent_explore`` in-process tool-loop.
 
-Model choice for the OpenAI-compatible harness is ``deepseek-v4-flash``:
-tool-calling (single, parallel, and forced ``tool_choice``) was verified
-live against this exact model; no other model has been verified for this
-codebase's OpenAI-compatible client.
+Model choice for the OpenAI-compatible harness is ``deepseek-flash``:
+the current official DeepSeek API name for V4.1-Flash. Tool-calling
+(single, parallel, and forced ``tool_choice``) was verified live against
+this model family; no other model has been verified for this codebase's
+OpenAI-compatible client.
 """
 
 from __future__ import annotations
 
-AGENT_EXPLORE_MODEL = "deepseek-v4-flash"
+AGENT_EXPLORE_MODEL = "deepseek-flash"
 
 # Model for AGENT_EXPLORE_HARNESS=cursor_sdk (harness/cursor_harness.py) —
 # a separate constant from AGENT_EXPLORE_MODEL because that harness's
 # provider (Cursor SDK) is a disjoint model catalog from the OpenAI-compatible
 # client's, not an interchangeable choice. "composer-2.5" is what the PoC
 # (apps/worker/scripts/debug_cursor_agent_explore.py) verified live and
-# noticeably outperformed deepseek-v4-flash on the two hardest eval-fixture
+# noticeably outperformed deepseek-flash on the two hardest eval-fixture
 # queries (q04/q06) — see the Phase 3.5 landing record.
 AGENT_EXPLORE_CURSOR_MODEL = "composer-2.5"
 

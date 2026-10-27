@@ -33,7 +33,7 @@ def classify_page_kinds(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
     labels = [_label_feature(feature) for feature in ctx.blackboard.page_features]
     ctx.blackboard.page_labels = labels
-    counts = Counter(label.kind for label in labels)
+    counts = dict(Counter(label.kind for label in labels))
     ctx.blackboard.global_signals["page_kind_counts"] = counts
     features_by_page = {feature.page: feature for feature in ctx.blackboard.page_features}
     samples: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -50,11 +50,11 @@ def classify_page_kinds(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
         )
     return ToolResult(
         status="ok",
-        payload={"page_kind_counts": dict(counts)},
+        payload={"page_kind_counts": counts},
         latency_ms=int((time.monotonic() - start) * 1000),
         input_summary={"page_count": ctx.blackboard.page_count},
         output_summary={
-            "page_kind_counts": dict(counts),
+            "page_kind_counts": counts,
             "sample_pages_by_kind": dict(samples),
         },
     )
