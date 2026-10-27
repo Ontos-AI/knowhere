@@ -57,9 +57,10 @@ def _write_m0_workspace(
     tmp_path: Path,
     *,
     is_scanned: bool,
+    routing_category: str | None = None,
 ) -> str:
     add_dir = tmp_path / "scan"
-    add_dir.mkdir()
+    add_dir.mkdir(exist_ok=True)
     (add_dir / PHASE_B_SOURCE_PDF_REL).write_bytes(b"%PDF-1.4")
     blackboard_path = add_dir / PHASE_B_BLACKBOARD_REL
     blackboard_path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,7 +72,11 @@ def _write_m0_workspace(
                     "is_scanned": is_scanned,
                     "category": ["OTHER"],
                     "category_label": "Scanned Book",
-                    "routing_category": "scanned" if is_scanned else "generic",
+                    "routing_category": (
+                        routing_category
+                        if routing_category is not None
+                        else ("scanned" if is_scanned else "generic")
+                    ),
                     "language": "en",
                     "header_y": 0.06,
                     "footer_y": 0.95,
@@ -165,7 +170,53 @@ def test_resume_scanned_injects_visual_candidate_pages(
     assert captured["toc_strict"] is False
 
 
-def test_resume_born_digital_also_injects_visual_candidate_pages(
+def test_resume_born_digital_skips_visual_candidate_query_until_after_coarse(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: list[str] = []
+    injected: list[int] = []
+
+    def fail_if_queried(*_args: object, **_kwargs: object) -> set[int]:
+        raise AssertionError(
+            "Electronic PDF has no M0 page embeddings; must not query before coarse publish"
+        )
+
+    def fake_toc(self, *, strict: bool) -> None:
+        del strict
+        called.append("toc")
+        injected.extend(self.ctx.settings.get("toc_visual_candidate_pages") or [])
+
+    page_embedding_index_mod = _live_page_embedding_index()
+    import app.services.document_agent.coordinator as coordinator_mod
+    import app.services.document_parser.profiling.doc_profiler as doc_profiler
+
+    monkeypatch.setattr(
+        page_embedding_index_mod, "query_visual_candidate_pages", fail_if_queried
+    )
+    monkeypatch.setattr(
+        coordinator_mod.ProfileCoordinator, "_ensure_toc_profile", fake_toc
+    )
+    monkeypatch.setattr(
+        coordinator_mod.ProfileCoordinator,
+        "run_lightweight_anatomy",
+        lambda self: SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        doc_profiler, "_map_toc_profile", lambda _coordinator: SimpleNamespace()
+    )
+
+    add_dir = _write_m0_workspace(tmp_path, is_scanned=False)
+    _resume_profile_from_m0_workspace(
+        add_dir=add_dir,
+        target=_target(),
+        job_result_id="jr_native",
+    )
+    assert called == ["toc"]
+    assert injected == []
+
+
+def test_resume_routing_scanned_injects_visual_candidate_pages(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -206,11 +257,15 @@ def test_resume_born_digital_also_injects_visual_candidate_pages(
         doc_profiler, "_map_toc_profile", lambda _coordinator: SimpleNamespace()
     )
 
-    add_dir = _write_m0_workspace(tmp_path, is_scanned=False)
+    add_dir = _write_m0_workspace(
+        tmp_path,
+        is_scanned=False,
+        routing_category="scanned",
+    )
     _resume_profile_from_m0_workspace(
         add_dir=add_dir,
         target=_target(),
-        job_result_id="jr_native",
+        job_result_id="jr_routing_scan",
     )
     assert called == ["query", "toc"]
     assert injected == [4, 5]

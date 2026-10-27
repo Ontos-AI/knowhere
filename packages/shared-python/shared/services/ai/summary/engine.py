@@ -324,7 +324,7 @@ def _summarize_body(
                 "lang": detected_lang,
             },
         )
-        resolved_model = model or os.environ.get("NORMOL_MODEL", "deepseek-v4-flash")
+        resolved_model = model or os.environ.get("NORMOL_MODEL", "deepseek-flash")
         parsed = _call_llm(
             prompt=prompt,
             model=resolved_model,
@@ -370,7 +370,7 @@ def _summarize_asset(
             "",
             paras={"max_tokens": summary_len, "kw_num": 5, "lang": detected_lang},
         )
-        resolved_model = model or os.environ.get("NORMOL_MODEL", "deepseek-v4-flash")
+        resolved_model = model or os.environ.get("NORMOL_MODEL", "deepseek-flash")
         raw = _call_llm(
             prompt=prompt,
             model=resolved_model,

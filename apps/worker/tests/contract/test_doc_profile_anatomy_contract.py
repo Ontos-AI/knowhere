@@ -325,6 +325,35 @@ def test_parse_run_recorder_profile_only_row_is_updated_by_anatomy_flush() -> No
     assert db.rows[0].doc_profile["toc"]["method"] == "vlm_batch"
 
 
+def test_classify_page_kinds_keeps_profile_json_serializable() -> None:
+    from app.services.document_agent.manifest import ToolContext
+    from app.services.document_agent.state import ProfileBlackboard
+    from app.services.document_agent.tools.classify_page_kinds import (
+        classify_page_kinds,
+    )
+
+    blackboard = ProfileBlackboard(
+        page_count=2,
+        page_features=[_page_feature(1), _page_feature(2)],
+    )
+    ctx = ToolContext(
+        pdf_path="/tmp/doc.pdf",
+        job_id="job-json-counts",
+        blackboard=blackboard,
+        trace=None,
+    )
+    classify_page_kinds(ctx, {})
+    profile = ParserDocumentProfile(
+        file_type="pdf",
+        page_count=2,
+        metrics={
+            "page_kind_counts": blackboard.global_signals["page_kind_counts"],
+        },
+    )
+    serialized = json.loads(json.dumps(profile.to_dict()))
+    assert serialized["metrics"]["page_kind_counts"] == {"normal": 2}
+
+
 def test_run_structural_retries_transient_confirm_failed_toc_result(
     monkeypatch,
     tmp_path: Path,

@@ -213,7 +213,7 @@ flowchart LR
 
 | Task | Config Key | Default Model |
 |:---|:---|:---|
-| Text/table summarization | `NORMOL_MODEL` | `deepseek-chat` |
+| Text/table summarization | `NORMOL_MODEL` | `deepseek-flash` |
 | Heading hierarchy recognition | `HIERARCHY_LLM_MODEL` | Falls back to `NORMOL_MODEL` |
 | Image description / OCR / classification (VLM) | `IMAGE_MODEL` | `deepseek-flash` |
 | Page-memory chart/table bbox (VLM) | `ASSET_MODEL` | Follows `IMAGE_MODEL` when empty |

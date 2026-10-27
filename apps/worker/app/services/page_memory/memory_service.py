@@ -145,6 +145,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 getattr(profile, "page_body_text_cache", None)
             )
             if visual_m0_enabled:
+                treat_as_scanned = treat_profile_as_scanned(profile)
                 parsed_df = _build_visual_m0_dataframe(
                     pdf_path=pdf_path,
                     filename=request.filename,
@@ -152,6 +153,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                     page_count=page_count,
                     page_texts=page_texts,
                     body_text_by_page=body_text_by_page,
+                    embed_pages=treat_as_scanned,
                 )
             else:
                 parsed_df = build_coarse_text_dataframe(
@@ -204,6 +206,52 @@ def _persist_source_pdf(*, pdf_path: str, output_dir: str) -> str:
     return source_pdf_path
 
 
+def treat_profile_as_scanned(profile: Any) -> bool:
+    from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
+
+    if bool(getattr(profile, "is_scanned", False)):
+        return True
+    return (
+        PdfRoutingCategory.normalize(getattr(profile, "routing_category", None))
+        == PdfRoutingCategory.SCANNED
+    )
+
+
+def embed_rendered_pages(
+    *,
+    image_path_by_page: dict[int, str],
+    pages: list[int],
+    filename: str | None,
+) -> dict[int, list[float]]:
+    from shared.services.ai.embedding import embed_images
+
+    ordered_pages = [page for page in pages if page in image_path_by_page]
+    if not ordered_pages:
+        return {}
+    with stage_timer(
+        "page_memory.m0_embed",
+        filename=filename,
+        page_count=len(ordered_pages),
+    ):
+        vectors = embed_images(
+            [image_path_by_page[page] for page in ordered_pages],
+            usage_task="page_memory.m0_embed",
+        )
+    embeddings_by_page: dict[int, list[float]] = {}
+    skipped_pages: list[int] = []
+    for page, vec in zip(ordered_pages, vectors, strict=True):
+        if isinstance(vec, list) and vec:
+            embeddings_by_page[page] = vec
+        else:
+            skipped_pages.append(page)
+    if skipped_pages:
+        logger.warning(
+            "Skipped page embeddings after retries; document continues: pages={}",
+            skipped_pages,
+        )
+    return embeddings_by_page
+
+
 def _build_visual_m0_dataframe(
     *,
     pdf_path: str,
@@ -212,9 +260,9 @@ def _build_visual_m0_dataframe(
     page_count: int,
     page_texts: dict[int, str],
     body_text_by_page: dict[int, str],
+    embed_pages: bool = True,
 ) -> pd.DataFrame:
     from app.services.page_memory.page_renderer import render_document_pages
-    from shared.services.ai.embedding import embed_images
 
     pages = list(range(1, max(int(page_count or 0), 0) + 1))
     with stage_timer("page_memory.m0_render", filename=filename, page_count=len(pages)):
@@ -231,28 +279,15 @@ def _build_visual_m0_dataframe(
         for item in rendered
         if item.image_path
     }
-    ordered_pages = [page for page in pages if page in image_path_by_page]
-    with stage_timer(
-        "page_memory.m0_embed",
-        filename=filename,
-        page_count=len(ordered_pages),
-    ):
-        vectors = embed_images(
-            [image_path_by_page[page] for page in ordered_pages],
-            usage_task="page_memory.m0_embed",
+    embeddings_by_page = (
+        embed_rendered_pages(
+            image_path_by_page=image_path_by_page,
+            pages=pages,
+            filename=filename,
         )
-    embeddings_by_page = {}
-    skipped_pages: list[int] = []
-    for page, vec in zip(ordered_pages, vectors, strict=True):
-        if isinstance(vec, list) and vec:
-            embeddings_by_page[page] = vec
-        else:
-            skipped_pages.append(page)
-    if skipped_pages:
-        logger.warning(
-            "Skipped page embeddings after retries; document continues: pages={}",
-            skipped_pages,
-        )
+        if embed_pages
+        else {}
+    )
     return build_coarse_text_dataframe(
         page_texts=page_texts,
         body_text_by_page=body_text_by_page,
