@@ -28,7 +28,9 @@ from app.services.document_parser.support.parser_rows import PARSER_DF_COLUMNS
 from app.services.page_memory._utils import CoarseScope, sort_skeletons
 from app.services.page_memory.memory_service import (
     assemble_c7_node_rows,
+    embed_rendered_pages,
     run_single_scope,
+    treat_profile_as_scanned,
 )
 from app.services.page_memory.phase_a import (
     PHASE_B_ANATOMY_REL,
@@ -174,9 +176,14 @@ def execute_structure_enrichment(
                 )
             ),
         )
+        publication_scope = _build_publication_scope(
+            target=target,
+            job_result_id=job_result_id,
+        )
         published_ok = _publish_coarse_structure_and_write_scopes(
             job_result_id=job_result_id,
             target=target,
+            publication_scope=publication_scope,
             chunks=coarse_chunks,
             section_summaries=coarse_summaries,
             phase_b_refs=phase_b_refs,
@@ -184,6 +191,13 @@ def execute_structure_enrichment(
         )
         if not published_ok:
             return {"status": "aborted", "job_result_id": job_result_id}
+
+        _generate_and_persist_page_embeddings(
+            add_dir=add_dir,
+            workspace_dir=workspace_dir,
+            profile=profile,
+            publication_scope=publication_scope,
+        )
 
         enqueued_scopes = enqueue_low_priority_scope_enrichments_after_commit(
             job_result_id
@@ -619,26 +633,29 @@ def _resume_profile_from_m0_workspace(
     bb.page_text_search_view = None
     if not bb.page_full_text_cache:
         coordinator._run_text_scan()
-    queries = sorted(
-        _all_scan_keywords(
-            prefix_keywords=_prefix_toc_keywords_for_categories(
-                doc_profile.category
+    routing_category = PdfRoutingCategory.normalize(doc_profile.routing_category)
+    if treat_profile_as_scanned(doc_profile):
+        queries = sorted(
+            _all_scan_keywords(
+                prefix_keywords=_prefix_toc_keywords_for_categories(
+                    doc_profile.category
+                )
             )
         )
-    )
-    with get_sync_db_context() as db:
-        visual_pages = query_visual_candidate_pages(
-            db,
-            namespace=target.namespace,
-            document_id=target.document_id,
-            job_result_id=job_result_id,
-            queries=queries,
-        )
-    if visual_pages:
-        coordinator.ctx.settings["toc_visual_candidate_pages"] = sorted(visual_pages)
+        with get_sync_db_context() as db:
+            visual_pages = query_visual_candidate_pages(
+                db,
+                namespace=target.namespace,
+                document_id=target.document_id,
+                job_result_id=job_result_id,
+                queries=queries,
+            )
+        if visual_pages:
+            coordinator.ctx.settings["toc_visual_candidate_pages"] = sorted(
+                visual_pages
+            )
     coordinator._ensure_toc_profile(strict=False)
 
-    routing_category = PdfRoutingCategory.normalize(doc_profile.routing_category)
     profile = ParserDocumentProfile(
         file_type="pdf",
         category=doc_profile.category,
@@ -670,22 +687,30 @@ def _resume_profile_from_m0_workspace(
     return profile
 
 
-def _publish_coarse_structure_and_write_scopes(
+def _build_publication_scope(
     *,
-    job_result_id: str,
     target: _ClaimedScopeTarget,
-    chunks: list[dict[str, Any]],
-    section_summaries: dict[str, str],
-    phase_b_refs: list[str],
-    scope_publisher: ScopePublisher,
-) -> bool:
-    publication_scope = DocumentPublicationScope(
+    job_result_id: str,
+) -> DocumentPublicationScope:
+    return DocumentPublicationScope(
         user_id=target.user_id,
         namespace=target.namespace,
         document_id=target.document_id,
         job_result_id=job_result_id,
         source_file_name=target.source_file_name,
     )
+
+
+def _publish_coarse_structure_and_write_scopes(
+    *,
+    job_result_id: str,
+    target: _ClaimedScopeTarget,
+    publication_scope: DocumentPublicationScope,
+    chunks: list[dict[str, Any]],
+    section_summaries: dict[str, str],
+    phase_b_refs: list[str],
+    scope_publisher: ScopePublisher,
+) -> bool:
     with get_sync_db_context() as db:
         document = db.execute(
             select(Document)
@@ -719,6 +744,91 @@ def _publish_coarse_structure_and_write_scopes(
         },
     )
     return True
+
+
+def _generate_and_persist_page_embeddings(
+    *,
+    add_dir: str,
+    workspace_dir: str,
+    profile: Any,
+    publication_scope: DocumentPublicationScope,
+) -> int:
+    """Render and embed pages for electronic documents after coarse structure publish."""
+    from app.services.page_memory.page_renderer import render_document_pages
+    from shared.core.config import settings
+    from shared.services.retrieval.cache_service import (
+        bump_retrieval_namespace_cache_version_sync,
+    )
+    from shared.services.retrieval.page_embedding_index import (
+        replace_document_page_embeddings,
+    )
+
+    if not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)):
+        return 0
+    if treat_profile_as_scanned(profile):
+        return 0
+    page_count = max(int(getattr(profile, "page_count", 0) or 0), 0)
+    if page_count <= 0:
+        return 0
+
+    try:
+        pdf_path = os.path.join(add_dir, PHASE_B_SOURCE_PDF_REL)
+        pages = list(range(1, page_count + 1))
+        page_texts = coerce_page_text_cache(
+            getattr(profile, "page_full_text_cache", None)
+        )
+        rendered = render_document_pages(
+            pdf_path=pdf_path,
+            page_count=page_count,
+            output_dir=workspace_dir,
+            scope_id="m0_defer",
+            pages=pages,
+            page_texts=page_texts,
+        )
+        image_path_by_page = {
+            int(item.page_index): str(item.image_path)
+            for item in rendered
+            if item.image_path
+        }
+        embeddings_by_page = embed_rendered_pages(
+            image_path_by_page=image_path_by_page,
+            pages=pages,
+            filename=publication_scope.source_file_name,
+        )
+        if not embeddings_by_page:
+            return 0
+        with get_sync_db_context() as db:
+            document = db.execute(
+                select(Document)
+                .where(Document.document_id == publication_scope.document_id)
+                .with_for_update()
+            ).scalar_one_or_none()
+            if (
+                document is None
+                or document.status != "active"
+                or document.current_job_result_id
+                != publication_scope.job_result_id
+            ):
+                return 0
+            inserted = replace_document_page_embeddings(
+                db,
+                scope=publication_scope,
+                incoming_embeddings_by_page=embeddings_by_page,
+            )
+        if inserted:
+            bump_retrieval_namespace_cache_version_sync(
+                user_id=publication_scope.user_id,
+                namespace=publication_scope.namespace,
+            )
+        return inserted
+    except Exception as exc:
+        logger.warning(
+            "[page_memory] failed to generate deferred page embeddings "
+            "job_result_id={}: {}",
+            publication_scope.job_result_id,
+            exc,
+        )
+        return 0
 
 
 def _claim_and_validate_scope(
@@ -908,12 +1018,9 @@ def _publish_and_mark_refined(
     scope_publisher: ScopePublisher,
 ) -> bool | None:
     now = utc_now_naive()
-    publication_scope = DocumentPublicationScope(
-        user_id=target.user_id,
-        namespace=target.namespace,
-        document_id=target.document_id,
+    publication_scope = _build_publication_scope(
+        target=target,
         job_result_id=job_result_id,
-        source_file_name=target.source_file_name,
     )
     with get_sync_db_context() as db:
         document = db.execute(

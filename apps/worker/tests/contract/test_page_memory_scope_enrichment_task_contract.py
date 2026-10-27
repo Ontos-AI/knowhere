@@ -34,6 +34,7 @@ from shared.core.celery_app import celery_app
 from shared.models.database.document import (
     Document,
     DocumentChunk,
+    DocumentPageEmbedding,
     DocumentScopeEnrichment,
 )
 from shared.models.database.job import Job
@@ -1026,10 +1027,51 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
         "_resume_profile_from_m0_workspace",
         lambda **_kw: fake_profile,
     )
+    import app.services.page_memory.page_renderer as page_renderer_mod
     import app.services.page_memory.skeleton_extractor as skel_mod
+    from shared.core.config import settings
+    from shared.services.ai import embedding as embedding_pkg
+    from shared.services.ai.embedding import DEFAULT_EMBEDDING_DIM
 
     monkeypatch.setattr(
         skel_mod, "extract_section_skeletons", lambda **_kw: skeletons
+    )
+    monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
+
+    def _fake_defer_render(
+        *,
+        output_dir: str,
+        scope_id: str,
+        pages: list[int],
+        page_texts: dict[int, str],
+        **_kw: object,
+    ) -> list[PageRenderResult]:
+        render_dir = Path(output_dir) / "pages" / scope_id
+        render_dir.mkdir(parents=True, exist_ok=True)
+        out: list[PageRenderResult] = []
+        for page in pages:
+            img_path = render_dir / f"page-{page}.png"
+            img_path.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes([page]))
+            out.append(
+                PageRenderResult(
+                    page_index=page,
+                    image_path=str(img_path),
+                    raw_text=page_texts.get(page, ""),
+                    width=600.0,
+                    height=800.0,
+                    is_landscape=False,
+                )
+            )
+        return out
+
+    vec_one = [1.0] + [0.0] * (DEFAULT_EMBEDDING_DIM - 1)
+    monkeypatch.setattr(
+        page_renderer_mod, "render_document_pages", _fake_defer_render
+    )
+    monkeypatch.setattr(
+        embedding_pkg,
+        "embed_images",
+        lambda inputs, **_kw: [vec_one for _ in inputs],
     )
 
     storage = _InMemoryResultStorage(
@@ -1145,6 +1187,21 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
                 (c.chunk_metadata or {}).get("enrichment_state")
                 for c in chunks_after
             } == {"coarse"}
+            emb_rows = list(
+                session.scalars(
+                    select(DocumentPageEmbedding)
+                    .where(DocumentPageEmbedding.document_id == doc_id)
+                    .where(DocumentPageEmbedding.job_result_id == revision_id)
+                    .order_by(DocumentPageEmbedding.page_num)
+                ).all()
+            )
+            assert [r.page_num for r in emb_rows] == [1, 2, 3, 4]
+            assert [r.chunk_id for r in emb_rows] == [
+                chunks_after[0].chunk_id,
+                chunks_after[0].chunk_id,
+                chunks_after[1].chunk_id,
+                chunks_after[1].chunk_id,
+            ]
             scope_rows = list(
                 session.scalars(
                     select(DocumentScopeEnrichment)
