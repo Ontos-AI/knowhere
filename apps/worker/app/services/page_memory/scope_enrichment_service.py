@@ -663,11 +663,9 @@ def _resume_profile_from_m0_workspace(
     )
     if not profile.is_atlas:
         if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
-            profile.anatomy = coordinator.run_structural(skip_shard_plan=True)
+            profile.anatomy = coordinator.run_structural()
         else:
-            profile.anatomy = coordinator.run_lightweight_anatomy(
-                skip_shard_plan=True
-            )
+            profile.anatomy = coordinator.run_lightweight_anatomy()
     profile.toc = _map_toc_profile(coordinator)
     return profile
 

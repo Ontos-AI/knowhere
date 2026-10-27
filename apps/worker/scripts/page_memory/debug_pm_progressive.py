@@ -272,7 +272,7 @@ def _run_coarse(
     chunks = list(dataframe_to_chunks(phase_a.coarse_df))
     _write_chunk_bundle(out_dir / "coarse_chunks.json", chunks)
     _write_chunk_bundle(out_dir / "chunks.json", chunks)
-    _build_scope_section_summaries(
+    coarse_summaries = _build_scope_section_summaries(
         output_dir=str(out_dir),
         chunks=chunks,
         source_file_name=filename,
@@ -303,6 +303,7 @@ def _run_coarse(
             args=args,
             replace_scope_id="*",
             write_scope_rows=True,
+            section_summaries=coarse_summaries,
         )
     extra = {
         "page_count": int(phase_a.manifest.get("page_count") or 0),
@@ -412,6 +413,8 @@ def _run_fine(
             enrichment_status="coarse",
             args=args,
             replace_scope_id=scope_id,
+            section_summaries=output.section_summaries,
+            artifact_refs=output.artifact_refs,
         )
         logger.info(
             "  fine {} chunks={} → {}",
@@ -514,8 +517,22 @@ def _print_scopes(scopes: list[dict[str, Any]]) -> None:
 
 def _write_chunk_bundle(path: _Path, chunks: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    serializable: list[dict[str, Any]] = []
+    for chunk in chunks:
+        meta = chunk.get("metadata")
+        if isinstance(meta, dict) and "_page_embedding" in meta:
+            serializable.append(
+                {
+                    **chunk,
+                    "metadata": {
+                        k: v for k, v in meta.items() if k != "_page_embedding"
+                    },
+                }
+            )
+        else:
+            serializable.append(chunk)
     path.write_text(
-        json.dumps({"chunks": chunks}, ensure_ascii=False, indent=2),
+        json.dumps({"chunks": serializable}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
@@ -529,15 +546,18 @@ def _maybe_publish(
     args: Any,
     replace_scope_id: str | None,
     write_scope_rows: bool = False,
+    section_summaries: dict[str, str] | None = None,
+    artifact_refs: set[str] | None = None,
 ) -> None:
     if not args.run_db:
         return
-    from scripts._debug_publish import publish_debug_result_dir
+    from scripts._debug_publish import _upload_assets, publish_debug_result_dir
     from shared.core.database_sync import get_sync_db_context
-    from shared.models.database.document import Document
+    from shared.models.database.document import Document, DocumentScopeEnrichment
     from shared.models.database.job import Job
     from shared.models.database.job_result import JobResult
-    from sqlalchemy import select
+    from shared.utils.utc_now import utc_now_naive
+    from sqlalchemy import func, select, update
 
     state = _load_debug_state(out_dir)
     if state is None or replace_scope_id is None:
@@ -615,6 +635,14 @@ def _maybe_publish(
         replace_document_scope_content,
     )
 
+    if not args.skip_assets and artifact_refs:
+        _upload_assets(
+            job_id=str(state["job_id"]),
+            result_dir=str(out_dir),
+            refs=artifact_refs,
+        )
+
+    effective_status = enrichment_status
     with get_sync_db_context() as db:
         replace_document_scope_content(
             db,
@@ -627,6 +655,7 @@ def _maybe_publish(
             ),
             scope_id=replace_scope_id,
             chunks=chunks,
+            section_summaries=section_summaries,
         )
         if write_scope_rows:
             write_coarse_scope_enrichments(
@@ -634,23 +663,61 @@ def _maybe_publish(
                 document_id=str(state["document_id"]),
                 job_result_id=str(state["job_result_id"]),
             )
+        elif replace_scope_id != "*":
+            now = utc_now_naive()
+            db.execute(
+                update(DocumentScopeEnrichment)
+                .where(
+                    DocumentScopeEnrichment.job_result_id
+                    == str(state["job_result_id"])
+                )
+                .where(DocumentScopeEnrichment.scope_id == replace_scope_id)
+                .values(
+                    state="refined",
+                    refined_at=now,
+                    updated_at=now,
+                )
+            )
+            remaining = int(
+                db.execute(
+                    select(func.count())
+                    .select_from(DocumentScopeEnrichment)
+                    .where(
+                        DocumentScopeEnrichment.job_result_id
+                        == str(state["job_result_id"])
+                    )
+                    .where(DocumentScopeEnrichment.state != "refined")
+                ).scalar_one()
+            )
+            total_scopes = int(
+                db.execute(
+                    select(func.count())
+                    .select_from(DocumentScopeEnrichment)
+                    .where(
+                        DocumentScopeEnrichment.job_result_id
+                        == str(state["job_result_id"])
+                    )
+                ).scalar_one()
+            )
+            if total_scopes > 0 and remaining == 0:
+                effective_status = "complete"
         job = db.execute(select(Job).where(Job.job_id == state["job_id"])).scalar_one()
         job.job_metadata = {
             **dict(job.job_metadata or {}),
-            "enrichment_status": enrichment_status,
+            "enrichment_status": effective_status,
         }
         job_result = db.execute(
             select(JobResult).where(JobResult.id == state["job_result_id"])
         ).scalar_one()
         job_result.document_metadata = {
             **dict(job_result.document_metadata or {}),
-            "enrichment_status": enrichment_status,
+            "enrichment_status": effective_status,
         }
     logger.info(
         "  replaced scope={} on document_id={} status={}",
         replace_scope_id,
         state["document_id"],
-        enrichment_status,
+        effective_status,
     )
 
 

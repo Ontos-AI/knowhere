@@ -565,6 +565,8 @@ def test_scanned_progressive_m0_builds_visual_page_chunks(
     assert [c["metadata"]["enrichment_state"] for c in chunks] == ["text", "text"]
     assert chunks[0]["metadata"]["_page_embedding"][:2] == [1.0, 0.0]
     assert chunks[1]["metadata"]["_page_embedding"][:2] == [0.0, 1.0]
+    assert "asset_title" not in chunks[0]["metadata"]
+    assert "asset_title" not in chunks[1]["metadata"]
     assert (
         chunks[0]["metadata"]["page_assets"][0]["artifact_ref"]
         == "page_citation_assets/page-1.png"

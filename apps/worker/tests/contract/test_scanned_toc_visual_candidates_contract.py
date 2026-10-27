@@ -131,7 +131,7 @@ def test_resume_scanned_injects_visual_candidate_pages(
     )
     monkeypatch.setattr(
         "app.services.document_agent.coordinator.ProfileCoordinator.run_lightweight_anatomy",
-        lambda self, skip_shard_plan=False: SimpleNamespace(),
+        lambda self: SimpleNamespace(),
     )
     monkeypatch.setattr(
         "app.services.document_parser.profiling.doc_profiler._map_toc_profile",
@@ -182,7 +182,7 @@ def test_resume_born_digital_does_not_query_visual_pages(
     )
     monkeypatch.setattr(
         "app.services.document_agent.coordinator.ProfileCoordinator.run_lightweight_anatomy",
-        lambda self, skip_shard_plan=False: SimpleNamespace(),
+        lambda self: SimpleNamespace(),
     )
     monkeypatch.setattr(
         "app.services.document_parser.profiling.doc_profiler._map_toc_profile",

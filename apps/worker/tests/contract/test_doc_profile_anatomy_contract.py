@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import json
 import os
 from pathlib import Path
@@ -34,10 +33,8 @@ from app.services.document_parser.profiling import doc_profiler
 from app.services.document_parser.profiling.doc_profiler import profile_document
 from app.services.document_parser.profiling.profile_model import (
     ParserDocumentProfile,
-    ParserTocProfile,
 )
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
-from app.services.document_parser.structure.layout_parser import pred_titles
 
 
 def _page_feature(page: int = 1) -> PageFeature:
@@ -390,13 +387,13 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
     assert anatomy.toc_result.toc_pages == [17]
 
 
-def test_run_structural_skip_shard_plan_uses_placeholder_without_finalize(
+def test_run_structural_uses_single_shard_placeholder_without_finalize(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "oversized.pdf"),
-        job_id="job-structural-skip-shard",
+        job_id="job-structural-single-shard",
         output_dir=str(tmp_path / "profile"),
     )
     (tmp_path / "profile").mkdir()
@@ -436,7 +433,7 @@ def test_run_structural_skip_shard_plan_uses_placeholder_without_finalize(
         ),
     )
 
-    anatomy = coordinator.run_structural(skip_shard_plan=True)
+    anatomy = coordinator.run_structural()
 
     assert anatomy.shard_plan.enabled is False
     assert len(anatomy.shard_plan.shards) == 1
@@ -750,7 +747,7 @@ def test_standard_pdf_profile_builds_page_toc_and_lightweight_anatomy_by_default
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
+        def run_lightweight_anatomy(self):
             self.calls.append("run_lightweight_anatomy")
             return fake_anatomy
 
@@ -801,7 +798,7 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
+        def run_lightweight_anatomy(self):
             self.calls.append("run_lightweight_anatomy")
             self.blackboard.toc_result = TocResult(
                 method="none",
@@ -858,7 +855,7 @@ def test_page_memory_forces_toc_profiling_despite_kill_switch(
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
+        def run_lightweight_anatomy(self):
             self.calls.append("run_lightweight_anatomy")
             return fake_anatomy
 
@@ -872,7 +869,6 @@ def test_page_memory_forces_toc_profiling_despite_kill_switch(
         "standard.pdf",
         job_id="job-page-memory-toc-forced",
         output_dir=str(tmp_path),
-        skip_shard_plan=True,
         oversized_policy="page_memory",
     )
 
@@ -909,9 +905,8 @@ def test_page_memory_profile_bypasses_chunk_oversized_gate(
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_structural(self, *, skip_shard_plan: bool = False):
+        def run_structural(self):
             self.calls.append("run_structural")
-            self.skip_shard_plan = skip_shard_plan
             return fake_anatomy
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
@@ -923,13 +918,11 @@ def test_page_memory_profile_bypasses_chunk_oversized_gate(
         "oversized.pdf",
         job_id="job-page-memory-oversized",
         output_dir=str(tmp_path),
-        skip_shard_plan=True,
         oversized_policy="page_memory",
     )
 
     assert profile.anatomy is fake_anatomy
     assert fake_instances[0].calls == ["run_coarse", "run_structural"]
-    assert fake_instances[0].skip_shard_plan is True
 
 
 def test_standard_pdf_profile_maps_page_toc_evidence(
@@ -972,7 +965,7 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
+        def run_lightweight_anatomy(self):
             self.calls.append("run_lightweight_anatomy")
             return fake_anatomy
 
@@ -1043,10 +1036,10 @@ def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
                 routing_category=PdfRoutingCategory.ATLAS.value,
             )
 
-        def run_structural(self, *, skip_shard_plan: bool = False):
+        def run_structural(self):
             raise AssertionError("oversized atlas should not run structural anatomy")
 
-        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
+        def run_lightweight_anatomy(self):
             raise AssertionError("oversized atlas should not run lightweight anatomy")
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
@@ -1067,52 +1060,6 @@ def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
     assert profile.toc.has_toc is True
     assert profile.toc.attempted is True
     assert profile.toc.toc_pages == [4]
-
-
-def test_page_based_toc_demotes_front_matter_only_on_first_shard() -> None:
-    # Calibrated TOC slice carries toc_with_level only (no toc_tree).
-    # carries toc_with_level only (no toc_tree).
-    toc_hierarchies = [
-        {
-            "toc_range": [1, 10],
-            "toc_range_unit": "page",
-            "source": "calibrated_shard_split",
-            "toc_with_level": [
-                {"heading": "Risk Factors", "level": 1},
-                {"heading": "Business Overview", "level": 2},
-            ],
-        }
-    ]
-    lines = [
-        "1. Cover",
-        "2. Legal Notice",
-        "3. Risk Factors",
-        "4. Business",
-    ]
-
-    first_shard = pred_titles(
-        lines,
-        doc_type="md",
-        toc_hierarchies=toc_hierarchies,
-        smart_parse=False,
-        is_first_shard=True,
-    )
-    continuation = pred_titles(
-        lines,
-        doc_type="md",
-        toc_hierarchies=toc_hierarchies,
-        smart_parse=False,
-        is_first_shard=False,
-    )
-
-    first_levels = dict(zip(first_shard["id"], first_shard["level"], strict=False))
-    continuation_levels = dict(
-        zip(continuation["id"], continuation["level"], strict=False)
-    )
-    assert first_levels[0] == -1
-    assert first_levels[1] == -1
-    assert first_levels[2] > 0
-    assert continuation_levels[0] > 0
 
 
 def test_find_toc_anchor_pages_scanned_unions_text_and_visual(

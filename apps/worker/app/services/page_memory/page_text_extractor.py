@@ -96,6 +96,8 @@ def _extract_via_vlm(
     gevent.joinall(greenlets, raise_error=True)
     extracted: dict[int, str] = {}
     for greenlet in greenlets:
+        if greenlet.value is None:
+            continue
         page, text = greenlet.value
         if text:
             extracted[int(page)] = text
@@ -185,6 +187,33 @@ def _block_texts(blocks: list[Any]) -> list[str]:
                 content = str(span.get("content") or "").strip()
                 if content:
                     line_parts.append(content)
+                    continue
+                table_text = _table_html_text(span.get("html"))
+                if table_text:
+                    line_parts.append(table_text)
             if line_parts:
                 texts.append(" ".join(line_parts))
     return texts
+
+
+def _table_html_text(raw_html: Any) -> str:
+    html = str(raw_html or "").strip()
+    if not html:
+        return ""
+    from bs4 import BeautifulSoup, Tag
+
+    soup = BeautifulSoup(html, "html.parser")
+    rows: list[str] = []
+    for tr in soup.find_all("tr"):
+        if not isinstance(tr, Tag):
+            continue
+        cells = [
+            " ".join(cell.get_text(" ", strip=True).split())
+            for cell in tr.find_all(["th", "td"])
+        ]
+        row_text = " | ".join(cell for cell in cells if cell)
+        if row_text:
+            rows.append(row_text)
+    if rows:
+        return "\n".join(rows)
+    return " ".join(soup.get_text(" ", strip=True).split())

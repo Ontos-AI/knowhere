@@ -40,10 +40,6 @@ class LiveShard:
     page_numbers: list[int]
     pdf_path: str = ""
 
-    @property
-    def is_first_shard(self) -> bool:
-        return self.shard_index == 0
-
 
 def shard_page_numbers(shard: MergedShard, exclude_pages: set[int]) -> list[int]:
     """Original 1-based page numbers physically present in the shard PDF, in order.

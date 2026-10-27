@@ -32,7 +32,6 @@ from dotenv import load_dotenv
 
 load_dotenv(WORKER_ROOT / ".env")
 os.environ.setdefault("LOCAL_DEBUG", "1")
-os.environ.setdefault("OVERSIZED_PDF_SHARD_ENABLED", "true")
 
 from loguru import logger
 

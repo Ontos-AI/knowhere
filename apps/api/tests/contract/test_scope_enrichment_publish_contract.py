@@ -1298,6 +1298,19 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                 "_page_embedding" not in (c.chunk_metadata or {})
                 for c in persisted_chunks
             )
+            from shared.models.database.job_result import JobChunk
+
+            persisted_job_chunks = list(
+                session.scalars(
+                    select(JobChunk)
+                    .where(JobChunk.job_result_id == scope.revision_ref)
+                    .order_by(JobChunk.sort_order)
+                ).all()
+            )
+            assert all(
+                "_page_embedding" not in (c.chunk_metadata or {})
+                for c in persisted_job_chunks
+            )
 
         async def _verify_visual_m0_retrieval_and_tools() -> None:
             async with get_db_context() as async_db:

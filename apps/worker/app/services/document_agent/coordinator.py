@@ -66,18 +66,16 @@ class ProfileCoordinator:
             self._record_failure(exc)
             raise
 
-    def run_structural(self, *, skip_shard_plan: bool = False) -> PageAnatomyMap:
+    def run_structural(self) -> PageAnatomyMap:
         try:
-            return self._run_structural(skip_shard_plan=skip_shard_plan)
+            return self._run_structural()
         except Exception as exc:
             self._record_failure(exc)
             raise
 
-    def run_lightweight_anatomy(
-        self, *, skip_shard_plan: bool = False
-    ) -> PageAnatomyMap:
+    def run_lightweight_anatomy(self) -> PageAnatomyMap:
         try:
-            return self._run_lightweight_anatomy(skip_shard_plan=skip_shard_plan)
+            return self._run_lightweight_anatomy()
         except Exception as exc:
             self._record_failure(exc)
             raise
@@ -101,7 +99,7 @@ class ProfileCoordinator:
             self._ensure_disabled_toc_placeholder()
         return profile
 
-    def _run_structural(self, *, skip_shard_plan: bool = False) -> PageAnatomyMap:
+    def _run_structural(self) -> PageAnatomyMap:
         self.state = ProfileState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
@@ -114,7 +112,6 @@ class ProfileCoordinator:
         else:
             self._ensure_disabled_toc_placeholder()
         self._ensure_coarse_profile(actor="coarse_profile")
-        del skip_shard_plan
         # Anatomy still requires a non-empty plan object; keep a single-document
         # placeholder.
         self._apply_single_shard_placeholder()
@@ -122,9 +119,7 @@ class ProfileCoordinator:
         self._persist_ready_anatomy(anatomy)
         return anatomy
 
-    def _run_lightweight_anatomy(
-        self, *, skip_shard_plan: bool = False
-    ) -> PageAnatomyMap:
+    def _run_lightweight_anatomy(self) -> PageAnatomyMap:
         self.state = ProfileState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
@@ -139,7 +134,6 @@ class ProfileCoordinator:
                 )
             else:
                 self._ensure_disabled_toc_placeholder()
-        del skip_shard_plan
         self._apply_single_shard_placeholder()
         anatomy = build_anatomy_map(self.ctx)
         self._persist_ready_anatomy(anatomy)

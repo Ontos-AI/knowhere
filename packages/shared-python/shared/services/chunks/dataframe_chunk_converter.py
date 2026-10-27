@@ -301,7 +301,10 @@ def dataframe_to_chunks(df: _ParserDataFrame | None) -> list[Dict[str, JsonValue
         entities = _safe_parse_entities(row.get("entities"))
         if entities:
             metadata["entities"] = entities
-        asset_title = str(row.get("asset_title", "") or "").strip()
+        raw_asset_title = row.get("asset_title")
+        asset_title = (
+            "" if _is_missing(raw_asset_title) else str(raw_asset_title or "").strip()
+        )
         if asset_title:
             metadata["asset_title"] = asset_title
         _merge_extra_metadata(metadata, _parse_extra_metadata(row.get("extra_metadata")))

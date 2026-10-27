@@ -103,7 +103,6 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 pdf_filename,
                 job_id=request.job_id,
                 output_dir=full_output_dir,
-                skip_shard_plan=True,
                 oversized_policy="page_memory",
                 stop_after="asset_probe" if is_progressive else None,
             )

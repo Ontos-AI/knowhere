@@ -72,7 +72,9 @@ def test_extract_fine_page_text_vlm_uses_transcribe(monkeypatch, tmp_path: Path)
     assert extracted == {1: "verbatim page one"}
 
 
-def test_extract_fine_page_text_mineru_maps_layout_pages(monkeypatch, tmp_path: Path) -> None:
+def test_extract_fine_page_text_mineru_maps_layout_pages_and_tables(
+    monkeypatch, tmp_path: Path
+) -> None:
     from app.services.document_parser.formats.pdf.shard_splitter import LiveShard
 
     def fake_split_pdf(pdf_path, shards, work_dir, exclude_pages=None):
@@ -108,7 +110,25 @@ def test_extract_fine_page_text_mineru_maps_layout_pages(monkeypatch, tmp_path: 
                             "lines": [
                                 {"spans": [{"content": "page three body"}]},
                             ]
-                        }
+                        },
+                        {
+                            "type": "table",
+                            "blocks": [
+                                {
+                                    "type": "table_body",
+                                    "lines": [
+                                        {
+                                            "spans": [
+                                                {
+                                                    "type": "table",
+                                                    "html": "<table><tr><th>Op</th><th>Cycles</th></tr><tr><td>LDA</td><td>2</td></tr></table>",
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
                     ],
                 },
             ]
@@ -137,7 +157,10 @@ def test_extract_fine_page_text_mineru_maps_layout_pages(monkeypatch, tmp_path: 
         concurrency=1,
     )
 
-    assert extracted == {1: "page one body", 3: "page three body"}
+    assert extracted[1] == "page one body"
+    assert "page three body" in extracted[3]
+    assert "Op | Cycles" in extracted[3]
+    assert "LDA | 2" in extracted[3]
     assert not (tmp_path / "fine").exists()
 
 

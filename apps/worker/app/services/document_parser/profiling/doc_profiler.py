@@ -33,7 +33,6 @@ def profile_document(
     *,
     job_id: str | None = None,
     output_dir: str | None = None,
-    skip_shard_plan: bool = False,
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
     stop_after: Literal["asset_probe"] | None = None,
@@ -46,9 +45,6 @@ def profile_document(
         filename: File name (used to infer type)
         job_id: Parse job id for profile trace artifacts
         output_dir: Parser output directory
-        skip_shard_plan: When True, lightweight and structural anatomy skip
-            LLM shard planning and populate a single-shard placeholder.
-            Used by the page-memory track, which never consumes the shard plan.
         oversized_policy: Controls oversized PDF admission. ``chunk`` applies
             the page-limit / oversized-admission gate; ``page_memory`` continues
             to structural profiling.
@@ -71,7 +67,6 @@ def profile_document(
                 filename,
                 job_id=job_id,
                 output_dir=output_dir,
-                skip_shard_plan=skip_shard_plan,
                 oversized_policy=oversized_policy,
                 skip_toc_anchoring=skip_toc_anchoring,
                 stop_after=stop_after,
@@ -94,7 +89,6 @@ def _profile_pdf(
     *,
     job_id: str | None,
     output_dir: str | None,
-    skip_shard_plan: bool = False,
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
     stop_after: Literal["asset_probe"] | None = None,
@@ -106,7 +100,6 @@ def _profile_pdf(
             job_id=job_id,
             output_dir=output_dir,
             db=db,
-            skip_shard_plan=skip_shard_plan,
             oversized_policy=oversized_policy,
             skip_toc_anchoring=skip_toc_anchoring,
             stop_after=stop_after,
@@ -120,7 +113,6 @@ def _profile_pdf_with_db(
     job_id: str | None,
     output_dir: str | None,
     db: Any | None,
-    skip_shard_plan: bool = False,
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
     stop_after: Literal["asset_probe"] | None = None,
@@ -182,9 +174,7 @@ def _profile_pdf_with_db(
             raise_if_oversized_pdf_not_supported(page_count=profile.page_count)
         if not profile.is_atlas:
             try:
-                profile.anatomy = coordinator.run_structural(
-                    skip_shard_plan=skip_shard_plan
-                )
+                profile.anatomy = coordinator.run_structural()
                 profile.toc = _map_toc_profile(coordinator)
             except Exception as exc:
                 if oversized_policy == "page_memory":
@@ -204,9 +194,7 @@ def _profile_pdf_with_db(
         # TODO(page_memory): non-oversized atlas skips anatomy; coarse
         # has_asset / page_features never reach page_memory via profile.anatomy.
         if not profile.is_atlas:
-            profile.anatomy = coordinator.run_lightweight_anatomy(
-                skip_shard_plan=skip_shard_plan
-            )
+            profile.anatomy = coordinator.run_lightweight_anatomy()
         profile.toc = _map_toc_profile(coordinator)
 
     if trace := getattr(coordinator, "trace", None):
