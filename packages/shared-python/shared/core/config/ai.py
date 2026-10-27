@@ -123,7 +123,8 @@ class AIConfig(BaseModel):
         default="none",
         description=(
             "Fine-stage verbatim page-text extractor: none (default, summary only), "
-            "vlm (transcribe), or mineru. Advanced/opt-in."
+            "vlm (transcribe with OCR fallback on page error), ocr (RapidOCR), "
+            "or mineru (with OCR fallback on error). Advanced/opt-in."
         ),
     )
     PAGE_MEMORY_FINE_TEXT_EXTRACTION_CONCURRENCY: int = Field(

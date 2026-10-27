@@ -1,14 +1,15 @@
 """Fine-stage verbatim page-text extraction (advanced, default off).
 
 Called unconditionally after fine render. ``extractor="none"`` returns immediately
-with no extra model or parser calls. ``vlm`` / ``mineru`` fill page text used to
-overwrite M0 band content when the advanced switch is on. MinerU is one
-optional backend; only page text is consumed, and its work directory is
-deleted after the read.
+with no extra model or parser calls. ``vlm`` / ``ocr`` / ``mineru`` fill page text
+used to overwrite M0 band content when the advanced switch is on. When ``vlm``
+raises on a page, that page falls back to ``ocr``; when ``mineru`` raises, the
+scope falls back to ``ocr``; ``ocr`` errors fall back to ``none`` (keeping M0).
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 import os
 import shutil
@@ -16,7 +17,49 @@ from typing import Any
 
 from loguru import logger
 
+from app.services.document_agent.tools.ocr_pages import ocr_rendered_pages
 from shared.services.ai.summary.engine import transcribe
+
+
+def _build_image_path_by_page(
+    rendered: list[Any],
+    pages: list[int],
+) -> dict[int, str]:
+    page_set = set(pages)
+    image_path_by_page: dict[int, str] = {}
+    for item in rendered:
+        raw_page = getattr(item, "page_index", None)
+        if raw_page is None:
+            continue
+        page = int(raw_page)
+        if page not in page_set:
+            continue
+        image_path = str(getattr(item, "image_path", "") or "").strip()
+        if image_path:
+            image_path_by_page[page] = image_path
+    return image_path_by_page
+
+
+def _extract_via_ocr(
+    *,
+    image_path_by_page: Mapping[int, str],
+    pages: list[int],
+) -> dict[int, str]:
+    subset = {
+        page: image_path_by_page[page]
+        for page in pages
+        if page in image_path_by_page
+    }
+    if not subset:
+        return {}
+    try:
+        return ocr_rendered_pages(subset)
+    except Exception as exc:
+        logger.warning(
+            "[page_text_extractor] ocr failed; keeping M0 text: {}",
+            exc,
+        )
+        return {}
 
 
 def extract_fine_page_text(
@@ -38,6 +81,12 @@ def extract_fine_page_text(
     pages = [int(page) for page in final_pages if int(page) > 0]
     if resolved == "none" or not pages:
         return {}
+    image_path_by_page = _build_image_path_by_page(rendered, pages)
+    if resolved == "ocr":
+        return _extract_via_ocr(
+            image_path_by_page=image_path_by_page,
+            pages=pages,
+        )
     if resolved == "mineru":
         try:
             return _extract_via_mineru(
@@ -47,13 +96,16 @@ def extract_fine_page_text(
             )
         except Exception as exc:
             logger.warning(
-                "[page_text_extractor] mineru failed; keeping M0 text: {}",
+                "[page_text_extractor] mineru failed ({}); falling back to ocr",
                 exc,
             )
-            return {}
+            return _extract_via_ocr(
+                image_path_by_page=image_path_by_page,
+                pages=pages,
+            )
     if resolved == "vlm":
         return _extract_via_vlm(
-            rendered=rendered,
+            image_path_by_page=image_path_by_page,
             final_pages=pages,
             vlm_model=vlm_model,
             concurrency=concurrency,
@@ -63,18 +115,13 @@ def extract_fine_page_text(
 
 def _extract_via_vlm(
     *,
-    rendered: list[Any],
+    image_path_by_page: Mapping[int, str],
     final_pages: list[int],
     vlm_model: str | None,
     concurrency: int,
 ) -> dict[int, str]:
-    render_map = {
-        int(item.page_index): item
-        for item in rendered
-        if getattr(item, "page_index", None) is not None
-    }
     jobs = [
-        (page, str(getattr(render_map.get(page), "image_path", "") or ""))
+        (page, str(image_path_by_page.get(page) or ""))
         for page in final_pages
     ]
     if not jobs:
@@ -83,24 +130,50 @@ def _extract_via_vlm(
     import gevent
     from gevent.pool import Pool as GeventPool
 
-    def _one(page: int, image_path: str) -> tuple[int, str]:
-        text = transcribe(
-            image_paths=[image_path],
-            model=vlm_model,
-            usage_task="page_memory.fine_transcribe",
-        )
-        return page, (text or "").strip()
+    def _one(page: int, image_path: str) -> tuple[int, str, Exception | None]:
+        try:
+            text = transcribe(
+                image_paths=[image_path],
+                model=vlm_model,
+                usage_task="page_memory.fine_transcribe",
+            )
+            return page, (text or "").strip(), None
+        except Exception as exc:
+            return page, "", exc
 
     pool = GeventPool(size=min(max(1, concurrency), len(jobs)))
     greenlets = [pool.spawn(_one, page, image_path) for page, image_path in jobs]
-    gevent.joinall(greenlets, raise_error=True)
+    gevent.joinall(greenlets, raise_error=False)
     extracted: dict[int, str] = {}
-    for greenlet in greenlets:
+    failed_pages: list[int] = []
+    for (job_page, _), greenlet in zip(jobs, greenlets, strict=True):
         if greenlet.value is None:
+            exc = getattr(greenlet, "exception", None)
+            logger.warning(
+                "[page_text_extractor] vlm transcribe failed on page {} ({}); falling back to ocr",
+                job_page,
+                exc,
+            )
+            failed_pages.append(int(job_page))
             continue
-        page, text = greenlet.value
+        page, text, error = greenlet.value
+        if error is not None:
+            logger.warning(
+                "[page_text_extractor] vlm transcribe failed on page {} ({}); falling back to ocr",
+                page,
+                error,
+            )
+            failed_pages.append(int(page))
+            continue
         if text:
             extracted[int(page)] = text
+    if failed_pages:
+        extracted.update(
+            _extract_via_ocr(
+                image_path_by_page=image_path_by_page,
+                pages=failed_pages,
+            )
+        )
     return extracted
 
 
@@ -149,11 +222,11 @@ def _extract_via_mineru(
 
 def _page_text_from_layout(layout_json_path: str, page_numbers: list[int]) -> dict[int, str]:
     if not os.path.exists(layout_json_path):
-        return {}
+        raise FileNotFoundError(f"MinerU layout.json missing at {layout_json_path}")
     with open(layout_json_path, encoding="utf-8") as handle:
         layout = json.load(handle)
     if not isinstance(layout, dict):
-        return {}
+        raise ValueError("MinerU layout.json root is not a JSON object")
     extracted: dict[int, str] = {}
     for page in layout.get("pdf_info") or []:
         if not isinstance(page, dict):

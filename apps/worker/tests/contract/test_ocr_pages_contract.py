@@ -1,4 +1,4 @@
-"""ocr.pages writes RapidOCR page texts onto the profile blackboard."""
+"""ocr_rendered_pages runs RapidOCR on rendered page PNGs and isolates page errors."""
 
 from __future__ import annotations
 
@@ -12,58 +12,15 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from app.services.document_agent.manifest import PageFeature, ToolContext
-from app.services.document_agent.state import ProfileBlackboard
-from app.services.document_agent.tools.ocr_pages import ocr_pages
+from app.services.document_agent.tools.ocr_pages import ocr_rendered_pages
 
 
-def _ctx() -> ToolContext:
-    blackboard = ProfileBlackboard(page_count=2)
-    blackboard.page_features = [
-        PageFeature(
-            page=1,
-            raw_text_length=0,
-            text_density=0.0,
-            image_coverage=1.0,
-            image_count=1,
-            table_count=0,
-            drawings_count=0,
-            orientation="portrait",
-            width=72.0,
-            height=72.0,
-            has_asset=True,
-            is_blank_like=True,
-        )
-    ]
-    return ToolContext(
-        pdf_path="/tmp/doc.pdf",
-        job_id="job-ocr",
-        blackboard=blackboard,
-        trace=None,
-        settings={},
-    )
-
-
-def test_ocr_pages_requires_pages() -> None:
-    result = ocr_pages(_ctx(), {})
-    assert result.status == "error"
-    assert "requires pages" in (result.error or "")
-
-
-def test_ocr_pages_writes_joined_text_to_blackboard() -> None:
-    ctx = _ctx()
-
-    def fake_render(*_args, **_kwargs):
-        return [{"page": 1, "png_path": "/tmp/ocr_page_1.png"}]
-
+def test_ocr_rendered_pages_extracts_joined_text() -> None:
     calls: list[tuple[int, str, int]] = []
 
     class FakeRunner:
-        def run_page(self, page, image_path, *, timeout):
-            assert page == 1
-            assert image_path == "/tmp/ocr_page_1.png"
+        def run_page(self, page: int, image_path: str, *, timeout: int):
             calls.append((page, image_path, timeout))
-            assert timeout == 1800
             return {
                 "ok": True,
                 "page": page,
@@ -72,49 +29,39 @@ def test_ocr_pages_writes_joined_text_to_blackboard() -> None:
                         "box": [[0, 0], [1, 0], [1, 1], [0, 1]],
                         "text": "Hello",
                         "score": 0.9,
-                    }
+                    },
+                    {
+                        "box": [[0, 2], [1, 2], [1, 3], [0, 3]],
+                        "text": "World",
+                        "score": 0.95,
+                    },
                 ],
             }
 
-    with (
-        patch.dict(ocr_pages.__globals__, {"render_pages": fake_render}),
-        patch.dict(ocr_pages.__globals__, {"_OCR_RUNNER": FakeRunner()}),
-    ):
-        result = ocr_pages(ctx, {"pages": [1]})
+    with patch.dict(ocr_rendered_pages.__globals__, {"_OCR_RUNNER": FakeRunner()}):
+        extracted = ocr_rendered_pages({1: "/tmp/p1.png"})
 
-    assert result.status == "ok"
-    bands = ctx.blackboard.page_full_text_cache[1]
-    assert getattr(bands, "content", None) == "Hello"
-    assert getattr(bands, "header", None) == ""
-    assert getattr(bands, "footer", None) == ""
-    assert result.payload["page_lines"][1][0]["text"] == "Hello"
-    assert calls == [(1, "/tmp/ocr_page_1.png", 1800)]
+    assert extracted == {1: "Hello\nWorld"}
+    assert calls == [(1, "/tmp/p1.png", 1800)]
 
 
-def test_ocr_pages_runs_one_runner_request_per_page() -> None:
-    ctx = _ctx()
+def test_ocr_rendered_pages_isolates_single_page_failure() -> None:
     calls: list[tuple[int, str]] = []
 
-    def fake_render(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
-        return [
-            {"page": 1, "png_path": "/tmp/ocr_page_1.png"},
-            {"page": 2, "png_path": "/tmp/ocr_page_2.png"},
-        ]
-
     class FakeRunner:
-        def run_page(self, page, image_path, *, timeout):
+        def run_page(self, page: int, image_path: str, *, timeout: int):
             assert timeout == 1800
             calls.append((page, image_path))
-            return {"ok": True, "page": page, "lines": []}
+            if page == 1:
+                raise RuntimeError("ocr runner crashed on page 1")
+            return {
+                "ok": True,
+                "page": page,
+                "lines": [{"text": "Page 2 text"}],
+            }
 
-    with (
-        patch.dict(ocr_pages.__globals__, {"render_pages": fake_render}),
-        patch.dict(ocr_pages.__globals__, {"_OCR_RUNNER": FakeRunner()}),
-    ):
-        result = ocr_pages(ctx, {"pages": [1, 2]})
+    with patch.dict(ocr_rendered_pages.__globals__, {"_OCR_RUNNER": FakeRunner()}):
+        extracted = ocr_rendered_pages({1: "/tmp/p1.png", 2: "/tmp/p2.png"})
 
-    assert result.status == "ok"
-    assert calls == [
-        (1, "/tmp/ocr_page_1.png"),
-        (2, "/tmp/ocr_page_2.png"),
-    ]
+    assert extracted == {2: "Page 2 text"}
+    assert calls == [(1, "/tmp/p1.png"), (2, "/tmp/p2.png")]

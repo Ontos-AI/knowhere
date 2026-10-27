@@ -30,12 +30,14 @@ def test_page_memory_config_defaults_resolve_concurrency_settings() -> None:
 
 def test_page_memory_config_from_mapping_accepts_fine_text_extractor() -> None:
     config = PageMemoryConfig.from_mapping({"fine_text_extractor": "vlm"})
-
     assert config.fine_text_extractor == "vlm"
+
+    ocr_config = PageMemoryConfig.from_mapping({"fine_text_extractor": "ocr"})
+    assert ocr_config.fine_text_extractor == "ocr"
 
 
 def test_page_memory_config_from_mapping_rejects_unknown_extractor() -> None:
-    config = PageMemoryConfig.from_mapping({"fine_text_extractor": "ocr"})
+    config = PageMemoryConfig.from_mapping({"fine_text_extractor": "unknown_backend"})
 
     assert config.fine_text_extractor == "none"
 

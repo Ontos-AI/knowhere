@@ -77,9 +77,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--fine-text-extractor",
-        choices=("none", "vlm", "mineru"),
+        choices=("none", "vlm", "ocr", "mineru"),
         default="none",
-        help="Fine-stage verbatim page-text extractor (default none; advanced: vlm|mineru)",
+        help="Fine-stage verbatim page-text extractor (default none; advanced: vlm|ocr|mineru)",
     )
     args = parser.parse_args()
 

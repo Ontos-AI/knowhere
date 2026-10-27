@@ -164,12 +164,88 @@ def test_extract_fine_page_text_mineru_maps_layout_pages_and_tables(
     assert not (tmp_path / "fine").exists()
 
 
-def test_extract_fine_page_text_mineru_failure_keeps_m0(monkeypatch, tmp_path: Path) -> None:
-    calls: list[object] = []
+def test_extract_fine_page_text_ocr_uses_ocr_rendered_pages(
+    monkeypatch, tmp_path: Path
+) -> None:
+    image_path = tmp_path / "page-1.png"
+    image_path.write_bytes(b"png")
+
+    def fake_ocr(image_path_by_page):
+        assert image_path_by_page == {1: str(image_path)}
+        return {1: "rapidocr page one"}
+
+    monkeypatch.setattr(
+        "app.services.page_memory.page_text_extractor.ocr_rendered_pages",
+        fake_ocr,
+    )
+
+    extracted = extract_fine_page_text(
+        pdf_path=str(tmp_path / "doc.pdf"),
+        rendered=[SimpleNamespace(page_index=1, image_path=str(image_path))],
+        final_pages=[1],
+        extractor="ocr",
+        vlm_model="vision",
+        output_dir=str(tmp_path / "out"),
+        concurrency=1,
+    )
+
+    assert extracted == {1: "rapidocr page one"}
+
+
+def test_extract_fine_page_text_vlm_falls_back_to_ocr_only_on_exception(
+    monkeypatch, tmp_path: Path
+) -> None:
+    p1 = tmp_path / "page-1.png"
+    p2 = tmp_path / "page-2.png"
+    p1.write_bytes(b"png1")
+    p2.write_bytes(b"png2")
+
+    def fake_transcribe(*, image_paths, model, usage_task):
+        del model, usage_task
+        if image_paths == [str(p1)]:
+            raise RuntimeError("vlm rate limit on page 1")
+        return ""
+
+    ocr_calls: list[dict[int, str]] = []
+
+    def fake_ocr(image_path_by_page):
+        ocr_calls.append(dict(image_path_by_page))
+        return {1: "ocr recovered page 1"}
+
+    monkeypatch.setattr(
+        "app.services.page_memory.page_text_extractor.transcribe",
+        fake_transcribe,
+    )
+    monkeypatch.setattr(
+        "app.services.page_memory.page_text_extractor.ocr_rendered_pages",
+        fake_ocr,
+    )
+
+    extracted = extract_fine_page_text(
+        pdf_path=str(tmp_path / "doc.pdf"),
+        rendered=[
+            SimpleNamespace(page_index=1, image_path=str(p1)),
+            SimpleNamespace(page_index=2, image_path=str(p2)),
+        ],
+        final_pages=[1, 2],
+        extractor="vlm",
+        vlm_model="vision",
+        output_dir=str(tmp_path / "out"),
+        concurrency=2,
+    )
+
+    assert extracted == {1: "ocr recovered page 1"}
+    assert ocr_calls == [{1: str(p1)}]
+
+
+def test_extract_fine_page_text_mineru_failure_falls_back_to_ocr_then_m0(
+    monkeypatch, tmp_path: Path
+) -> None:
+    vlm_calls: list[object] = []
 
     def boom(*_args, **_kwargs):
-        calls.append(True)
-        raise AssertionError("transcribe must not run when mineru falls back to none")
+        vlm_calls.append(True)
+        raise AssertionError("transcribe must not run when mineru falls back to ocr")
 
     monkeypatch.setattr(
         "app.services.page_memory.page_text_extractor.transcribe",
@@ -178,6 +254,17 @@ def test_extract_fine_page_text_mineru_failure_keeps_m0(monkeypatch, tmp_path: P
     monkeypatch.setattr(
         "app.services.document_parser.formats.pdf.shard_splitter.split_pdf",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("split failed")),
+    )
+
+    ocr_calls: list[dict[int, str]] = []
+
+    def fake_ocr(image_path_by_page):
+        ocr_calls.append(dict(image_path_by_page))
+        return {1: "ocr fallback from mineru"}
+
+    monkeypatch.setattr(
+        "app.services.page_memory.page_text_extractor.ocr_rendered_pages",
+        fake_ocr,
     )
 
     extracted = extract_fine_page_text(
@@ -190,9 +277,26 @@ def test_extract_fine_page_text_mineru_failure_keeps_m0(monkeypatch, tmp_path: P
         concurrency=1,
     )
 
-    assert extracted == {}
-    assert calls == []
+    assert extracted == {1: "ocr fallback from mineru"}
+    assert ocr_calls == [{1: "/tmp/p1.png"}]
+    assert vlm_calls == []
     assert not (tmp_path / "fine").exists()
+
+    monkeypatch.setattr(
+        "app.services.page_memory.page_text_extractor.ocr_rendered_pages",
+        lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("ocr also failed")),
+    )
+    extracted_after_both_fail = extract_fine_page_text(
+        pdf_path=str(tmp_path / "doc.pdf"),
+        rendered=[SimpleNamespace(page_index=1, image_path="/tmp/p1.png")],
+        final_pages=[1],
+        extractor="mineru",
+        vlm_model="vision",
+        output_dir=str(tmp_path / "fine2"),
+        concurrency=1,
+    )
+    assert extracted_after_both_fail == {}
+    assert not (tmp_path / "fine2").exists()
 
 
 def test_assemble_c7_prefers_fine_text_over_m0_bands(tmp_path: Path) -> None:

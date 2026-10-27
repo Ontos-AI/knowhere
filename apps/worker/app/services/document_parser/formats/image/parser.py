@@ -222,14 +222,7 @@ def parse_image(
         with open(img_path, "wb") as image_file:
             image_file.write(img_bytes)
 
-        # Early exit: skip images smaller than IMG_MIN_SIZE before VLM work.
-        from app.services.document_parser.assets.image_size_filter import (
-            discard_undersized_image_file,
-        )
         from shared.core.constants import ProcessingConstants
-
-        if discard_undersized_image_file(img_path, label=f"image {filename}"):
-            return pd.DataFrame(columns=list(PARSER_DF_COLUMNS))
 
         vlm_input = prepare_vlm_image_input(source_path=img_path, filename=filename)
         working_paths = list(vlm_input.working_paths)

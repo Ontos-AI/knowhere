@@ -194,7 +194,7 @@ def _as_optional_str(value: object) -> str | None:
     return resolved or None
 
 
-_FINE_TEXT_EXTRACTORS = frozenset({"none", "vlm", "mineru"})
+_FINE_TEXT_EXTRACTORS = frozenset({"none", "vlm", "ocr", "mineru"})
 
 
 def _as_extractor(value: object, default: str) -> str:
