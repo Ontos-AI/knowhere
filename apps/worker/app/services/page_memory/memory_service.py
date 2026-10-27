@@ -139,7 +139,15 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 body_text_by_page=getattr(profile, "page_body_text_cache", None),
             )
         elif is_progressive:
-            if visual_m0_enabled and bool(getattr(profile, "is_scanned", False)):
+            page_texts: dict[int, str] = coerce_page_text_cache(
+                getattr(profile, "page_full_text_cache", None)
+            )
+            has_native_text: bool = any(text.strip() for text in page_texts.values())
+            # The visual classifier can call a rasterized digital PDF native.
+            # A textless document still needs visual recall in its first snapshot.
+            if visual_m0_enabled and (
+                bool(getattr(profile, "is_scanned", False)) or not has_native_text
+            ):
                 parsed_df = _build_visual_m0_dataframe(
                     pdf_path=pdf_path,
                     filename=request.filename,
@@ -148,9 +156,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 )
             else:
                 parsed_df = build_coarse_text_dataframe(
-                    page_texts=coerce_page_text_cache(
-                        getattr(profile, "page_full_text_cache", None)
-                    ),
+                    page_texts=page_texts,
                     body_text_by_page=coerce_page_text_cache(
                         getattr(profile, "page_body_text_cache", None)
                     ),

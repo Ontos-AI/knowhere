@@ -500,8 +500,9 @@ def test_result_storage_uploads_phase_b_internal_files(tmp_path: Path) -> None:
     assert "results/job-1/pages/page-1.png" not in adapter.uploaded_keys
 
 
+@pytest.mark.parametrize("is_scanned", [True, False])
 def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, is_scanned: bool
 ) -> None:
     from app.services.document_agent.coordinator import ProfileCoordinator
     from app.services.document_agent.manifest import DocumentProfile
@@ -523,8 +524,13 @@ def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
         ),
     )
 
+    import pymupdf
+
     source = tmp_path / "scanned.pdf"
-    source.write_bytes(b"%PDF")
+    with pymupdf.open() as document:
+        document.new_page()
+        document.new_page()
+        document.save(source)
     coord = ProfileCoordinator(
         pdf_path=str(source),
         job_id="job-scan-m0",
@@ -535,15 +541,17 @@ def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
     )
     coord.blackboard.page_count = 2
     coord.blackboard.document_profile = DocumentProfile(
-        is_scanned=True,
+        is_scanned=is_scanned,
         category=["04000000"],
         category_label="Scanned Report",
-        routing_category="scanned",
+        routing_category="scanned" if is_scanned else "generic",
         language="en",
     )
     coord._run_text_scan()  # noqa: SLF001
     assert ocr_called == []
-    assert coord.blackboard.page_full_text_cache == {}
+    assert not any(
+        bands.lines for bands in coord.blackboard.page_full_text_cache.values()
+    )
 
     profile = _profile(
         skeletons=[],
@@ -551,7 +559,7 @@ def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
         body_texts={},
         monkeypatch=monkeypatch,
     )
-    profile.is_scanned = True
+    profile.is_scanned = is_scanned
     profile.page_count = 2
     profile.blackboard = coord.blackboard
 
