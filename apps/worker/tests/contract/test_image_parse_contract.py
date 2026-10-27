@@ -86,7 +86,7 @@ def _write_image(path: Path, *, kind: str, frame_count: int = 1) -> bytes:
     return path.read_bytes()
 
 
-def _mock_image_parse(monkeypatch: MonkeyPatch) -> dict[str, Any]:
+def _mock_image_parse(monkeypatch: MonkeyPatch, image_parser: Any) -> dict[str, Any]:
     captured: dict[str, Any] = {}
 
     def fake_ask_image(*args: Any, **kwargs: Any) -> dict[str, str]:
@@ -100,13 +100,14 @@ def _mock_image_parse(monkeypatch: MonkeyPatch) -> dict[str, Any]:
         captured["summary_paras"] = kwargs.get("prompt_paras")
         return AssetSummary(title="asset title", summary="asset summary")
 
+    # Patch the live module object that parse_image will resolve against.
+    # String-path patches can miss after contract conftest rebinds ``app.*``.
+    monkeypatch.setattr(image_parser, "ask_image", fake_ask_image)
+    monkeypatch.setattr(image_parser, "summarize", fake_summarize)
     monkeypatch.setattr(
-        "app.services.document_parser.formats.image.parser.ask_image",
-        fake_ask_image,
-    )
-    monkeypatch.setattr(
-        "app.services.document_parser.formats.image.parser.summarize",
-        fake_summarize,
+        image_parser,
+        "_get_vision_client",
+        lambda: object(),
     )
     return captured
 
@@ -118,8 +119,10 @@ def _persist_image(
     output_dir: Path,
     monkeypatch: MonkeyPatch,
 ) -> tuple[dict[str, Any], Any, list[dict[str, Any]]]:
-    captured = _mock_image_parse(monkeypatch)
-    parsed_df = parse_image(
+    import app.services.document_parser.formats.image.parser as image_parser
+
+    captured = _mock_image_parse(monkeypatch, image_parser)
+    parsed_df = image_parser.parse_image(
         str(source),
         filename=filename,
         output_dir=str(output_dir),
