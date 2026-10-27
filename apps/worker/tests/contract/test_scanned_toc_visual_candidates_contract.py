@@ -32,7 +32,12 @@ from app.services.page_memory.scope_enrichment_service import (  # noqa: E402
     _resume_profile_from_m0_workspace,
 )
 from shared.models.schemas.page_memory_config import PageMemoryConfig  # noqa: E402
-from shared.services.retrieval import page_embedding_index as page_embedding_index_mod  # noqa: E402
+
+
+def _live_page_embedding_index():
+    import shared.services.retrieval.page_embedding_index as page_embedding_index_mod
+
+    return page_embedding_index_mod
 
 
 def _target(*, document_id: str = "doc_scan", namespace: str = "default") -> _ClaimedScopeTarget:
@@ -118,24 +123,25 @@ def test_resume_scanned_injects_visual_candidate_pages(
     def fake_db_context():
         yield SimpleNamespace()
 
+    page_embedding_index_mod = _live_page_embedding_index()
+    import app.services.page_memory.scope_enrichment_service as scope_enrichment
+    import app.services.document_agent.coordinator as coordinator_mod
+    import app.services.document_parser.profiling.doc_profiler as doc_profiler
+
     monkeypatch.setattr(
         page_embedding_index_mod, "query_visual_candidate_pages", fake_query
     )
+    monkeypatch.setattr(scope_enrichment, "get_sync_db_context", fake_db_context)
     monkeypatch.setattr(
-        "app.services.page_memory.scope_enrichment_service.get_sync_db_context",
-        fake_db_context,
+        coordinator_mod.ProfileCoordinator, "_ensure_toc_profile", fake_toc
     )
     monkeypatch.setattr(
-        "app.services.document_agent.coordinator.ProfileCoordinator._ensure_toc_profile",
-        fake_toc,
-    )
-    monkeypatch.setattr(
-        "app.services.document_agent.coordinator.ProfileCoordinator.run_lightweight_anatomy",
+        coordinator_mod.ProfileCoordinator,
+        "run_lightweight_anatomy",
         lambda self: SimpleNamespace(),
     )
     monkeypatch.setattr(
-        "app.services.document_parser.profiling.doc_profiler._map_toc_profile",
-        lambda _coordinator: SimpleNamespace(),
+        doc_profiler, "_map_toc_profile", lambda _coordinator: SimpleNamespace()
     )
 
     add_dir = _write_m0_workspace(tmp_path, is_scanned=True)
@@ -179,24 +185,25 @@ def test_resume_born_digital_also_injects_visual_candidate_pages(
     def fake_db_context():
         yield SimpleNamespace()
 
+    page_embedding_index_mod = _live_page_embedding_index()
+    import app.services.page_memory.scope_enrichment_service as scope_enrichment
+    import app.services.document_agent.coordinator as coordinator_mod
+    import app.services.document_parser.profiling.doc_profiler as doc_profiler
+
     monkeypatch.setattr(
         page_embedding_index_mod, "query_visual_candidate_pages", fake_query
     )
+    monkeypatch.setattr(scope_enrichment, "get_sync_db_context", fake_db_context)
     monkeypatch.setattr(
-        "app.services.page_memory.scope_enrichment_service.get_sync_db_context",
-        fake_db_context,
+        coordinator_mod.ProfileCoordinator, "_ensure_toc_profile", fake_toc
     )
     monkeypatch.setattr(
-        "app.services.document_agent.coordinator.ProfileCoordinator._ensure_toc_profile",
-        fake_toc,
-    )
-    monkeypatch.setattr(
-        "app.services.document_agent.coordinator.ProfileCoordinator.run_lightweight_anatomy",
+        coordinator_mod.ProfileCoordinator,
+        "run_lightweight_anatomy",
         lambda self: SimpleNamespace(),
     )
     monkeypatch.setattr(
-        "app.services.document_parser.profiling.doc_profiler._map_toc_profile",
-        lambda _coordinator: SimpleNamespace(),
+        doc_profiler, "_map_toc_profile", lambda _coordinator: SimpleNamespace()
     )
 
     add_dir = _write_m0_workspace(tmp_path, is_scanned=False)
@@ -213,10 +220,8 @@ def test_query_visual_candidate_pages_unions_per_keyword_top3(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from shared.core.config import settings
-    from shared.services.retrieval.page_embedding_index import (
-        query_visual_candidate_pages,
-    )
 
+    page_embedding_index_mod = _live_page_embedding_index()
     monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
     monkeypatch.setattr(
         page_embedding_index_mod,
@@ -242,7 +247,7 @@ def test_query_visual_candidate_pages_unions_per_keyword_top3(
             return _Rows(pages_by_call[len(self.statements) - 1])
 
     db = _Session()
-    pages = query_visual_candidate_pages(
+    pages = page_embedding_index_mod.query_visual_candidate_pages(
         db,  # type: ignore[arg-type]
         namespace="default",
         document_id="doc_scan",
@@ -260,12 +265,10 @@ def test_query_visual_candidate_pages_disabled_returns_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from shared.core.config import settings
-    from shared.services.retrieval.page_embedding_index import (
-        query_visual_candidate_pages,
-    )
 
+    page_embedding_index_mod = _live_page_embedding_index()
     monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", False)
-    pages = query_visual_candidate_pages(
+    pages = page_embedding_index_mod.query_visual_candidate_pages(
         SimpleNamespace(),  # type: ignore[arg-type]
         namespace="default",
         document_id="doc_scan",
