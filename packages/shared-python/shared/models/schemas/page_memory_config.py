@@ -38,6 +38,8 @@ class PageMemoryConfig:
     table_merge_enabled: bool = True
     node_summary_max_pages: int = 5
     scan_direction: str = "top_to_bottom_left_to_right"
+    fine_text_extractor: str = "none"
+    fine_text_extraction_concurrency: int = 4
 
     @classmethod
     def default(cls) -> Self:
@@ -59,6 +61,18 @@ class PageMemoryConfig:
             node_assembly_concurrency=_as_int(
                 getattr(settings, "PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY", 3),
                 3,
+            ),
+            fine_text_extractor=_as_extractor(
+                getattr(settings, "PAGE_MEMORY_FINE_TEXT_EXTRACTOR", "none"),
+                "none",
+            ),
+            fine_text_extraction_concurrency=_as_int(
+                getattr(
+                    settings,
+                    "PAGE_MEMORY_FINE_TEXT_EXTRACTION_CONCURRENCY",
+                    4,
+                ),
+                4,
             ),
         )
 
@@ -128,6 +142,14 @@ class PageMemoryConfig:
             scan_direction=_as_str(
                 value.get("scan_direction"), default.scan_direction
             ),
+            fine_text_extractor=_as_extractor(
+                value.get("fine_text_extractor"),
+                default.fine_text_extractor,
+            ),
+            fine_text_extraction_concurrency=_as_int(
+                value.get("fine_text_extraction_concurrency"),
+                default.fine_text_extraction_concurrency,
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -170,3 +192,11 @@ def _as_optional_str(value: object) -> str | None:
         return None
     resolved = str(value).strip()
     return resolved or None
+
+
+_FINE_TEXT_EXTRACTORS = frozenset({"none", "vlm", "mineru"})
+
+
+def _as_extractor(value: object, default: str) -> str:
+    resolved = _as_str(value, default).strip().lower()
+    return resolved if resolved in _FINE_TEXT_EXTRACTORS else default

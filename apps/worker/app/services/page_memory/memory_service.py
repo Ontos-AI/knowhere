@@ -67,6 +67,7 @@ class _ScopeRunResult:
     assets_by_page: dict[int, list[Any]]
     rendered: list[Any]
     final_pages: list[int]
+    fine_text_by_page: dict[int, str] = field(default_factory=dict)
 
 
 def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
@@ -300,6 +301,7 @@ def assemble_c7_node_rows(
     verdict: str,
     vlm_model: str | None,
     page_memory_config: PageMemoryConfig,
+    fine_text_by_page: dict[int, str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[int]]:
     """Shared C7 node-row assembly used by whole-doc ``_build_page_dataframe`` and per-scope refinement."""
     from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
@@ -322,11 +324,13 @@ def assemble_c7_node_rows(
         ),
         toc_pages,
     )
+    fine_text = fine_text_by_page or {}
     raw_text_by_page: dict[int, str] = {}
     image_path_by_page: dict[int, str] = {}
     for page in final_pages:
         rend = render_map.get(page)
-        raw_text_by_page[page] = (rend.raw_text if rend else page_texts.get(page, "")) or ""
+        fallback = (rend.raw_text if rend else page_texts.get(page, "")) or ""
+        raw_text_by_page[page] = (fine_text.get(page) or fallback)
         if rend and rend.image_path and os.path.exists(rend.image_path):
             image_path_by_page[page] = rend.image_path
 
@@ -462,9 +466,12 @@ def _build_page_dataframe(
         result.assets_by_page for result in scope_results
     )
     rendered_map: dict[int, Any] = {}
+    fine_text_by_page: dict[int, str] = {}
     for result in scope_results:
         for rendered_page in result.rendered:
             rendered_map.setdefault(rendered_page.page_index, rendered_page)
+        for page, text in result.fine_text_by_page.items():
+            fine_text_by_page.setdefault(int(page), text)
 
     _write_top_level_artifacts(
         output_dir=output_dir,
@@ -490,6 +497,7 @@ def _build_page_dataframe(
             verdict=verdict,
             vlm_model=vlm_model,
             page_memory_config=page_memory_config,
+            fine_text_by_page=fine_text_by_page,
         )
     logger.info(
         "[page_memory] C7 assembled {} node rows (verdict={})",
@@ -716,6 +724,18 @@ def _run_hierarchy_scope(
             page_features=page_features,
             page_texts=page_texts,
         )
+    from app.services.page_memory.page_text_extractor import extract_fine_page_text
+
+    with stage_timer("page_memory.fine_text", page_count=len(final_pages)):
+        fine_text_by_page = extract_fine_page_text(
+            pdf_path=pdf_path,
+            rendered=rendered,
+            final_pages=final_pages,
+            extractor=page_memory_config.fine_text_extractor,
+            vlm_model=vlm_model,
+            output_dir=os.path.join(output_dir, "_fine_text", scope.scope_id),
+            concurrency=page_memory_config.fine_text_extraction_concurrency,
+        )
     _record_trace_stage(
         trace_recorder,
         "C1.render_pages",
@@ -809,6 +829,7 @@ def _run_hierarchy_scope(
         assets_by_page=assets_by_page,
         rendered=rendered,
         final_pages=final_pages,
+        fine_text_by_page=fine_text_by_page,
     )
 
 

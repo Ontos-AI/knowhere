@@ -49,8 +49,6 @@ def profile_document(
         skip_shard_plan: When True, lightweight and structural anatomy skip
             LLM shard planning and populate a single-shard placeholder.
             Used by the page-memory track, which never consumes the shard plan.
-            Chunk-track keeps the default (False) so oversized MinerU sharding
-            still receives a real plan.
         oversized_policy: Controls oversized PDF admission. ``chunk`` applies
             the MinerU shard gate, while ``page_memory`` lets the page-memory
             track continue to structural profiling.

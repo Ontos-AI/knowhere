@@ -334,8 +334,8 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         assert persisted_document_id.startswith("doc_")
         assert job_metadata["namespace"] == payload["namespace"]
         assert job_metadata["api_version"] == "v1"
-        assert job_metadata["parse_track"] == "chunk"
-        assert job_metadata["processing_generation"] == "legacy_chunk"
+        assert job_metadata["parse_track"] == "page_memory"
+        assert job_metadata["processing_generation"] == "page_memory"
         assert job_metadata["source_type"] == "file"
         assert job_metadata["source_file_name"] == payload["file_name"]
         assert job_metadata["data_id"] == payload["data_id"]
@@ -357,8 +357,8 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         assert cached_metadata["document_id"] == persisted_document_id
         assert cached_metadata["namespace"] == payload["namespace"]
         assert cached_metadata["api_version"] == "v1"
-        assert cached_metadata["parse_track"] == "chunk"
-        assert cached_metadata["processing_generation"] == "legacy_chunk"
+        assert cached_metadata["parse_track"] == "page_memory"
+        assert cached_metadata["processing_generation"] == "page_memory"
         assert cached_metadata["source_type"] == "file"
         assert cached_metadata["source_file_name"] == payload["file_name"]
         assert cached_metadata["document_metadata"] == payload["document_metadata"]

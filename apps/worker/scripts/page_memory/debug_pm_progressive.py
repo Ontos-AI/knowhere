@@ -75,6 +75,12 @@ def main() -> int:
         action="store_true",
         help="With --run-db, skip asset upload",
     )
+    parser.add_argument(
+        "--fine-text-extractor",
+        choices=("none", "vlm", "mineru"),
+        default="none",
+        help="Fine-stage verbatim page-text extractor (default none; advanced: vlm|mineru)",
+    )
     args = parser.parse_args()
 
     pdf_path, filename, out_dir = resolve_paths(args)
@@ -361,7 +367,12 @@ def _run_fine(
     page_features, page_labels = _load_anatomy_features_and_labels(
         str(out_dir / PHASE_B_ANATOMY_REL)
     )
-    page_memory_config = PageMemoryConfig.default()
+    page_memory_config = PageMemoryConfig.from_mapping(
+        {
+            **PageMemoryConfig.default().to_dict(),
+            "fine_text_extractor": args.fine_text_extractor,
+        }
+    )
     refined_scope_ids: list[str] = []
     last_chunk_count = 0
     for scope_id in selected:

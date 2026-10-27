@@ -24,6 +24,20 @@ def test_page_memory_config_defaults_resolve_concurrency_settings() -> None:
     assert config.title_detection_concurrency == 3
     assert config.node_assembly_concurrency == 3
     assert config.asset_model == ""
+    assert config.fine_text_extractor == "none"
+    assert config.fine_text_extraction_concurrency == 4
+
+
+def test_page_memory_config_from_mapping_accepts_fine_text_extractor() -> None:
+    config = PageMemoryConfig.from_mapping({"fine_text_extractor": "vlm"})
+
+    assert config.fine_text_extractor == "vlm"
+
+
+def test_page_memory_config_from_mapping_rejects_unknown_extractor() -> None:
+    config = PageMemoryConfig.from_mapping({"fine_text_extractor": "ocr"})
+
+    assert config.fine_text_extractor == "none"
 
 
 def test_resolve_asset_model_follows_image_model_when_unset(monkeypatch) -> None:

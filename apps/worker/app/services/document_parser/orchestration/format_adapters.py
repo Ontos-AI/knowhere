@@ -5,6 +5,7 @@ from typing import Protocol
 
 from app.services.document_parser.orchestration.parse_output import ParseOutput
 from app.services.document_parser.orchestration.parse_session import ParseSession
+from shared.core.exceptions.domain_exceptions import ValidationException
 
 
 class DocumentParseAdapter(Protocol):
@@ -72,23 +73,21 @@ class ImageParseAdapter:
 
 @dataclass(frozen=True)
 class PdfParseAdapter:
-    # Chunk-track PDF adapter (API v1). v2 .pdf/.pptx uses parse_track="page_memory".
     document_format: object
 
     def parse(self, session: ParseSession) -> ParseOutput:
-        from app.services.document_parser.formats.pdf.parser import parse_pdfs
-
-        parsed_df = parse_pdfs(
-            session.file_full_path,
-            filename=session.filename,
-            output_dir=session.full_output_dir,
-            base_llm_paras=session.base_llm_paras,
-            profile=session.profile,
-            relative_root=session.relative_root,
-            s3_key=session.s3_key,
-            job_id=session.job_id,
+        raise ValidationException(
+            user_message="PDF documents are processed by the page-memory pipeline.",
+            violations=[
+                {
+                    "field": "parse_track",
+                    "description": (
+                        "The chunk MinerU PDF path is retired. "
+                        f"Received {session.filename}"
+                    ),
+                }
+            ],
         )
-        return ParseOutput(output_dir=session.full_output_dir, parsed_df=parsed_df)
 
 
 @dataclass(frozen=True)
@@ -137,24 +136,21 @@ class XlsxParseAdapter:
 
 @dataclass(frozen=True)
 class PptxParseAdapter:
-    # Chunk-track PPTX adapter (API v1). v2 .pptx uses parse_track="page_memory"
-    # (normalizer converts PPTX→PDF before PROFILE).
     document_format: object
 
     def parse(self, session: ParseSession) -> ParseOutput:
-        from app.services.document_parser.formats.pptx.parser import parse_pptx
-
-        parsed_df = parse_pptx(
-            session.file_full_path,
-            filename=session.filename,
-            output_dir=session.full_output_dir,
-            base_llm_paras=session.base_llm_paras,
-            strategy="to_pdf_api",
-            job_id=session.job_id,
-            relative_root=session.relative_root,
-            baseurl=session.base_url,
+        raise ValidationException(
+            user_message="PPTX documents are processed by the page-memory pipeline.",
+            violations=[
+                {
+                    "field": "parse_track",
+                    "description": (
+                        "The chunk MinerU PPTX path is retired. "
+                        f"Received {session.filename}"
+                    ),
+                }
+            ],
         )
-        return ParseOutput(output_dir=session.full_output_dir, parsed_df=parsed_df)
 
 
 @dataclass(frozen=True)

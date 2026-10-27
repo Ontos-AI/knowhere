@@ -119,6 +119,17 @@ class AIConfig(BaseModel):
         default=3,
         description="Local per-job node OCR and summary concurrency for page-memory.",
     )
+    PAGE_MEMORY_FINE_TEXT_EXTRACTOR: str = Field(
+        default="none",
+        description=(
+            "Fine-stage verbatim page-text extractor: none (default, summary only), "
+            "vlm (transcribe), or mineru. Advanced/opt-in."
+        ),
+    )
+    PAGE_MEMORY_FINE_TEXT_EXTRACTION_CONCURRENCY: int = Field(
+        default=4,
+        description="Local per-job concurrency for fine-stage VLM page transcription.",
+    )
     TOKEN_PRICING_TABLE_JSON: str = Field(
         default="",
         description=(

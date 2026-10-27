@@ -83,7 +83,7 @@ def poll_mineru_task(
 
         try:
             logger.debug(
-                f"parse_pdfs status_url: {status_url} "
+                f"mineru status_url: {status_url} "
                 f"(attempt {attempt + 1}/{max_polling_attempts})"
             )
             lease = quota_manager.acquire_request(

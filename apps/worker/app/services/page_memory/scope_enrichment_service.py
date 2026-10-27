@@ -342,6 +342,7 @@ def run_single_scope_refinement(
         filename=filename,
         vlm_model=vlm_model,
         page_memory_config=page_memory_config,
+        fine_text_by_page=scope_result.fine_text_by_page,
     )
     dataframe = pd.DataFrame(rows, columns=pd.Index(PARSER_DF_COLUMNS))
     chunks = cast(list[dict[str, Any]], dataframe_to_chunks(dataframe))
@@ -377,6 +378,7 @@ def _assemble_scope_rows(
     filename: str,
     vlm_model: str | None,
     page_memory_config: PageMemoryConfig,
+    fine_text_by_page: dict[int, str] | None = None,
 ) -> list[dict[str, Any]]:
     rows, _final_pages = assemble_c7_node_rows(
         skeletons=skeletons,
@@ -393,6 +395,7 @@ def _assemble_scope_rows(
         verdict="page",
         vlm_model=vlm_model,
         page_memory_config=page_memory_config,
+        fine_text_by_page=fine_text_by_page,
     )
     for row in rows:
         extra = row.get("extra_metadata")
