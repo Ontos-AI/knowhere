@@ -7,10 +7,11 @@ from app.services.jobs.job_read_model import JobReadModel
 from app.services.jobs.job_read_model import check_job_permission
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.schemas.job import JobList, JobResultResponse
+from shared.models.schemas.job import JobDeleteResponse, JobList, JobResultResponse
 
 __all__ = [
     "check_job_permission",
+    "delete_job_for_user",
     "get_job_result_for_user",
     "list_jobs_for_user",
 ]
@@ -27,6 +28,7 @@ async def list_jobs_for_user(
     recent_days: Optional[int],
     start_time: Optional[datetime],
     end_time: Optional[datetime],
+    namespace: Optional[str] = None,
 ) -> JobList:
     return await JobReadModel().list_jobs_for_user(
         db,
@@ -38,6 +40,7 @@ async def list_jobs_for_user(
         recent_days=recent_days,
         start_time=start_time,
         end_time=end_time,
+        namespace=namespace,
     )
 
 
@@ -51,4 +54,19 @@ async def get_job_result_for_user(
         db,
         job_id=job_id,
         user_id=user_id,
+    )
+
+
+async def delete_job_for_user(
+    db: AsyncSession,
+    *,
+    job_id: str,
+    user_id: str,
+    archive_document: bool = True,
+) -> JobDeleteResponse:
+    return await JobReadModel().delete_job_for_user(
+        db,
+        job_id=job_id,
+        user_id=user_id,
+        archive_document=archive_document,
     )
