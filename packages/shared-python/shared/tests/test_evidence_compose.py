@@ -42,13 +42,46 @@ def test_page_parts_are_summary_then_page_image(monkeypatch) -> None:
     assert parts[1]["media_type"] == "image/png"
 
 
-def test_page_parts_do_not_inline_connected_charts() -> None:
+def test_unrefined_page_parts_include_raw_text_and_page_image(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.evidence_compose._try_read_image_artifact",
+        lambda row, artifact, media_type: {
+            "type": "image",
+            "media_type": media_type,
+            "data": base64.b64encode(b"page").decode("ascii"),
+        },
+    )
     parts = compose_evidence_parts(
         {
             "chunk_type": "page",
-            "content": "RAW",
+            "content": "M0 born-digital text",
             "chunk_metadata": {
-                "summary": "只要摘要",
+                "enrichment_state": "text",
+                "page_nums": [1],
+                "page_assets": [
+                    {
+                        "page_num": 1,
+                        "artifact_ref": "page_citation_assets/page-1.png",
+                        "content_type": "image/png",
+                    }
+                ],
+            },
+        },
+        {},
+    )
+    assert parts[0] == {"type": "text", "text": "M0 born-digital text"}
+    assert parts[1]["type"] == "image"
+    assert parts[1]["media_type"] == "image/png"
+
+
+def test_refined_page_parts_include_content_and_inline_connected_charts() -> None:
+    parts = compose_evidence_parts(
+        {
+            "chunk_type": "page",
+            "content": "见表 [tables/a.html] 结束",
+            "chunk_metadata": {
+                "summary": "节点摘要",
+                "enrichment_state": "refined",
                 "connect_to": [
                     {
                         "target": "table-1",
@@ -61,15 +94,113 @@ def test_page_parts_do_not_inline_connected_charts() -> None:
         {
             "table-1": {
                 "chunk_type": "table",
-                "content": "<table><tr><td>no</td></tr></table>",
+                "content": "<table><tr><td>Q4</td></tr></table>",
             }
         },
     )
-    assert parts[0] == {"type": "text", "text": "只要摘要"}
-    assert parts[1] == {
-        "type": "text",
-        "text": "Page image unavailable: missing page image",
-    }
+    assert parts[0] == {"type": "text", "text": "节点摘要"}
+    composed_text = "".join(
+        part["text"] for part in parts if part["type"] == "text"
+    )
+    assert "<table><tr><td>Q4</td></tr></table>" in composed_text
+    assert "[tables/" not in composed_text
+
+
+def test_unrefined_page_parts_use_matched_pages_only(monkeypatch) -> None:
+    seen: list[str] = []
+
+    def _read(row, artifact, media_type):  # noqa: ANN001
+        seen.append(artifact)
+        return {
+            "type": "image",
+            "media_type": media_type,
+            "data": base64.b64encode(artifact.encode()).decode("ascii"),
+        }
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.evidence_compose._try_read_image_artifact",
+        _read,
+    )
+    parts = compose_evidence_parts(
+        {
+            "chunk_type": "page",
+            "content": "MIX chapter",
+            "matched_page_nums": [141],
+            "chunk_metadata": {
+                "enrichment_state": "coarse",
+                "page_nums": [139, 140, 141],
+                "page_assets": [
+                    {
+                        "page_num": 139,
+                        "artifact_ref": "page_citation_assets/page-139.png",
+                        "content_type": "image/png",
+                    },
+                    {
+                        "page_num": 141,
+                        "artifact_ref": "page_citation_assets/page-141.png",
+                        "content_type": "image/png",
+                    },
+                ],
+            },
+        },
+        {},
+    )
+    assert parts[0] == {"type": "text", "text": "MIX chapter"}
+    assert [part["type"] for part in parts[1:]] == ["image"]
+    assert seen == ["page_citation_assets/page-141.png"]
+
+
+@pytest.mark.asyncio
+async def test_assemble_coarse_page_shrinks_to_matched_pages() -> None:
+    assembled = await assemble_retrieval_results(
+        rows=[
+            {
+                "chunk_id": "c1",
+                "chunk_type": "page",
+                "content": "coarse text",
+                "matched_page_nums": [141],
+                "chunk_metadata": {
+                    "enrichment_state": "coarse",
+                    "page_nums": [139, 140, 141],
+                    "page_assets": [
+                        {"page_num": 139, "artifact_ref": "p139.png"},
+                        {"page_num": 141, "artifact_ref": "p141.png"},
+                    ],
+                },
+            }
+        ],
+        exclude_document_ids=[],
+        exclude_sections=[],
+    )
+    assert assembled[0]["page_nums"] == [141]
+    assert assembled[0]["content"] == "coarse text"
+    assert assembled[0]["content_source"] == "raw"
+    assert [item["page_num"] for item in assembled[0]["chunk_metadata"]["page_assets"]] == [
+        141
+    ]
+
+
+@pytest.mark.asyncio
+async def test_assemble_refined_page_keeps_full_content() -> None:
+    assembled = await assemble_retrieval_results(
+        rows=[
+            {
+                "chunk_id": "c1",
+                "chunk_type": "page",
+                "content": "verbatim body",
+                "chunk_metadata": {
+                    "enrichment_state": "refined",
+                    "summary": "short",
+                    "page_nums": [10, 11],
+                },
+            }
+        ],
+        exclude_document_ids=[],
+        exclude_sections=[],
+    )
+    assert assembled[0]["content"] == "verbatim body"
+    assert assembled[0]["content_source"] == "content"
+    assert assembled[0]["page_nums"] == [10, 11]
 
 
 def test_standalone_table_uses_html() -> None:

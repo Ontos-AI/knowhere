@@ -25,6 +25,9 @@ def test_remove_path_placeholders_requires_asset_extension() -> None:
     )
     assert remove_path_placeholders(leftover) == "前  后"
     assert remove_path_placeholders("见表 [tables/table-1.html] 完") == "见表  完"
+    assert remove_path_placeholders("看 [images/a.heic] 和 [images/b.tif] 完") == (
+        "看  和  完"
+    )
     assert remove_path_placeholders("不是引用 [images/foo] 也不是 [tables/a]") == (
         "不是引用 [images/foo] 也不是 [tables/a]"
     )

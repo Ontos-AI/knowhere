@@ -78,7 +78,7 @@ class TocAnchorPage:
 
     page: int  # 1-based page number
     png_path: str  # local PNG path for VLM inspection
-    source: Literal["text_scan"] = "text_scan"
+    source: Literal["text_scan", "visual", "hybrid"] = "text_scan"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -141,8 +141,7 @@ class Shard:
         "toc_leaf_boundary",
     ]
     anchor_evidence: str
-    # Calibrated TOC slice for this shard (heading+level), attached at
-    # propose.shard_plan. TEXT-TRACK consumes this directly; no printed→physical
+    # Calibrated TOC slice for this shard (heading+level). No printed→physical
     # re-filter at parse time.
     toc_hierarchies: list[dict[str, Any]] | None = None
 

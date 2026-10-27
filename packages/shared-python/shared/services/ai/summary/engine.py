@@ -244,7 +244,8 @@ def summarize(
     prompt_task / prompt_paras:
         Override the prompt used for the image-based page path. Lets a bounded
         node summary (``page-memory-node-summary`` with ``node_title`` /
-        ``next_title``) reuse the same call mechanics. Ignored for text/asset.
+        ``next_title``) reuse the same call mechanics. ``prompt_paras`` is also
+        forwarded on the asset image path. Ignored for text.
 
     Returns the typed contract; callers map it onto their row. On any failure the
     engine returns an empty contract of the right type (no raw-text fallbacks —
@@ -260,6 +261,7 @@ def summarize(
             model=model,
             usage_task=usage_task or "summary.asset",
             asset_title_hint=asset_title_hint,
+            prompt_paras=prompt_paras,
         )
     return _summarize_body(
         mode=mode,
@@ -353,6 +355,7 @@ def _summarize_asset(
     model: str | None,
     usage_task: str,
     asset_title_hint: str,
+    prompt_paras: dict[str, Any] | None = None,
 ) -> AssetSummary:
     if not image_paths and not text.strip():
         return AssetSummary(title=asset_title_hint)
@@ -385,11 +388,14 @@ def _summarize_asset(
 
     # Image-based asset: the shared per-type image prompt returns one strict JSON
     # object (title + summary + entities).
+    paras: dict[str, Any] = {"max_tokens": summary_len}
+    if prompt_paras:
+        paras.update(prompt_paras)
     prompt, temperature, top_p, max_tokens = build_prompt(
         "summary-images",
         text,
         "",
-        paras={"max_tokens": summary_len},
+        paras=paras,
     )
     resolved_model = model or os.environ.get("IMAGE_MODEL")
     if not resolved_model:
@@ -421,6 +427,7 @@ def transcribe(
     model: str | None = None,
     max_tokens: int = 1500,
     usage_task: str = "summary.transcribe",
+    prompt_paras: dict[str, Any] | None = None,
 ) -> str:
     """Single OCR primitive (§4.2): transcribe page/image text verbatim.
 
@@ -434,8 +441,11 @@ def transcribe(
     resolved_model = model or os.environ.get("IMAGE_MODEL")
     if not resolved_model:
         return ""
+    paras: dict[str, Any] = {"max_tokens": max_tokens}
+    if prompt_paras:
+        paras.update(prompt_paras)
     prompt, temperature, top_p, _max_tokens = build_prompt(
-        "transcribe", "", "", paras={"max_tokens": max_tokens}
+        "transcribe", "", "", paras=paras
     )
     parsed = _call_llm(
         prompt=prompt,

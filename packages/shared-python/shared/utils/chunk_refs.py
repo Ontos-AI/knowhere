@@ -2,7 +2,7 @@ import re
 from typing import List, TypedDict
 
 RESOURCE_PATH_REF_PATTERN = (
-    r"\[(?:images/[^\n]+?\.(?:png|jpe?g|gif|webp)|tables/[^\n]+?\.(?:html|csv))\]"
+    r"\[(?:images/[^\n]+?\.(?:png|jpe?g|gif|webp|bmp|tiff?|heic|heif)|tables/[^\n]+?\.(?:html|csv))\]"
 )
 CHUNK_REF_PATTERN = RESOURCE_PATH_REF_PATTERN
 REFERENCE_LABEL_PATTERN = r"^\s*(?:image|table)-\d+\s*$"

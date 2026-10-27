@@ -136,6 +136,7 @@ def execute_structure_enrichment(
         profile = _resume_profile_from_m0_workspace(
             add_dir=add_dir,
             target=target,
+            job_result_id=job_result_id,
         )
         phase_a = build_phase_a(
             profile=profile,
@@ -341,6 +342,7 @@ def run_single_scope_refinement(
         filename=filename,
         vlm_model=vlm_model,
         page_memory_config=page_memory_config,
+        fine_text_by_page=scope_result.fine_text_by_page,
     )
     dataframe = pd.DataFrame(rows, columns=pd.Index(PARSER_DF_COLUMNS))
     chunks = cast(list[dict[str, Any]], dataframe_to_chunks(dataframe))
@@ -376,6 +378,7 @@ def _assemble_scope_rows(
     filename: str,
     vlm_model: str | None,
     page_memory_config: PageMemoryConfig,
+    fine_text_by_page: dict[int, str] | None = None,
 ) -> list[dict[str, Any]]:
     rows, _final_pages = assemble_c7_node_rows(
         skeletons=skeletons,
@@ -392,6 +395,7 @@ def _assemble_scope_rows(
         verdict="page",
         vlm_model=vlm_model,
         page_memory_config=page_memory_config,
+        fine_text_by_page=fine_text_by_page,
     )
     for row in rows:
         extra = row.get("extra_metadata")
@@ -549,6 +553,7 @@ def _resume_profile_from_m0_workspace(
     *,
     add_dir: str,
     target: _ClaimedScopeTarget,
+    job_result_id: str,
 ) -> Any:
     from app.services.document_agent.coordinator import ProfileCoordinator
     from app.services.document_agent.manifest import DocumentProfile
@@ -557,6 +562,10 @@ def _resume_profile_from_m0_workspace(
         page_body_content_map,
         page_content_map,
     )
+    from app.services.document_agent.tools.find_toc_anchor_pages import (
+        _all_scan_keywords,
+        _prefix_toc_keywords_for_categories,
+    )
     from app.services.document_parser.profiling.doc_profiler import _map_toc_profile
     from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
     from app.services.document_parser.profiling.profile_model import (
@@ -564,6 +573,9 @@ def _resume_profile_from_m0_workspace(
     )
     from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
     from shared.core.config import settings
+    from shared.services.retrieval.page_embedding_index import (
+        query_visual_candidate_pages,
+    )
 
     pdf_path = os.path.join(add_dir, PHASE_B_SOURCE_PDF_REL)
     bb_path = os.path.join(add_dir, PHASE_B_BLACKBOARD_REL)
@@ -605,8 +617,25 @@ def _resume_profile_from_m0_workspace(
     bb.global_signals = dict(bb_raw.get("global_signals") or {})
     bb.page_full_text_cache = page_bands_map(bb_raw["page_full_text_bands"])
     bb.page_text_search_view = None
-    if doc_profile.is_scanned and not bb.page_full_text_cache:
+    if not bb.page_full_text_cache:
         coordinator._run_text_scan()
+    queries = sorted(
+        _all_scan_keywords(
+            prefix_keywords=_prefix_toc_keywords_for_categories(
+                doc_profile.category
+            )
+        )
+    )
+    with get_sync_db_context() as db:
+        visual_pages = query_visual_candidate_pages(
+            db,
+            namespace=target.namespace,
+            document_id=target.document_id,
+            job_result_id=job_result_id,
+            queries=queries,
+        )
+    if visual_pages:
+        coordinator.ctx.settings["toc_visual_candidate_pages"] = sorted(visual_pages)
     coordinator._ensure_toc_profile(strict=False)
 
     routing_category = PdfRoutingCategory.normalize(doc_profile.routing_category)
@@ -634,11 +663,9 @@ def _resume_profile_from_m0_workspace(
     )
     if not profile.is_atlas:
         if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
-            profile.anatomy = coordinator.run_structural(skip_shard_plan=True)
+            profile.anatomy = coordinator.run_structural()
         else:
-            profile.anatomy = coordinator.run_lightweight_anatomy(
-                skip_shard_plan=True
-            )
+            profile.anatomy = coordinator.run_lightweight_anatomy()
     profile.toc = _map_toc_profile(coordinator)
     return profile
 

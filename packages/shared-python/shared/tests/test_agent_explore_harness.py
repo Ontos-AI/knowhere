@@ -103,20 +103,24 @@ def test_model_accepts_images_only_when_name_contains_vision() -> None:
     assert model_accepts_images("deepseek-v4-flash") is False
 
 
-def test_https_image_parts_keeps_https_and_drops_filesystem() -> None:
+def test_https_image_parts_keeps_http_and_https_and_drops_filesystem() -> None:
     result = ToolResult(
         text="body",
         media=[
             {"type": "image_url", "url": "https://cdn.example/a.png"},
             {"type": "image_url", "url": "filesystem:///tmp/a.png"},
-            {"type": "image_url", "url": "http://insecure.example/a.png"},
+            {"type": "image_url", "url": "http://localhost:4566/page.png"},
         ],
     )
     assert https_image_parts(result) == [
         {
             "type": "image_url",
             "image_url": {"url": "https://cdn.example/a.png"},
-        }
+        },
+        {
+            "type": "image_url",
+            "image_url": {"url": "http://localhost:4566/page.png"},
+        },
     ]
 
 

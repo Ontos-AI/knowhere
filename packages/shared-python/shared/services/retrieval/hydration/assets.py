@@ -12,7 +12,13 @@ from shared.models.database.job_result import JobResult
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.storage.demo_asset_signer import DemoAssetSigner
 
-from shared.services.retrieval.hydration.row_utils import MEDIA_CHUNK_TYPES, normalize_chunk_type
+from shared.services.retrieval.hydration.row_utils import (
+    MEDIA_CHUNK_TYPES,
+    coerce_page_nums,
+    extract_matched_page_nums,
+    is_unrefined_page,
+    normalize_chunk_type,
+)
 from shared.services.storage.page_pdf_crop import crop_source_pdf_pages
 from shared.services.storage.raw_prefix_arguments import RawPrefixArguments
 from shared.services.storage.result_storage import get_result_storage
@@ -94,7 +100,7 @@ def _resolve_page_citation_asset_request(row: dict[str, Any]) -> tuple[str, str]
     if not job_id or not _is_page_row(row):
         return None
 
-    for page_asset in _iter_page_assets(_metadata_for_row(row).get("page_assets")):
+    for page_asset in _page_assets_for_row(row):
         artifact_ref = _normalize_artifact_ref(page_asset.get("artifact_ref"))
         if artifact_ref is None:
             continue
@@ -105,7 +111,7 @@ def _resolve_page_citation_asset_request(row: dict[str, Any]) -> tuple[str, str]
 def _resolve_direct_page_citation_asset_url(row: dict[str, Any]) -> str | None:
     if not _is_page_row(row):
         return None
-    for page_asset in _iter_page_assets(_metadata_for_row(row).get("page_assets")):
+    for page_asset in _page_assets_for_row(row):
         asset_url = str(page_asset.get("asset_url") or "").strip()
         if asset_url:
             return asset_url
@@ -118,21 +124,17 @@ def _iter_page_assets(raw_assets: object) -> list[dict[str, Any]]:
     return [item for item in raw_assets if isinstance(item, dict)]
 
 
-def _coerce_page_nums(value: object) -> list[int]:
-    if isinstance(value, list):
-        raw_values = value
-    elif value is None:
-        raw_values = []
-    else:
-        raw_values = str(value).split(",")
-
-    pages: list[int] = []
-    for item in raw_values:
-        try:
-            pages.append(int(str(item).strip()))
-        except (TypeError, ValueError):
-            continue
-    return pages
+def _page_assets_for_row(row: dict[str, Any]) -> list[dict[str, Any]]:
+    assets = _iter_page_assets(_metadata_for_row(row).get("page_assets"))
+    matched = extract_matched_page_nums(row) if is_unrefined_page(row) else []
+    if not matched:
+        return assets
+    assets_by_page: dict[int, dict[str, Any]] = {}
+    for item in assets:
+        page = coerce_page_nums([item.get("page_num")])
+        if page:
+            assets_by_page[page[0]] = item
+    return [assets_by_page[page] for page in matched if page in assets_by_page]
 
 
 def _resolve_page_pdf_request(row: dict[str, Any]) -> PagePdfRequestKey | None:
@@ -146,7 +148,10 @@ def _resolve_page_pdf_request(row: dict[str, Any]) -> PagePdfRequestKey | None:
         return None
 
     metadata = _metadata_for_row(row)
-    pages = _coerce_page_nums(metadata.get("page_nums") or row.get("page_nums"))
+    matched = extract_matched_page_nums(row) if is_unrefined_page(row) else []
+    pages = matched or coerce_page_nums(
+        metadata.get("page_nums") or row.get("page_nums")
+    )
     if not pages:
         return None
     normalized_pages = tuple(sorted({page for page in pages if page > 0}))
@@ -188,7 +193,7 @@ async def _generate_page_citation_asset_url(
     log_context: str,
 ) -> str | None:
     if _is_demo_row(row):
-        for asset in _iter_page_assets(_metadata_for_row(row).get("page_assets")):
+        for asset in _page_assets_for_row(row):
             if url := _sign_demo_asset(row, str(asset.get("artifact_ref") or "")):
                 return url
         # Readers reuse the normalized PDF uploaded by the Worker. Creating
@@ -227,7 +232,7 @@ async def _enrich_page_assets(
 ) -> list[dict[str, Any]]:
     if not _is_page_row(row):
         return []
-    page_assets = _iter_page_assets(_metadata_for_row(row).get("page_assets"))
+    page_assets = _page_assets_for_row(row)
     if not page_assets:
         return []
 

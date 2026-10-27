@@ -24,12 +24,16 @@ class DocumentIngestionCommand:
     page_memory_config: PageMemoryConfig | None = None
 
 
-def build_v1_ingestion_command(*, payload: JobCreateBase) -> DocumentIngestionCommand:
-    """Build the legacy chunk ingestion command for v1 jobs."""
+def build_v1_ingestion_command(
+    *,
+    payload: JobCreateBase,
+    file_extension: str,
+) -> DocumentIngestionCommand:
+    """Build the v1 ingestion command, using page-memory for PDF/PPTX."""
     return _build_ingestion_command(
         payload=payload,
         api_version="v1",
-        parse_track="chunk",
+        parse_track=_resolve_parse_track(file_extension=file_extension),
     )
 
 
@@ -42,7 +46,7 @@ def build_v2_ingestion_command(
     return _build_ingestion_command(
         payload=payload,
         api_version="v2",
-        parse_track=_resolve_v2_parse_track(file_extension=file_extension),
+        parse_track=_resolve_parse_track(file_extension=file_extension),
     )
 
 
@@ -69,7 +73,7 @@ def _build_ingestion_command(
     )
 
 
-def _resolve_v2_parse_track(*, file_extension: str) -> ParseTrack:
+def _resolve_parse_track(*, file_extension: str) -> ParseTrack:
     if file_extension.lower() in _PAGE_MEMORY_PARSE_TRACK_EXTENSIONS:
         return "page_memory"
     return "chunk"

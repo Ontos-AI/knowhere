@@ -38,12 +38,66 @@ def is_media_chunk(row: dict[str, Any]) -> bool:
     return normalize_chunk_type(row.get('chunk_type')) in MEDIA_CHUNK_TYPES
 
 
+UNREFINED_PAGE_STATES = frozenset({'text', 'coarse', 'queued'})
+
+
+def coerce_page_nums(value: object) -> list[int]:
+    if isinstance(value, list):
+        raw_values = value
+    elif value is None:
+        raw_values = []
+    else:
+        raw_values = str(value).split(',')
+
+    pages: list[int] = []
+    for item in raw_values:
+        try:
+            page = int(str(item).strip())
+        except (TypeError, ValueError):
+            continue
+        if page not in pages:
+            pages.append(page)
+    return pages
+
+
 def extract_page_nums(row: dict[str, Any]) -> list[int] | None:
     metadata = row.get('chunk_metadata') or row.get('metadata') or {}
     if not isinstance(metadata, dict):
         return None
     page_nums = metadata.get('page_nums')
     return page_nums if isinstance(page_nums, list) else None
+
+
+def extract_matched_page_nums(row: dict[str, Any]) -> list[int]:
+    return coerce_page_nums(row.get('matched_page_nums'))
+
+
+def is_unrefined_page(row: dict[str, Any]) -> bool:
+    return page_enrichment_state(row) in UNREFINED_PAGE_STATES
+
+
+def apply_matched_page_nums(row: dict[str, Any], pages: list[int]) -> None:
+    matched = coerce_page_nums(pages)
+    row['matched_page_nums'] = matched
+    row['page_nums'] = matched
+    metadata = row.get('chunk_metadata') or row.get('metadata') or {}
+    metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    metadata['page_nums'] = matched
+    raw_assets = metadata.get('page_assets')
+    if isinstance(raw_assets, list):
+        assets_by_page: dict[int, dict[str, Any]] = {}
+        for item in raw_assets:
+            if not isinstance(item, dict):
+                continue
+            page = coerce_page_nums([item.get('page_num')])
+            if page:
+                assets_by_page[page[0]] = item
+        metadata['page_assets'] = [
+            assets_by_page[page] for page in matched if page in assets_by_page
+        ]
+    row['chunk_metadata'] = metadata
+    if isinstance(row.get('metadata'), dict) or 'metadata' in row:
+        row['metadata'] = metadata
 
 
 def page_summary(row: dict[str, Any]) -> str:

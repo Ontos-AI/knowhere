@@ -268,7 +268,7 @@ def main() -> int:
         args.finalize = True
 
     from app.services.document_agent.pdf_text import read_page_texts
-    from app.services.page_memory.node_assembler import build_node_rows
+    from app.services.page_memory.memory_service import assemble_c7_node_rows
     from app.services.page_memory.skeleton_extractor import collapse_single_child_chains
     from shared.models.schemas.page_memory_config import PageMemoryConfig
 
@@ -402,8 +402,6 @@ def main() -> int:
             rendered_by_page[rp.page_index] = rp
     all_rendered = sorted(rendered_by_page.values(), key=lambda rp: rp.page_index)
 
-    active_pages = sorted({p for sr in scope_results for p in sr.final_pages})
-
     # ── C4c: global collapse ──
     pre_collapse = len(all_skeletons)
     all_skeletons = collapse_single_child_chains(all_skeletons)
@@ -439,36 +437,22 @@ def main() -> int:
     logger.info("🧱 C7: assemble canonical chunks")
     logger.info("=" * 70)
 
-    tag_map = {t.page_index: t for t in tags}
-    render_map = {r.page_index: r for r in all_rendered}
-    raw_text_by_page: dict[int, str] = {}
-    image_path_by_page: dict[int, str] = {}
-    for page in active_pages:
-        rend = render_map.get(page)
-        raw_text_by_page[page] = (
-            rend.raw_text if rend else page_texts.get(page, "")
-        ) or ""
-        if rend and rend.image_path and os.path.exists(rend.image_path):
-            image_path_by_page[page] = rend.image_path
-
     page_memory_config = PageMemoryConfig.default()
-    label_map: dict[int, str] = {}
-    if page_labels:
-        for lbl in page_labels:
-            label_map[int(lbl.page)] = str(lbl.kind)
-    rows = build_node_rows(
+    rows, active_pages = assemble_c7_node_rows(
         skeletons=active_skeletons,
-        raw_text_by_page=raw_text_by_page,
-        image_path_by_page=image_path_by_page,
+        rendered=rendered_by_page,
+        tags=tags,
+        assets_by_page=all_assets if all_assets else {},
+        page_texts=page_texts,
+        body_text_by_page=page_texts,
+        page_labels=page_labels,
+        toc_pages=toc_pages,
+        page_count=page_count,
         output_dir=str(out_dir),
-        kind_by_page=label_map,
-        tag_by_page=tag_map,
         filename=filename,
         verdict="page",
         vlm_model=args.vlm_model or os.environ.get("IMAGE_MODEL"),
-        page_assets_by_page=all_assets if all_assets else None,
-        node_summary_max_pages=page_memory_config.node_summary_max_pages,
-        node_assembly_concurrency=page_memory_config.node_assembly_concurrency,
+        page_memory_config=page_memory_config,
     )
     chunks = [
         {

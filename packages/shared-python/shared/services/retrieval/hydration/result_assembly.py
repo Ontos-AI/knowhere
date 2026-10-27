@@ -10,11 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.evidence_compose import compose_evidence_parts
 from shared.services.retrieval.hydration.row_utils import (
+    apply_matched_page_nums,
+    extract_matched_page_nums,
     extract_page_nums,
     filter_excluded_rows,
+    is_unrefined_page,
     iter_connected_target_ids,
     normalize_chunk_type,
-    page_enrichment_state,
     page_summary,
 )
 
@@ -69,15 +71,21 @@ async def assemble_retrieval_results(
         base_content = str(row.get('content') or '')
         chunk_type = normalize_chunk_type(row.get('chunk_type'))
         if chunk_type == 'page':
-            if page_enrichment_state(row) in {'text', 'coarse', 'queued'}:
+            if is_unrefined_page(row):
                 assembled_row['content'] = base_content
                 assembled_row['content_source'] = (
                     'raw' if base_content.strip() else 'page_image'
                 )
+                matched_pages = extract_matched_page_nums(row)
+                if matched_pages:
+                    apply_matched_page_nums(assembled_row, matched_pages)
+            elif base_content.strip():
+                assembled_row['content'] = base_content
+                assembled_row['content_source'] = 'content'
             else:
-                assembled_row['content'] = page_summary(row)
+                assembled_row['content'] = ''
                 assembled_row['content_source'] = 'summary'
-            page_nums = extract_page_nums(row)
+            page_nums = extract_page_nums(assembled_row)
             if page_nums is not None:
                 assembled_row['page_nums'] = page_nums
         else:
@@ -88,6 +96,12 @@ async def assemble_retrieval_results(
             rows_by_chunk_id,
             queried_tables=queried_tables,
         )
+        if (
+            chunk_type == 'page'
+            and assembled_row.get('content_source') == 'summary'
+            and not str(assembled_row.get('content') or '').strip()
+        ):
+            assembled_row['content'] = page_summary(row)
         assembled.append(assembled_row)
     return assembled
 

@@ -146,7 +146,7 @@ def _run_deferred_summary_task(
         if isinstance(task, ImageDeferredSummaryTask):
             # Asset contract (§4.1): title + summary + entities from the image.
             # The engine's per-type image prompt covers charts/tables/diagrams and
-            # pure-text images alike, closing the old MinerU "pure text image" gap.
+            # pure-text images alike.
             image_path = os.path.join(deferred_input.output_dir, task.relative_path)
             result = summarize(
                 mode="asset",

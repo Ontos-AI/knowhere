@@ -334,8 +334,8 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         assert persisted_document_id.startswith("doc_")
         assert job_metadata["namespace"] == payload["namespace"]
         assert job_metadata["api_version"] == "v1"
-        assert job_metadata["parse_track"] == "chunk"
-        assert job_metadata["processing_generation"] == "legacy_chunk"
+        assert job_metadata["parse_track"] == "page_memory"
+        assert job_metadata["processing_generation"] == "page_memory"
         assert job_metadata["source_type"] == "file"
         assert job_metadata["source_file_name"] == payload["file_name"]
         assert job_metadata["data_id"] == payload["data_id"]
@@ -357,8 +357,8 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         assert cached_metadata["document_id"] == persisted_document_id
         assert cached_metadata["namespace"] == payload["namespace"]
         assert cached_metadata["api_version"] == "v1"
-        assert cached_metadata["parse_track"] == "chunk"
-        assert cached_metadata["processing_generation"] == "legacy_chunk"
+        assert cached_metadata["parse_track"] == "page_memory"
+        assert cached_metadata["processing_generation"] == "page_memory"
         assert cached_metadata["source_type"] == "file"
         assert cached_metadata["source_file_name"] == payload["file_name"]
         assert cached_metadata["document_metadata"] == payload["document_metadata"]
@@ -474,7 +474,7 @@ async def test_v2_created_page_memory_job_can_query_v2_retrieval(
     assert len(results) == 1
     assert results[0]["chunk_id"] == published_chunk["chunk_id"]
     assert results[0]["chunk_type"] == "page"
-    assert results[0]["content_source"] == "summary"
+    assert results[0]["content_source"] == "content"
     assert results[0]["content"] == "v2 page-memory retrieval policy marker"
     assert results[0]["score"] == 1.0
     assert results[0]["source_chunk_path"] == published_chunk["section_path"]
@@ -560,6 +560,64 @@ async def test_should_create_a_waiting_file_job_for_html_uploads(
     assert job_record["s3_key"] == expected_s3_key.format(job_id=job_id)
     assert job_metadata["source_file_name"] == file_name
     assert job_metadata["data_id"] == data_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("file_name", "data_id", "content_type"),
+    [
+        ("contract-upload.gif", "contract-job-gif-upload", "image/gif"),
+        ("contract-upload.webp", "contract-job-webp-upload", "image/webp"),
+        ("contract-upload.bmp", "contract-job-bmp-upload", "image/bmp"),
+        ("contract-upload.tiff", "contract-job-tiff-upload", "image/tiff"),
+        ("contract-upload.heic", "contract-job-heic-upload", "image/heic"),
+    ],
+)
+async def test_should_create_a_waiting_file_job_for_raster_image_uploads(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    file_name: str,
+    data_id: str,
+    content_type: str,
+) -> None:
+    payload: dict[str, object] = {
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": file_name,
+        "data_id": data_id,
+    }
+
+    async with developer_api_client_factory() as api_client:
+        response = await api_client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 200
+    response_json: dict[str, object] = response.json()
+    assert response_json["status"] == "waiting-file"
+    assert response_json["upload_headers"] == {"Content-Type": content_type}
+
+
+@pytest.mark.asyncio
+async def test_should_return_invalid_argument_when_file_mode_job_uses_svg(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    payload: dict[str, str] = {
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": "contract-upload.svg",
+        "data_id": "contract-job-svg-upload",
+    }
+
+    async with developer_api_client_factory() as api_client:
+        response = await api_client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 400
+    response_json: dict[str, object] = response.json()
+    error = cast(dict[str, object], response_json["error"])
+    assert error["code"] == "INVALID_ARGUMENT"
+    assert str(error["message"]).startswith("Unsupported file type. Supported formats:")
 
 
 @pytest.mark.asyncio

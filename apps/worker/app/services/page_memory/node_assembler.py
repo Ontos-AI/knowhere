@@ -39,6 +39,7 @@ from app.services.page_memory.page_assets import (
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.body_text_preview import build_body_text_preview
 from app.services.document_parser.structure.body_boundary import normalize_match_text
+from app.services.page_memory._utils import is_toc_node
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
 from shared.services.ai.summary.engine import summarize
 
@@ -60,6 +61,7 @@ class LeafNode:
     end_page: int
     parent_path: str | None = None
     body_pages: tuple[int, ...] | None = None
+    is_toc: bool = False
 
 
 @dataclass
@@ -88,10 +90,15 @@ def identify_leaf_nodes(skeletons: list[SectionSkeleton]) -> list[LeafNode]:
     parent_paths = {skel.parent_path for skel in skeletons if skel.parent_path}
     leaves: list[tuple[int, int, LeafNode]] = []
     for index, skel in enumerate(skeletons):
-        effective_end_page = _exclusive_end(skeletons, index)
+        toc_leaf = is_toc_node(skel)
+        effective_end_page = (
+            skel.end_page if toc_leaf else _exclusive_end(skeletons, index)
+        )
         is_internal = skel.section_path in parent_paths
         body_pages: tuple[int, ...] | None = None
-        if is_internal:
+        if toc_leaf:
+            body_pages = tuple(range(skel.start_page, skel.end_page + 1))
+        elif is_internal:
             body_page_list = _internal_body_pages(skel, skeletons, index=index)
             if not body_page_list:
                 continue
@@ -110,6 +117,7 @@ def identify_leaf_nodes(skeletons: list[SectionSkeleton]) -> list[LeafNode]:
                     end_page=effective_end_page,
                     parent_path=skel.parent_path,
                     body_pages=body_pages,
+                    is_toc=toc_leaf,
                 ),
             )
         )
@@ -145,7 +153,9 @@ def _exclusive_end(skeletons: list[SectionSkeleton], index: int) -> int:
     """
     skeleton = skeletons[index]
     later_starts = [
-        skel.start_page for skel in skeletons if skel.start_page > skeleton.start_page
+        skel.start_page
+        for skel in skeletons
+        if skel.start_page > skeleton.start_page and not is_toc_node(skel)
     ]
     if not later_starts:
         return skeleton.end_page
@@ -156,6 +166,7 @@ def assign_pages_to_leaves(
     leaves: list[LeafNode],
     *,
     available_pages: set[int],
+    toc_pages: list[int] | None = None,
 ) -> tuple[list[NodePageView], dict[int, LeafNode]]:
     """Map every leaf to its pages and decide per-page text ownership.
 
@@ -174,6 +185,7 @@ def assign_pages_to_leaves(
         ``page_owner`` maps a page index to the leaf that owns its body text
         (the first leaf, in reading order, that covers it).
     """
+    toc_set = {int(page) for page in (toc_pages or [])}
     page_owner: dict[int, LeafNode] = {}
     views: list[NodePageView] = []
     for leaf in leaves:
@@ -182,7 +194,18 @@ def assign_pages_to_leaves(
             if leaf.body_pages is not None
             else list(range(leaf.start_page, leaf.end_page + 1))
         )
-        pages = [page for page in source_pages if page in available_pages]
+        if leaf.is_toc:
+            pages = [
+                page
+                for page in source_pages
+                if page in available_pages and (not toc_set or page in toc_set)
+            ]
+        else:
+            pages = [
+                page
+                for page in source_pages
+                if page in available_pages and page not in toc_set
+            ]
         owned: list[int] = []
         for page in pages:
             if page not in page_owner:
@@ -438,11 +461,16 @@ def build_node_rows(
     node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
     node_assembly_concurrency: int = 3,
     body_text_by_page: dict[int, str] | None = None,
+    toc_pages: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Assemble one row per leaf section node (node-granularity chunks)."""
     available_pages = set(raw_text_by_page.keys())
     leaves = identify_leaf_nodes(skeletons)
-    views, page_owner = assign_pages_to_leaves(leaves, available_pages=available_pages)
+    views, page_owner = assign_pages_to_leaves(
+        leaves,
+        available_pages=available_pages,
+        toc_pages=toc_pages,
+    )
     page_to_leaves = pages_by_leaf_count(views)
     resolved_concurrency = max(1, node_assembly_concurrency)
 

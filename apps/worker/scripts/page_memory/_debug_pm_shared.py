@@ -32,7 +32,6 @@ from dotenv import load_dotenv
 
 load_dotenv(WORKER_ROOT / ".env")
 os.environ.setdefault("LOCAL_DEBUG", "1")
-os.environ.setdefault("OVERSIZED_PDF_SHARD_ENABLED", "true")
 
 from loguru import logger
 
@@ -245,11 +244,17 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
     for candidate in toc.get("candidates") or []:
         if not isinstance(candidate, dict):
             continue
+        raw_source = candidate.get("source")
+        candidate_source = (
+            raw_source
+            if raw_source in {"text_scan", "visual", "hybrid"}
+            else "text_scan"
+        )
         candidates.append(
             TocAnchorPage(
                 page=int(candidate.get("page", 0)),
                 png_path=str(candidate.get("png_path") or ""),
-                source="text_scan",
+                source=candidate_source,
             )
         )
     evidence = []
