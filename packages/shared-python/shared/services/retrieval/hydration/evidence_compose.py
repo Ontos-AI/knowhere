@@ -39,6 +39,11 @@ _IMAGE_MEDIA_TYPES = {
     ".png": "image/png",
     ".gif": "image/gif",
     ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
 }
 
 

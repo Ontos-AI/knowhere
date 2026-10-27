@@ -104,7 +104,7 @@ class StorageConfig(BaseModel):
         ),
     )
     SUPPORTED_EXTENSIONS: str = Field(
-        default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.pptx,.jpg,.jpeg,.png,.md,.html,.htm",
+        default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.pptx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif,.md,.html,.htm",
         description="Supported file extensions",
     )
 

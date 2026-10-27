@@ -563,6 +563,64 @@ async def test_should_create_a_waiting_file_job_for_html_uploads(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("file_name", "data_id", "content_type"),
+    [
+        ("contract-upload.gif", "contract-job-gif-upload", "image/gif"),
+        ("contract-upload.webp", "contract-job-webp-upload", "image/webp"),
+        ("contract-upload.bmp", "contract-job-bmp-upload", "image/bmp"),
+        ("contract-upload.tiff", "contract-job-tiff-upload", "image/tiff"),
+        ("contract-upload.heic", "contract-job-heic-upload", "image/heic"),
+    ],
+)
+async def test_should_create_a_waiting_file_job_for_raster_image_uploads(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    file_name: str,
+    data_id: str,
+    content_type: str,
+) -> None:
+    payload: dict[str, object] = {
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": file_name,
+        "data_id": data_id,
+    }
+
+    async with developer_api_client_factory() as api_client:
+        response = await api_client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 200
+    response_json: dict[str, object] = response.json()
+    assert response_json["status"] == "waiting-file"
+    assert response_json["upload_headers"] == {"Content-Type": content_type}
+
+
+@pytest.mark.asyncio
+async def test_should_return_invalid_argument_when_file_mode_job_uses_svg(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    payload: dict[str, str] = {
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": "contract-upload.svg",
+        "data_id": "contract-job-svg-upload",
+    }
+
+    async with developer_api_client_factory() as api_client:
+        response = await api_client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 400
+    response_json: dict[str, object] = response.json()
+    error = cast(dict[str, object], response_json["error"])
+    assert error["code"] == "INVALID_ARGUMENT"
+    assert str(error["message"]).startswith("Unsupported file type. Supported formats:")
+
+
+@pytest.mark.asyncio
 async def test_should_return_invalid_argument_when_file_mode_job_is_missing_file_name(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]

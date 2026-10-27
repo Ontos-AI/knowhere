@@ -115,6 +115,27 @@ def _entity_instruction() -> str:
     )
 
 
+_SEQUENCE_SOURCE_LABELS = {
+    "gif": "an animated GIF",
+    "animated_webp": "an animated WebP",
+    "tiff_pages": "a multi-page TIFF",
+}
+
+
+def _image_sequence_note(paras: dict) -> str:
+    """Describe a multi-frame VLM input when the caller provided sequence metadata."""
+    kind = paras.get("sequence_kind")
+    frames = paras.get("sequence_frames")
+    if not kind or not isinstance(frames, int) or frames <= 1:
+        return ""
+    source = _SEQUENCE_SOURCE_LABELS.get(str(kind))
+    if not source:
+        return ""
+    return (
+        f"You will receive {frames} frames in temporal or page order from {source}. "
+        "Understand the whole sequence, not only the first frame."
+    )
+
 
 def build_prompt(task, texts, query, **kwargs):
     from loguru import logger
@@ -641,14 +662,18 @@ Output requirements:
         temperature = 0
         top_p = 0.01
         max_tokens = kwargs.get("paras", {}).get("max_tokens", 1500)
-        prompt = """\
-        You are transcribing a document page or image for a document memory
-        system. Extract the body text as faithfully as possible.
+        sequence_note = _image_sequence_note(kwargs.get("paras", {}))
+        receive_line = sequence_note or (
+            "You are transcribing a document page or image for a document memory "
+            "system."
+        )
+        prompt = f"""\
+        {receive_line} Extract the body text as faithfully as possible.
 
         Return strict JSON with exactly this key:
-        {
+        {{
         "text": "<verbatim body text>"
-        }
+        }}
 
         Rules:
         - Preserve the ORIGINAL LANGUAGE of the text; do not translate.
@@ -656,7 +681,7 @@ Output requirements:
         - Transcribe tables row by row using a simple readable layout.
         - Do NOT add commentary, translation, or summary — transcription only.
         - Omit pure decorative running headers/footers and page numbers.
-        - If there is no readable text, return {"text": ""}.
+        - If there is no readable text, return {{"text": ""}}.
         - Return ONLY the JSON object, no markdown fences or extra text.
     """
 
@@ -793,11 +818,15 @@ header_rows_to_skip: integer, the number of leading rows in Table B that duplica
             img_context = ""
 
         entity_line = _entity_instruction()
+        sequence_note = _image_sequence_note(kwargs.get("paras", {}))
+        receive_line = sequence_note or (
+            "You will receive a single image extracted from a document (it may be a "
+            "chart, a table, a diagram, a credential/form, a technical drawing, a "
+            "photo, or any other visual asset)."
+        )
 
         prompt = f"""
-        You will receive a single image extracted from a document (it may be a
-        chart, a table, a diagram, a credential/form, a technical drawing, a
-        photo, or any other visual asset). Extract the most useful information it
+        {receive_line} Extract the most useful information it
         carries and return one strict JSON object with these keys:
 
         {{
@@ -837,8 +866,10 @@ header_rows_to_skip: integer, the number of leading rows in Table B that duplica
 
     elif task == "judge-image-type":
         temperature = 0.1
-        prompt = """
-        You will receive an image. Your task is to determine whether the image is primarily text-based or image-based. Note:
+        sequence_note = _image_sequence_note(kwargs.get("paras", {}))
+        receive_line = sequence_note or "You will receive an image."
+        prompt = f"""
+        {receive_line} Your task is to determine whether the image is primarily text-based or image-based. Note:
         - Text-based images include posters, display boards, scanned documents, etc.
         - All images except those with rich text content are considered image-based
         - Output strictly in JSON dictionary format with key "answer" and value can only be "text" or "image"
