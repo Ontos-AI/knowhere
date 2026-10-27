@@ -9,6 +9,12 @@ Subsequent capacity evidence is in the [mixed-workload follow-up](progressive-mi
 The original implementation described below was not pushed, published, merged,
 or deployed at the time of that report.
 
+The accepted 2026-10-27 [citation navigation amendment](../adr/0022-open-citations-on-the-enhanced-original-page.md)
+is not implemented by the historical snapshot-pinning behavior described below.
+Existing citations must default to the enhanced reader's same original-file page;
+retained snapshots become explicit provenance views. Earlier passing citation
+tests do not establish acceptance of this follow-up.
+
 ## Delivery locations
 
 | Repository | Branch | Implementation commits |

@@ -36,3 +36,4 @@ Use this shape:
 | [0019](0019-reuse-ten-minute-hipo-enrichment-reconciliation.md) | Reuse ten-minute Hipo enrichment reconciliation |
 | [0020](0020-check-visible-hipo-enhancement-status-every-fifteen-seconds.md) | Check visible Hipo enhancement status every fifteen seconds |
 | [0021](0021-gate-final-enrichment-completion-on-all-required-work.md) | Gate final enrichment completion on all required work |
+| [0022](0022-open-citations-on-the-enhanced-original-page.md) | Open citations on the enhanced original page |

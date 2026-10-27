@@ -15,7 +15,7 @@ The agreed behavior and investigation evidence are recorded in the
 ## Discussion checkpoint: first-snapshot reading (2026-10-27)
 
 The user explicitly keeps this requirement unfinished and wants to continue
-discussing it. Retain the following two points as the current checkpoint:
+discussing it. Retain the following points as the current checkpoint:
 
 1. **Page assets and List reading.** Text-native PDF/PPTX baselines do not
    pre-generate per-page image assets or native-document visual indexes. They
@@ -32,9 +32,27 @@ discussing it. Retain the following two points as the current checkpoint:
    page. It does not yet expose the enhanced chapter/resource hierarchy.
    Images/Tables remain visible but disabled until final synchronization.
    Final publication replaces the flat page tree with the chapter/resource tree
-   while preserving List/Tree mode and source-page position. Retained citations
-   continue to read their own immutable snapshot. This behavior is implemented
-   and locally tested; overall scope and acceptance remain under discussion.
+   while preserving List/Tree mode and source-page position. The tree behavior
+   is implemented and locally tested; the citation default is amended by point 3
+   and overall scope and acceptance remain under discussion.
+3. **Stable page citations; accepted, implementation pending.** Existing citations
+   default to the committed enhanced reader at the same original file version
+   and physical page. Creation-time snapshots remain available only for explicit
+   provenance inspection. Do not make users open the baseline first or choose
+   the latest version merely because the citation predates enhancement. Chunk
+   IDs, chapter paths and parse-snapshot IDs do not define the stable source-page
+   reference. Keep saved citation evidence/provenance intact, and never redirect
+   to a replacement file's same-numbered page. Retain multi-page ranges and
+   identify the supporting page or pages rather than always taking the first.
+   This supersedes the previous default-pinned-citation behavior; see
+   [ADR 0022](../adr/0022-open-citations-on-the-enhanced-original-page.md).
+
+   Required follow-up: normalize existing page coordinates across the Knowhere
+   response, SDK and Hipo's direct retrieval path through citation persistence
+   and reader navigation. In particular, preserve `page_nums` when decoding
+   direct responses and unify it with the camel-case fields consumed downstream.
+   Current code and earlier pinned-snapshot tests do not implement or accept this
+   new default. Record it as unfinished work, not a completed citation feature.
 
 Continue requirements discussion from these points. Do not describe the overall
 progressive requirement as complete merely because this subset's tests pass.
@@ -63,6 +81,10 @@ progressive requirement as complete merely because this subset's tests pass.
   Final success does not create another ingestion or repeat its usage charge.
 - Hipo keeps its baseline visible until final synchronization commits, then
   updates once while preserving List/Tree mode and source-page focus.
+- Citation navigation follows the same original-file page in the latest committed
+  enhanced reader; retained parse snapshots are only for explicit provenance
+  inspection. Preserve source version and page coordinates independently of
+  changing chunk/section identities.
 - Enhancement failure preserves reading and Ask availability. Manual retry is
   offered only after automatic retries are exhausted.
 - Reuse ten-minute Hipo server recovery and fifteen-second visible-client local
@@ -304,8 +326,11 @@ Library retry/status components, and Knowhere Ask/citation adapters.
 3. After final commit, replace content/tree/sections coherently once. Preserve
    List/Tree mode and source-page focus, reveal that page's final chapter, and
    remap obsolete tree IDs/expansion without resetting the reader to the start.
-4. Namespace queries and normalized chunk entities by actual snapshot identity,
-   keeping old citations separate from the current result.
+4. Namespace queries and normalized chunk entities by actual snapshot identity
+   so current reading and explicit historical tracing cannot mix cached content.
+   Keep a citation's stable source-page location separate from its creation-time
+   snapshot provenance. Default citation opening uses the latest committed
+   enhanced snapshot for that same original file version and page.
 5. Keep ready baselines in Ask. Verify citations from currently published
    upstream baseline content can open corresponding retained source pages while Hipo still
    displays M0. Include native-text M0 citations to visual evidence that does not
@@ -315,17 +340,24 @@ Library retry/status components, and Knowhere Ask/citation adapters.
    M0 page up front or silently changing a saved citation's evidence.
    Any on-demand citation image is a separately pinned derivative of the immutable
    source page; do not mutate the baseline archive or replace its existing assets.
-6. Implement enhancement status, terminal-failure-only Retry, and the cited-version
-   notice with explicit View latest version. Compose these with existing locator
-   and asset-error notices. Choosing latest leaves the citation pin, preserves
-   source-page location and clears incompatible old highlights; it does not
-   rewrite the saved citation.
+6. Implement enhancement status, terminal-failure-only Retry and explicit
+   provenance inspection. Show historical-version notices only when the user
+   intentionally inspects a retained snapshot. Returning to current reading
+   preserves source-page location and clears incompatible old highlights without
+   rewriting saved evidence. Ordinary citation opening must not require a
+   preliminary View latest version action. Compose notices with existing locator
+   and asset-error states.
 7. Reuse client polling infrastructure for fifteen-second lightweight Hipo-local
    checks while visible and pending. Share checks per active Project, stop on
    completion/failure, and resume after an admitted retry or a visibility refresh.
 
 Done when the approved reader acceptance matrix in the hardening plan passes
 for native text, scans, historical citations, failed enhancement and final refresh.
+Include the ADR 0022 follow-up: create a page citation before enhancement, commit
+the enhanced snapshot with different chunk/chapter identities, open the old
+citation on that snapshot's same original page, explicitly inspect its original
+snapshot, and return to current reading. Cover direct/SDK page-coordinate
+normalization, multi-page evidence and original-file replacement isolation.
 
 ## Verification and release gates
 

@@ -4,6 +4,7 @@ Status: Historical investigation and acceptance rationale. Application-code
 implementation was subsequently authorized and progressed; the overall
 requirement remains open for further discussion as of 2026-10-27. Current List
 and Tree decisions are recorded in the development plan's discussion checkpoint.
+The accepted citation-navigation amendment in ADR 0022 remains to be implemented.
 
 The execution-oriented development sequence is maintained in the
 [development plan](progressive-ingestion-development-plan.md). This document
@@ -55,10 +56,10 @@ retains the investigation evidence, agreed behavior, and acceptance rationale.
 | Repair missing page vectors without blocking viewing | `shared/services/ai/embedding/multimodal_client.py`, M0 publication, and existing background recovery | Allow a viewable baseline to publish despite missing vectors. Persist missing page identities and repair them in the background without reingestion. Distinguish configuration errors from transient failures; bound retries. | Partial and all-page embedding failures preserve required reading assets and initial availability. After provider recovery, pending vectors are filled without reopening or reingesting the document. |
 | Align the public mode description | `shared/models/schemas/job.py` | Describe automatic full-document background enrichment and priority promotion for accessed scopes. Preserve the existing request parameter and scheduling policy. | The request description agrees with automatic refinement of scopes that are never accessed. |
 | Connect Hipohipo to progressive ingestion | Hipo `src/infrastructure/knowhere/resumable-parse-client.ts` | Select the existing progressive mode for compatible PDF/PPTX inputs. Continue using the current full mode for other formats. Include synchronized ready baselines in Ask without waiting for final enhancement. | A supported progressive request reaches M0, synchronizes its assets, becomes viewable, and participates in Ask before background enrichment finishes; citations open corresponding pages. |
-| Refresh Hipohipo's enhanced snapshot safely | Knowhere result artifact storage, Hipo document synchronization, and Knowhere SDK parsed storage | Retain distinct immutable baseline and final snapshots with their required assets. Switch ordinary reading to the committed final snapshot while old citations retain their original snapshot. Design internal generation and archive identities; do not assume re-enqueuing the same sync attempt can refresh it. | After M0 is readable, final enhancement becomes visible without reparsing or charging again, stale transfer rejection, mixed snapshots, or unavailable page images. Baseline citations still resolve to their original evidence after the switch. |
+| Refresh Hipohipo's enhanced snapshot safely | Knowhere result artifact storage, Hipo document synchronization, and Knowhere SDK parsed storage | Retain immutable baseline and final snapshots for provenance. Switch ordinary reading and citations to the committed final reader at the same original-file page. Keep source-page identity separate from parse-snapshot provenance. | Final content becomes visible without reparsing, charging again or mixing snapshots; old citations open the enhanced same page, with explicit access to retained provenance. |
 | Notify final enrichment and refresh the reader | Knowhere webhook outbox and Job result projection; Hipo webhook route, durable synchronization, and reader polling | Reuse the existing callback for initial `job.completed` and final `job.enrichment.completed` events. Persist webhook receipt before acknowledging, verify current upstream identity, and schedule an idempotent final snapshot refresh. Reuse ten-minute server reconciliation for pending progressive results and fifteen-second Hipo-local status checks while the client page is visible. | Lost, duplicate, delayed, and out-of-order notifications eventually converge; browser closure does not prevent synchronization; initial Job completion is not confused with final enhancement. |
 | Retry failed background processing from Hipo | Knowhere Job enrichment state/retry command; Hipo Source retry application flow and Library/reader status | Keep the Source readable, expose enrichment failure separately, and allow an authorized retry of unfinished work under the existing Job. Proposed UI reuses the Library row retry interaction and adds a nonblocking reader notice. | After automatic retries are exhausted, a user resumes failed work from Hipo without reuploading, losing the baseline, rerunning successful scopes, or repeating ingestion charges. Duplicate clicks do not create concurrent work. |
-| Render progressive Tree View | Hipo reader tree construction, resource filters, and final-snapshot refresh | Show the baseline as a document root with source-ordered `Page N` leaves for both text-native and scanned PDFs. Pages is selected and available; Images/Tables remain visible but disabled until final sync. Replace the tree once with the final chapter/resource hierarchy, preserving List/Tree mode and source-page focus. | Baseline pages are navigable without synthetic `pN` chapter wrappers; text-only pages work without image assets. Final refresh preserves mode/page and keeps pinned citations on their snapshots. |
+| Render progressive Tree View | Hipo reader tree construction, resource filters, and final-snapshot refresh | Show the baseline as a document root with source-ordered `Page N` leaves for both native and scanned PDFs. Pages is selected; Images/Tables remain disabled until final sync. Replace it once with the final chapter/resource hierarchy, preserving mode and source-page focus. | Baseline pages remain navigable without prebuilt images; final refresh preserves mode/page and stable source-page citation anchors. |
 
 Repository-relative paths in the table omit the `packages/shared-python/` or
 `apps/worker/` prefix where the application root is unambiguous.
@@ -101,10 +102,12 @@ concerns searches that actually enter this branch with eligible page vectors.
   does not reparse or charge again. See
   [ADR 0014](../adr/0014-notify-both-progressive-completion-milestones.md).
 - Retain the baseline and final snapshots with their required resources. After
-  final synchronization, ordinary reading uses the final snapshot; historical
-  citations remain pinned to their original snapshot. Intermediate scope
-  refinements do not require additional reader snapshots. See
-  [ADR 0015](../adr/0015-retain-baseline-and-final-citation-snapshots.md).
+  final synchronization, ordinary reading and existing citations use the final
+  snapshot at the same original file version and physical page. Creation-time
+  snapshots remain available for explicit provenance inspection only.
+  Intermediate scopes do not require additional reader snapshots. The default
+  navigation rule in ADR 0015 is superseded by
+  [ADR 0022](../adr/0022-open-citations-on-the-enhanced-original-page.md).
 - A required query embedding failure fails the retrieval request, even when
   lexical discovery already found results. Do not add partial-success fallback
   or a new request switch. Apply this policy to classic and agent retrieval.
@@ -135,24 +138,25 @@ concerns searches that actually enter this branch with eligible page vectors.
   Hipo shows completion only after its final snapshot commit. See
   [ADR 0021](../adr/0021-gate-final-enrichment-completion-on-all-required-work.md).
 - Tree View is available for the baseline as one document root with source-ordered
-  `Page N` leaves. Text-native pages open text and scanned pages open images.
+  `Page N` leaves. Native pages open their retained original PDF page on demand
+  in List; scanned pages use their existing images.
   Do not create a page-named chapter wrapping another page node. Final snapshot
   synchronization updates the tree once to its chapter/resource hierarchy;
   intermediate scope changes do not independently rebuild the Hipo tree.
 - Final snapshot adoption preserves the current List/Tree mode and source page.
   If the user is viewing page 12 in Tree, reveal the final chapter containing
   page 12 and keep that page focused. Map by source-page identity rather than
-  requiring baseline node/chunk IDs to remain unchanged. Explicit old-snapshot
-  citation reads retain their original snapshot as already agreed.
+  requiring baseline node/chunk IDs to remain unchanged. Explicit provenance
+  inspection retains access to the original parsed snapshot.
 - In the baseline Tree, Pages is selected and usable for both text-only and
   image-backed pages. Images/Tables remain visible but disabled, with an
   enhancement-pending hint. Restore normal filtering after final synchronization.
   Derive capabilities from the snapshot actually being read, not merely the
   Source's latest state.
-- When an old citation opens a retained snapshot after a newer result is readable,
-  show `Viewing the cited version` and `View latest version`. Remain on the cited
-  snapshot until the user selects the latest version. That action does not
-  rewrite the citation or reuse an old highlight against different content.
+- An old citation defaults to the enhanced reader at its same original-file
+  page. Historical-version notices apply only when the user explicitly inspects
+  creation-time provenance. Returning to current reading preserves source-page
+  identity without rewriting saved evidence or reusing incompatible highlights.
 
 ## Current runtime sequence
 
@@ -281,7 +285,8 @@ implementation proposals, not claims that these capabilities already exist.
    protection must remain effective for interrupted transfers; a legitimate
    final generation must not be treated as a changed in-flight archive. Retain
    both published generations and the resources referenced by their citations.
-   The default reader pointer changes; historical citation pins do not.
+   Creation-time provenance remains immutable; default citation navigation
+   follows that same original-file page in the committed enhanced reader.
 4. A bounded Hipo server-side reconciliation checks only known progressive
    results awaiting final completion. It recovers missed notifications even
    while no browser is open. Reuse the existing recovery workflow and its accepted
@@ -353,7 +358,7 @@ reconciliation and fifteen-second visible-client status checks are accepted.
    active claims and completed scopes; duplicate requests share the admitted
    attempt. Reuse existing recovery after a dispatch interruption.
 4. Acknowledge queued work promptly and show pending/running status. Keep the
-   baseline and citation pins available throughout. Final success follows the
+   baseline and citation provenance available throughout. Final success follows the
    accepted final webhook, synchronization, and atomic reader-switch contract.
 5. Hipo learns failure or stalled progress through the proposed server-side
    reconciliation and exposed upstream enrichment state. This proposal does not
@@ -390,26 +395,28 @@ Baseline resource filtering is also accepted: Pages is selected and usable;
 Images/Tables are visible but disabled, then normal filtering returns after
 final synchronization.
 
-Historical citation reading identifies the cited version and offers an explicit
-action to read the latest result. The old snapshot remains the default for that
-citation. Tree shape and resource capabilities follow the displayed snapshot;
-an old baseline does not gain final chapters or resources just because the Source
-has completed enhancement. Its unavailable-resource hint must describe that
-version, rather than incorrectly report that enhancement is still running.
+Existing citations default to the committed enhanced reader at the same original
+file version and physical page. Old snapshots are retained only for explicit
+provenance inspection. In that historical view, Tree shape and resource
+capabilities follow the displayed snapshot: a baseline does not gain final
+chapters merely because enhancement is now complete. Historical notices must
+describe the selected version without reporting current enhancement as pending.
+The default-navigation amendment is accepted but not yet implemented.
 
 Reader acceptance matrix:
 
 | State | Reading and Tree | Status and action |
 | --- | --- | --- |
-| Text-native baseline | Page text; root with ordered page leaves; Pages works without image assets | Enhancement in progress; Images/Tables disabled |
+| Text-native baseline | Original PDF pages rendered on demand in List, with extracted text available on preview failure; root with ordered page leaves | Enhancement in progress; Images/Tables disabled |
 | Scanned baseline | Complete required page images; root with ordered page leaves | Enhancement in progress; missing vectors repair in the background |
 | Background scopes changing upstream | Keep the committed baseline content and tree | No per-scope reader replacement |
 | Final result copying to Hipo | Keep the baseline and its required assets | Remain pending until final local commit |
 | Final local snapshot committed | Adopt final content, chapter tree, and normal resource filtering together; preserve List/Tree mode and source-page focus | Enhancement complete; no retry action |
 | Automatic retry still active | Keep readable content and tree | Progress only; no manual retry action |
 | Terminal enhancement or final-copy failure | Keep readable baseline content and tree | Enhancement failed; Retry resumes the failed stage |
-| Old citation after final completion | Open its pinned content, tree, and assets | Cited-version notice and View latest version; no forced update |
-| Explicit View latest version | Leave citation pin for ordinary latest reading, preserve mode/source-page location, and clear incompatible old highlight | Saved citation remains unchanged |
+| Old citation after final completion | Open the enhanced reader at the same original file version and physical page, independent of changed chunk/chapter IDs | Retained snapshot available only through explicit provenance inspection |
+| Explicit provenance inspection | Open the creation-time snapshot, tree and assets | Historical-version notice; saved evidence remains unchanged |
+| Return from provenance to current reading | Open the same original-file page in the enhanced reader; preserve mode/page and clear incompatible old highlight | Saved citation and provenance remain unchanged |
 
 Large-tree layout performance, resource filtering correctness, mapping obsolete
 node/expansion state, and query cache identity are engineering validation work.
@@ -430,17 +437,17 @@ failure does not itself revoke a readable Source's ready state or remove it from
 Ask; its incomplete enhancement remains visible and retryable as already agreed.
 
 Verify that early Ask evidence opens a corresponding page in
-the committed client snapshot. Knowhere can publish refined scopes while Hipo
-still displays M0, so equal Job Result IDs do not by themselves prove that a
+the committed client snapshot. Upstream final publication can precede Hipo's
+local synchronization, so equal Job Result IDs do not by themselves prove that a
 retrieved chunk exists in the client snapshot. Hipo's reader can resolve a citation
 by source page even when its chunk ID changes, but source-page availability,
-asset references, and the saved snapshot pin need end-to-end verification. Do
+asset references, and creation-time provenance need end-to-end verification. Do
 not solve an unresolved citation by silently changing the retained evidence.
 
 ## Remaining engineering work
 
 Core workflow decisions are agreed. Resolve internal snapshot identity across Knowhere
-artifacts, SDK synchronization, and Hipo citation pins; apply existing bounded
+artifacts, SDK synchronization, and Hipo provenance reads; apply existing bounded
 retry and claim mechanisms to stage recovery; measure representative workload
 and resource headroom before concluding that production capacity is sufficient.
 These are technical design and validation tasks, not outstanding choices in the
@@ -535,8 +542,9 @@ on its own evidence during implementation.
   parse billing. Final sync gets a distinct snapshot attempt. The initial Blob
   commit remains readable while final copying, failure, and retries occur.
 - Commit final content and required assets before switching the Source's current
-  snapshot pointer. Existing citations keep their snapshot key. Ordinary reading
-  moves once to the final snapshot and preserves source-page position.
+  snapshot pointer. Preserve citation provenance keys for explicit tracing;
+  default citation navigation and ordinary reading use the final representation
+  at the same original file version and physical page.
 - Render M0 navigation from ordered source page identity, without interpreting
   its synthetic page path as a semantic section. Support native-text pages even
   when page-image assets are absent. Build the final tree and manifest sections
@@ -547,15 +555,16 @@ on its own evidence during implementation.
 - Carry the committed snapshot key through reader query inputs and normalized
   chunk entity IDs. Hipo already namespaces chunk entities by Source, revision,
   and chunk. Distinct baseline/final snapshot keys must reach that namespace so
-  final refresh cannot overwrite the cached evidence used by an old citation.
+  final refresh cannot overwrite the cached evidence used for provenance.
 - Derive Tree shape and resource-filter capabilities from the actual read
-  snapshot's identity/stage. A citation can open a baseline after the Source's
+  snapshot's identity/stage. Explicit provenance inspection can open a baseline after the Source's
   latest result is complete; that does not make the historical snapshot gain a
   chapter tree or extracted resources. Avoid a misleading enhancement-pending
   message in that case. The accepted version notice must coexist with existing
-  citation-location and asset-failure notices rather than overwrite them. Offer
-  View latest version only when the current result is readable and authorized;
-  leave the historical content available if latest loading fails.
+  citation-location and asset-failure notices rather than overwrite them.
+  Returning to the current result preserves the same original-file page and
+  requires a readable, authorized committed snapshot. Ordinary citation opening
+  does not first force the user into this historical context.
 - Extend the existing Source retry application flow to route failed enhancement
   upstream or retry only failed local synchronization, depending on durable
   state. Apply the agreed failure-only Library/reader interaction and wording.
@@ -637,7 +646,8 @@ unproven.
    closed, final update, failure-only retry, and the accepted status wording.
    Keep initial and final processing charges reconciled as one ingestion.
    Include the agreed initial/final Tree View, resource filters, current display
-   mode and page selection across refresh, and old-snapshot citation navigation.
+   mode and page selection across refresh, default citation navigation to the
+   enhanced same page, and explicit old-snapshot provenance inspection.
    Run Ask before final enhancement, including missing initial vectors and an
    upstream scope already refined while Hipo still shows M0. Verify that each
    retained citation opens its corresponding source page and required visual
@@ -681,7 +691,8 @@ ADR 0011 records automatic full-document background enrichment. ADR 0012 records
 the accepted viewable baseline and distinct initial/client readiness milestones.
 ADR 0013 records a single reader refresh after final completion. ADR 0014 records
 two distinct completion webhooks on the same Job and callback. ADR 0015 records
-retention of baseline and final snapshots with stable citation pins. ADR 0016
+retention of baseline and final snapshots for citation provenance; its original
+default-opening rule is superseded by ADR 0022. ADR 0016
 records failure of the retrieval request when required query embedding fails.
 ADR 0017 permits viewable initial publication with missing vectors and requires
 background repair.
@@ -692,5 +703,8 @@ ADR 0020 selects fifteen-second Hipo-local checks while the client page is visib
 and enhancement remains pending.
 ADR 0021 gates final success on refinement, missing-vector repair, and durable
 result publication, followed by Hipo's local snapshot commit.
+ADR 0022 makes existing citations open the enhanced reader at the same original
+file version and physical page by default, retaining old snapshots only for
+explicit provenance inspection. This accepted follow-up is not yet implemented.
 Record further durable trade-offs after agreement. Keep domain definitions in `CONTEXT.md` and
 implementation choices in this plan or an ADR.

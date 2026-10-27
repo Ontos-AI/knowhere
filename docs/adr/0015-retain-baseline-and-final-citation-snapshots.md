@@ -3,6 +3,11 @@
 ## Status
 
 Accepted during the progressive-ingestion planning discussion on 2026-10-26.
+Partially superseded on 2026-10-27 by
+[ADR 0022](0022-open-citations-on-the-enhanced-original-page.md): keep immutable
+snapshots for provenance, but ordinary citations default to the enhanced reader
+at the same original file version and physical page. Historical default-opening
+behavior below records the original decision.
 
 ## Context
 

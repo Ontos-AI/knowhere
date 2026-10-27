@@ -103,15 +103,25 @@ available.
 ### Enriched Document Snapshot
 
 A coherent document representation produced after full-document enrichment.
-It becomes the default representation in a consuming reader after its content
-and required assets are available together. The baseline remains available for
-citations created against it.
+It represents the same original file version as the Document Baseline, with
+enhanced structure and searchable evidence.
 
 ### Document Snapshot
 
 A fixed, readable representation of a Document and its required resources.
-Citations retain the snapshot they were created against, even after another
-snapshot becomes the default for ordinary reading.
+It records a particular parsing and enrichment state, rather than a different
+original file version.
+
+### Source Page Reference
+
+A citation location identified by its original file version and physical page
+or pages. It remains stable across progressive enrichment even when parsed
+chunks and chapter structure change.
+
+### Citation Provenance
+
+The retained record of the evidence and parsed snapshot used when a citation
+was created. It is distinct from the representation used for ordinary reading.
 
 ### Initial Completion
 
