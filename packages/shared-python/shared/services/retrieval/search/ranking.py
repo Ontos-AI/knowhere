@@ -96,7 +96,11 @@ def apply_importance_multiplier(
             multiplier = 1.0
         else:
             z_score = (raw_score - median) / iqr
-            sigmoid_score = 1.0 / (1.0 + math.exp(-z_score))
+            # Keep the exponent non-positive for new evidence far below hot hits.
+            decay: float = math.exp(-abs(z_score))
+            sigmoid_score: float = (
+                1.0 / (1.0 + decay) if z_score >= 0.0 else decay / (1.0 + decay)
+            )
             multiplier = low + (high - low) * sigmoid_score
         row["importance_multiplier"] = round(multiplier, 4)
         row["agent_score"] = round(
