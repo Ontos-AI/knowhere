@@ -71,8 +71,8 @@ class StorageConfig(BaseModel):
     MAX_PDF_PAGE_LIMIT: int = Field(
         default=200,
         ge=1,
-        description="Maximum PDF page count for single-pass MinerU parsing. "
-        "Documents exceeding this trigger the shard pipeline when enabled.",
+        description="Maximum PDF page count for direct processing. "
+        "Documents exceeding this trigger the oversized-admission path when enabled.",
     )
     OVERSIZED_PDF_SHARD_ENABLED: bool = Field(
         default=True,
@@ -88,19 +88,11 @@ class StorageConfig(BaseModel):
     PDF_PROFILE_TOC_ENABLED: bool = Field(
         default=True,
         description=(
-            "Default-on PROFILE TOC find/extract/calibration for PDF parsing "
-            "(chunk and page_memory tracks share this pipeline). When True, "
-            "missing TOC or calibration failure degrades to no-TOC downstream. "
-            "Set False only as an emergency kill switch for the chunk track. "
-            "NOTE: page_memory always forces TOC profiling on regardless of "
-            "this flag, since its sections are TOC-anchored."
+            "Default-on PROFILE TOC find/extract/calibration for PDF parsing. "
+            "When True, missing TOC or calibration failure degrades to no-TOC "
+            "downstream. page_memory always forces TOC profiling on regardless "
+            "of this flag, since its sections are TOC-anchored."
         ),
-    )
-    MINERU_SHARD_CONCURRENCY: int = Field(
-        default=3,
-        ge=1,
-        le=10,
-        description="Maximum concurrent MinerU API calls for shard parsing.",
     )
     RESULT_UPLOAD_CONCURRENCY: int = Field(
         default=20,

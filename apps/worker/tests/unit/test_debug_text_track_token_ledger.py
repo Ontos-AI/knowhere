@@ -12,7 +12,7 @@ from _debug_token_ledger import (
     token_usage_delta,
 )
 
-_TEXT_TRACK_STAGES = ("profile", "mineru", "hierarchy", "full")
+_DEBUG_STAGES = ("profile", "hierarchy", "full")
 
 
 def test_token_usage_delta_and_reuse_merge_match_stage_costs_semantics() -> None:
@@ -60,7 +60,7 @@ def test_token_usage_delta_and_reuse_merge_match_stage_costs_semantics() -> None
             "hierarchy": {"token_usage": reuse_run},
         }
     }
-    merged = aggregate_stage_deltas(ledger, _TEXT_TRACK_STAGES)
+    merged = aggregate_stage_deltas(ledger, _DEBUG_STAGES)
     assert merged["total_tokens"] == 24
     assert merged["calls"] == 2
     assert merged["by_task"]["document_agent.coarse_profile"]["total_tokens"] == 14

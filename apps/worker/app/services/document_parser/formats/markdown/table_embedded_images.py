@@ -1,4 +1,4 @@
-"""Extract and rewrite <img> tags embedded inside MinerU HTML tables."""
+"""Extract and rewrite <img> tags embedded inside HTML tables."""
 
 from __future__ import annotations
 

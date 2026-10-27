@@ -262,9 +262,8 @@ def _decide_granularity(profile: Any) -> str:
 
     Page-based track processes pages individually via VLM — no physical
     document splitting is needed regardless of page count.  The old
-    ``shard_page`` verdict (>200 pages) was only meaningful for the
-    MinerU batch API pipeline (``_parse_pdf_via_shards``) which splits
-    long PDFs into physical sub-documents.
+    ``shard_page`` verdict (>200 pages) was only meaningful when long
+    PDFs were cut into physical sub-documents.
     """
     page_count = int(getattr(profile, "page_count", 0) or 0)
     toc = getattr(profile, "toc", None)

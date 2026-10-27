@@ -7,7 +7,7 @@ are within reasonable size/dimension limits for downstream consumption.
 
 Design decisions:
 - PNG with alpha channel (transparency) are kept as PNG — these are typically
-  formula renderings from MinerU where lossless + transparency matters.
+  formula renderings where lossless + transparency matters.
 - PNG without alpha (opaque) are converted to JPEG — these are typically
   page renders, photos, screenshots where JPEG is more efficient.
 - JPEG files above the max dimension are resized.

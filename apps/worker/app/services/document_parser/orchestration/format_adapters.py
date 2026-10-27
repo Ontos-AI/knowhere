@@ -82,7 +82,7 @@ class PdfParseAdapter:
                 {
                     "field": "parse_track",
                     "description": (
-                        "The chunk MinerU PDF path is retired. "
+                        "The chunk PDF path is retired. "
                         f"Received {session.filename}"
                     ),
                 }
@@ -145,7 +145,7 @@ class PptxParseAdapter:
                 {
                     "field": "parse_track",
                     "description": (
-                        "The chunk MinerU PPTX path is retired. "
+                        "The chunk PPTX path is retired. "
                         f"Received {session.filename}"
                     ),
                 }

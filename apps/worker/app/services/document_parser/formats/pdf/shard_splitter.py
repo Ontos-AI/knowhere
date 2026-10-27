@@ -1,17 +1,13 @@
-"""PDF shard splitting: 1:1 agent-shard mapping + physical split."""
+"""PDF shard splitting: physical split of planned page ranges."""
 
 from __future__ import annotations
 
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
 
 import pymupdf
 from loguru import logger
-
-if TYPE_CHECKING:
-    from app.services.document_agent.manifest import Shard
 
 _SOURCE_OBJECT_OUT_OF_RANGE = "source object number out of range"
 _REWRITTEN_SOURCE_NAME = "_rewritten_source.pdf"
@@ -19,7 +15,7 @@ _REWRITTEN_SOURCE_NAME = "_rewritten_source.pdf"
 
 @dataclass
 class MergedShard:
-    """A contiguous page range within MinerU's per-request page limit."""
+    """A contiguous page range to extract into its own PDF."""
 
     shard_index: int
     page_start: int  # 1-based inclusive
@@ -34,9 +30,8 @@ class MergedShard:
 class LiveShard:
     """A planned shard that still has pages after TOC exclusion.
 
-    ``shard_index`` is the original plan index (same as ``agent_shards``), not
-    the compressed position among surviving PDFs. Downstream MinerU, heading
-    prediction, S3 keys, and bbox page maps must use this identity.
+    ``shard_index`` is the original plan index, not the compressed position
+    among surviving PDFs. Downstream page maps must use this identity.
     """
 
     shard_index: int
@@ -50,26 +45,11 @@ class LiveShard:
         return self.shard_index == 0
 
 
-def map_agent_shards(
-    agent_shards: list["Shard"],
-) -> list[MergedShard]:
-    """1:1 mapping: each agent shard becomes its own MinerU shard.
-
-    Agent shards are cut at TOC hierarchy pack boundaries during PROFILE.
-    Merging them would cross those boundaries and degrade heading prediction
-    quality, so we preserve them as-is.
-    """
-    return [
-        MergedShard(idx, page_start=s.page_start, page_end=s.page_end)
-        for idx, s in enumerate(agent_shards)
-    ]
-
-
 def shard_page_numbers(shard: MergedShard, exclude_pages: set[int]) -> list[int]:
     """Original 1-based page numbers physically present in the shard PDF, in order.
 
-    Index ``i`` is the original page of MinerU's 0-based ``page_idx == i`` for
-    this shard, because excluded (e.g. TOC) pages are removed before MinerU runs.
+    Index ``i`` is the original page of 0-based ``page_idx == i`` for this
+    shard, because excluded (e.g. TOC) pages are removed before the split.
     """
     return [
         page_num

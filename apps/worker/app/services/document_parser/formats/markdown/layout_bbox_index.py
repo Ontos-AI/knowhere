@@ -1,6 +1,6 @@
-"""Index MinerU ``layout.json`` figure regions by image file name.
+"""Index ``layout.json`` figure regions by image file name.
 
-MinerU writes one ``layout.json`` per parsed PDF. Every figure span
+An optional ``layout.json`` may sit next to markdown. Every figure span
 (``image`` / ``chart``) carries its bounding box and the bare ``{hash}.jpg``
 name of the extracted image, which is the same name the markdown references
 before ``build_markdown_image_asset`` renames the file. This module turns that
@@ -30,7 +30,7 @@ def load_layout_image_regions(
     """Return ``image file name -> asset_region`` for one ``layout.json``.
 
     Args:
-        layout_json_path: MinerU ``layout.json`` of a single MinerU request.
+        layout_json_path: ``layout.json`` for one parse request.
         page_numbers: Original 1-based page number of each page of that request,
             indexed by the layout's 0-based ``page_idx``. ``None`` means the
             request parsed the whole original PDF, so ``page_idx + 1`` is the

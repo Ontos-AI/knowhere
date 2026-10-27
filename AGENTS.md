@@ -165,8 +165,8 @@ The core hierarchical recognition module. Determines heading levels using:
 3. **LLM smart parse**: When `smart_title_parse=True`, send candidate headings
    to the hierarchy model (`HIERARCHY_LLM_MODEL` or `NORMOL_MODEL`) for level
    assignment.
-4. **Font clustering (PDF)**: K-means on span heights from MinerU `layout.json`
-   to group headings into 5 discrete tiers.
+4. **Font clustering (optional `layout.json`)**: K-means on span heights from
+   a nearby `layout.json` to group headings into 5 discrete tiers.
 
 ### DOCX Parsing Deep Dive: `formats/docx/parser.py`
 

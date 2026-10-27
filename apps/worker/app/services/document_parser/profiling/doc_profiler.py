@@ -50,8 +50,8 @@ def profile_document(
             LLM shard planning and populate a single-shard placeholder.
             Used by the page-memory track, which never consumes the shard plan.
         oversized_policy: Controls oversized PDF admission. ``chunk`` applies
-            the MinerU shard gate, while ``page_memory`` lets the page-memory
-            track continue to structural profiling.
+            the page-limit / oversized-admission gate; ``page_memory`` continues
+            to structural profiling.
         skip_toc_anchoring: When True, TOC find/extract still run, but
             ``run_toc_anchoring`` is skipped. Used by the staged debug path
             (Stage-1 TOC after Stage-0 bootstrap) so calibration stays in
@@ -127,9 +127,8 @@ def _profile_pdf_with_db(
 ) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
-    # PROFILE TOC is default-on for both tracks. page_memory always forces it
-    # on (sections are TOC-anchored) even if PDF_PROFILE_TOC_ENABLED is used as
-    # an emergency kill switch for the chunk track.
+    # PROFILE TOC is default-on. page_memory always forces it on (sections are
+    # TOC-anchored) even if PDF_PROFILE_TOC_ENABLED is off.
     page_toc_enabled = (
         oversized_policy == "page_memory" or settings.PDF_PROFILE_TOC_ENABLED
     )
