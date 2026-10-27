@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from shared.core.state_machine.service_sync import SyncStateMachineService
 from shared.models.database.job import Job
 from shared.models.schemas.job_metadata import JobMetadataHelper
+from shared.models.schemas.progressive_ingestion import StoredSnapshot
+from shared.services.jobs.progressive_ingestion import initialize_baseline_state, write_progressive_state
 from shared.services.jobs.lifecycle.post_commit_effects import PostCommitEffectPlan
 from shared.services.jobs.lifecycle.publication import SyncJobPublicationFinalizer
 from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
@@ -136,6 +138,20 @@ class SyncJobSuccessFinalizer:
             and str(job_metadata.get("enrichment_status") or "").strip().lower()
             == "text"
         )
+        baseline_snapshot: StoredSnapshot | None = None
+        if should_enqueue_structure:
+            snapshot_id = str(job_metadata.get("progressive_baseline_snapshot_id") or f"baseline_{checksum}")
+            baseline_snapshot = StoredSnapshot(
+                snapshot_id=snapshot_id, stage="baseline", job_id=job_id,
+                job_result_id=str(job_result.id), document_id=str(published_document_id),
+                checksum=checksum, archive_key=result_s3_key,
+            )
+            raw_pages = job_metadata.get("progressive_missing_embedding_pages", [])
+            missing_pages = [page for page in raw_pages if isinstance(page, int) and not isinstance(page, bool)] if isinstance(raw_pages, list) else []
+            job_result.document_metadata = write_progressive_state(
+                job_result.document_metadata,
+                initialize_baseline_state(snapshot=baseline_snapshot, missing_pages=missing_pages),
+            )
 
         transition_outcome = self._state_machine.mark_completed_outcome(
             db,
@@ -160,6 +176,12 @@ class SyncJobSuccessFinalizer:
             db,
             job_id=job_id,
             event_type="job.completed",
+            extra_payload={
+                "job_result_id": baseline_snapshot.job_result_id,
+                "document_id": baseline_snapshot.document_id,
+                "snapshot_id": baseline_snapshot.snapshot_id,
+                "checksum": baseline_snapshot.checksum,
+            } if baseline_snapshot else None,
         )
         return JobSuccessFinalization(
             response=JobSuccessResponse.completed(

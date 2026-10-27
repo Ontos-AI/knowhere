@@ -18,6 +18,7 @@ from shared.models.database.document import (
 )
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
+from shared.services.jobs.progressive_ingestion import read_progressive_state
 from shared.services.retrieval.hydration.row_utils import (
     normalize_chunk_type,
     page_enrichment_state,
@@ -32,9 +33,7 @@ _FAILED_STATE = "failed"
 _RESETTABLE_STATES = (_COARSE_STATE, _QUEUED_STATE)
 MAX_SCOPE_ENRICHMENT_ATTEMPTS = 3
 
-ENRICH_SCOPE_TASK_NAME = (
-    "app.core.tasks.enrichment_tasks.enrich_page_memory_scope"
-)
+ENRICH_SCOPE_TASK_NAME = "app.core.tasks.enrichment_tasks.enrich_page_memory_scope"
 BUILD_STRUCTURE_TASK_NAME = (
     "app.core.tasks.enrichment_tasks.build_page_memory_structure"
 )
@@ -55,15 +54,18 @@ def scope_claimable_filter(now: datetime) -> ColumnElement[bool]:
     window, so a running row older than it cannot still be owned by a live task.
     """
     stale_cutoff = now - timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS)
-    return or_(
-        DocumentScopeEnrichment.state.in_(_RESETTABLE_STATES),
-        and_(
-            DocumentScopeEnrichment.state == _FAILED_STATE,
-            DocumentScopeEnrichment.attempts < MAX_SCOPE_ENRICHMENT_ATTEMPTS,
-        ),
-        and_(
-            DocumentScopeEnrichment.state == _RUNNING_STATE,
-            DocumentScopeEnrichment.updated_at < stale_cutoff,
+    return and_(
+        DocumentScopeEnrichment.attempts < MAX_SCOPE_ENRICHMENT_ATTEMPTS,
+        or_(
+            DocumentScopeEnrichment.state.in_(_RESETTABLE_STATES),
+            and_(
+                DocumentScopeEnrichment.state == _FAILED_STATE,
+                DocumentScopeEnrichment.attempts < MAX_SCOPE_ENRICHMENT_ATTEMPTS,
+            ),
+            and_(
+                DocumentScopeEnrichment.state == _RUNNING_STATE,
+                DocumentScopeEnrichment.updated_at < stale_cutoff,
+            ),
         ),
     )
 
@@ -73,9 +75,10 @@ def write_coarse_scope_enrichments(
     *,
     document_id: str,
     job_result_id: str,
+    chunks: list[dict[str, object]] | None = None,
 ) -> bool:
-    """Replace this revision's enrichment rows from published page-chunk scopes."""
-    published = (
+    """Schedule scopes from staged chunks, or published chunks for legacy revisions."""
+    published = [chunk.get("metadata") for chunk in chunks] if chunks is not None else (
         db.execute(
             select(DocumentChunk.chunk_metadata)
             .where(DocumentChunk.document_id == document_id)
@@ -137,26 +140,23 @@ def enqueue_low_priority_scope_enrichments_after_commit(
     now = utc_now_naive()
     try:
         with get_sync_db_context() as db:
-            candidates = (
-                db.execute(
-                    select(
-                        DocumentScopeEnrichment.scope_id,
-                        DocumentScopeEnrichment.page_start,
-                        DocumentScopeEnrichment.page_end,
-                    )
-                    .where(DocumentScopeEnrichment.job_result_id == job_result_id)
-                    .where(scope_claimable_filter(now))
-                    .order_by(
-                        (
-                            DocumentScopeEnrichment.page_end
-                            - DocumentScopeEnrichment.page_start
-                        ).desc(),
-                        DocumentScopeEnrichment.page_start.asc(),
-                        DocumentScopeEnrichment.scope_id.asc(),
-                    )
+            candidates = db.execute(
+                select(
+                    DocumentScopeEnrichment.scope_id,
+                    DocumentScopeEnrichment.page_start,
+                    DocumentScopeEnrichment.page_end,
                 )
-                .all()
-            )
+                .where(DocumentScopeEnrichment.job_result_id == job_result_id)
+                .where(scope_claimable_filter(now))
+                .order_by(
+                    (
+                        DocumentScopeEnrichment.page_end
+                        - DocumentScopeEnrichment.page_start
+                    ).desc(),
+                    DocumentScopeEnrichment.page_start.asc(),
+                    DocumentScopeEnrichment.scope_id.asc(),
+                )
+            ).all()
             for scope_id, _page_start, _page_end in candidates:
                 claimed = db.execute(
                     update(DocumentScopeEnrichment)
@@ -352,7 +352,7 @@ async def promote_scopes_on_read(
     return sent
 
 
-def _structure_claim_still_active(
+def _should_skip_structure_recovery(
     *,
     doc_meta: object,
     job_meta: object,
@@ -360,14 +360,24 @@ def _structure_claim_still_active(
 ) -> bool:
     doc_dict = doc_meta if isinstance(doc_meta, dict) else {}
     job_dict = job_meta if isinstance(job_meta, dict) else {}
-    raw_claimed_at = doc_dict.get("structure_claimed_at") or job_dict.get("structure_claimed_at")
+    state = read_progressive_state(doc_dict)
+    if state is not None and (
+        state.stages.get("structure", {}).get("status") == "complete"
+        or state.enhancement.status in {"failed", "complete"}
+    ):
+        return True
+    raw_claimed_at = doc_dict.get("structure_claimed_at") or job_dict.get(
+        "structure_claimed_at"
+    )
     if not raw_claimed_at:
         return False
     try:
         claimed_at = datetime.fromisoformat(
             str(raw_claimed_at).replace("Z", "+00:00")
         ).replace(tzinfo=None)
-        return (now - claimed_at) < timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS)
+        return (now - claimed_at) < timedelta(
+            seconds=app_config.TASK_TIME_LIMIT_SECONDS
+        )
     except Exception:
         return False
 
@@ -409,45 +419,53 @@ def sweep_progressive_enrichments_sync(
         reenqueued_structures = [
             str(revision_id)
             for revision_id, doc_meta, job_meta in structure_rows
-            if not _structure_claim_still_active(
+            if not _should_skip_structure_recovery(
                 doc_meta=doc_meta, job_meta=job_meta, now=now
             )
         ]
 
-        scope_candidates = (
-            db.execute(
-                select(
-                    DocumentScopeEnrichment.job_result_id,
-                    DocumentScopeEnrichment.scope_id,
-                )
-                .select_from(DocumentScopeEnrichment)
-                .join(
-                    Document,
+        db.execute(
+            update(DocumentScopeEnrichment)
+            .where(DocumentScopeEnrichment.state == _RUNNING_STATE)
+            .where(DocumentScopeEnrichment.attempts >= MAX_SCOPE_ENRICHMENT_ATTEMPTS)
+            .where(
+                DocumentScopeEnrichment.updated_at
+                < now - timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS)
+            )
+            .values(state=_FAILED_STATE, claim_generation=None, updated_at=now)
+        )
+
+        scope_candidates = db.execute(
+            select(
+                DocumentScopeEnrichment.job_result_id,
+                DocumentScopeEnrichment.scope_id,
+            )
+            .select_from(DocumentScopeEnrichment)
+            .join(
+                Document,
+                and_(
+                    Document.document_id == DocumentScopeEnrichment.document_id,
+                    Document.current_job_result_id
+                    == DocumentScopeEnrichment.job_result_id,
+                    Document.status == "active",
+                ),
+            )
+            .where(
+                or_(
+                    DocumentScopeEnrichment.state.in_((_COARSE_STATE, _QUEUED_STATE)),
                     and_(
-                        Document.document_id == DocumentScopeEnrichment.document_id,
-                        Document.current_job_result_id
-                        == DocumentScopeEnrichment.job_result_id,
-                        Document.status == "active",
+                        DocumentScopeEnrichment.state == _FAILED_STATE,
+                        DocumentScopeEnrichment.attempts
+                        < MAX_SCOPE_ENRICHMENT_ATTEMPTS,
+                    ),
+                    and_(
+                        DocumentScopeEnrichment.state == _RUNNING_STATE,
+                        DocumentScopeEnrichment.updated_at
+                        < now - timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS),
                     ),
                 )
-                .where(
-                    or_(
-                        DocumentScopeEnrichment.state == _COARSE_STATE,
-                        and_(
-                            DocumentScopeEnrichment.state == _FAILED_STATE,
-                            DocumentScopeEnrichment.attempts
-                            < MAX_SCOPE_ENRICHMENT_ATTEMPTS,
-                        ),
-                        and_(
-                            DocumentScopeEnrichment.state == _RUNNING_STATE,
-                            DocumentScopeEnrichment.updated_at
-                            < now - timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS),
-                        ),
-                    )
-                )
             )
-            .all()
-        )
+        ).all()
         for rev_id, scope_id in scope_candidates:
             claimed = db.execute(
                 update(DocumentScopeEnrichment)
@@ -459,6 +477,28 @@ def sweep_progressive_enrichments_sync(
             ).scalar_one_or_none()
             if claimed is not None:
                 retried_scopes.append((str(rev_id), str(claimed)))
+
+    with get_sync_db_context() as db:
+        recovery_revisions = db.scalars(
+            select(JobResult.id)
+            .join(Document, Document.current_job_result_id == JobResult.id)
+            .where(Document.status == "active")
+            .where(
+                JobResult.document_metadata["progressive"]["enhancement"]["status"]
+                .as_string()
+                .in_(("pending", "running"))
+            )
+            .order_by(JobResult.updated_at, JobResult.id)
+            .limit(100)
+        ).all()
+        if recovery_revisions:
+            db.execute(
+                update(JobResult)
+                .where(JobResult.id.in_(recovery_revisions))
+                .values(updated_at=now)
+            )
+    for revision in recovery_revisions:
+        enqueue_progressive_recovery_after_commit(str(revision))
 
     sent_structures: list[str] = []
     for rev_id in reenqueued_structures:
@@ -485,9 +525,7 @@ def sweep_progressive_enrichments_sync(
                 if (rev_id, scope_id) not in sent_scopes:
                     by_rev.setdefault(rev_id, []).append(scope_id)
             for rev_id, unsent in by_rev.items():
-                _revert_queued_scopes_to_coarse(
-                    job_result_id=rev_id, scope_ids=unsent
-                )
+                _revert_queued_scopes_to_coarse(job_result_id=rev_id, scope_ids=unsent)
 
     return {
         "status": "success",
@@ -505,3 +543,21 @@ def _page_range_from_scope_id(scope_id: str) -> tuple[int, int] | None:
     if page_end < page_start:
         return None
     return page_start, page_end
+
+
+def enqueue_progressive_recovery_after_commit(job_result_id: str) -> bool:
+    """Admit recovery dispatch; persisted unfinished stages survive a lost broker send."""
+    try:
+        from shared.core.celery_app import get_celery_app
+
+        get_celery_app().send_task(
+            "app.core.tasks.enrichment_tasks.recover_progressive_revision",
+            args=[job_result_id],
+            queue=LOW_ENRICHMENT_QUEUE,
+        )
+        return True
+    except Exception as exc:
+        logger.warning(
+            "Failed to dispatch progressive recovery for {}: {}", job_result_id, exc
+        )
+        return False

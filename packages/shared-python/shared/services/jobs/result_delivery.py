@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from shared.services.storage.job_file_storage import JobFileStorage
+from shared.services.jobs.progressive_ingestion import read_progressive_state
 from shared.utils.utc_now import utc_now_naive
 
 
@@ -64,8 +65,25 @@ class JobResultDeliveryResolver:
         *,
         job_result: Any | None,
     ) -> dict[str, Any]:
-        if payload.get("event") != "job.completed":
+        if payload.get("event") not in {"job.completed", "job.enrichment.completed"}:
             return payload
+
+        state = read_progressive_state(getattr(job_result, "document_metadata", None))
+        if state is not None:
+            requested_id = payload.get("snapshot_id")
+            stage = "final" if payload.get("event") == "job.enrichment.completed" else "baseline"
+            snapshot = next((item for item in state.snapshots if (
+                item.snapshot_id == requested_id if requested_id else item.stage == stage
+            )), None)
+            if snapshot is None:
+                return payload
+            capability = self._storage.generate_download_url(snapshot.archive_key, bucket=self._storage.results_bucket)
+            return {
+                **payload, "job_result_id": snapshot.job_result_id,
+                "document_id": snapshot.document_id, "snapshot_id": snapshot.snapshot_id,
+                "checksum": snapshot.checksum, "result": {"checksum": snapshot.checksum},
+                "result_url": capability["download_url"],
+            }
 
         delivery = self.resolve(job_result)
         enriched = dict(payload)

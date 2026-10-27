@@ -9,9 +9,21 @@ from typing import Any
 _CACHE_INFO_KEY = "retrieval_serving_manifest_payloads"
 
 
+def discard_cached_manifest_payloads(db: object) -> None:
+    """A retried request must decode manifests from its newly captured generation."""
+    info = getattr(db, "info", None)
+    if isinstance(info, dict):
+        info.pop(_CACHE_INFO_KEY, None)
+
+
 def manifest_revision_key(revisions: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
     """Return a stable key for one immutable revision pin set."""
-    return tuple(sorted((str(document_id), str(job_result_id)) for document_id, job_result_id in revisions.items()))
+    return tuple(
+        sorted(
+            (str(document_id), str(job_result_id))
+            for document_id, job_result_id in revisions.items()
+        )
+    )
 
 
 def get_cached_manifest_payloads(

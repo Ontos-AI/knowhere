@@ -25,9 +25,21 @@ from shared.models.schemas.job import (
     JobResponse,
     JobResultResponse,
 )
+from shared.models.schemas.progressive_ingestion import EnhancementRetryResponse
 
 router = APIRouter(tags=["Jobs"])
 _document_ingestion_service = DocumentIngestionService()
+
+
+@router.post("/{job_id}/enrichment/retry", response_model=EnhancementRetryResponse, status_code=202, summary="Retry failed search enhancement")
+async def retry_enrichment(
+    job_id: str,
+    current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
+    db: AsyncSession = Depends(get_db),
+) -> EnhancementRetryResponse:
+    from app.services.jobs.enrichment_retry_service import retry_job_enrichment
+    return await retry_job_enrichment(db, user_id=current_user.user_id, job_id=job_id)
 
 
 @router.post("", response_model=JobResponse, summary="Create a v2 parsing job")

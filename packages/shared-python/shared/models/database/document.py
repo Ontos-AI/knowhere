@@ -164,6 +164,7 @@ class DocumentScopeEnrichment(Base):
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="coarse")
     priority: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    claim_generation: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     last_hit_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     refined_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
