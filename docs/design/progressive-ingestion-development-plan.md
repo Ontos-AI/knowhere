@@ -53,6 +53,49 @@ discussing it. Retain the following points as the current checkpoint:
    direct responses and unify it with the camel-case fields consumed downstream.
    Current code and earlier pinned-snapshot tests do not implement or accept this
    new default. Record it as unfinished work, not a completed citation feature.
+4. **Existing Ask answers; accepted on 2026-10-27.** Enhancement completion does
+   not automatically rerun retrieval, regenerate completed answers or rewrite
+   historical conversation content. Subsequent questions and explicit user
+   reruns use the currently published retrieval state. An old citation can open
+   the enhanced same source page under point 3 without changing its saved answer
+   or creation-time evidence.
+5. **No additional Ask coverage warning.** The user rejected the proposed extra
+   warning merely because enhancement is pending. Preserve the already agreed
+   enhancement status/failure wording and existing error semantics. Review actual
+   first-snapshot capabilities instead of treating all chart/image retrieval as
+   absent; the factual limits below do not authorize new user-facing warnings.
+
+### First-snapshot retrieval capability review (2026-10-27)
+
+The initial profiler runs bootstrap page probes, sampled VLM document
+classification, a full text scan and an asset probe before stopping at
+`asset_probe`. The asset probe detects images/tables/drawings and records page
+counts and `has_asset`; it does not itself publish chart descriptions or vectors.
+
+In the native-text path, all extractable page text enters initial retrieval,
+including figure captions, chart labels and table text when they are PDF text.
+In the scanned/textless visual path, all pages are rendered and passed to image
+embedding before baseline publication; eligible searches can use those page
+vectors. With visual M0 enabled, this path deliberately skips full OCR at the
+initial text-scan stage. Missing initial vectors retain the previously agreed
+repair policy. Sampled VLM classification is not per-chart semantic indexing.
+
+The native-text path does not call the visual M0 embedding builder merely because
+the asset probe found a figure. Pure bitmap/graphic information without
+extractable text therefore must not be described as already visually indexed in
+that path. This distinction preserves basic first-snapshot retrieval without
+claiming full enrichment has already occurred.
+
+### Foreground scheduling discussion: not yet agreed
+
+The open question is whether to reserve processing capacity for initial parsing
+while background enhancement is busy. It is distinct from reducing the total
+concurrency of every Worker: a smaller shared pool can still be entirely occupied
+by background tasks. Current Workers consume the initial and enrichment queues
+through one shared gevent pool; queue priority cannot preempt running tasks.
+Any background concurrency cap, reserved initial capacity, dedicated consumption
+or overall concurrency adjustment remains to be evaluated and agreed. No
+concurrency/configuration change is authorized by this discussion checkpoint.
 
 Continue requirements discussion from these points. Do not describe the overall
 progressive requirement as complete merely because this subset's tests pass.
@@ -75,6 +118,8 @@ progressive requirement as complete merely because this subset's tests pass.
 - Hipo becomes ready after its baseline content/assets commit, then immediately
   includes the Source in Ask. Search coverage may be limited during enhancement;
   a required query-embedding failure still fails the retrieval request.
+- Enhancement does not automatically regenerate completed Ask answers. Later
+  questions and user-requested reruns use the current published retrieval state.
 - Retain immutable baseline and final snapshots. Final success requires completed
   text/structure work, repaired missing vectors, and a durable final package.
 - Reuse the existing callback for `job.completed` and `job.enrichment.completed`.

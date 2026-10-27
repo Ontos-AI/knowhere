@@ -316,3 +316,31 @@ resource checks. No temporary benchmark compute, database or cache remains activ
 The earlier publication-only measurements and deterministic race contracts remain
 in `progressive-final-publication-validation.md`; they are distinct evidence from
 this full source-to-retrieval campaign.
+
+## Follow-up audit: first-snapshot search capabilities
+
+On 2026-10-27, a source-code review and reread of retained campaign C baseline
+archives confirmed that initial processing includes page probes, sampled VLM
+document classification, text scanning and asset detection. The following
+samples were read directly from their retained ZIPs, validating each extracted
+`chunks.json` CRC and cross-referencing the earlier complete archive audit:
+
+| Initial sample | Page chunks | Nonempty text chunks | Declared page images | Observed content |
+| --- | --- | --- | --- | --- |
+| Native PDF `job_1e42b0e97cf7` | 15 | 15 | 0 | Original figure references and attention-chart labels are already present in page text |
+| Rasterized PDF `job_919a92b928a6` | 12 | 0 | 12 | Full-page images; the campaign database audit recorded 12 page vectors for this document |
+| PPTX `job_a79cc92854c8` | 12 | 12 | 0 | Native slide text is retained; rasterized figures within the slides are not converted into chart-label text in this baseline |
+
+Native page text enters the normal lexical publication/index path, so figures
+with extractable labels/captions have basic initial text retrieval. Scanned or
+textless visual M0 renders and embeds whole pages before publication, enabling
+visual page recall without waiting for full OCR/semantic refinement. Coarse VLM
+classification and geometric `has_asset` detection do not themselves publish
+per-figure descriptions or native-page image vectors. The native-text path
+does not call the visual M0 builder just because it detected a figure.
+
+This confirms basic initial retrieval without claiming every chart is fully
+interpreted or every embedded bitmap is visually indexed. This audit did not
+rerun live queries, providers or capacity testing. Its local evidence is
+`.benchmarks/progressive-mixed-20261027/first-snapshot-capability-audit-20261027.json`;
+it is a later follow-up, not part of the previously checksummed evidence bundle.
