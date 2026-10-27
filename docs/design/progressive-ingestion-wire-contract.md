@@ -3,6 +3,14 @@
 This additive contract is shared by the API, Node SDK and Hipo implementation.
 Existing full ingestion fields and behavior remain valid.
 
+New progressive revisions retain the baseline retrieval content until all required
+enhancement work and the final archive are durable. Scope outputs are private
+intermediate artifacts. One final database transaction publishes the complete
+content/index and admits the final snapshot and event. This does not add a public
+parameter or change the existing BM25/visual fusion or Agent retrieval routes.
+The internal publication protocol marker allows already-running revisions to
+finish using their original scope-publication protocol.
+
 `GET /v2/jobs/{job_id}` adds `enhancement`, `snapshots` and
 `current_snapshot_id`. These fields are absent for legacy/full results.
 It also exposes the known `page_count` so status consumers do not download a

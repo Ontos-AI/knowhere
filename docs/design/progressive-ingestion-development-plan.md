@@ -17,6 +17,11 @@ The agreed behavior and investigation evidence are recorded in the
   Missing page vectors do not block initial completion and are repaired later.
 - One business Job uses multiple Celery tasks. After baseline publication the
   Job stays done while structure, scope refinement, and vector repair continue.
+- Keep the baseline retrieval corpus unchanged throughout background enhancement.
+  Store scope outputs and repaired vectors under immutable claim-specific keys.
+  After every required stage and the final archive succeed, replace the live
+  document content/index once and admit the final snapshot/event in that transaction.
+  This supersedes intermediate scope publication for newly admitted revisions.
 - Hipo becomes ready after its baseline content/assets commit, then immediately
   includes the Source in Ask. Search coverage may be limited during enhancement;
   a required query-embedding failure still fails the retrieval request.
@@ -151,6 +156,9 @@ Worker `app/services/page_memory/scope_enrichment_service.py`,
 3. Extend existing recovery to persisted unfinished stages; do not create a new
    workflow framework or a separate Worker service.
 4. Move namespace cache invalidation after successful SQL commit.
+5. Stage background structure, scope content and repaired vectors without touching
+   live content or query caches. Rebuild the document index once at final publication.
+   Recover from upload/transaction failures using committed output references.
 
 Done when worker termination before dispatch, duplicate delivery, and a late
 publisher cannot strand work or overwrite a newer attempt, and concurrent
@@ -267,7 +275,7 @@ Library retry/status components, and Knowhere Ask/citation adapters.
 4. Namespace queries and normalized chunk entities by actual snapshot identity,
    keeping old citations separate from the current result.
 5. Keep ready baselines in Ask. Verify citations from currently published
-   upstream scopes can open corresponding retained source pages while Hipo still
+   upstream baseline content can open corresponding retained source pages while Hipo still
    displays M0. Include native-text M0 citations to visual evidence that does not
    yet exist as an extracted local resource; page fallback alone is not sufficient
    unless the required evidence can actually be displayed. Resolve against the

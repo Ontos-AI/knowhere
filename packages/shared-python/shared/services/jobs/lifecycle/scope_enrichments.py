@@ -18,6 +18,7 @@ from shared.models.database.document import (
 )
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
+from shared.services.jobs.progressive_ingestion import read_progressive_state
 from shared.services.retrieval.hydration.row_utils import (
     normalize_chunk_type,
     page_enrichment_state,
@@ -74,9 +75,10 @@ def write_coarse_scope_enrichments(
     *,
     document_id: str,
     job_result_id: str,
+    chunks: list[dict[str, object]] | None = None,
 ) -> bool:
-    """Replace this revision's enrichment rows from published page-chunk scopes."""
-    published = (
+    """Schedule scopes from staged chunks, or published chunks for legacy revisions."""
+    published = [chunk.get("metadata") for chunk in chunks] if chunks is not None else (
         db.execute(
             select(DocumentChunk.chunk_metadata)
             .where(DocumentChunk.document_id == document_id)
@@ -350,7 +352,7 @@ async def promote_scopes_on_read(
     return sent
 
 
-def _structure_claim_still_active(
+def _should_skip_structure_recovery(
     *,
     doc_meta: object,
     job_meta: object,
@@ -358,6 +360,12 @@ def _structure_claim_still_active(
 ) -> bool:
     doc_dict = doc_meta if isinstance(doc_meta, dict) else {}
     job_dict = job_meta if isinstance(job_meta, dict) else {}
+    state = read_progressive_state(doc_dict)
+    if state is not None and (
+        state.stages.get("structure", {}).get("status") == "complete"
+        or state.enhancement.status in {"failed", "complete"}
+    ):
+        return True
     raw_claimed_at = doc_dict.get("structure_claimed_at") or job_dict.get(
         "structure_claimed_at"
     )
@@ -411,7 +419,7 @@ def sweep_progressive_enrichments_sync(
         reenqueued_structures = [
             str(revision_id)
             for revision_id, doc_meta, job_meta in structure_rows
-            if not _structure_claim_still_active(
+            if not _should_skip_structure_recovery(
                 doc_meta=doc_meta, job_meta=job_meta, now=now
             )
         ]

@@ -19,6 +19,7 @@ def initialize_baseline_state(
 ) -> ProgressiveIngestionState:
     pending_pages: list[int] = sorted({page for page in missing_pages if page > 0})
     return ProgressiveIngestionState(
+        publication_mode="final",
         snapshots=[snapshot],
         current_snapshot_id=snapshot.snapshot_id,
         stages={

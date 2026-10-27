@@ -19,6 +19,15 @@ Original checkouts were preserved. Planning is committed separately as `e9513bf1
 
 ## Implemented behavior
 
+- Follow-up decision on 2026-10-26: newly admitted progressive revisions keep
+  their baseline live until final publication. Structure only schedules work;
+  completed scopes and repaired vectors are stored as immutable intermediate
+  outputs. Finalization downloads committed outputs, uploads the complete package,
+  then replaces live content/index and admits the snapshot/outbox event in one
+  database transaction. A failure preserves the baseline and reuses completed
+  work on retry. Existing in-flight revisions retain their original protocol.
+  No SDK/Hipo wire change or new public selector is required. BM25, visual RRF
+  fusion and Agent retrieval algorithms are unchanged.
 - Initial completion publishes an immutable readable baseline. The business Job
   stays done while independent structure, scope, vector repair and finalization
   tasks continue. No additional public ingestion selector or rollout framework
@@ -27,7 +36,8 @@ Original checkouts were preserved. Planning is committed separately as `e9513bf1
   recover through the existing worker and sweep. Publication checks the active
   revision and claim generation. Stale workers write distinct artifact keys;
   a fenced transaction selects the structure input mapping.
-- Repair upserts the supplied page vectors and preserves successful vectors.
+- Repair preserves successful vectors and stages newly repaired vectors until
+  final publication for new revisions (legacy in-flight revisions still upsert).
   Final completion requires structure/scopes, recorded missing vectors, and an
   uploaded final archive. Descriptor and final webhook outbox event commit
   together. Retry leaves ingestion settlement and completed work intact.
@@ -66,7 +76,7 @@ recovery timestamps and pending-work indexing. Existing migrations were preserve
 | --- | --- |
 | Knowhere shared lifecycle/delivery/retry/source-PDF/embedding/harness tests | 56 passed |
 | Knowhere API scope publication/retry/webhook/QStash contracts | 21 passed |
-| Knowhere worker Phase A/scope/reliability/retrieval contracts | 52 passed |
+| Knowhere worker Phase A/scope/reliability/retrieval contracts | 60 passed after the final-publication follow-up |
 | Knowhere Ruff and Pyright (`make check`) | Passed |
 | SDK complete suite | 400 passed across 22 suites |
 | SDK lint, typecheck, build and changeset checks | Passed; three existing lint warnings |
@@ -74,6 +84,15 @@ recovery timestamps and pending-work indexing. Existing migrations were preserve
 | Hipo fresh PostgreSQL boundary suite | 32 passed |
 | Hipo Chromium reader suite | Five passed across three files |
 | Hipo typecheck and lint | Passed |
+
+The final-publication follow-up reran 29 selected shared lifecycle/delivery/
+retry/source-PDF/embedding checks, 21 API contracts and the 60 Worker contracts,
+plus `make check`. Eight added/expanded Worker cases cover private structure
+scheduling, baseline retention while scopes finish, staged partial vector repair,
+final upload interruption, database rollback and recovery without rerunning
+successful scopes. They use real local PostgreSQL and mocked external providers/
+object storage. SDK/Hipo checks above belong to the preceding implementation;
+those repositories were not modified by this follow-up.
 
 Knowhere persistence tests ran against local PostgreSQL 16 with pgvector, with
 additional SQLite contracts for small failure cases. Hipo applied its complete
@@ -119,6 +138,10 @@ Hipo's `docs/progressive-ingestion-release.md` for the local installation eviden
    and large documents, including new admissions after earlier Jobs reach M0.
    Observe CPU/RSS/disk, queue delay, DB locks/connections, provider concurrency,
    retries, download amplification and end-to-end latency.
+   Include multi-statement/Agent retrieval spanning the final same-JobResult
+   replacement: one atomic write transaction does not by itself establish a
+   request-wide consistent read snapshot. This concurrency boundary remains an
+   explicit acceptance requirement; no live concurrency or latency claim is made.
 
 Immutable baseline/final archives, source PDFs and retained Hipo objects increase
 storage and transfer. Processing uses separate mutable input storage and immutable
