@@ -12,6 +12,7 @@ from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.hydration.row_utils import (
+    UNREFINED_PAGE_STATES,
     extract_page_nums,
     page_enrichment_state,
 )
@@ -19,7 +20,6 @@ from shared.services.retrieval.hydration.row_utils import (
 STATUS_TEXT = "text"
 STATUS_COARSE = "coarse"
 STATUS_COMPLETE = "complete"
-UNREFINED_PAGE_STATES = frozenset({"text", "coarse", "queued"})
 
 
 @dataclass(frozen=True)

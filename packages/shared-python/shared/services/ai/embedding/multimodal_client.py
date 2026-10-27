@@ -315,7 +315,7 @@ def embed_images(
         return []
 
     default_concurrency = int(
-        getattr(settings, "PAGE_MEMORY_EMBED_CONCURRENCY", 8) or 8
+        getattr(settings, "PAGE_MEMORY_EMBED_CONCURRENCY", 10) or 10
     )
     resolved_concurrency = max(int(concurrency or default_concurrency), 1)
     tracker_root_id = get_current_token_tracker_root_id()

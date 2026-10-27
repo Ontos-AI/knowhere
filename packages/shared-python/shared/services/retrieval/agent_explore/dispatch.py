@@ -51,6 +51,8 @@ async def dispatch_tool_call(
     query: str = "",
     readable: ReadableAddresses | None = None,
     decided: Mapping[tuple[str, str], Decision] | None = None,
+    lit_pages_by_chunk: Mapping[tuple[str, str], tuple[int, ...]] | None = None,
+    lit_pages_by_path: Mapping[tuple[str, str], tuple[int, ...]] | None = None,
 ) -> ToolResult:
     """Run one ``REGISTRY`` tool call against a fresh, call-scoped DB session.
 
@@ -77,6 +79,8 @@ async def dispatch_tool_call(
                 query=query,
                 readable=readable,
                 decided=decided,
+                lit_pages_by_chunk=lit_pages_by_chunk,
+                lit_pages_by_path=lit_pages_by_path,
             )
             return await REGISTRY.dispatch(name, tool_ctx, args)
     except Exception as exc:  # noqa: BLE001 - one broken tool must not kill the episode

@@ -27,11 +27,15 @@ from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 _BODY_CHUNK_TYPES = ("text", "page")
 
 
-def _https_image_media(row: dict[str, Any]) -> list[dict[str, str]]:
+def _is_http_image_url(url: str) -> bool:
+    return url.startswith(("http://", "https://"))
+
+
+def _image_url_media(row: dict[str, Any]) -> list[dict[str, str]]:
     if normalize_chunk_type(row.get("chunk_type")) != "image":
         return []
     url = str(row.get("asset_url") or "").strip()
-    if url.startswith("https://"):
+    if _is_http_image_url(url):
         return [{"type": "image_url", "url": url}]
     return []
 
@@ -41,7 +45,7 @@ def _append_image_media(
     media: list[dict[str, str]],
     seen: set[str],
 ) -> None:
-    for item in _https_image_media(row):
+    for item in _image_url_media(row):
         url = item["url"]
         if url in seen:
             continue

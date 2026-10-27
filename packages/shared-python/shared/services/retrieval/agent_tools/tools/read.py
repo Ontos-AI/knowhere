@@ -1,12 +1,11 @@
 """``corpus.read`` — full body content for already-located sections/chunks.
 
-Unlike ``hydration.result_assembly.assemble_retrieval_results`` (which
-down-weights ``page`` chunks to their summary — see ``page_summary``, a
-deliberate trade-off for the retrieval-answer surface),
-``read`` returns the page chunk's full body content, with shared-page
-markers resolved to the owner section's text rather than stripped or
-summarized. Embedded images and tables are still inlined via the same
-placeholder mechanism as retrieval.
+Unlike classic assembly, ``read`` returns the page chunk's body for the
+agent: a refined node is the full section; an unrefined node is only the
+pages already lit by ``corpus.recall``, or lit here from the episode query
+when the agent entered via outline. Shared-page markers resolve to the
+owner section's text. Embedded images and tables are still inlined via the
+same placeholder mechanism as retrieval.
 Table chunks load the stored HTML: small tables return that HTML; large
 tables return row/column headers only and point at ``corpus.query_table``
 (no window — GREP/recall never scan table-cell HTML, so there is no real
@@ -60,10 +59,14 @@ from shared.services.retrieval.hydration.assets import (
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.result_assembly import _image_display_content
 from shared.services.retrieval.hydration.row_utils import (
+    apply_matched_page_nums,
+    coerce_page_nums,
+    is_unrefined_page,
     iter_connected_target_ids,
     normalize_chunk_type,
-    page_enrichment_state,
 )
+from shared.services.retrieval.search.visual_discovery import visual_page_discovery
+from shared.services.retrieval.settings import DEFAULT_TOP_K
 from shared.services.retrieval.hydration.table_grid import render_explore_table
 from shared.services.retrieval.agent_tools.section_path_lookup import (
     resolve_section_path_anchor,
@@ -225,6 +228,87 @@ async def _resolve_same_as_markers(
         row["content"] = content
 
 
+def _lookup_lit_pages(ctx: ToolContext, row: dict[str, Any]) -> list[int]:
+    document_id = str(row.get("document_id") or "").strip()
+    chunk_id = str(row.get("chunk_id") or "").strip()
+    section_path = str(row.get("section_path") or "").strip()
+    if ctx.lit_pages_by_chunk and document_id and chunk_id:
+        pages = ctx.lit_pages_by_chunk.get((document_id, chunk_id))
+        if pages:
+            return list(pages)
+    if ctx.lit_pages_by_path and document_id and section_path:
+        pages = ctx.lit_pages_by_path.get((document_id, section_path))
+        if pages:
+            return list(pages)
+    return []
+
+
+async def _light_section_pages(
+    ctx: ToolContext,
+    *,
+    document_id: str,
+    section_path: str,
+) -> dict[str, list[int]]:
+    discovery = await visual_page_discovery(
+        ctx.db,
+        user_id=ctx.user_id,
+        namespace=ctx.namespace,
+        query=ctx.query,
+        top_k=DEFAULT_TOP_K,
+        document_scope=ctx.document_scope,
+        revision_pins=CorpusRevisionContext.get_pins(),
+        section_targets=[(document_id, section_path)],
+    )
+    pages_by_chunk: dict[str, list[int]] = {}
+    for row in discovery.payload.get("fused_rows") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("document_id") or "") != document_id:
+            continue
+        chunk_id = str(row.get("chunk_id") or "").strip()
+        pages = coerce_page_nums(row.get("matched_page_nums"))
+        if chunk_id and pages:
+            pages_by_chunk[chunk_id] = pages
+    return pages_by_chunk
+
+
+async def _apply_unrefined_lit_pages(
+    ctx: ToolContext, rows: list[dict[str, Any]]
+) -> None:
+    pending: list[dict[str, Any]] = []
+    for row in rows:
+        if normalize_chunk_type(row.get("chunk_type")) != "page":
+            continue
+        if not is_unrefined_page(row):
+            continue
+        pages = _lookup_lit_pages(ctx, row)
+        if pages:
+            apply_matched_page_nums(row, pages)
+            continue
+        pending.append(row)
+    if not pending or not str(ctx.query or "").strip():
+        return
+    seen_targets: set[tuple[str, str]] = set()
+    lit_by_chunk: dict[tuple[str, str], list[int]] = {}
+    for row in pending:
+        document_id = str(row.get("document_id") or "").strip()
+        section_path = str(row.get("section_path") or "").strip()
+        if not document_id or not section_path:
+            continue
+        target = (document_id, section_path)
+        if target not in seen_targets:
+            seen_targets.add(target)
+            for chunk_id, pages in (
+                await _light_section_pages(
+                    ctx, document_id=document_id, section_path=section_path
+                )
+            ).items():
+                lit_by_chunk[(document_id, chunk_id)] = pages
+        pages = lit_by_chunk.get((document_id, str(row.get("chunk_id") or "")))
+        if pages:
+            apply_matched_page_nums(row, pages)
+
+
 def _page_image_display_content(row: dict[str, Any]) -> str:
     metadata = row.get("chunk_metadata") or row.get("metadata") or {}
     raw_assets = metadata.get("page_assets") if isinstance(metadata, dict) else None
@@ -304,17 +388,20 @@ def _explore_display_by_target(
     return display
 
 
-def _https_image_media(row: dict[str, Any]) -> list[dict[str, str]]:
+def _is_http_image_url(url: str) -> bool:
+    return url.startswith(("http://", "https://"))
+
+
+def _image_url_media(row: dict[str, Any]) -> list[dict[str, str]]:
     chunk_type = normalize_chunk_type(row.get("chunk_type"))
     if chunk_type == "image":
         url = str(row.get("asset_url") or "").strip()
-        if url.startswith("https://"):
+        if _is_http_image_url(url):
             return [{"type": "image_url", "url": url}]
         return []
     raw_content = str(row.get("content") or "").strip()
-    is_unrefined_page = page_enrichment_state(row) in {"text", "coarse", "queued"}
     if chunk_type == "page" and (
-        is_unrefined_page
+        is_unrefined_page(row)
         or not raw_content
         or raw_content == _page_image_display_content(row)
     ):
@@ -326,17 +413,17 @@ def _https_image_media(row: dict[str, Any]) -> list[dict[str, str]]:
                 if not isinstance(item, dict):
                     continue
                 url = str(item.get("asset_url") or "").strip()
-                if url.startswith("https://"):
+                if _is_http_image_url(url):
                     media.append({"type": "image_url", "url": url})
         if not media:
             url = str(row.get("asset_url") or "").strip()
-            if url.startswith("https://"):
+            if _is_http_image_url(url):
                 media.append({"type": "image_url", "url": url})
         return media
     return []
 
 
-def _collect_https_image_media(
+def _collect_image_url_media(
     assembled: list[dict[str, Any]],
     *,
     rows_by_chunk_id: dict[str, dict[str, Any]],
@@ -346,7 +433,7 @@ def _collect_https_image_media(
     seen: set[str] = set()
 
     def _add(row: dict[str, Any]) -> None:
-        for item in _https_image_media(row):
+        for item in _image_url_media(row):
             url = item["url"]
             if url in seen:
                 continue
@@ -742,6 +829,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         revision_by_doc=revision_by_doc,
         source_file_name_by_doc=source_file_name_by_doc,
     )
+    await _apply_unrefined_lit_pages(ctx, base_rows)
 
     connected_rows: list[dict[str, Any]] = []
     if include_assets:
@@ -813,7 +901,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             {"document_id": row["document_id"], "chunk_id": row["chunk_id"]}
             for row in assembled
         ],
-        media=_collect_https_image_media(
+        media=_collect_image_url_media(
             assembled,
             rows_by_chunk_id=rows_by_chunk_id,
             include_assets=include_assets,

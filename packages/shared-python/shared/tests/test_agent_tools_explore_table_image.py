@@ -435,6 +435,31 @@ async def test_read_https_image_fills_media(
 
 
 @pytest.mark.asyncio
+async def test_read_http_image_fills_media(
+    explore_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _enrich(rows, *, log_context):  # noqa: ANN001
+        enriched = []
+        for row in rows:
+            item = dict(row)
+            if item.get("chunk_type") == "image":
+                item["asset_url"] = "http://localhost:4566/chart.png"
+            enriched.append(item)
+        return enriched
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.agent_tools.tools.read.enrich_rows_with_retrieval_asset_url",
+        _enrich,
+    )
+    result = await read(explore_ctx, _read_table(CHUNK_IMAGE))
+    assert result.error is None
+    assert result.media == [
+        {"type": "image_url", "url": "http://localhost:4566/chart.png"}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_read_filesystem_image_does_not_fill_media(
     explore_ctx: ToolContext,
     monkeypatch: pytest.MonkeyPatch,

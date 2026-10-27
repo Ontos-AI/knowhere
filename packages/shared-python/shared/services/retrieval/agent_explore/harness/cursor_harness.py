@@ -230,6 +230,8 @@ class CursorHarness:
                     budget.record_step()
                 readable = pool.readable()
                 decided = pool.decided()
+                lit_pages_by_chunk = pool.lit_pages_by_chunk()
+                lit_pages_by_path = pool.lit_pages_by_path()
             tool_started = time.perf_counter()
             future = asyncio.run_coroutine_threadsafe(
                 dispatch_tool_call(
@@ -243,6 +245,8 @@ class CursorHarness:
                     query=query,
                     readable=readable,
                     decided=decided,
+                    lit_pages_by_chunk=lit_pages_by_chunk,
+                    lit_pages_by_path=lit_pages_by_path,
                 ),
                 loop,
             )

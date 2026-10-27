@@ -53,6 +53,7 @@
         {"name": "TRANSFORMERS_CACHE", "value": "/mnt/models/huggingface"},
         {"name": "BILLING_ENABLED", "value": "true"},
         {"name": "SUMMARY_LLM_MAX_CONCURRENT", "value": "8"},
+        {"name": "PAGE_MEMORY_EMBED_CONCURRENCY", "value": "10"},
         {"name": "DS_URL", "value": "https://api.deepseek.com/v1/chat/completions"},
         {"name": "ALI_URL", "value": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"},
         {"name": "ARK_URL", "value": "https://ark.cn-beijing.volces.com/api/v3/chat/completions"},

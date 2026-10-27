@@ -1325,6 +1325,7 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                 vis_rows = vis_res.payload["fused_rows"]
                 assert len(vis_rows) == 2
                 assert vis_rows[0]["chunk_id"] == "scan-m0-p2"
+                assert vis_rows[0]["matched_page_nums"] == [2]
 
                 # 2. Classic route answers via visual channel even though lexical is empty.
                 classic_outcome = await _run_classic_topk_route(
@@ -1544,6 +1545,7 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                 merged_rows = merged_res.payload["fused_rows"]
                 assert len(merged_rows) == 1
                 assert merged_rows[0]["chunk_id"] == "merged-sec"
+                assert merged_rows[0]["matched_page_nums"] == [2, 1]
                 assert abs(float(merged_rows[0]["score"]) - page2_score) < 1e-9
 
                 monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", False)

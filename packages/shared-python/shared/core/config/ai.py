@@ -71,8 +71,8 @@ class AIConfig(BaseModel):
         ),
     )
     PAGE_MEMORY_EMBED_CONCURRENCY: int = Field(
-        default=8,
-        description="Local per-job page embedding concurrency for scanned M0 documents.",
+        default=10,
+        description="Local per-job page-image embedding concurrency for progressive M0.",
     )
 
     # Runtime LLM controls.
