@@ -22,6 +22,7 @@ from app.services.page_memory._serialization import (
 from app.services.page_memory._utils import (
     CoarseScope,
     build_hierarchy_scopes,
+    is_toc_node,
     page_scope_info,
 )
 from app.services.page_memory.body_text_preview import build_body_text_preview
@@ -194,12 +195,16 @@ def build_phase_a_manifest(
         skeleton_paths = [
             str(getattr(item, "section_path", "") or "") for item in scope.skeletons
         ]
-        processing_pages = pages_excluding_toc(
-            derive_hierarchy_page_scope(
-                skeletons=scope.skeletons,
-                page_count=page_count,
-            ),
-            toc_pages,
+        processing_pages = (
+            []
+            if scope.skeletons and all(is_toc_node(item) for item in scope.skeletons)
+            else pages_excluding_toc(
+                derive_hierarchy_page_scope(
+                    skeletons=scope.skeletons,
+                    page_count=page_count,
+                ),
+                toc_pages,
+            )
         )
         excluded_toc_pages = sorted(
             page
@@ -504,7 +509,11 @@ def _skeleton_pages(
     )
     if end_page < start_page or page_count <= 0:
         return []
-    return pages_excluding_toc(list(range(start_page, end_page + 1)), toc_pages)
+    pages = list(range(start_page, end_page + 1))
+    if is_toc_node(skeleton):
+        claimed = {int(page) for page in toc_pages}
+        return [page for page in pages if page in claimed]
+    return pages_excluding_toc(pages, toc_pages)
 
 
 def _jsonable_page_map(raw: Any) -> dict[str, str]:

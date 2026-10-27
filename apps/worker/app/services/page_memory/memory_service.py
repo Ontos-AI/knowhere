@@ -21,6 +21,7 @@ from app.services.page_memory.normalizer import normalize_to_pdf
 from app.services.page_memory._utils import (
     CoarseScope,
     collapse_page_ranges,
+    is_toc_node,
     page_scope_info,
     sort_skeletons,
 )
@@ -322,13 +323,24 @@ def assemble_c7_node_rows(
         for lbl in page_labels:
             label_map[lbl.page] = lbl.kind
 
-    final_pages = pages_excluding_toc(
-        _derive_hierarchy_page_scope(
-            skeletons=skeletons,
-            page_count=page_count,
-        ),
-        toc_pages,
+    hierarchy_pages = _derive_hierarchy_page_scope(
+        skeletons=skeletons,
+        page_count=page_count,
     )
+    body_pages = pages_excluding_toc(hierarchy_pages, toc_pages)
+    toc_set = {int(page) for page in toc_pages}
+    toc_claimed: list[int] = []
+    for skeleton in skeletons:
+        if not is_toc_node(skeleton):
+            continue
+        start_page = max(1, int(skeleton.start_page))
+        end_page = max(start_page, int(skeleton.end_page))
+        toc_claimed.extend(
+            page
+            for page in range(start_page, end_page + 1)
+            if page in toc_set
+        )
+    final_pages = sorted(set(body_pages) | set(toc_claimed))
     fine_text = fine_text_by_page or {}
     raw_text_by_page: dict[int, str] = {}
     image_path_by_page: dict[int, str] = {}
@@ -353,6 +365,7 @@ def assemble_c7_node_rows(
         node_summary_max_pages=page_memory_config.node_summary_max_pages,
         node_assembly_concurrency=page_memory_config.node_assembly_concurrency,
         body_text_by_page=body_text_by_page,
+        toc_pages=toc_pages,
     )
     return rows, final_pages
 
@@ -596,18 +609,25 @@ def _run_hierarchy_scope(
 
     scope_skeletons = sort_skeletons(scope.skeletons)
     toc_pages = sorted({int(page) for page in (toc_pages or [])})
+    toc_only_scope = bool(scope_skeletons) and all(
+        is_toc_node(item) for item in scope_skeletons
+    )
     scope_manifest = _scope_manifest(
         scope_id=scope.scope_id,
         skeletons=scope_skeletons,
         page_count=page_count,
         strategy=scope.strategy,
     )
-    coarse_pages = pages_excluding_toc(
-        _derive_hierarchy_page_scope(
-            skeletons=scope_skeletons,
-            page_count=page_count,
-        ),
-        toc_pages,
+    coarse_pages = (
+        []
+        if toc_only_scope
+        else pages_excluding_toc(
+            _derive_hierarchy_page_scope(
+                skeletons=scope_skeletons,
+                page_count=page_count,
+            ),
+            toc_pages,
+        )
     )
     logger.info(
         "[page_memory] scope {}/{} {} coarse ranges={}",
@@ -707,12 +727,16 @@ def _run_hierarchy_scope(
         },
     )
 
-    final_pages = pages_excluding_toc(
-        _derive_hierarchy_page_scope(
-            skeletons=scope_skeletons,
-            page_count=page_count,
-        ),
-        toc_pages,
+    final_pages = (
+        []
+        if toc_only_scope
+        else pages_excluding_toc(
+            _derive_hierarchy_page_scope(
+                skeletons=scope_skeletons,
+                page_count=page_count,
+            ),
+            toc_pages,
+        )
     )
     final_scope_summary = _summarize_tag_scope(
         skeletons=scope_skeletons,

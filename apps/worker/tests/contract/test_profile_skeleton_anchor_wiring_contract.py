@@ -182,11 +182,12 @@ def test_c4_resolve_does_not_call_calibration() -> None:
         )
 
     assert skeletons
-    assert skeletons[0].section_path == "doc.pdf"
-    assert skeletons[0].start_page == skeletons[0].end_page == 1
-    assert skeletons[1].title == "Ch1"
-    assert skeletons[1].section_path == "doc.pdf/Ch1"
-    assert skeletons[1].start_page == 2
+    by_title = {item.title: item for item in skeletons}
+    assert by_title["TOC"].section_path == "doc.pdf/TOC"
+    assert by_title["TOC"].start_page == by_title["TOC"].end_page == 1
+    assert by_title["TOC"].evidence["source"] == "toc_node"
+    assert by_title["Ch1"].section_path == "doc.pdf/Ch1"
+    assert by_title["Ch1"].start_page == 2
 
 
 def _pending_tocs() -> list[dict[str, object]]:
