@@ -37,7 +37,7 @@ def test_rank_hot_and_new_evidence_without_score_overflow(
         for index, importance in enumerate(importance_values)
     }
 
-    ranked = rank_candidates_by_path(
+    ranked: list[dict[str, object]] = rank_candidates_by_path(
         rows,
         [],
         len(rows),
@@ -46,6 +46,10 @@ def test_rank_hot_and_new_evidence_without_score_overflow(
 
     assert len(ranked) == len(rows)
     assert {row["chunk_id"] for row in ranked} == {row["chunk_id"] for row in rows}
-    assert all(math.isfinite(float(row["score"])) for row in ranked)
-    assert all(0.1 <= float(row["importance_multiplier"]) <= 2.0 for row in ranked)
-    assert ranked[0]["importance_raw_score"] >= ranked[-1]["importance_raw_score"]
+    for row in ranked:
+        score: object = row["score"]
+        multiplier: object = row["importance_multiplier"]
+        assert isinstance(score, (int, float)) and math.isfinite(score)
+        assert isinstance(multiplier, (int, float)) and 0.1 <= multiplier <= 2.0
+    assert ranked[0]["chunk_id"] == "chunk-7"
+    assert ranked[-1]["chunk_id"] == "chunk-0"
