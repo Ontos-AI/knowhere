@@ -79,9 +79,9 @@ def clean_toc_title(title: str) -> str:
 def extract_level1_titles(toc_hierarchies: list[dict[str, Any]]) -> list[str]:
     """Extract cleaned level-1 titles from ``toc_with_level`` payloads.
 
-    TEXT-TRACK PDF shards attach calibrated TOC slices that only carry
-    ``toc_with_level`` (no ``toc_tree``). Prefer that flat list so front-matter
-    demotion keeps working after PROFILE skeleton reuse.
+    Calibrated TOC slices only carry ``toc_with_level`` (no ``toc_tree``).
+    Prefer that flat list so front-matter demotion keeps working after PROFILE
+    skeleton reuse.
     """
     titles: list[str] = []
     for hier in toc_hierarchies:

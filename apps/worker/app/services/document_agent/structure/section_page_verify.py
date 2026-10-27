@@ -4,7 +4,7 @@ Confirms whether a candidate physical page is the true START of a TOC title.
 Uses the same question schema as Phase-1 forward scan; no heuristic fallback.
 
 ``inspect_pages`` is imported lazily so ``anchoring_primitives`` → this module
-does not race ``tools.__init__`` → ``propose_shard_plan`` → anchoring.
+does not race ``tools.__init__`` → anchoring.
 """
 
 from __future__ import annotations

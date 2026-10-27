@@ -1,4 +1,4 @@
-"""Contracts for TOC-derived body-boundary helpers used by TEXT-TRACK."""
+"""Contracts for TOC-derived body-boundary helpers."""
 
 from __future__ import annotations
 

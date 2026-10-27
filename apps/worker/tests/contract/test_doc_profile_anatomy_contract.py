@@ -384,29 +384,6 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
         ),
     )
 
-    def fake_finalize() -> None:
-        coordinator.blackboard.shard_plan = ShardPlan(
-            enabled=True,
-            reason="too_large",
-            shards=[
-                Shard(
-                    shard_index=0,
-                    page_start=1,
-                    page_end=3,
-                    page_offset=0,
-                    anchor_type="forced_max_size",
-                    anchor_evidence="fixture",
-                )
-            ],
-        )
-        from app.services.document_agent.manifest import ProfileVerdict
-
-        coordinator.blackboard.verdict = ProfileVerdict(
-            status="success", rationale="ok"
-        )
-
-    monkeypatch.setattr(coordinator, "_finalize_shard_plan", fake_finalize)
-
     anatomy = coordinator.run_structural()
 
     assert calls == ["toc", "persist"]
@@ -458,14 +435,6 @@ def test_run_structural_skip_shard_plan_uses_placeholder_without_finalize(
             ToolResult(status="ok", payload={}),
         ),
     )
-
-    class BoomFinalize:
-        def __call__(self) -> None:
-            raise AssertionError(
-                "_finalize_shard_plan must not run when skip_shard_plan"
-            )
-
-    monkeypatch.setattr(coordinator, "_finalize_shard_plan", BoomFinalize())
 
     anatomy = coordinator.run_structural(skip_shard_plan=True)
 
@@ -525,29 +494,6 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
         ),
     )
 
-    def fake_finalize() -> None:
-        coordinator.blackboard.shard_plan = ShardPlan(
-            enabled=True,
-            reason="too_large",
-            shards=[
-                Shard(
-                    shard_index=0,
-                    page_start=1,
-                    page_end=3,
-                    page_offset=0,
-                    anchor_type="forced_max_size",
-                    anchor_evidence="fixture",
-                )
-            ],
-        )
-        from app.services.document_agent.manifest import ProfileVerdict
-
-        coordinator.blackboard.verdict = ProfileVerdict(
-            status="success", rationale="ok"
-        )
-
-    monkeypatch.setattr(coordinator, "_finalize_shard_plan", fake_finalize)
-
     anatomy = coordinator.run_structural()
 
     assert calls == ["persist"]
@@ -600,29 +546,6 @@ def test_run_coarse_runs_coarse_profile_then_text_scan_then_toc(
         )
 
     monkeypatch.setattr(coordinator_module.CoarseProfiler, "classify", fake_classify)
-
-    def fake_finalize() -> None:
-        coordinator.blackboard.shard_plan = ShardPlan(
-            enabled=True,
-            reason="too_large",
-            shards=[
-                Shard(
-                    shard_index=0,
-                    page_start=1,
-                    page_end=3,
-                    page_offset=0,
-                    anchor_type="forced_max_size",
-                    anchor_evidence="fixture",
-                )
-            ],
-        )
-        from app.services.document_agent.manifest import ProfileVerdict
-
-        coordinator.blackboard.verdict = ProfileVerdict(
-            status="success", rationale="ok"
-        )
-
-    monkeypatch.setattr(coordinator, "_finalize_shard_plan", fake_finalize)
 
     coordinator.run_coarse()
     anatomy = coordinator.run_structural()
@@ -1147,7 +1070,7 @@ def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
 
 
 def test_page_based_toc_demotes_front_matter_only_on_first_shard() -> None:
-    # Production TEXT-TRACK shape from propose.shard_plan: calibrated slice
+    # Calibrated TOC slice carries toc_with_level only (no toc_tree).
     # carries toc_with_level only (no toc_tree).
     toc_hierarchies = [
         {

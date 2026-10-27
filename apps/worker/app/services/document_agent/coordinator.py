@@ -13,7 +13,6 @@ from app.services.document_agent.bootstrap import (
     probe_page_features,
 )
 from app.services.document_agent.manifest import (
-    ProfileVerdict,
     DocumentProfile,
     PageAnatomyMap,
     TocResult,
@@ -90,7 +89,7 @@ class ProfileCoordinator:
         profile = self._ensure_coarse_profile(actor="coarse_profile")
         self._run_text_scan()
         # Asset coarse probe is independent of TOC; run it before TOC so
-        # PROFILE / debug Stage-0 share the same order as later anatomy/shard
+        # PROFILE / debug Stage-0 share the same order as later anatomy
         # consumers of ``page_features.has_asset``.
         self._ensure_asset_probe()
         if self.ctx.settings.get("stop_after_asset_probe"):
@@ -115,12 +114,10 @@ class ProfileCoordinator:
         else:
             self._ensure_disabled_toc_placeholder()
         self._ensure_coarse_profile(actor="coarse_profile")
-        if skip_shard_plan:
-            # Page-memory oversized path never consumes shard_plan; only
-            # build_anatomy_map's invariant needs a non-empty plan.
-            self._apply_single_shard_placeholder()
-        else:
-            self._finalize_shard_plan()
+        del skip_shard_plan
+        # Anatomy still requires a non-empty plan object; keep a single-document
+        # placeholder.
+        self._apply_single_shard_placeholder()
         anatomy = build_anatomy_map(self.ctx)
         self._persist_ready_anatomy(anatomy)
         return anatomy
@@ -142,69 +139,14 @@ class ProfileCoordinator:
                 )
             else:
                 self._ensure_disabled_toc_placeholder()
-        if skip_shard_plan:
-            # Page-based track processes pages individually via VLM and never
-            # consumes the shard plan; only build_anatomy_map's invariant needs
-            # it. Populate a single-shard placeholder to skip propose.shard_plan
-            # (kept for chunk-track oversized MinerU sharding).
-            self._apply_single_shard_placeholder()
-        else:
-            self._dispatch_anatomy_tool(tool_name="propose.shard_plan")
+        del skip_shard_plan
+        self._apply_single_shard_placeholder()
         anatomy = build_anatomy_map(self.ctx)
         self._persist_ready_anatomy(anatomy)
         return anatomy
 
     def _apply_single_shard_placeholder(self) -> None:
         self.blackboard.shard_plan = single_shard_plan(self.blackboard.page_count)
-
-    def _dispatch_anatomy_tool(
-        self,
-        *,
-        tool_name: str,
-        tool_args: dict[str, Any] | None = None,
-    ) -> ToolResult:
-        args = dict(tool_args or {})
-        result = REGISTRY.dispatch(tool_name, self.ctx, args)
-        self.trace.record_step(
-            round_index=self.round_index,
-            actor=f"anatomy:{tool_name}",
-            action_type="anatomy",
-            result=result,
-            tool_name=tool_name,
-            tool_args=args,
-        )
-        if result.status not in {"ok", "invalid"}:
-            raise RuntimeError(result.error or f"{tool_name} failed")
-        self.round_index += 1
-        return result
-
-    def _finalize_shard_plan(self) -> None:
-        """Deterministic propose → validate → verdict.
-
-        Cut logic stays inside ``propose.shard_plan``. Invalid validation aborts;
-        do not disguise a single-shard rewrite as a successful propose.
-        """
-        if self.blackboard.shard_plan is None:
-            self._dispatch_anatomy_tool(tool_name="propose.shard_plan")
-        if not self.blackboard.validation_report:
-            self._dispatch_anatomy_tool(tool_name="validate.anatomy_map")
-        if (self.blackboard.validation_report or {}).get("valid") is True:
-            self._dispatch_anatomy_tool(
-                tool_name="verdict",
-                tool_args={
-                    "status": "success",
-                    "rationale": "Validation succeeded; finishing profile run.",
-                },
-            )
-            return
-
-        self.blackboard.verdict = ProfileVerdict(
-            status="abort",
-            rationale="Shard plan validation failed.",
-        )
-        raise RuntimeError(
-            f"profile aborted: {self.blackboard.verdict.rationale}"
-        )
 
     def _persist_ready_anatomy(self, anatomy: PageAnatomyMap) -> None:
         persist_result = persist_anatomy_map(self.ctx, {})

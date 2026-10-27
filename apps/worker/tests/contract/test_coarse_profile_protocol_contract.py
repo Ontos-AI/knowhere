@@ -1,4 +1,4 @@
-"""Protocol tests: coarse profile parse + deterministic shard finalize."""
+"""Protocol tests: coarse profile parse."""
 
 from __future__ import annotations
 
@@ -15,13 +15,6 @@ os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 from app.services.document_agent.coarse_profile.classifier import _parse_profile
-from app.services.document_agent.coordinator import ProfileCoordinator
-from app.services.document_agent.manifest import (
-    DocumentProfile,
-    PageFeature,
-    PageLabel,
-    TocResult,
-)
 from app.services.document_parser.profiling.domain_taxonomy import (
     DOMAIN_SECTIONS,
     OTHER_CODE,
@@ -115,103 +108,3 @@ def test_parse_profile_rejects_invalid_header_footer_order() -> None:
     profile = _parse_profile(raw)
     assert profile.header_y is None
     assert profile.footer_y is None
-
-
-def _seed_pages(coordinator: ProfileCoordinator, page_count: int) -> None:
-    blackboard = coordinator.blackboard
-    blackboard.page_count = page_count
-    blackboard.doc_stats = {"page_count": page_count}
-    blackboard.page_features = [
-        PageFeature(
-            page=page,
-            raw_text_length=0,
-            text_density=0.0,
-            image_coverage=1.0,
-            image_count=1,
-            table_count=0,
-            drawings_count=0,
-            orientation="portrait",
-            width=612.0,
-            height=792.0,
-            has_asset=True,
-            is_blank_like=True,
-        )
-        for page in range(1, page_count + 1)
-    ]
-    blackboard.page_labels = [
-        PageLabel(page=page, kind="normal")
-        for page in range(1, page_count + 1)
-    ]
-    blackboard.toc_result = TocResult(method="none", notes="no toc")
-    blackboard.document_profile = DocumentProfile(
-        is_scanned=True,
-        category=[OTHER_CODE],
-        category_label="Report",
-        routing_category="generic",
-    )
-
-
-def test_finalize_shard_plan_reaches_success(tmp_path) -> None:
-    coordinator = ProfileCoordinator(
-        pdf_path=str(tmp_path / "doc.pdf"),
-        job_id="job-finalize",
-        output_dir=str(tmp_path / "out"),
-    )
-    (tmp_path / "out").mkdir()
-    _seed_pages(coordinator, 4)
-
-    coordinator._finalize_shard_plan()
-
-    assert coordinator.blackboard.verdict is not None
-    assert coordinator.blackboard.verdict.status == "success"
-    assert coordinator.blackboard.shard_plan is not None
-    assert len(coordinator.blackboard.shard_plan.shards) >= 1
-
-
-def test_finalize_shard_plan_aborts_when_validation_fails(tmp_path) -> None:
-    from app.services.document_agent.manifest import ShardPlan
-
-    coordinator = ProfileCoordinator(
-        pdf_path=str(tmp_path / "doc.pdf"),
-        job_id="job-finalize-abort",
-        output_dir=str(tmp_path / "out"),
-    )
-    (tmp_path / "out").mkdir()
-    _seed_pages(coordinator, 4)
-    coordinator.blackboard.shard_plan = ShardPlan(
-        enabled=True,
-        reason="too_large",
-        shards=[],
-    )
-    coordinator.blackboard.validation_report = {
-        "valid": False,
-        "errors": ["shard_plan has no shards"],
-        "warnings": [],
-    }
-
-    try:
-        coordinator._finalize_shard_plan()
-        raise AssertionError("expected shard validation failure to abort")
-    except RuntimeError as exc:
-        assert "Shard plan validation failed" in str(exc)
-
-    assert coordinator.blackboard.verdict is not None
-    assert coordinator.blackboard.verdict.status == "abort"
-    assert "fallback" not in (coordinator.blackboard.verdict.rationale or "").lower()
-
-
-def test_finalize_shard_plan_creates_plan_when_missing(tmp_path) -> None:
-    coordinator = ProfileCoordinator(
-        pdf_path=str(tmp_path / "doc.pdf"),
-        job_id="job-finalize-missing",
-        output_dir=str(tmp_path / "out"),
-    )
-    (tmp_path / "out").mkdir()
-    _seed_pages(coordinator, 3)
-    assert coordinator.blackboard.shard_plan is None
-
-    coordinator._finalize_shard_plan()
-
-    assert coordinator.blackboard.shard_plan is not None
-    assert len(coordinator.blackboard.shard_plan.shards) == 1
-    assert coordinator.blackboard.verdict.status == "success"

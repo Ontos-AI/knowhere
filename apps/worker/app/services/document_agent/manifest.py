@@ -141,8 +141,7 @@ class Shard:
         "toc_leaf_boundary",
     ]
     anchor_evidence: str
-    # Calibrated TOC slice for this shard (heading+level), attached at
-    # propose.shard_plan. TEXT-TRACK consumes this directly; no printed→physical
+    # Calibrated TOC slice for this shard (heading+level). No printed→physical
     # re-filter at parse time.
     toc_hierarchies: list[dict[str, Any]] | None = None
 
