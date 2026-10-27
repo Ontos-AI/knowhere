@@ -1,8 +1,13 @@
 # Progressive ingestion implementation and verification
 
-Implementation and local automated validation are complete. Nothing was pushed,
-published, merged, or deployed. This report does not establish production capacity
-or deployed-client acceptance.
+Overall requirement status: in progress and under continued discussion as of
+2026-10-27. This report records an earlier implemented and locally verified
+subset; it does not establish final product acceptance or deployed-client
+acceptance. The [development plan discussion checkpoint](progressive-ingestion-development-plan.md#discussion-checkpoint-first-snapshot-reading-2026-10-27)
+records the latest List/Tree decisions and the user's explicit unfinished status.
+Subsequent capacity evidence is in the [mixed-workload follow-up](progressive-mixed-capacity-validation.md).
+The original implementation described below was not pushed, published, merged,
+or deployed at the time of that report.
 
 ## Delivery locations
 

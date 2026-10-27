@@ -1,8 +1,9 @@
 # Progressive ingestion hardening plan
 
-Status: Workflow, reviewed reader behavior, and early Ask availability agreed.
-Technical implementation and validation plan; application-code implementation
-is not authorized.
+Status: Historical investigation and acceptance rationale. Application-code
+implementation was subsequently authorized and progressed; the overall
+requirement remains open for further discussion as of 2026-10-27. Current List
+and Tree decisions are recorded in the development plan's discussion checkpoint.
 
 The execution-oriented development sequence is maintained in the
 [development plan](progressive-ingestion-development-plan.md). This document

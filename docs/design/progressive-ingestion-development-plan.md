@@ -1,19 +1,51 @@
 # Progressive ingestion development plan
 
-Status: Implementation and local automated validation complete. SDK publication,
-dependency pinning, deployed acceptance and capacity validation remain pending.
-See the [implementation report](progressive-ingestion-implementation-report.md).
+Status: In progress; requirement discussion remains open as of 2026-10-27.
+Implemented and locally verified subsets do not close the overall requirement
+or establish final product acceptance. SDK publication, dependency pinning and
+deployed acceptance remain pending. Measured mixed-workload capacity evidence is
+recorded separately in the [capacity follow-up](progressive-mixed-capacity-validation.md).
+See the [implementation report](progressive-ingestion-implementation-report.md)
+for earlier implementation evidence.
 
 The agreed behavior and investigation evidence are recorded in the
 [hardening plan](progressive-ingestion-hardening-plan.md) and
 [ADR index](../adr/README.md). This document defines the development sequence.
+
+## Discussion checkpoint: first-snapshot reading (2026-10-27)
+
+The user explicitly keeps this requirement unfinished and wants to continue
+discussing it. Retain the following two points as the current checkpoint:
+
+1. **Page assets and List reading.** Text-native PDF/PPTX baselines do not
+   pre-generate per-page image assets or native-document visual indexes. They
+   retain page text and immutable `source.pdf` (the converted PDF for PPTX).
+   Scanned/textless visual baselines already carry page images. Ordinary List
+   reading must display original native pages from that retained PDF on demand,
+   not only when opening a citation. Share the selected PDF document/worker and
+   paint nearby visible pages; do not wait for VLM enhancement or render the
+   whole document during initial ingestion. This follow-up is implemented in
+   Hipo commit `787846ed`, with local verification; implementation is not final
+   acceptance or deployed-client evidence.
+2. **Tree reading.** The baseline is not empty: show the document root and
+   source-ordered `Page N` leaves, with navigation to the corresponding List
+   page. It does not yet expose the enhanced chapter/resource hierarchy.
+   Images/Tables remain visible but disabled until final synchronization.
+   Final publication replaces the flat page tree with the chapter/resource tree
+   while preserving List/Tree mode and source-page position. Retained citations
+   continue to read their own immutable snapshot. This behavior is implemented
+   and locally tested; overall scope and acceptance remain under discussion.
+
+Continue requirements discussion from these points. Do not describe the overall
+progressive requirement as complete merely because this subset's tests pass.
 
 ## Target behavior
 
 - Keep `ingestion_mode=full|progressive`, defaulting to full. Hipo selects
   progressive for supported PDF/PPTX inputs; other formats retain full ingestion.
 - Publish a readable baseline before full enhancement. Text-native baselines
-  expose page text; scanned baselines expose complete required page images.
+  expose page text and immutable source PDF for on-demand List page display;
+  scanned baselines expose complete required page images.
   Missing page vectors do not block initial completion and are repaired later.
 - One business Job uses multiple Celery tasks. After baseline publication the
   Job stays done while structure, scope refinement, and vector repair continue.
