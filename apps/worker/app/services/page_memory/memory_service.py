@@ -104,7 +104,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 job_id=request.job_id,
                 output_dir=full_output_dir,
                 oversized_policy="page_memory",
-                stop_after="asset_probe" if is_progressive else None,
+                stop_after="native_baseline" if is_progressive else None,
             )
         trace_recorder = getattr(profile, "trace_recorder", None)
         page_count = max(int(profile.page_count or 0), 0)

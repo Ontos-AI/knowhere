@@ -109,7 +109,7 @@ def _stub_classification(
     monkeypatch.setattr(coordinator_module.CoarseProfiler, "classify", classify)
 
 
-def test_compat_progressive_baseline_keeps_text_source_eager_images_and_asset_probe(
+def test_native_progressive_baseline_keeps_text_source_and_eager_images_without_asset_probe(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -140,10 +140,12 @@ def test_compat_progressive_baseline_keeps_text_source_eager_images_and_asset_pr
     finally:
         cleanup_stage_tracker()
 
-    assert len(probe_calls) == 1, "compatibility release must retain foreground asset probing"
+    assert probe_calls == [], (
+        "native baseline must publish before detailed asset detection"
+    )
     assert "document_profile.classification" in timings
     assert "document_profile.text_scan" in timings
-    assert "document_profile.asset_probe" in timings
+    assert "document_profile.asset_probe" not in timings
     assert "page_memory.m0_render" in timings
     chunks = dataframe_to_chunks(dataframe)
     assert [chunk["metadata"]["page_nums"] for chunk in chunks] == [[1], [2], [3]]
@@ -167,21 +169,25 @@ def test_compat_progressive_baseline_keeps_text_source_eager_images_and_asset_pr
         with Image.open(Path(output_dir) / reference) as image:
             assert image.width > 0 and image.height > 0
     blackboard = json.loads((Path(output_dir) / PHASE_B_BLACKBOARD_REL).read_text())
-    assert blackboard["global_signals"]["assets_probed"] is True
+    assert blackboard["global_signals"]["assets_probed"] is False
     assert [feature["has_asset"] for feature in blackboard["page_features"]] == [
-        False,
-        True,
-        True,
+        None,
+        None,
+        None,
     ]
-    assert all(feature["table_count"] is not None for feature in blackboard["page_features"])
+    assert [feature["table_count"] for feature in blackboard["page_features"]] == [
+        None,
+        None,
+        None,
+    ]
     assert blackboard["document_profile"]["header_y"] == 0.08
     assert blackboard["document_profile"]["footer_y"] == 0.90
     assert len(blackboard["page_full_text_bands"]) == 3
     restored_features, _ = enrichment_service._parse_features_and_labels(
         blackboard["page_features"], blackboard["page_labels"]
     )
-    assert all(feature.has_asset is not None for feature in restored_features)
-    assert all(feature.table_count is not None for feature in restored_features)
+    assert all(feature.has_asset is None for feature in restored_features)
+    assert all(feature.table_count is None for feature in restored_features)
 
 
 @pytest.mark.parametrize(

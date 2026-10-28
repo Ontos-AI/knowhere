@@ -325,7 +325,7 @@ def _upload_result_package(
     working_raw_prefix: str = result_bundle.raw_prefix
     if snapshot_options:
         working_raw_prefix = f"results/{job_id}/"
-        working_refs: list[str] = sorted(result_bundle.raw_files)
+        working_refs: list[str] = phase_b_refs
         with (
             logfire.span("Upload progressive working inputs for {job_id}", job_id=job_id) as working_span,
             stage_timer("worker.result.working_inputs_upload", job_id=job_id),
@@ -349,8 +349,8 @@ def _upload_result_package(
     if job_context is not None and parse_track == "page_memory":
         metadata_updates["result_raw_prefix"] = working_raw_prefix
         if snapshot_options:
-            # Keep legacy reader metadata until every Worker understands the
-            # immutable serving origin and final publication switches it safely.
+            # Worker inputs and published assets retain separate origins.
+            metadata_updates["result_serving_raw_prefix"] = result_bundle.raw_prefix
             metadata_updates["page_memory_working_raw_prefix"] = working_raw_prefix
             metadata_updates["page_memory_baseline_artifact_refs"] = sorted(
                 artifact_refs.difference(phase_b_refs) | {"source.pdf"}

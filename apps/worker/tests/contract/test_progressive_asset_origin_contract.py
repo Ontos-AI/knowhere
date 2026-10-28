@@ -45,7 +45,7 @@ class MemoryObjects:
         return f"https://storage.invalid/{key}"
 
 
-def test_compat_baseline_keeps_working_images_and_legacy_serving_origin(
+def test_baseline_images_are_put_once_and_result_writer_selects_serving_origin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from app.services.document_ingestion import success_finalization as finalization
@@ -115,10 +115,9 @@ def test_compat_baseline_keeps_working_images_and_legacy_serving_origin(
     image_puts: list[str] = [
         key for key in objects.uploaded if key.endswith("page-1.jpg")
     ]
-    assert len(image_puts) == 2, image_puts
-    assert "result_serving_raw_prefix" not in metadata
-    snapshot_prefix: str = f"results/job/snapshots/{metadata['progressive_baseline_snapshot_id']}/"
-    serving_prefix: str = "results/job/"
+    assert len(image_puts) == 1, image_puts
+    serving_prefix: str = str(metadata["result_serving_raw_prefix"])
+    assert "/snapshots/" in serving_prefix
     assert metadata["result_raw_prefix"] == "results/job/"
     assert metadata["page_memory_working_raw_prefix"] == "results/job/"
     assert {
@@ -127,13 +126,13 @@ def test_compat_baseline_keeps_working_images_and_legacy_serving_origin(
         if key.startswith("results/job/") and "/snapshots/" not in key
     } == {
         f"results/job/{relative}"
-        for relative in set(files) | {"manifest.json", "chunks.json", "doc_nav.json"}
+        for relative in files
+        if not relative.startswith("page_citation_assets/")
     }
     assert (
         objects.objects[f"{serving_prefix}page_citation_assets/page-1.jpg"]
         == files["page_citation_assets/page-1.jpg"]
     )
-    assert objects.objects[f"{snapshot_prefix}page_citation_assets/page-1.jpg"] == files["page_citation_assets/page-1.jpg"]
     engine = create_engine("sqlite://")
     Job.__table__.create(engine)
     JobResult.__table__.create(engine)
