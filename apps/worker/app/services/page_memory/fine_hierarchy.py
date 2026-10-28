@@ -31,7 +31,13 @@ from app.services.page_memory._utils import (
     sort_skeletons,
 )
 from shared.services.ai.llm_overrides import get_text_client
-from shared.services.chunks.path_segments import append_document_path
+from shared.services.chunks.path_segments import (
+    append_document_path,
+    split_escaped_document_path,
+)
+
+
+EndTitleAnchor = str | list[str] | tuple[str, ...] | None
 
 
 def refine_fat_leaf_skeletons(
@@ -39,7 +45,7 @@ def refine_fat_leaf_skeletons(
     coarse_skeletons: list[SectionSkeleton],
     tag_results: list[PageTagResult],
     fat_leaf_pages: set[int],
-    next_title_by_path: dict[str, str | None] | None = None,
+    next_title_by_path: dict[str, EndTitleAnchor] | None = None,
     model_name: str | None = None,
     max_tokens: int = 2000,
     max_depth: int = 6,
@@ -149,24 +155,66 @@ def compute_fat_leaf_pages(
 
 def build_next_title_by_path(
     skeletons: list[SectionSkeleton],
-) -> dict[str, str | None]:
-    """Map each skeleton ``section_path`` to the next title in reading order.
+) -> dict[str, EndTitleAnchor]:
+    """Map each skeleton ``section_path`` to the next boundary title(s) in reading order.
 
     Order matches ``sort_skeletons``: by ``start_page`` only, stable so
     same-page relative order (TOC emit / parent-before-child) is preserved.
-    The next title is the immediately following skeleton — including a
-    same-page sibling or a ``parent_self_only`` node's first child — used as
-    the tail trim anchor in ``_trim_by_coarse_anchors``.
+    When the next skeleton crosses into a new ancestor subtree whose parent
+    started on the same page as its first child (so no ``parent_self_only``
+    skeleton was emitted), every newly entered ancestor title along that path
+    is included alongside the next leaf title so boundary pages stop at the
+    parent heading too.
     """
     ordered = sort_skeletons(skeletons)
-    next_map: dict[str, str | None] = {}
+    next_map: dict[str, EndTitleAnchor] = {}
     for index, skeleton in enumerate(ordered):
-        next_title: str | None = None
-        if index + 1 < len(ordered):
-            title = str(getattr(ordered[index + 1], "title", "") or "").strip()
-            next_title = title or None
-        next_map[str(skeleton.section_path)] = next_title
+        if index + 1 >= len(ordered):
+            next_map[str(skeleton.section_path)] = None
+            continue
+        next_skel = ordered[index + 1]
+        anchors = _transition_boundary_titles(skeleton, next_skel)
+        if not anchors:
+            next_map[str(skeleton.section_path)] = None
+        elif len(anchors) == 1:
+            next_map[str(skeleton.section_path)] = anchors[0]
+        else:
+            next_map[str(skeleton.section_path)] = anchors
     return next_map
+
+
+def _transition_boundary_titles(
+    current: SectionSkeleton,
+    following: SectionSkeleton,
+) -> list[str]:
+    cur_parts = [
+        p.strip()
+        for p in split_escaped_document_path(str(current.section_path or ""))
+        if p.strip()
+    ]
+    nxt_parts = [
+        p.strip()
+        for p in split_escaped_document_path(str(following.section_path or ""))
+        if p.strip()
+    ]
+    common = 0
+    while (
+        common < len(cur_parts)
+        and common < len(nxt_parts)
+        and cur_parts[common] == nxt_parts[common]
+    ):
+        common += 1
+    titles: list[str] = []
+    seen: set[str] = set()
+    # Skip document filename segment at index 0.
+    for part in nxt_parts[max(common, 1) :]:
+        if part and part not in seen:
+            seen.add(part)
+            titles.append(part)
+    leaf_title = str(getattr(following, "title", "") or "").strip()
+    if leaf_title and leaf_title not in seen:
+        titles.append(leaf_title)
+    return titles
 
 
 # ── Internal helpers ─────────────────────────────────────────────────
@@ -179,7 +227,7 @@ def _collect_candidates(
     tag_results: list[PageTagResult],
     fat_leaf_pages: set[int],
     start_title: str,
-    end_title: str | None,
+    end_title: EndTitleAnchor,
 ) -> list[dict[str, Any]]:
     """Gather VLM-observed titles within a skeleton's page range.
 
@@ -247,7 +295,7 @@ def _trim_by_coarse_anchors(
     raw: list[dict[str, Any]],
     *,
     start_title: str,
-    end_title: str | None,
+    end_title: EndTitleAnchor,
     section_path: str,
     boundary_page: int,
 ) -> list[dict[str, Any]]:
@@ -258,7 +306,7 @@ def _trim_by_coarse_anchors(
     Head miss stays lenient — only drop exact parent-title duplicates.
     """
     start_key = _title_key(start_title)
-    end_key = _title_key(end_title) if end_title else ""
+    end_keys = _end_title_keys(end_title)
 
     trimmed = list(raw)
     if start_key:
@@ -276,9 +324,9 @@ def _trim_by_coarse_anchors(
         else:
             trimmed = trimmed[start_idx + 1 :]
 
-    if end_key:
+    if end_keys:
         end_idx = next(
-            (i for i, item in enumerate(trimmed) if item.get("key") == end_key),
+            (i for i, item in enumerate(trimmed) if item.get("key") in end_keys),
             None,
         )
         if end_idx is None:
@@ -296,6 +344,20 @@ def _trim_by_coarse_anchors(
             trimmed = trimmed[:end_idx]
 
     return trimmed
+
+
+def _end_title_keys(end_title: EndTitleAnchor) -> set[str]:
+    if not end_title:
+        return set()
+    if isinstance(end_title, str):
+        key = _title_key(end_title)
+        return {key} if key else set()
+    keys: set[str] = set()
+    for item in end_title:
+        key = _title_key(str(item or ""))
+        if key:
+            keys.add(key)
+    return keys
 
 
 def _run_hierarchy_on_candidates(
