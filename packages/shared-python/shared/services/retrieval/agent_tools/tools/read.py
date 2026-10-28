@@ -884,7 +884,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             composed["content"] = _image_display_content(row)
         assembled.append(composed)
 
-    await promote_scopes_on_read(ctx.db, base_rows)
+    await promote_scopes_on_read(ctx.db, assembled)
 
     lines = ["refs:", *(f"  {line}" for line in status_lines)]
     for row in assembled:

@@ -86,7 +86,6 @@ from shared.services.ai.token_tracking import (
 )
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.jobs.lifecycle.scope_enrichments import (
-    enqueue_low_priority_scope_enrichments_after_commit,
     scope_claimable_filter,
     write_coarse_scope_enrichments,
 )
@@ -248,14 +247,10 @@ def execute_structure_enrichment(
                 publication_scope=publication_scope,
             )
 
-        enqueued_scopes = enqueue_low_priority_scope_enrichments_after_commit(
-            job_result_id
-        )
         return {
             "status": "coarse",
             "job_result_id": job_result_id,
             "scope_count": len(phase_a.coarse_scopes),
-            "enqueued_scopes": enqueued_scopes,
             "chunk_count": len(coarse_chunks),
         }
     except Exception:
@@ -1994,8 +1989,6 @@ def execute_progressive_recovery(
         )
 
         enqueue_page_memory_structure_after_commit(job_result_id)
-    else:
-        enqueue_low_priority_scope_enrichments_after_commit(job_result_id)
     workspace: str = tempfile.mkdtemp(prefix="pm_recovery_")
     storage = result_storage_factory()
     try:
