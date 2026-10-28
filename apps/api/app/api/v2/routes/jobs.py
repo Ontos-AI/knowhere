@@ -25,7 +25,10 @@ from shared.models.schemas.job import (
     JobResponse,
     JobResultResponse,
 )
-from shared.models.schemas.progressive_ingestion import EnhancementRetryResponse
+from shared.models.schemas.progressive_ingestion import (
+    EnhancementRetryResponse,
+    SnapshotObjectAccessRequest,
+)
 
 router = APIRouter(tags=["Jobs"])
 _document_ingestion_service = DocumentIngestionService()
@@ -55,6 +58,21 @@ async def get_snapshot_object(
     from app.services.jobs.snapshot_delivery_service import SnapshotDeliveryService
     return await SnapshotDeliveryService().get_object_capability(
         db, user_id=current_user.user_id, job_id=job_id, snapshot_id=snapshot_id, path=path,
+    )
+
+
+@router.post("/{job_id}/snapshots/{snapshot_id}/objects/access", summary="Refresh immutable snapshot object URLs")
+async def get_snapshot_object_access(
+    job_id: str,
+    snapshot_id: str,
+    payload: SnapshotObjectAccessRequest,
+    current_user: CurrentUser = Depends(with_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    from app.services.jobs.snapshot_delivery_service import SnapshotDeliveryService
+    return await SnapshotDeliveryService().get_object_capabilities(
+        db, user_id=current_user.user_id, job_id=job_id, snapshot_id=snapshot_id,
+        paths=payload.paths,
     )
 
 

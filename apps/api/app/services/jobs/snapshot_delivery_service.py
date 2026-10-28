@@ -120,16 +120,59 @@ class SnapshotDeliveryService:
             self._storage.results_bucket,
         ):
             raise NotFoundException(resource="Snapshot object", resource_id=snapshot_id)
-        capability = await asyncio.to_thread(
-            self._storage.generate_download_url,
-            storage_key,
-            bucket=self._storage.results_bucket,
+        capability: dict[str, object] = await asyncio.to_thread(
+            self._sign_object_capability,
+            raw_prefix=self._build_raw_prefix(snapshot),
+            path=path,
+        )
+        return {**self._build_identity(snapshot), **capability}
+
+    async def get_object_capabilities(
+        self,
+        database: AsyncSession,
+        *,
+        user_id: str,
+        job_id: str,
+        snapshot_id: str,
+        paths: list[str],
+    ) -> dict[str, object]:
+        snapshot, inventory = await self._resolve_snapshot(
+            database,
+            user_id=user_id,
+            job_id=job_id,
+            snapshot_id=snapshot_id,
+        )
+        inventory_paths: set[str] = {item.path for item in inventory.objects}
+        if any(path not in inventory_paths for path in paths):
+            raise NotFoundException(resource="Snapshot object", resource_id=snapshot_id)
+        # Published immutable inventories declare successfully uploaded objects.
+        # Signing does not probe availability: object reads still detect deletion
+        # or corruption, and a per-object HEAD cannot prevent a deletion race.
+        capabilities: list[dict[str, object]] = await asyncio.to_thread(
+            self._sign_object_capabilities,
+            raw_prefix=self._build_raw_prefix(snapshot),
+            paths=paths,
+        )
+        return {**self._build_identity(snapshot), "objects": capabilities}
+
+    def _sign_object_capabilities(
+        self, *, raw_prefix: str, paths: list[str]
+    ) -> list[dict[str, object]]:
+        return [
+            self._sign_object_capability(raw_prefix=raw_prefix, path=path)
+            for path in paths
+        ]
+
+    def _sign_object_capability(
+        self, *, raw_prefix: str, path: str
+    ) -> dict[str, object]:
+        capability = self._storage.generate_download_url(
+            f"{raw_prefix}{path}", bucket=self._storage.results_bucket
         )
         expires_at: datetime = datetime.now(timezone.utc) + timedelta(
             seconds=int(capability.get("expires_in", 3600))
         )
         return {
-            **self._build_identity(snapshot),
             "path": path,
             "download_url": capability["download_url"],
             "expires_at": expires_at.isoformat(),
