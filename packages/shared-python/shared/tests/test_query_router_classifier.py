@@ -55,6 +55,7 @@ async def test_classifier_parses_classic_json(monkeypatch: pytest.MonkeyPatch) -
     assert client.calls[0]["temperature"] == 0.0
     assert client.calls[0]["response_format"] == {"type": "json_object"}
     assert client.calls[0]["model"] == "test-router-model"
+    assert client.calls[0]["usage_task"] == "retrieval.query_router"
 
 
 @pytest.mark.asyncio

@@ -48,6 +48,7 @@ Budget dimensions:
 from __future__ import annotations
 
 from shared.services.retrieval.document_scope import DocumentScope
+from shared.services.retrieval.required_query_embedding import RequiredQueryEmbeddingException
 
 import asyncio
 import contextlib
@@ -55,8 +56,10 @@ import json
 import os
 import threading
 import time
+from concurrent.futures import Future
 from typing import Any
 
+from shared.services.ai.retrieval_ledger import record_retrieval_call
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
 from shared.services.retrieval.agent_explore.config import (
     AGENT_EXPLORE_CURSOR_MODEL,
@@ -155,6 +158,8 @@ class CursorHarness:
         tool_budget = ToolBudget()
         loop = asyncio.get_running_loop()
         state = threading.Condition()
+        required_failures: list[RequiredQueryEmbeddingException] = []
+        active_recalls: dict[str, Future[ToolResult] | None] = {}
         pool = EvidencePool()
         round_of: dict[str, str] = {}
         current_round: dict[str, Any] = {"id": None, "pick_phase": False}
@@ -205,6 +210,8 @@ class CursorHarness:
             tool_name: str, args: dict[str, Any], ctx: Any
         ) -> str | list[dict[str, Any]]:
             with state:
+                if required_failures:
+                    return "error: required retrieval service failed"
                 pick_round, new_round = _enter_round(ctx)
                 round_index = pool.round_index
                 if pick_round is None:
@@ -230,6 +237,10 @@ class CursorHarness:
                     budget.record_step()
                 readable = pool.readable()
                 decided = pool.decided()
+                if tool_name == "corpus.recall":
+                    active_recalls[ctx.tool_call_id] = None
+
+
                 lit_pages_by_chunk = pool.lit_pages_by_chunk()
                 lit_pages_by_path = pool.lit_pages_by_path()
             tool_started = time.perf_counter()
@@ -250,10 +261,34 @@ class CursorHarness:
                 ),
                 loop,
             )
+            if tool_name == "corpus.recall":
+                with state:
+                    if required_failures:
+                        future.cancel()
+                    else:
+                        active_recalls[ctx.tool_call_id] = future
             try:
                 tool_result = future.result(timeout=180)
+            except TimeoutError as exc:
+                future.cancel()
+                if tool_name == "corpus.recall":
+                    with state:
+                        required_failures.append(RequiredQueryEmbeddingException(
+                            internal_message="Required retrieval recall timed out",
+                            provider="retrieval", original_exception=exc,
+                        ))
+                tool_result = ToolResult(text="", error="retrieval tool timed out")
+            except RequiredQueryEmbeddingException as exc:
+                # The SDK can turn callback exceptions into tool observations.
+                # Retain the failure outside its loop and reject the episode.
+                with state:
+                    required_failures.append(exc)
+                tool_result = ToolResult(text="", error="required retrieval service failed")
             except Exception as exc:  # noqa: BLE001 - one broken tool must not kill the episode
                 tool_result = ToolResult(text="", error=f"{type(exc).__name__}: {exc}")
+            finally:
+                with state:
+                    active_recalls.pop(ctx.tool_call_id, None)
             elapsed_ms = int((time.perf_counter() - tool_started) * 1000)
             content = tool_message_content(
                 tool_result,
@@ -371,6 +406,7 @@ class CursorHarness:
         user_prompt = f"{AGENT_SYSTEM_PROMPT}\n\n---\n\nUser query:\n{query}"
 
         result: Any = None
+        episode_started = time.monotonic()
         async with await cursor_sdk.AsyncClient.launch_bridge(
             workspace=os.getcwd(),
         ) as client:
@@ -393,6 +429,15 @@ class CursorHarness:
                     )
                 except asyncio.TimeoutError:
                     stop_reason = "budget_wall_clock"
+                    with state:
+                        if active_recalls:
+                            required_failures.append(RequiredQueryEmbeddingException(
+                                internal_message="Required retrieval recall exceeded the episode deadline",
+                                provider="retrieval",
+                            ))
+                            for pending_call in active_recalls.values():
+                                if pending_call is not None:
+                                    pending_call.cancel()
                     with contextlib.suppress(Exception):
                         await asyncio.wait_for(run.cancel(), timeout=10)
                     with contextlib.suppress(Exception):
@@ -400,10 +445,25 @@ class CursorHarness:
                             run.wait(), timeout=_CANCEL_GRACE_SECONDS
                         )
 
-        result_usage_total_tokens = 0
-        if result is not None and result.usage is not None:
-            result_usage_total_tokens = result.usage.total_tokens
-        budget.record_usage({"total_tokens": result_usage_total_tokens})
+        if required_failures:
+            raise required_failures[0]
+
+        duration_ms = max(int((time.monotonic() - episode_started) * 1000), 0)
+        usage: dict[str, int] | None = None
+        if result is not None and getattr(result, "usage", None) is not None:
+            try:
+                total_tokens = int(result.usage.total_tokens)
+            except (TypeError, ValueError):
+                total_tokens = None
+            if total_tokens is not None:
+                usage = {"total_tokens": total_tokens}
+                budget.record_usage(usage)
+        record_retrieval_call(
+            usage,
+            model=self._model,
+            task="retrieval.agent_explore",
+            duration_ms=duration_ms,
+        )
 
         return EpisodeResult(
             pool=list(pool.entries),

@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
+os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
+os.environ.setdefault("S3_BUCKET_NAME", "test-uploads")
+os.environ.setdefault("S3_TEMP_PATH", "/tmp")
+
 import pytest
 
 from shared.services.retrieval.hydration.asset_inline import (

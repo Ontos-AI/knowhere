@@ -12,9 +12,6 @@ from typing import Any
 from sqlalchemy import select
 
 from shared.models.database.job_result import JobResult
-from shared.services.jobs.lifecycle.scope_enrichments import (
-    promote_scopes_on_read,
-)
 from shared.services.retrieval.agent_tools.enrichment_state import (
     STATUS_TEXT,
     format_assets_not_refined_note,
@@ -136,8 +133,6 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 job_result_id=revision_id,
             )
             if summary.has_unrefined_pages:
-                if summary.page_rows:
-                    await promote_scopes_on_read(ctx.db, list(summary.page_rows))
                 note = format_assets_not_refined_note(
                     summary.page_range_label,
                     state="text" if "text" in summary.states else "coarse",

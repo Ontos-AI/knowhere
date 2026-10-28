@@ -19,6 +19,7 @@ checkout per tool call, never a correctness risk.
 from __future__ import annotations
 
 from shared.services.retrieval.document_scope import DocumentScope
+from shared.services.retrieval.required_query_embedding import RequiredQueryEmbeddingException
 
 from collections.abc import Callable, Mapping
 from contextlib import AbstractAsyncContextManager
@@ -83,5 +84,7 @@ async def dispatch_tool_call(
                 lit_pages_by_path=lit_pages_by_path,
             )
             return await REGISTRY.dispatch(name, tool_ctx, args)
-    except Exception as exc:  # noqa: BLE001 - one broken tool must not kill the episode
+    except RequiredQueryEmbeddingException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - ordinary tool errors remain recoverable
         return ToolResult(text="", error=f"{type(exc).__name__}: {exc}")

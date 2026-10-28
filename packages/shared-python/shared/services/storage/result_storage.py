@@ -39,10 +39,13 @@ class ResultStorage(Protocol):
         result_dir: str,
         zip_file_path: str,
         artifact_refs: set[str] | None = None,
+        snapshot_id: str | None = None,
     ) -> UploadedResultBundle:
         raise NotImplementedError
 
-    def build_raw_key(self, *, job_id: str, relative_path: str, raw_prefix: str | None = None) -> str: ...
+    def build_raw_key(
+        self, *, job_id: str, relative_path: str, raw_prefix: str | None = None
+    ) -> str: ...
 
     def generate_artifact_url(
         self,
@@ -149,6 +152,7 @@ class JobResultStorage:
         result_dir: str,
         zip_file_path: str,
         artifact_refs: set[str] | None = None,
+        snapshot_id: str | None = None,
     ) -> UploadedResultBundle:
         result_path = Path(result_dir)
         if not result_path.is_dir():
@@ -157,7 +161,17 @@ class JobResultStorage:
         zip_path = Path(zip_file_path)
         if not zip_path.is_file():
             raise ValueError(f"Result ZIP file does not exist: {zip_file_path}")
-        zip_key = self.build_zip_key(job_id=job_id)
+        artifact_ref_filter = self._normalize_artifact_refs(artifact_refs)
+        if snapshot_id and artifact_ref_filter is not None:
+            missing_refs: list[str] = sorted(
+                ref for ref in artifact_ref_filter if not (result_path / ref).is_file()
+            )
+            if missing_refs:
+                raise ValueError(
+                    f"Snapshot is missing required result assets: {', '.join(missing_refs)}"
+                )
+        storage_job_id = f"{job_id}/snapshots/{snapshot_id}" if snapshot_id else job_id
+        zip_key = self.build_zip_key(job_id=storage_job_id)
         self._job_file_storage.upload_local_file(
             str(zip_path),
             zip_key,
@@ -179,7 +193,7 @@ class JobResultStorage:
         futures = [
             executor.submit(
                 self._upload_raw_file,
-                job_id=job_id,
+                job_id=storage_job_id,
                 file_path=file_path,
                 relative_path=relative_path,
             )
@@ -195,7 +209,7 @@ class JobResultStorage:
 
         return UploadedResultBundle(
             zip_key=zip_key,
-            raw_prefix=self.build_raw_prefix(job_id=job_id),
+            raw_prefix=self.build_raw_prefix(job_id=storage_job_id),
             raw_files=raw_files,
         )
 
@@ -372,7 +386,9 @@ class JobResultStorage:
             raise ValueError("Result raw prefix contains an excluded directory")
         return "/".join(parts) + "/"
 
-    def _normalize_artifact_refs(self, artifact_refs: set[str] | None) -> set[str] | None:
+    def _normalize_artifact_refs(
+        self, artifact_refs: set[str] | None
+    ) -> set[str] | None:
         if artifact_refs is None:
             return None
         normalized_refs = {

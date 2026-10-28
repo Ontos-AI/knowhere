@@ -98,6 +98,7 @@ class ZipResultService:
                     manifest=manifest,
                     temp_dir=temp_dir,
                     include_toc_hierarchies=parse_track != "page_memory",
+                    include_source_pdf=(job_metadata or {}).get("ingestion_mode") == "progressive",
                 )
             )
 

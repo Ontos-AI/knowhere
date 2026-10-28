@@ -231,6 +231,7 @@ class OpenAIHarness:
                 max_tokens=AGENT_EXPLORE_MAX_COMPLETION_TOKENS,
                 tools=tools,
                 tool_choice=tool_choice,
+                usage_task="retrieval.agent_explore",
             )
             budget.record_usage(usage)
             if not pick_turn:
