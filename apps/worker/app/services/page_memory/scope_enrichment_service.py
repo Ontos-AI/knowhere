@@ -239,14 +239,6 @@ def execute_structure_enrichment(
         if not published_ok:
             return {"status": "aborted", "job_result_id": job_result_id}
 
-        if not target.has_deferred_publication:
-            _generate_and_persist_page_embeddings(
-                add_dir=add_dir,
-                workspace_dir=workspace_dir,
-                profile=profile,
-                publication_scope=publication_scope,
-            )
-
         return {
             "status": "coarse",
             "job_result_id": job_result_id,
