@@ -18,7 +18,10 @@ from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.document_scope import DocumentScope
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.row_utils import (
+    apply_matched_page_nums,
     coerce_page_nums,
+    extract_matched_page_nums,
+    is_unrefined_page,
     iter_connected_target_ids,
     normalize_chunk_type,
 )
@@ -35,10 +38,14 @@ from shared.services.retrieval.search.map_unit_discovery import (
     map_unit_discovery,
 )
 from shared.services.retrieval.search.scoring import normalize_row_scores
-from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
+from shared.services.retrieval.settings import ASSET_CHUNK_TYPES, DEFAULT_TOP_K
 from shared.services.retrieval.required_query_embedding import RequiredQueryEmbeddingException
 
-__all__ = ["hybrid_discovery", "visual_page_discovery"]
+__all__ = [
+    "hybrid_discovery",
+    "light_unrefined_section_pages",
+    "visual_page_discovery",
+]
 
 
 def _build_visual_revision_scope(
@@ -355,6 +362,79 @@ async def visual_page_discovery(
     )
 
 
+async def light_unrefined_section_pages(
+    db: AsyncSession | None,
+    *,
+    user_id: str,
+    namespace: str,
+    query: str,
+    rows: list[dict[str, Any]],
+    document_scope: DocumentScope = DocumentScope(),
+    revision_pins: Mapping[str, str] | None = None,
+) -> None:
+    """Populate ``matched_page_nums`` on unrefined page rows via section-scoped visual discovery."""
+    if (
+        db is None
+        or not rows
+        or not str(query or "").strip()
+        or not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True))
+    ):
+        return
+
+    pending: list[dict[str, Any]] = []
+    targets: list[tuple[str, str]] = []
+    seen_targets: set[tuple[str, str]] = set()
+    for row in rows:
+        if normalize_chunk_type(row.get("chunk_type")) != "page":
+            continue
+        if not is_unrefined_page(row):
+            continue
+        if extract_matched_page_nums(row):
+            continue
+        document_id = str(row.get("document_id") or "").strip()
+        section_path = str(row.get("section_path") or "").strip()
+        if not document_id or not section_path:
+            continue
+        pending.append(row)
+        target = (document_id, section_path)
+        if target not in seen_targets:
+            seen_targets.add(target)
+            targets.append(target)
+
+    if not pending or not targets:
+        return
+
+    pages_by_chunk: dict[tuple[str, str], list[int]] = {}
+    for document_id, section_path in targets:
+        discovery = await visual_page_discovery(
+            db,
+            user_id=user_id,
+            namespace=namespace,
+            query=query,
+            top_k=DEFAULT_TOP_K,
+            document_scope=document_scope,
+            revision_pins=revision_pins,
+            section_targets=[(document_id, section_path)],
+        )
+        for vis_row in discovery.payload.get("fused_rows") or []:
+            if not isinstance(vis_row, dict):
+                continue
+            doc_id = str(vis_row.get("document_id") or "").strip()
+            chunk_id = str(vis_row.get("chunk_id") or "").strip()
+            pages = coerce_page_nums(vis_row.get("matched_page_nums"))
+            if doc_id and chunk_id and pages:
+                pages_by_chunk[(doc_id, chunk_id)] = pages
+
+    for row in pending:
+        key = (
+            str(row.get("document_id") or "").strip(),
+            str(row.get("chunk_id") or "").strip(),
+        )
+        pages = pages_by_chunk.get(key)
+        if pages:
+            apply_matched_page_nums(row, pages)
+
+
 async def hybrid_discovery(
     db: AsyncSession | None,
     *,
@@ -453,6 +533,15 @@ async def hybrid_discovery(
         fused_rows.append(merged)
 
     if fused_rows:
+        await light_unrefined_section_pages(
+            db,
+            user_id=user_id,
+            namespace=namespace,
+            query=query,
+            rows=fused_rows,
+            document_scope=document_scope,
+            revision_pins=revision_pins,
+        )
         normalize_row_scores(
             fused_rows,
             source_field="score",

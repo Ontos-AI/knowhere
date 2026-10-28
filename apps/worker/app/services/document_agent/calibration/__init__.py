@@ -12,7 +12,6 @@ from typing import Any
 
 _LAZY_EXPORTS = (
     "CalibrationResult",
-    "build_calibration_payload",
     "calibrate_offset",
     "finalize_calibration_result",
     "run_calibration_phase1",
@@ -27,12 +26,6 @@ def __getattr__(name: str) -> Any:
         )
 
         return CalibrationResult
-    if name == "build_calibration_payload":
-        from app.services.document_agent.calibration.procedure import (
-            build_calibration_payload,
-        )
-
-        return build_calibration_payload
     if name == "calibrate_offset":
         from app.services.document_agent.calibration.service import (
             calibrate_offset,

@@ -31,9 +31,6 @@ from typing import Any
 
 from sqlalchemy import select
 
-from shared.services.jobs.lifecycle.scope_enrichments import (
-    promote_scopes_on_read,
-)
 from shared.services.retrieval.agent_tools.asset_hosts import (
     hosted_section_path,
     in_scope_hosts,
@@ -277,7 +274,6 @@ async def _check_unrefined_assets_note(
         names = [d.source_file_name or d.document_id for d in doc_rows]
         return format_still_structuring_note(names)
 
-    promote_rows: list[dict[str, Any]] = []
     range_labels: list[str] = []
     seen_states: set[str] = set()
     for target in targets:
@@ -292,12 +288,9 @@ async def _check_unrefined_assets_note(
             continue
         seen_states.update(summary.states)
         range_labels.append(summary.page_range_label)
-        promote_rows.extend(summary.page_rows)
 
     if not range_labels:
         return None
-    if promote_rows:
-        await promote_scopes_on_read(ctx.db, promote_rows)
     state_label = "text" if "text" in seen_states else "coarse"
     return format_assets_not_refined_note(
         ", ".join(dict.fromkeys(range_labels)),

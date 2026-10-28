@@ -20,6 +20,8 @@ from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.services.jobs.progressive_ingestion import read_progressive_state
 from shared.services.retrieval.hydration.row_utils import (
+    extract_matched_page_nums,
+    extract_page_nums,
     normalize_chunk_type,
     page_enrichment_state,
 )
@@ -129,86 +131,6 @@ def write_coarse_scope_enrichments(
     return True
 
 
-def enqueue_low_priority_scope_enrichments_after_commit(
-    job_result_id: str,
-) -> list[str]:
-    """Mark all claimable scopes of a revision ``queued(low)`` and enqueue largest first."""
-    if not job_result_id:
-        return []
-
-    enqueued_scopes: list[str] = []
-    now = utc_now_naive()
-    try:
-        with get_sync_db_context() as db:
-            candidates = db.execute(
-                select(
-                    DocumentScopeEnrichment.scope_id,
-                    DocumentScopeEnrichment.page_start,
-                    DocumentScopeEnrichment.page_end,
-                )
-                .where(DocumentScopeEnrichment.job_result_id == job_result_id)
-                .where(scope_claimable_filter(now))
-                .order_by(
-                    (
-                        DocumentScopeEnrichment.page_end
-                        - DocumentScopeEnrichment.page_start
-                    ).desc(),
-                    DocumentScopeEnrichment.page_start.asc(),
-                    DocumentScopeEnrichment.scope_id.asc(),
-                )
-            ).all()
-            for scope_id, _page_start, _page_end in candidates:
-                claimed = db.execute(
-                    update(DocumentScopeEnrichment)
-                    .where(DocumentScopeEnrichment.job_result_id == job_result_id)
-                    .where(DocumentScopeEnrichment.scope_id == str(scope_id))
-                    .where(scope_claimable_filter(now))
-                    .values(
-                        state=_QUEUED_STATE,
-                        priority="low",
-                        updated_at=now,
-                    )
-                    .returning(DocumentScopeEnrichment.scope_id)
-                ).scalar_one_or_none()
-                if claimed is not None:
-                    enqueued_scopes.append(str(claimed))
-    except Exception as exc:
-        logger.warning(
-            "Failed to transition scope enrichments to queued after commit "
-            f"(ignored): job_result_id={job_result_id}, error={exc}"
-        )
-        return []
-
-    if not enqueued_scopes:
-        return []
-
-    sent_scopes: list[str] = []
-    try:
-        from shared.core.celery_app import get_celery_app
-
-        celery_app = get_celery_app()
-        for scope_id in enqueued_scopes:
-            celery_app.send_task(
-                ENRICH_SCOPE_TASK_NAME,
-                args=[job_result_id, scope_id],
-                queue=LOW_ENRICHMENT_QUEUE,
-            )
-            sent_scopes.append(scope_id)
-    except Exception as exc:
-        logger.warning(
-            "Failed to send low-priority scope enrichment tasks after commit "
-            f"(reverting unsent to coarse): job_result_id={job_result_id}, error={exc}"
-        )
-        unsent = [s for s in enqueued_scopes if s not in sent_scopes]
-        if unsent:
-            _revert_queued_scopes_to_coarse(
-                job_result_id=job_result_id,
-                scope_ids=unsent,
-            )
-        return sent_scopes
-    return sent_scopes
-
-
 def enqueue_page_memory_structure_after_commit(job_result_id: str) -> bool:
     """Enqueue the background M0 -> coarse structure task at normal priority."""
     if not job_result_id:
@@ -251,17 +173,48 @@ def _revert_queued_scopes_to_coarse(
         )
 
 
+def _row_returned_coarse_pages(row: dict[str, Any]) -> bool:
+    if normalize_chunk_type(row.get("chunk_type")) != "page":
+        return False
+    if page_enrichment_state(row) != _COARSE_STATE:
+        return False
+    if not (extract_matched_page_nums(row) or extract_page_nums(row)):
+        return False
+    if str(row.get("content") or "").strip():
+        return True
+    composed = row.get("composed")
+    return isinstance(composed, list) and any(composed)
+
+
+def _on_demand_retryable_scope_filter(now: datetime) -> ColumnElement[bool]:
+    stale_cutoff = now - timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS)
+    return or_(
+        and_(
+            DocumentScopeEnrichment.state == _COARSE_STATE,
+            DocumentScopeEnrichment.last_hit_at.is_not(None),
+        ),
+        DocumentScopeEnrichment.state == _QUEUED_STATE,
+        and_(
+            DocumentScopeEnrichment.state == _FAILED_STATE,
+            DocumentScopeEnrichment.attempts < MAX_SCOPE_ENRICHMENT_ATTEMPTS,
+            DocumentScopeEnrichment.last_hit_at.is_not(None),
+        ),
+        and_(
+            DocumentScopeEnrichment.state == _RUNNING_STATE,
+            DocumentScopeEnrichment.updated_at < stale_cutoff,
+        ),
+    )
+
+
 async def promote_scopes_on_read(
     db: Any,
     rows: list[dict[str, Any]],
 ) -> list[tuple[str, str]]:
-    """Promote coarse/queued page scopes hit by ``corpus.read`` to high priority."""
+    """Queue Fine for coarse page scopes whose pages a READ actually returned."""
     targets: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for row in rows:
-        if normalize_chunk_type(row.get("chunk_type")) != "page":
-            continue
-        if page_enrichment_state(row) not in (_COARSE_STATE, _QUEUED_STATE):
+        if not _row_returned_coarse_pages(row):
             continue
         metadata = row.get("chunk_metadata") or row.get("metadata") or {}
         scope_id = str(metadata.get("scope_id") or "").strip()
@@ -285,14 +238,7 @@ async def promote_scopes_on_read(
                 update(DocumentScopeEnrichment)
                 .where(DocumentScopeEnrichment.job_result_id == job_result_id)
                 .where(DocumentScopeEnrichment.scope_id == scope_id)
-                .where(scope_claimable_filter(now))
-                .where(
-                    or_(
-                        DocumentScopeEnrichment.state != _QUEUED_STATE,
-                        DocumentScopeEnrichment.priority.is_(None),
-                        DocumentScopeEnrichment.priority != "high",
-                    )
-                )
+                .where(DocumentScopeEnrichment.state == _COARSE_STATE)
                 .values(
                     state=_QUEUED_STATE,
                     priority="high",
@@ -307,7 +253,7 @@ async def promote_scopes_on_read(
             await db.commit()
     except Exception as exc:
         logger.warning(
-            f"Failed to promote scope enrichment on corpus.read (ignored): {exc}"
+            f"Failed to promote scope enrichment on read (ignored): {exc}"
         )
         return []
 
@@ -329,7 +275,7 @@ async def promote_scopes_on_read(
             sent.append((job_result_id, scope_id))
     except Exception as exc:
         logger.warning(
-            f"Failed to enqueue promoted scope enrichment on corpus.read (reverting unsent to coarse): {exc}"
+            f"Failed to enqueue promoted scope enrichment on read (reverting unsent to coarse): {exc}"
         )
         now_revert = utc_now_naive()
         unsent_pairs = [item for item in promoted if item not in sent]
@@ -386,7 +332,7 @@ def sweep_progressive_enrichments_sync(
     *,
     structure_timeout_seconds: int = 300,
 ) -> dict[str, Any]:
-    """Re-enqueue revisions stuck at ``text`` and retry failed/un-enqueued scopes."""
+    """Re-enqueue revisions stuck at ``text`` and retry previously-read Fine scopes."""
     now = utc_now_naive()
     structure_cutoff = now - timedelta(seconds=structure_timeout_seconds)
     retried_scopes: list[tuple[str, str]] = []
@@ -450,29 +396,15 @@ def sweep_progressive_enrichments_sync(
                     Document.status == "active",
                 ),
             )
-            .where(
-                or_(
-                    DocumentScopeEnrichment.state.in_((_COARSE_STATE, _QUEUED_STATE)),
-                    and_(
-                        DocumentScopeEnrichment.state == _FAILED_STATE,
-                        DocumentScopeEnrichment.attempts
-                        < MAX_SCOPE_ENRICHMENT_ATTEMPTS,
-                    ),
-                    and_(
-                        DocumentScopeEnrichment.state == _RUNNING_STATE,
-                        DocumentScopeEnrichment.updated_at
-                        < now - timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS),
-                    ),
-                )
-            )
+            .where(_on_demand_retryable_scope_filter(now))
         ).all()
         for rev_id, scope_id in scope_candidates:
             claimed = db.execute(
                 update(DocumentScopeEnrichment)
                 .where(DocumentScopeEnrichment.job_result_id == str(rev_id))
                 .where(DocumentScopeEnrichment.scope_id == str(scope_id))
-                .where(scope_claimable_filter(now))
-                .values(state=_QUEUED_STATE, priority="low", updated_at=now)
+                .where(_on_demand_retryable_scope_filter(now))
+                .values(state=_QUEUED_STATE, priority="high", updated_at=now)
                 .returning(DocumentScopeEnrichment.scope_id)
             ).scalar_one_or_none()
             if claimed is not None:
@@ -515,7 +447,8 @@ def sweep_progressive_enrichments_sync(
                 celery_app.send_task(
                     ENRICH_SCOPE_TASK_NAME,
                     args=[rev_id, scope_id],
-                    queue=LOW_ENRICHMENT_QUEUE,
+                    queue=HIGH_ENRICHMENT_QUEUE,
+                    priority=HIGH_ENRICHMENT_TASK_PRIORITY,
                 )
                 sent_scopes.append((rev_id, scope_id))
         except Exception as exc:

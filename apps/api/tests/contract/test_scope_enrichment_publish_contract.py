@@ -688,16 +688,12 @@ def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants
             session.commit()
             _finalize(session, job_id=scope.job_ref, chunks=chunks)
             _write_scope_rows(session, scope=scope)
-            # Mark p3-4 as low-queued and p5-6 as already refined before read.
             for row in session.scalars(
                 select(DocumentScopeEnrichment).where(
                     DocumentScopeEnrichment.job_result_id == scope.revision_ref
                 )
             ).all():
-                if row.scope_id == "p3-4":
-                    row.state = "queued"
-                    row.priority = "low"
-                elif row.scope_id == "p5-6":
+                if row.scope_id == "p5-6":
                     row.state = "refined"
             doc_id = session.execute(
                 select(Document.document_id).where(
@@ -768,6 +764,114 @@ def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants
             ]
             assert rows[0].last_hit_at is not None
             assert rows[1].last_hit_at is not None
+    finally:
+        engine.dispose()
+
+
+def test_assemble_retrieval_results_promotes_only_returned_coarse_pages(
+    monkeypatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    from shared.core import celery_app as celery_app_mod
+    from shared.core.database import get_db_context
+
+    database_url = make_url(get_contract_database_url()).set(
+        drivername="postgresql+psycopg2"
+    )
+    engine = create_engine(database_url)
+    scope = _scope("assemble-promote")
+    sent_tasks: list[tuple[str, list[object], str | None, int | None]] = []
+
+    class _FakeCelery:
+        def send_task(
+            self,
+            name: str,
+            args: list[object] | None = None,
+            queue: str | None = None,
+            priority: int | None = None,
+            **kwargs: object,
+        ) -> None:
+            del kwargs
+            sent_tasks.append((name, list(args or []), queue, priority))
+
+    monkeypatch.setattr(celery_app_mod, "get_celery_app", lambda: _FakeCelery())
+
+    chunks = [
+        _page_chunk(
+            chunk_id="chunk-p1-2",
+            path=f"{scope.source_file_name}/Chapter1/SecA",
+            scope_id="p1-2",
+            page_nums=[1, 2],
+        ),
+        _page_chunk(
+            chunk_id="chunk-p3-4",
+            path=f"{scope.source_file_name}/Chapter1/SecB",
+            scope_id="p3-4",
+            page_nums=[3, 4],
+        ),
+    ]
+    try:
+        with Session(engine) as session:
+            seed_publication_fixture(session, scope=scope)
+            _set_job_progressive(session, job_id=scope.job_ref)
+            session.commit()
+            _finalize(session, job_id=scope.job_ref, chunks=chunks)
+            _write_scope_rows(session, scope=scope)
+            doc_id = session.execute(
+                select(Document.document_id).where(
+                    Document.current_job_result_id == scope.revision_ref
+                )
+            ).scalar_one()
+            session.commit()
+
+        async def _assemble_hit_pages() -> list[dict[str, object]]:
+            async with get_db_context() as async_db:
+                return await assemble_retrieval_results(
+                    db=async_db,
+                    rows=[
+                        {
+                            "chunk_id": "chunk-p1-2",
+                            "document_id": doc_id,
+                            "job_result_id": scope.revision_ref,
+                            "chunk_type": "page",
+                            "content": "raw p1-2",
+                            "matched_page_nums": [1],
+                            "chunk_metadata": {
+                                "scope_id": "p1-2",
+                                "enrichment_state": "coarse",
+                                "page_nums": [1, 2],
+                            },
+                        }
+                    ],
+                    exclude_document_ids=[],
+                    exclude_sections=[],
+                )
+
+        assembled = asyncio.run(_assemble_hit_pages())
+        assert assembled[0]["page_nums"] == [1]
+        assert sent_tasks == [
+            (
+                ENRICH_SCOPE_TASK_NAME,
+                [scope.revision_ref, "p1-2"],
+                HIGH_ENRICHMENT_QUEUE,
+                HIGH_ENRICHMENT_TASK_PRIORITY,
+            )
+        ]
+        with Session(engine) as session:
+            rows = {
+                r.scope_id: (r.state, r.priority, r.last_hit_at is not None)
+                for r in session.scalars(
+                    select(DocumentScopeEnrichment).where(
+                        DocumentScopeEnrichment.job_result_id == scope.revision_ref
+                    )
+                ).all()
+            }
+            assert rows == {
+                "p1-2": ("queued", "high", True),
+                "p3-4": ("coarse", None, False),
+            }
     finally:
         engine.dispose()
 
@@ -1093,20 +1197,13 @@ def test_m0_text_publish_enqueues_structure_and_supports_any_stage_explore_and_a
                 )
                 assert assets_res.error is None
                 assert "not extracted yet (state=coarse)" in assets_res.text
+                assert "corpus.read first" in assets_res.text
 
                 ld_res = await list_documents(ctx, {})
                 assert ld_res.payload["documents"][0]["status"] == "coarse"
 
         asyncio.run(_verify_coarse_tools())
-        # Calling assets on a coarse scope promotes that scope to high priority!
-        assert sent_tasks == [
-            (
-                ENRICH_SCOPE_TASK_NAME,
-                [scope.revision_ref, "p1-1"],
-                HIGH_ENRICHMENT_QUEUE,
-                HIGH_ENRICHMENT_TASK_PRIORITY,
-            )
-        ]
+        assert sent_tasks == []
 
         # Stage 2 (fine) on p1-1: verify shared ancestor 'Chapter1' summary is NOT overwritten.
         with Session(engine) as session:

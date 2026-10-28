@@ -68,6 +68,7 @@ async def classify_query_mode(query: str) -> RouterDecision:
             max_tokens=routing_config.QUERY_ROUTER_MAX_TOKENS,
             timeout=routing_config.QUERY_ROUTER_TIMEOUT_SECONDS,
             response_format={"type": "json_object"},
+            usage_task="retrieval.query_router",
         )
         tokens_used = int((usage or {}).get("total_tokens", 0) or 0)
         return _parse_decision(

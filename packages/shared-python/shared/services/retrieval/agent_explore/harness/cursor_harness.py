@@ -59,6 +59,7 @@ import time
 from concurrent.futures import Future
 from typing import Any
 
+from shared.services.ai.retrieval_ledger import record_retrieval_call
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
 from shared.services.retrieval.agent_explore.config import (
     AGENT_EXPLORE_CURSOR_MODEL,
@@ -405,6 +406,7 @@ class CursorHarness:
         user_prompt = f"{AGENT_SYSTEM_PROMPT}\n\n---\n\nUser query:\n{query}"
 
         result: Any = None
+        episode_started = time.monotonic()
         async with await cursor_sdk.AsyncClient.launch_bridge(
             workspace=os.getcwd(),
         ) as client:
@@ -446,10 +448,22 @@ class CursorHarness:
         if required_failures:
             raise required_failures[0]
 
-        result_usage_total_tokens = 0
-        if result is not None and result.usage is not None:
-            result_usage_total_tokens = result.usage.total_tokens
-        budget.record_usage({"total_tokens": result_usage_total_tokens})
+        duration_ms = max(int((time.monotonic() - episode_started) * 1000), 0)
+        usage: dict[str, int] | None = None
+        if result is not None and getattr(result, "usage", None) is not None:
+            try:
+                total_tokens = int(result.usage.total_tokens)
+            except (TypeError, ValueError):
+                total_tokens = None
+            if total_tokens is not None:
+                usage = {"total_tokens": total_tokens}
+                budget.record_usage(usage)
+        record_retrieval_call(
+            usage,
+            model=self._model,
+            task="retrieval.agent_explore",
+            duration_ms=duration_ms,
+        )
 
         return EpisodeResult(
             pool=list(pool.entries),

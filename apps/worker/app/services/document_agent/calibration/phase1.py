@@ -5,20 +5,18 @@ uses). Each regime takes leaf probes from its first few distinct printed pages
 and scans forward until one is confirmed; that single confirmation fixes the
 regime's candidate offset. Phase-2 owns tail verification and bulk anchoring.
 
-A probe scans from ``toc_range end + 1`` (body after the TOC). That can yield a
-negative ``physical - printed`` offset (e.g. journal reprints whose printed
-labels exceed the PDF length). Phase-2 already accepts negative offsets and
-prunes ``printed + offset`` outside ``1..page_count``.
-
-To restore the Sydney anti-false-positive floor (non-negative offset), switch
-``start_page`` back to ``max(region_scan_start, probe.printed)`` below and
-invert ``test_scan_starts_after_toc_so_negative_offset_is_allowed`` to expect
-scan start ``= printed`` and offset ``0``.
+A probe scans from the monotonic cursor ``scan_floor`` (initially
+``toc_range end + 1``, body after the TOC). When an earlier regime confirms an
+offset, ``scan_floor`` advances past the physical span of that regime's printed
+entries so subsequent regimes (e.g. decimal body after roman front-matter) do
+not burn their scan window inside the earlier regime. Within one regime, the
+initial scan starts after the TOC, allowing negative ``physical - printed``
+offsets (e.g. journal reprints whose printed labels exceed the PDF length).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
@@ -51,6 +49,13 @@ class _Probe:
     printed: int
 
 
+@dataclass
+class _RegimeBucket:
+    kind: str
+    probes: list[_Probe] = field(default_factory=list)
+    printed_pages: list[int] = field(default_factory=list)
+
+
 def _region_entries(
     hierarchies: list[dict[str, Any]],
     region_index: int,
@@ -62,37 +67,60 @@ def _region_entries(
     return [entry for entry in (entries or []) if isinstance(entry, dict)]
 
 
-def _regime_probes(
+def _regime_buckets(
     entries: list[dict[str, Any]],
     *,
     limit: int,
-) -> dict[str, list[_Probe]]:
-    """Keep leaf probes from the first distinct printed pages of each kind."""
+) -> dict[str, _RegimeBucket]:
+    """Collect leaf probes and all parsed printed pages per regime in TOC order."""
     from app.services.document_parser.structure.body_boundary import (
         normalize_heading_label,
     )
 
-    probes: dict[str, list[_Probe]] = {}
+    buckets: dict[str, _RegimeBucket] = {}
     seen_printed: dict[str, set[int]] = {}
     levels = [int(entry.get("level") or 1) for entry in entries]
     for index, entry in enumerate(entries):
-        if index + 1 < len(entries) and levels[index + 1] > levels[index]:
-            continue
         label = entry.get("page_number")
         kind = classify_page_number_kind(label)
-        if len(probes.get(kind, ())) >= limit:
-            continue
         printed = parse_printed_page(label, kind=kind)
         if printed is None:
+            continue
+        bucket = buckets.get(kind)
+        if bucket is None:
+            bucket = _RegimeBucket(kind=kind)
+            buckets[kind] = bucket
+        bucket.printed_pages.append(printed)
+        if index + 1 < len(entries) and levels[index + 1] > levels[index]:
+            continue
+        if len(bucket.probes) >= limit:
             continue
         if printed in seen_printed.get(kind, set()):
             continue
         title = normalize_heading_label(str(entry.get("heading") or ""))
         if not title:
             continue
-        probes.setdefault(kind, []).append(_Probe(title=title, printed=printed))
+        bucket.probes.append(_Probe(title=title, printed=printed))
         seen_printed.setdefault(kind, set()).add(printed)
-    return probes
+    return {kind: b for kind, b in buckets.items() if b.probes}
+
+
+def _next_regime_scan_floor(
+    *,
+    current_floor: int,
+    bucket: _RegimeBucket,
+    offset: int,
+    found_page: int,
+    page_count: int,
+) -> int:
+    in_bounds_physical = [
+        printed + offset
+        for printed in bucket.printed_pages
+        if 1 <= printed + offset <= page_count
+    ]
+    regime_last_physical = max([found_page, *in_bounds_physical])
+    next_floor = max(current_floor, regime_last_physical + 1)
+    return next_floor if next_floor <= page_count else current_floor
 
 
 def run_calibration_phase1(
@@ -144,34 +172,40 @@ def run_calibration_phase1(
             region_index=region_index,
         )
 
-    probes = _regime_probes(
+    buckets = _regime_buckets(
         _region_entries(hierarchies, region_index), limit=probes_per_regime
     )
     regimes: list[CalibrationRegime] = []
     scans: list[TitleScanResult] = []
+    scan_floor = region_scan_start
 
-    for kind, bucket in probes.items():
-        for probe in bucket:
+    for kind, bucket in buckets.items():
+        for probe in bucket.probes:
             scan = scan_title_forward(
                 ctx=ctx,
                 title=probe.title,
-                # Scan from after TOC. Optional floor (disabled): force
-                # non-negative offset / skip early divider hits — restore with:
-                #   start_page=max(region_scan_start, probe.printed),
-                start_page=region_scan_start,
+                start_page=scan_floor,
                 page_count=resolved_page_count,
             )
             scans.append(scan)
             if not scan.found or scan.found_page is None:
                 continue
+            offset = scan.found_page - probe.printed
             regimes.append(
                 CalibrationRegime(
                     kind=kind,
-                    offset=scan.found_page - probe.printed,
+                    offset=offset,
                     samples=[
                         CalibrationSample(title=probe.title, physical=scan.found_page)
                     ],
                 )
+            )
+            scan_floor = _next_regime_scan_floor(
+                current_floor=scan_floor,
+                bucket=bucket,
+                offset=offset,
+                found_page=scan.found_page,
+                page_count=resolved_page_count,
             )
             break
 
@@ -179,7 +213,7 @@ def run_calibration_phase1(
     logger.info(
         "[calibration.phase1] region={} regimes={} offsets={} inspect_calls={}",
         region_index,
-        len(probes),
+        len(buckets),
         [regime.offset for regime in regimes],
         inspect_calls,
     )
@@ -195,7 +229,7 @@ def run_calibration_phase1(
     return CalibrationResult(
         status="ok",
         regimes=regimes,
-        notes=f"{len(regimes)}/{len(probes)} regime(s) confirmed by forward scan",
+        notes=f"{len(regimes)}/{len(buckets)} regime(s) confirmed by forward scan",
         region_index=region_index,
         tool_calls=inspect_calls,
         scans=[scan.to_dict() for scan in scans],

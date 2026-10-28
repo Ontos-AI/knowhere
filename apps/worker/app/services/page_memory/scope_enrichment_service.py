@@ -29,6 +29,9 @@ from app.services.document_agent.pdf_text import coerce_page_text_cache
 from app.services.document_ingestion.artifact_refs import (
     collect_referenced_artifact_refs,
 )
+from app.services.document_ingestion.processing_context import (
+    merge_persisted_job_token_usage,
+)
 from app.services.document_parser.support.parser_rows import PARSER_DF_COLUMNS
 from app.services.page_memory._utils import CoarseScope, sort_skeletons
 from app.services.page_memory.memory_service import (
@@ -76,9 +79,13 @@ from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.page_memory_config import PageMemoryConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.ai.llm_overrides import cleanup_llm_overrides, init_llm_overrides
+from shared.services.ai.token_tracking import (
+    cleanup_token_tracker,
+    get_current_token_tracker,
+    init_token_tracker,
+)
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.jobs.lifecycle.scope_enrichments import (
-    enqueue_low_priority_scope_enrichments_after_commit,
     scope_claimable_filter,
     write_coarse_scope_enrichments,
 )
@@ -89,6 +96,20 @@ from shared.services.storage.zip_result_service import ZipResultService
 from shared.utils.utc_now import utc_now_naive
 
 REFINED_ENRICHMENT_STATE = "refined"
+
+
+def _flush_parse_token_usage(job_id: str) -> None:
+    tracker = get_current_token_tracker()
+    if tracker is None:
+        return
+    try:
+        merge_persisted_job_token_usage(job_id=job_id, delta=dict(tracker))
+    except Exception as exc:
+        logger.warning(
+            "[page_memory] failed to merge enrichment token usage job_id={}: {}",
+            job_id,
+            exc,
+        )
 
 ScopePublisher = Callable[..., Any]
 
@@ -136,6 +157,7 @@ def execute_structure_enrichment(
     publisher = scope_publisher or _resolve_default_scope_publisher()
     workspace_dir = tempfile.mkdtemp(prefix=f"pm_struct_{job_result_id}_")
     init_llm_overrides(JobMetadataHelper.get_llm_config(target.job_metadata))
+    init_token_tracker()
     try:
         add_dir = os.path.join(
             workspace_dir,
@@ -148,6 +170,15 @@ def execute_structure_enrichment(
             raw_prefix=target.raw_prefix,
             job_metadata=target.job_metadata,
             output_dir=add_dir,
+        )
+        publication_scope = _build_publication_scope(
+            target=target,
+            job_result_id=job_result_id,
+        )
+        _generate_and_persist_page_embeddings(
+            add_dir=add_dir,
+            workspace_dir=workspace_dir,
+            publication_scope=publication_scope,
         )
         profile = _resume_profile_from_m0_workspace(
             add_dir=add_dir,
@@ -179,6 +210,7 @@ def execute_structure_enrichment(
             job_id=target.job_id,
             raw_prefix=target.raw_prefix,
             workspace_dir=workspace_dir,
+            add_dir=add_dir,
             artifact_refs=set(phase_b_artifacts),
             artifact_mapping=phase_b_artifacts,
         )
@@ -195,10 +227,6 @@ def execute_structure_enrichment(
                 )
             ),
         )
-        publication_scope = _build_publication_scope(
-            target=target,
-            job_result_id=job_result_id,
-        )
         published_ok = _publish_coarse_structure_and_write_scopes(
             job_result_id=job_result_id,
             target=target,
@@ -212,22 +240,10 @@ def execute_structure_enrichment(
         if not published_ok:
             return {"status": "aborted", "job_result_id": job_result_id}
 
-        if not target.has_deferred_publication:
-            _generate_and_persist_page_embeddings(
-                add_dir=add_dir,
-                workspace_dir=workspace_dir,
-                profile=profile,
-                publication_scope=publication_scope,
-            )
-
-        enqueued_scopes = enqueue_low_priority_scope_enrichments_after_commit(
-            job_result_id
-        )
         return {
             "status": "coarse",
             "job_result_id": job_result_id,
             "scope_count": len(phase_a.coarse_scopes),
-            "enqueued_scopes": enqueued_scopes,
             "chunk_count": len(coarse_chunks),
         }
     except Exception:
@@ -244,6 +260,8 @@ def execute_structure_enrichment(
         )
         raise
     finally:
+        _flush_parse_token_usage(target.job_id)
+        cleanup_token_tracker()
         cleanup_llm_overrides()
         shutil.rmtree(workspace_dir, ignore_errors=True)
 
@@ -271,6 +289,7 @@ def execute_scope_enrichment(
     publisher = scope_publisher or _resolve_default_scope_publisher()
     workspace_dir = tempfile.mkdtemp(prefix=f"pm_scope_{scope_id}_")
     init_llm_overrides(JobMetadataHelper.get_llm_config(target.job_metadata))
+    init_token_tracker()
     try:
         output = _run_scope_in_workspace(
             workspace_dir=workspace_dir,
@@ -343,6 +362,8 @@ def execute_scope_enrichment(
         )
         raise
     finally:
+        _flush_parse_token_usage(target.job_id)
+        cleanup_token_tracker()
         cleanup_llm_overrides()
         shutil.rmtree(workspace_dir, ignore_errors=True)
 
@@ -655,6 +676,22 @@ def _load_and_validate_structure_target(
         )
 
 
+def _load_m0_document_profile(bb_raw: dict[str, Any]) -> Any:
+    from app.services.document_agent.manifest import DocumentProfile
+    from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
+
+    dp_raw = bb_raw.get("document_profile") or {}
+    return DocumentProfile(
+        is_scanned=bool(dp_raw.get("is_scanned", False)),
+        category=list(dp_raw.get("category") or [OTHER_CODE]),
+        category_label=str(dp_raw.get("category_label") or "unknown"),
+        routing_category=str(dp_raw.get("routing_category") or "generic"),
+        language=str(dp_raw.get("language") or "unknown"),
+        header_y=dp_raw.get("header_y"),
+        footer_y=dp_raw.get("footer_y"),
+    )
+
+
 def _resume_profile_from_m0_workspace(
     *,
     add_dir: str,
@@ -662,7 +699,6 @@ def _resume_profile_from_m0_workspace(
     job_result_id: str,
 ) -> Any:
     from app.services.document_agent.coordinator import ProfileCoordinator
-    from app.services.document_agent.manifest import DocumentProfile
     from app.services.document_agent.pdf_text import (
         page_bands_map,
         page_body_content_map,
@@ -673,7 +709,6 @@ def _resume_profile_from_m0_workspace(
         _prefix_toc_keywords_for_categories,
     )
     from app.services.document_parser.profiling.doc_profiler import _map_toc_profile
-    from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
     from app.services.document_parser.profiling.profile_model import (
         ParserDocumentProfile,
     )
@@ -701,16 +736,7 @@ def _resume_profile_from_m0_workspace(
     bb_raw = _read_json_dict(bb_path)
     bb = coordinator.blackboard
     bb.page_count = int(bb_raw.get("page_count") or 0)
-    dp_raw = bb_raw.get("document_profile") or {}
-    doc_profile = DocumentProfile(
-        is_scanned=bool(dp_raw.get("is_scanned", False)),
-        category=list(dp_raw.get("category") or [OTHER_CODE]),
-        category_label=str(dp_raw.get("category_label") or "unknown"),
-        routing_category=str(dp_raw.get("routing_category") or "generic"),
-        language=str(dp_raw.get("language") or "unknown"),
-        header_y=dp_raw.get("header_y"),
-        footer_y=dp_raw.get("footer_y"),
-    )
+    doc_profile = _load_m0_document_profile(bb_raw)
     bb.document_profile = doc_profile
     coordinator._coarse_profile_cache = doc_profile
     features, labels = _parse_features_and_labels(
@@ -885,10 +911,13 @@ def _generate_and_persist_page_embeddings(
     *,
     add_dir: str,
     workspace_dir: str,
-    profile: Any,
     publication_scope: DocumentPublicationScope,
 ) -> int:
-    """Render and embed pages for electronic documents after coarse structure publish."""
+    """Render and embed pages for electronic documents before coarse structure build."""
+    from app.services.document_agent.pdf_text import (
+        page_bands_map,
+        page_content_map,
+    )
     from app.services.page_memory.page_renderer import render_document_pages
     from shared.core.config import settings
     from shared.services.retrieval.cache_service import (
@@ -900,18 +929,24 @@ def _generate_and_persist_page_embeddings(
 
     if not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)):
         return 0
-    if treat_profile_as_scanned(profile):
-        return 0
-    page_count = max(int(getattr(profile, "page_count", 0) or 0), 0)
-    if page_count <= 0:
-        return 0
 
     try:
+        bb_raw = _read_json_dict(os.path.join(add_dir, PHASE_B_BLACKBOARD_REL))
+        doc_profile = _load_m0_document_profile(bb_raw)
+        if treat_profile_as_scanned(doc_profile):
+            return 0
+        page_count = max(int(bb_raw.get("page_count") or 0), 0)
+        if page_count <= 0:
+            return 0
         pdf_path = os.path.join(add_dir, PHASE_B_SOURCE_PDF_REL)
         pages = list(range(1, page_count + 1))
-        page_texts = coerce_page_text_cache(
-            getattr(profile, "page_full_text_cache", None)
-        )
+        full_text_path = os.path.join(add_dir, PHASE_B_FULL_TEXT_REL)
+        if os.path.isfile(full_text_path):
+            page_texts = coerce_page_text_cache(_read_json_dict(full_text_path))
+        else:
+            page_texts = page_content_map(
+                page_bands_map(bb_raw.get("page_full_text_bands") or {})
+            )
         rendered = render_document_pages(
             pdf_path=pdf_path,
             page_count=page_count,
@@ -1132,17 +1167,29 @@ def _upload_scope_artifacts(
     workspace_dir: str,
     artifact_refs: set[str],
     artifact_mapping: dict[str, str] | None = None,
+    add_dir: str | None = None,
 ) -> None:
     if not artifact_refs:
         return
-    add_dirs = [
-        os.path.join(workspace_dir, entry)
-        for entry in os.listdir(workspace_dir)
-        if os.path.isdir(os.path.join(workspace_dir, entry))
-    ]
-    if not add_dirs:
+    if add_dir is None:
+        add_dirs = [
+            os.path.join(workspace_dir, entry)
+            for entry in os.listdir(workspace_dir)
+            if os.path.isdir(os.path.join(workspace_dir, entry))
+        ]
+        add_dir = next(
+            (
+                child
+                for child in add_dirs
+                if any(
+                    os.path.isfile(os.path.join(child, relative_path))
+                    for relative_path in artifact_refs
+                )
+            ),
+            add_dirs[0] if add_dirs else None,
+        )
+    if not add_dir:
         return
-    add_dir = add_dirs[0]
     for relative_path in sorted(artifact_refs):
         local_path = os.path.join(add_dir, relative_path)
         if not os.path.isfile(local_path):
@@ -1947,8 +1994,6 @@ def execute_progressive_recovery(
         )
 
         enqueue_page_memory_structure_after_commit(job_result_id)
-    else:
-        enqueue_low_priority_scope_enrichments_after_commit(job_result_id)
     workspace: str = tempfile.mkdtemp(prefix="pm_recovery_")
     storage = result_storage_factory()
     try:

@@ -13,9 +13,11 @@ from shared.core.exceptions.domain_exceptions import (
 )
 from shared.models.database.job import Job
 from shared.services.retrieval.demo_job_scope import validate_job_corpus
+from shared.services.ai.token_tracking import empty_token_usage, merge_token_usage
 from shared.services.redis.redis_sync_service import (
     SyncJobInfoRedisService,
     SyncJobMetadataService,
+    SyncRedisServiceFactory,
 )
 
 
@@ -51,6 +53,39 @@ def persist_job_metadata_updates(
             }
     job_context.metadata_service.update_metadata(job_id, metadata_updates)
     job_context.job_metadata.update(metadata_updates)
+
+
+def merge_persisted_job_token_usage(*, job_id: str, delta: dict[str, Any]) -> None:
+    """Add one enrichment delta into the durable parse-job token ledger."""
+    if not isinstance(delta, dict) or not delta:
+        return
+    with get_sync_db_context() as db:
+        job = _select_job_row_for_update(db, job_id)
+        if job is None:
+            logger.warning(
+                f"Skipped token-usage merge; job row missing: job_id={job_id}"
+            )
+            return
+        metadata = dict(job.job_metadata or {})
+        stages = dict(metadata.get("stages") or {}) if isinstance(metadata.get("stages"), dict) else {}
+        token_usage = (
+            dict(stages.get("token_usage") or empty_token_usage())
+            if isinstance(stages.get("token_usage"), dict)
+            else empty_token_usage()
+        )
+        merge_token_usage(token_usage, delta)
+        stages["token_usage"] = token_usage
+        metadata["stages"] = stages
+        job.job_metadata = metadata
+    try:
+        SyncJobMetadataService(SyncRedisServiceFactory.get_service()).update_metadata(
+            job_id,
+            {"stages": stages},
+        )
+    except Exception as exc:
+        logger.warning(
+            f"Failed to update Redis token usage after merge: job_id={job_id}, error={exc}"
+        )
 
 
 def load_parse_job_context(
