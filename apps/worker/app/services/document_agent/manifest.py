@@ -20,14 +20,15 @@ class PageFeature:
     raw_text_length: int
     """Visible extractable text length (excludes PDF ``3 Tr`` / invisible ink)."""
     text_density: float
-    image_coverage: float
-    image_count: int
-    table_count: int
-    drawings_count: int
+    image_coverage: float | None
+    image_count: int | None
+    table_count: int | None
+    drawings_count: int | None
     orientation: Literal["portrait", "landscape"]
     width: float
     height: float
-    has_asset: bool
+    has_asset: bool | None
+    """Unknown until the detailed asset probe has completed for this page."""
     is_blank_like: bool
     invisible_text_length: int = 0
     """Text drawn with invisible rendering mode (``3 Tr``); not used by probe gates."""

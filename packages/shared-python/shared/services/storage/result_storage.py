@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import json
 import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+from zipfile import ZipFile, is_zipfile
+
+import logfire
 
 from loguru import logger
 
@@ -19,6 +24,13 @@ _EXCLUDED_DIR_NAMES = {"tmp", "temp", "__pycache__"}
 _CLIENT_ARTIFACT_DIRS = {"images", "tables", "page_pdfs", "page_citation_assets"}
 _INTERNAL_RAW_FILES = {"source.pdf"}
 _INTERNAL_RAW_PREFIXES = {"phase_b"}
+_SNAPSHOT_CORE_FILES: frozenset[str] = frozenset(
+    {"manifest.json", "chunks.json", "doc_nav.json"}
+)
+_SNAPSHOT_READING_FILES: frozenset[str] = _SNAPSHOT_CORE_FILES | {
+    "full.md",
+    "toc_hierarchies.json",
+}
 _MAX_RESULT_UPLOAD_CONCURRENCY = 64
 _upload_executor_lock = threading.Lock()
 _upload_executors: dict[int, ThreadPoolExecutor] = {}
@@ -170,6 +182,15 @@ class JobResultStorage:
                 raise ValueError(
                     f"Snapshot is missing required result assets: {', '.join(missing_refs)}"
                 )
+        snapshot_reading_files: set[str] = (
+            self._prepare_snapshot_reading_files(
+                result_path=result_path, zip_path=zip_path
+            )
+            if snapshot_id
+            else set()
+        )
+        if artifact_ref_filter is not None:
+            artifact_ref_filter.update(snapshot_reading_files)
         storage_job_id = f"{job_id}/snapshots/{snapshot_id}" if snapshot_id else job_id
         zip_key = self.build_zip_key(job_id=storage_job_id)
         self._job_file_storage.upload_local_file(
@@ -177,9 +198,6 @@ class JobResultStorage:
             zip_key,
             bucket=self.results_bucket,
         )
-        self._cleanup_file(zip_path)
-
-        artifact_ref_filter = self._normalize_artifact_refs(artifact_refs)
         upload_items = [
             (
                 file_path,
@@ -207,11 +225,102 @@ class JobResultStorage:
             raise
         raw_files = dict(uploaded_items)
 
+        inventory_bytes: int = (
+            self._upload_snapshot_inventory(
+                job_id=storage_job_id,
+                result_path=result_path,
+                zip_path=zip_path,
+                upload_items=upload_items,
+            )
+            if snapshot_reading_files
+            else 0
+        )
+        logfire.info(
+            "Result snapshot transfer completed",
+            job_id=job_id,
+            is_snapshot=bool(snapshot_id),
+            object_count=len(upload_items) + 1 + int(bool(snapshot_reading_files)),
+            raw_bytes=sum(path.stat().st_size for path, _relative in upload_items),
+            archive_bytes=zip_path.stat().st_size,
+            inventory_bytes=inventory_bytes,
+        )
+        self._cleanup_file(zip_path)
+
         return UploadedResultBundle(
             zip_key=zip_key,
             raw_prefix=self.build_raw_prefix(job_id=storage_job_id),
             raw_files=raw_files,
         )
+
+    @staticmethod
+    def _prepare_snapshot_reading_files(
+        *, result_path: Path, zip_path: Path
+    ) -> set[str]:
+        if not is_zipfile(zip_path):
+            return set()
+        with ZipFile(zip_path) as archive:
+            archive_names: set[str] = set(archive.namelist())
+            if not _SNAPSHOT_CORE_FILES | {"source.pdf"} <= archive_names:
+                return set()
+            reading_files: set[str] = set(_SNAPSHOT_READING_FILES & archive_names) | {"source.pdf"}
+            for relative_path in reading_files:
+                if relative_path == "source.pdf" and (result_path / relative_path).is_file():
+                    continue
+                (result_path / relative_path).write_bytes(archive.read(relative_path))
+        return reading_files
+
+    def _upload_snapshot_inventory(
+        self,
+        *,
+        job_id: str,
+        result_path: Path,
+        zip_path: Path,
+        upload_items: list[tuple[Path, str]],
+    ) -> int:
+        objects: list[dict[str, object]] = []
+        for file_path, relative_path in upload_items:
+            if (
+                relative_path not in _SNAPSHOT_READING_FILES | {"source.pdf"}
+                and relative_path.split("/", 1)[0] not in _CLIENT_ARTIFACT_DIRS
+            ):
+                continue
+            content_type: str = JobFileStorage.get_content_type(file_path.suffix)
+            objects.append(
+                {
+                    "path": relative_path,
+                    "size_bytes": file_path.stat().st_size,
+                    "checksum_sha256": self._calculate_file_checksum(file_path),
+                    "content_type": content_type,
+                    "kind": "image"
+                    if content_type.startswith("image/")
+                    else "essential",
+                }
+            )
+        inventory_path: Path = result_path / "snapshot-objects.json"
+        inventory_path.write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "archive_checksum_sha256": self._calculate_file_checksum(zip_path),
+                    "objects": sorted(objects, key=lambda item: str(item["path"])),
+                }
+            ),
+            encoding="utf-8",
+        )
+        self._upload_raw_file(
+            job_id=job_id,
+            file_path=inventory_path,
+            relative_path="snapshot-objects.json",
+        )
+        return inventory_path.stat().st_size
+
+    @staticmethod
+    def _calculate_file_checksum(file_path: Path) -> str:
+        checksum = hashlib.sha256()
+        with file_path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                checksum.update(block)
+        return checksum.hexdigest()
 
     def _upload_raw_file(
         self,
@@ -352,7 +461,7 @@ class JobResultStorage:
                 if not self._is_excluded_dir(dir_name)
             ]
             for file_name in file_names:
-                if self._is_excluded_file(file_name):
+                if self._is_excluded_file(file_name) or file_name == "snapshot-objects.json":
                     continue
                 yield Path(root) / file_name
 

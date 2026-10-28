@@ -31,6 +31,33 @@ router = APIRouter(tags=["Jobs"])
 _document_ingestion_service = DocumentIngestionService()
 
 
+@router.get("/{job_id}/snapshots/{snapshot_id}/readable", summary="Get immutable readable snapshot objects")
+async def get_readable_snapshot(
+    job_id: str,
+    snapshot_id: str,
+    current_user: CurrentUser = Depends(with_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    from app.services.jobs.snapshot_delivery_service import SnapshotDeliveryService
+    return await SnapshotDeliveryService().get_readable_snapshot(
+        db, user_id=current_user.user_id, job_id=job_id, snapshot_id=snapshot_id,
+    )
+
+
+@router.get("/{job_id}/snapshots/{snapshot_id}/objects", summary="Refresh an immutable snapshot object URL")
+async def get_snapshot_object(
+    job_id: str,
+    snapshot_id: str,
+    path: str = Query(min_length=1, max_length=2048),
+    current_user: CurrentUser = Depends(with_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    from app.services.jobs.snapshot_delivery_service import SnapshotDeliveryService
+    return await SnapshotDeliveryService().get_object_capability(
+        db, user_id=current_user.user_id, job_id=job_id, snapshot_id=snapshot_id, path=path,
+    )
+
+
 @router.post("/{job_id}/enrichment/retry", response_model=EnhancementRetryResponse, status_code=202, summary="Retry failed search enhancement")
 async def retry_enrichment(
     job_id: str,

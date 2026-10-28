@@ -105,6 +105,7 @@ class _ClaimedScopeTarget:
     page_memory_config: PageMemoryConfig
     claim_generation: str | None = None
     has_deferred_publication: bool = False
+    serving_raw_prefix: str | None = None
 
 
 @dataclass(frozen=True)
@@ -489,10 +490,22 @@ def _build_claimed_target(
     result_metadata: dict[str, Any] | None = None,
 ) -> _ClaimedScopeTarget:
     state = read_progressive_state(result_metadata)
-    raw_prefix_val = job_metadata.get("result_raw_prefix")
-    raw_prefix = (
+    raw_prefix_val: object = job_metadata.get(
+        "page_memory_working_raw_prefix"
+    ) or job_metadata.get("result_raw_prefix")
+    raw_prefix: str | None = (
         str(raw_prefix_val)
         if isinstance(raw_prefix_val, str) and raw_prefix_val
+        else None
+    )
+    serving_prefix_value: object = (
+        job_metadata.get("result_serving_raw_prefix")
+        or (result_metadata or {}).get("result_raw_prefix")
+        or job_metadata.get("result_raw_prefix")
+    )
+    serving_raw_prefix: str | None = (
+        serving_prefix_value
+        if isinstance(serving_prefix_value, str) and serving_prefix_value
         else None
     )
     corpus_storage = CorpusStorage.resolve_namespace(document.namespace)
@@ -507,6 +520,7 @@ def _build_claimed_target(
         page_memory_config=JobMetadataHelper.get_page_memory_config(job_metadata),
         claim_generation=claim_generation,
         has_deferred_publication=state is not None and state.publication_mode == "final",
+        serving_raw_prefix=serving_raw_prefix,
     )
 
 
@@ -746,6 +760,9 @@ def _resume_profile_from_m0_workspace(
             coordinator.ctx.settings["toc_visual_candidate_pages"] = sorted(
                 visual_pages
             )
+    # M0 may contain only native text features. Finish detection before TOC
+    # and anatomy consumers, then persist the completed features for fine tasks.
+    coordinator._ensure_asset_probe()
     coordinator._ensure_toc_profile(strict=False)
 
     profile = ParserDocumentProfile(
@@ -770,11 +787,10 @@ def _resume_profile_from_m0_workspace(
             coordinator.blackboard.page_full_text_cache
         ),
     )
-    if not profile.is_atlas:
-        if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
-            profile.anatomy = coordinator.run_structural()
-        else:
-            profile.anatomy = coordinator.run_lightweight_anatomy()
+    if not profile.is_atlas and profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
+        profile.anatomy = coordinator.run_structural()
+    else:
+        profile.anatomy = coordinator.run_lightweight_anatomy()
     profile.toc = _map_toc_profile(coordinator)
     return profile
 
@@ -1456,6 +1472,10 @@ def _regenerate_and_upload_full_package(
     required_refs: set[str] = collect_referenced_artifact_refs(chunks) | {
         PHASE_B_SOURCE_PDF_REL
     }
+    baseline_refs: set[str] = {
+        str(reference)
+        for reference in target.job_metadata.get("page_memory_baseline_artifact_refs") or []
+    }
     for relative_path in sorted(required_refs):
         target_path = Path(package_dir) / relative_path
         if target_path.is_file():
@@ -1464,7 +1484,11 @@ def _regenerate_and_upload_full_package(
         temp_path = storage.download_raw_to_temp(
             job_id=target.job_id,
             relative_path=relative_path,
-            raw_prefix=target.raw_prefix,
+            raw_prefix=(
+                target.serving_raw_prefix
+                if relative_path in baseline_refs and target.serving_raw_prefix
+                else target.raw_prefix
+            ),
             suffix=suffix,
             temp_dir=package_dir,
         )
@@ -1725,14 +1749,34 @@ def _parse_features_and_labels(
                 page=int(item.get("page") or 0),
                 raw_text_length=int(item.get("raw_text_length") or 0),
                 text_density=float(item.get("text_density") or 0.0),
-                image_coverage=float(item.get("image_coverage") or 0.0),
-                image_count=int(item.get("image_count") or 0),
-                table_count=int(item.get("table_count") or 0),
-                drawings_count=int(item.get("drawings_count") or 0),
+                image_coverage=(
+                    float(item["image_coverage"])
+                    if item.get("image_coverage") is not None
+                    else None
+                ),
+                image_count=(
+                    int(item["image_count"])
+                    if item.get("image_count") is not None
+                    else None
+                ),
+                table_count=(
+                    int(item["table_count"])
+                    if item.get("table_count") is not None
+                    else None
+                ),
+                drawings_count=(
+                    int(item["drawings_count"])
+                    if item.get("drawings_count") is not None
+                    else None
+                ),
                 orientation="landscape" if orientation == "landscape" else "portrait",
                 width=float(item.get("width") or 0.0),
                 height=float(item.get("height") or 0.0),
-                has_asset=bool(item.get("has_asset", False)),
+                has_asset=(
+                    bool(item["has_asset"])
+                    if item.get("has_asset") is not None
+                    else None
+                ),
                 is_blank_like=bool(item.get("is_blank_like", False)),
                 invisible_text_length=int(item.get("invisible_text_length") or 0),
             )

@@ -325,16 +325,36 @@ def _upload_result_package(
     working_raw_prefix: str = result_bundle.raw_prefix
     if snapshot_options:
         working_raw_prefix = f"results/{job_id}/"
-        for relative_path in sorted(result_bundle.raw_files):
-            result_storage.upload_raw_file(
-                job_id=job_id,
-                relative_path=relative_path,
-                local_file_path=os.path.join(add_dir, relative_path),
-                raw_prefix=working_raw_prefix,
+        working_refs: list[str] = sorted(result_bundle.raw_files)
+        with (
+            logfire.span("Upload progressive working inputs for {job_id}", job_id=job_id) as working_span,
+            stage_timer("worker.result.working_inputs_upload", job_id=job_id),
+        ):
+            for relative_path in working_refs:
+                result_storage.upload_raw_file(
+                    job_id=job_id,
+                    relative_path=relative_path,
+                    local_file_path=os.path.join(add_dir, relative_path),
+                    raw_prefix=working_raw_prefix,
+                )
+            working_span.set_attribute("object_count", len(working_refs))
+            working_span.set_attribute("bytes", sum(
+                os.path.getsize(os.path.join(add_dir, reference)) for reference in working_refs
+            ))
+            working_span.set_attribute(
+                "duplicate_page_image_put_count",
+                sum(reference.startswith("page_citation_assets/") for reference in working_refs),
             )
     metadata_updates: dict[str, object] = {}
     if job_context is not None and parse_track == "page_memory":
         metadata_updates["result_raw_prefix"] = working_raw_prefix
+        if snapshot_options:
+            # Keep legacy reader metadata until every Worker understands the
+            # immutable serving origin and final publication switches it safely.
+            metadata_updates["page_memory_working_raw_prefix"] = working_raw_prefix
+            metadata_updates["page_memory_baseline_artifact_refs"] = sorted(
+                artifact_refs.difference(phase_b_refs) | {"source.pdf"}
+            )
         if (
             ingestion_mode == "progressive"
             and add_dir

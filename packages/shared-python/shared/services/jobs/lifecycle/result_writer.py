@@ -53,6 +53,9 @@ class SyncJobResultWriter:
                 )
                 if key in metadata
             }
+        serving_raw_prefix: object = metadata.get("result_serving_raw_prefix")
+        if isinstance(serving_raw_prefix, str) and serving_raw_prefix:
+            doc_metadata["result_raw_prefix"] = serving_raw_prefix
 
         if existing:
             existing.delivery_mode = delivery_mode
