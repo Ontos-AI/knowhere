@@ -847,7 +847,7 @@ def test_deferred_structure_schedules_staged_ranges_without_republishing_baselin
         engine.dispose()
 
 
-def test_enrichment_task_is_routed_to_low_queue_and_does_not_fail_job() -> None:
+def test_enrichment_task_routes_and_does_not_fail_job() -> None:
     from app.core.tasks.enrichment_tasks import (
         build_page_memory_structure,
         enrich_page_memory_scope,
@@ -859,12 +859,19 @@ def test_enrichment_task_is_routed_to_low_queue_and_does_not_fail_job() -> None:
     assert build_page_memory_structure.name == (
         "app.core.tasks.enrichment_tasks.build_page_memory_structure"
     )
+    assert (
+        celery_app.conf.task_routes[
+            "app.core.tasks.enrichment_tasks.build_page_memory_structure"
+        ]
+        == {"queue": "document_ingestion_medium"}
+    )
     assert celery_app.conf.task_routes[
-        "app.core.tasks.enrichment_tasks.build_page_memory_structure"
-    ] == {"queue": "document_ingestion_medium"}
-    assert celery_app.conf.task_routes["app.core.tasks.enrichment_tasks.*"] == {
-        "queue": "document_ingestion_low"
-    }
+        "app.core.tasks.enrichment_tasks.enrich_page_memory_scope"
+    ] == {"queue": "document_ingestion_high"}
+    assert celery_app.conf.task_routes[
+        "app.core.tasks.enrichment_tasks.recover_progressive_revision"
+    ] == {"queue": "document_ingestion_low"}
+    assert "app.core.tasks.enrichment_tasks.*" not in celery_app.conf.task_routes
     assert enrich_page_memory_scope.finalize_job_on_failure is False
     assert build_page_memory_structure.finalize_job_on_failure is False
     assert (

@@ -60,13 +60,13 @@ from shared.services.retrieval.hydration.connected import hydrate_connected_targ
 from shared.services.retrieval.hydration.result_assembly import _image_display_content
 from shared.services.retrieval.hydration.row_utils import (
     apply_matched_page_nums,
-    coerce_page_nums,
     is_unrefined_page,
     iter_connected_target_ids,
     normalize_chunk_type,
 )
-from shared.services.retrieval.search.visual_discovery import visual_page_discovery
-from shared.services.retrieval.settings import DEFAULT_TOP_K
+from shared.services.retrieval.search.visual_discovery import (
+    light_unrefined_section_pages,
+)
 from shared.services.retrieval.hydration.table_grid import render_explore_table
 from shared.services.retrieval.agent_tools.section_path_lookup import (
     resolve_section_path_anchor,
@@ -243,35 +243,6 @@ def _lookup_lit_pages(ctx: ToolContext, row: dict[str, Any]) -> list[int]:
     return []
 
 
-async def _light_section_pages(
-    ctx: ToolContext,
-    *,
-    document_id: str,
-    section_path: str,
-) -> dict[str, list[int]]:
-    discovery = await visual_page_discovery(
-        ctx.db,
-        user_id=ctx.user_id,
-        namespace=ctx.namespace,
-        query=ctx.query,
-        top_k=DEFAULT_TOP_K,
-        document_scope=ctx.document_scope,
-        revision_pins=CorpusRevisionContext.get_pins(),
-        section_targets=[(document_id, section_path)],
-    )
-    pages_by_chunk: dict[str, list[int]] = {}
-    for row in discovery.payload.get("fused_rows") or []:
-        if not isinstance(row, dict):
-            continue
-        if str(row.get("document_id") or "") != document_id:
-            continue
-        chunk_id = str(row.get("chunk_id") or "").strip()
-        pages = coerce_page_nums(row.get("matched_page_nums"))
-        if chunk_id and pages:
-            pages_by_chunk[chunk_id] = pages
-    return pages_by_chunk
-
-
 async def _apply_unrefined_lit_pages(
     ctx: ToolContext, rows: list[dict[str, Any]]
 ) -> None:
@@ -286,27 +257,16 @@ async def _apply_unrefined_lit_pages(
             apply_matched_page_nums(row, pages)
             continue
         pending.append(row)
-    if not pending or not str(ctx.query or "").strip():
-        return
-    seen_targets: set[tuple[str, str]] = set()
-    lit_by_chunk: dict[tuple[str, str], list[int]] = {}
-    for row in pending:
-        document_id = str(row.get("document_id") or "").strip()
-        section_path = str(row.get("section_path") or "").strip()
-        if not document_id or not section_path:
-            continue
-        target = (document_id, section_path)
-        if target not in seen_targets:
-            seen_targets.add(target)
-            for chunk_id, pages in (
-                await _light_section_pages(
-                    ctx, document_id=document_id, section_path=section_path
-                )
-            ).items():
-                lit_by_chunk[(document_id, chunk_id)] = pages
-        pages = lit_by_chunk.get((document_id, str(row.get("chunk_id") or "")))
-        if pages:
-            apply_matched_page_nums(row, pages)
+    if pending:
+        await light_unrefined_section_pages(
+            ctx.db,
+            user_id=ctx.user_id,
+            namespace=ctx.namespace,
+            query=ctx.query,
+            rows=pending,
+            document_scope=ctx.document_scope,
+            revision_pins=CorpusRevisionContext.get_pins(),
+        )
 
 
 def _page_image_display_content(row: dict[str, Any]) -> str:
