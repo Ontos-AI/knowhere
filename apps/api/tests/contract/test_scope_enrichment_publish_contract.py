@@ -1666,3 +1666,195 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
         engine.dispose()
 
 
+def test_replace_document_scope_content_reuses_and_transfers_shared_boundary_assets(
+    monkeypatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    from shared.services.redis import redis_sync_service
+    from shared.services.retrieval.publication_scope_content import (
+        replace_document_scope_content as replace_scope_content,
+    )
+    from shared.testing.contract_runtime import (
+        CONTRACT_REDIS_DATABASE,
+        CONTRACT_REDIS_HOST,
+        CONTRACT_REDIS_PORT,
+        ContractFakeSyncRedis,
+    )
+
+    monkeypatch.setattr(
+        redis_sync_service,
+        "SyncRedisClient",
+        lambda **_kw: ContractFakeSyncRedis.from_url(
+            f"redis://{CONTRACT_REDIS_HOST}:{CONTRACT_REDIS_PORT}/{CONTRACT_REDIS_DATABASE}"
+        ),
+    )
+    redis_sync_service.SyncRedisServiceFactory.reset()
+
+    database_url = make_url(get_contract_database_url()).set(
+        drivername="postgresql+psycopg2"
+    )
+    engine = create_engine(database_url)
+    scope = _scope("sba")
+    coarse_chunks = [
+        _page_chunk(
+            chunk_id="coarse-p122-126",
+            path=f"{scope.source_file_name}/Ch1/SecA",
+            scope_id="p122-126",
+            page_nums=[122, 126],
+        ),
+        _page_chunk(
+            chunk_id="coarse-p126-131",
+            path=f"{scope.source_file_name}/Ch1/SecB",
+            scope_id="p126-131",
+            page_nums=[126, 131],
+        ),
+    ]
+    shared_path = "images/image_page_126_figure_1.png"
+    try:
+        with Session(engine) as session:
+            seed_publication_fixture(session, scope=scope)
+            _set_job_progressive(session, job_id=scope.job_ref)
+            session.commit()
+            _finalize(session, job_id=scope.job_ref, chunks=coarse_chunks)
+            session.commit()
+
+            doc = session.execute(
+                select(Document).where(
+                    Document.current_job_result_id == scope.revision_ref
+                )
+            ).scalar_one()
+            pub_scope = DocumentPublicationScope(
+                user_id=scope.user_ref,
+                namespace=scope.namespace_ref,
+                document_id=doc.document_id,
+                job_result_id=scope.revision_ref,
+                source_file_name=scope.source_file_name,
+            )
+
+            replace_scope_content(
+                session,
+                scope=pub_scope,
+                scope_id="p122-126",
+                chunks=[
+                    {
+                        "chunk_id": "asset-from-a",
+                        "type": "image",
+                        "content": f"Fig 12\n[{shared_path}]",
+                        "path": shared_path,
+                        "metadata": {
+                            "file_path": shared_path,
+                            "page_nums": [126],
+                            "connect_to": [
+                                {"target": "node-a", "relation": "embedded_by"}
+                            ],
+                        },
+                    },
+                    {
+                        "chunk_id": "node-a",
+                        "type": "page",
+                        "content": "sec a refined",
+                        "path": f"{scope.source_file_name}/Ch1/SecA",
+                        "metadata": {
+                            "page_nums": [122, 126],
+                            "connect_to": [
+                                {
+                                    "target": "asset-from-a",
+                                    "relation": "embeds",
+                                    "ref": f"[{shared_path}]",
+                                }
+                            ],
+                        },
+                    },
+                ],
+            )
+            session.commit()
+
+            # Overlapping scope p126-131 re-extracts the same boundary asset with a slightly different bbox/chunk_id.
+            replace_scope_content(
+                session,
+                scope=pub_scope,
+                scope_id="p126-131",
+                chunks=[
+                    {
+                        "chunk_id": "asset-from-b-diff-bbox",
+                        "type": "image",
+                        "content": f"Fig 12\n[{shared_path}]",
+                        "path": shared_path,
+                        "metadata": {
+                            "file_path": shared_path,
+                            "page_nums": [126],
+                            "connect_to": [
+                                {"target": "node-b", "relation": "embedded_by"}
+                            ],
+                        },
+                    },
+                    {
+                        "chunk_id": "node-b",
+                        "type": "page",
+                        "content": "sec b refined",
+                        "path": f"{scope.source_file_name}/Ch1/SecB",
+                        "metadata": {
+                            "page_nums": [126, 131],
+                            "connect_to": [
+                                {
+                                    "target": "asset-from-b-diff-bbox",
+                                    "relation": "embeds",
+                                    "ref": f"[{shared_path}]",
+                                }
+                            ],
+                        },
+                    },
+                ],
+            )
+            session.commit()
+
+            asset_rows = list(
+                session.scalars(
+                    select(DocumentChunk).where(
+                        DocumentChunk.job_result_id == scope.revision_ref,
+                        DocumentChunk.source_chunk_path == shared_path,
+                    )
+                ).all()
+            )
+            assert len(asset_rows) == 1
+            assert asset_rows[0].chunk_id == "asset-from-a"
+            node_b = session.execute(
+                select(DocumentChunk).where(
+                    DocumentChunk.job_result_id == scope.revision_ref,
+                    DocumentChunk.chunk_id == "node-b",
+                )
+            ).scalar_one()
+            assert node_b.chunk_metadata["connect_to"][0]["target"] == "asset-from-a"
+
+            # Re-publishing p122-126 without the asset transfers ownership to p126-131 instead of deleting it.
+            replace_scope_content(
+                session,
+                scope=pub_scope,
+                scope_id="p122-126",
+                chunks=[
+                    {
+                        "chunk_id": "node-a",
+                        "type": "page",
+                        "content": "sec a republished",
+                        "path": f"{scope.source_file_name}/Ch1/SecA",
+                        "metadata": {"page_nums": [122]},
+                    }
+                ],
+            )
+            session.commit()
+
+            surviving = session.execute(
+                select(DocumentChunk).where(
+                    DocumentChunk.job_result_id == scope.revision_ref,
+                    DocumentChunk.source_chunk_path == shared_path,
+                )
+            ).scalar_one()
+            assert surviving.chunk_id == "asset-from-a"
+            assert surviving.chunk_metadata["scope_id"] == "p126-131"
+    finally:
+        engine.dispose()
+
+
+
