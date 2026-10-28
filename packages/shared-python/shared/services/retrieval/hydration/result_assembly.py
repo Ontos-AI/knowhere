@@ -103,6 +103,12 @@ async def assemble_retrieval_results(
         ):
             assembled_row['content'] = page_summary(row)
         assembled.append(assembled_row)
+    if db is not None and assembled:
+        from shared.services.jobs.lifecycle.scope_enrichments import (
+            promote_scopes_on_read,
+        )
+
+        await promote_scopes_on_read(db, assembled)
     return assembled
 
 

@@ -145,7 +145,9 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 getattr(profile, "page_body_text_cache", None)
             )
             if visual_m0_enabled:
-                treat_as_scanned = treat_profile_as_scanned(profile)
+                treat_as_scanned: bool = treat_profile_as_scanned(profile) or not any(
+                    text.strip() for text in page_texts.values()
+                )
                 parsed_df = _build_visual_m0_dataframe(
                     pdf_path=pdf_path,
                     filename=request.filename,
@@ -286,7 +288,7 @@ def _build_visual_m0_dataframe(
             filename=filename,
         )
         if embed_pages
-        else {}
+        else None
     )
     return build_coarse_text_dataframe(
         page_texts=page_texts,

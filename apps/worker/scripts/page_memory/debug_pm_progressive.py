@@ -251,6 +251,18 @@ def _run_coarse(
 
     page_memory_config = PageMemoryConfig.default()
     state = _load_debug_state(out_dir)
+    if args.run_db and state is not None and not args.list_scopes:
+        _generate_and_persist_page_embeddings(
+            add_dir=str(out_dir),
+            workspace_dir=str(out_dir),
+            publication_scope=DocumentPublicationScope(
+                user_id=str(state["user_id"]),
+                namespace=str(state["namespace"]),
+                document_id=str(state["document_id"]),
+                job_result_id=str(state["job_result_id"]),
+                source_file_name=filename,
+            ),
+        )
     profile = _resume_profile_from_m0_workspace(
         add_dir=str(out_dir),
         target=_ClaimedScopeTarget(
@@ -307,21 +319,6 @@ def _run_coarse(
             write_scope_rows=True,
             section_summaries=coarse_summaries,
         )
-        if args.run_db:
-            published_state = _load_debug_state(out_dir)
-            if published_state is not None:
-                _generate_and_persist_page_embeddings(
-                    add_dir=str(out_dir),
-                    workspace_dir=str(out_dir),
-                    profile=profile,
-                    publication_scope=DocumentPublicationScope(
-                        user_id=str(published_state["user_id"]),
-                        namespace=str(published_state["namespace"]),
-                        document_id=str(published_state["document_id"]),
-                        job_result_id=str(published_state["job_result_id"]),
-                        source_file_name=filename,
-                    ),
-                )
     extra = {
         "page_count": int(phase_a.manifest.get("page_count") or 0),
         "chunk_count": len(chunks),

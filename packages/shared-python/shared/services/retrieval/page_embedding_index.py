@@ -106,9 +106,7 @@ def inherit_missing_page_assets(
         return
     pages = _coerce_page_nums(chunk_metadata.get("page_nums"))
     inherited = [
-        dict(page_assets_by_page[page])
-        for page in pages
-        if page in page_assets_by_page
+        dict(page_assets_by_page[page]) for page in pages if page in page_assets_by_page
     ]
     if inherited:
         chunk_metadata["page_assets"] = inherited
@@ -205,6 +203,69 @@ def replace_document_page_embeddings(
     if current_rows:
         db.flush()
     return len(current_rows)
+
+
+def upsert_document_page_embeddings(
+    db: Session,
+    *,
+    scope: DocumentPublicationScope,
+    incoming_embeddings_by_page: dict[int, list[float]],
+) -> int:
+    """Repair supplied pages while retaining other vectors and rebinding all owners.
+
+    The caller serializes this operation with revision publication by holding
+    the document lock. A partial repair must never use revision replacement.
+    """
+    corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
+    owner_by_page: dict[int, str] = _build_owner_chunk_by_page(db, scope=scope)
+    rows = list(
+        db.scalars(
+            select(corpus_storage.DocumentPageEmbedding)
+            .where(
+                corpus_storage.DocumentPageEmbedding.document_id == scope.document_id
+            )
+            .where(
+                corpus_storage.DocumentPageEmbedding.job_result_id
+                == scope.job_result_id
+            )
+        ).all()
+    )
+    rows_by_page = {int(row.page_num): row for row in rows}
+    model_name: str = resolve_embedding_model(
+        getattr(settings, "EMBEDDING_MODEL", None)
+    )
+    repaired: int = 0
+    for page_num, vector in incoming_embeddings_by_page.items():
+        chunk_id: str | None = owner_by_page.get(page_num)
+        if not chunk_id or not vector:
+            continue
+        row = rows_by_page.get(page_num)
+        if row is None:
+            row = corpus_storage.DocumentPageEmbedding(
+                id=f"dpe_{uuid4().hex[:12]}",
+                user_id=scope.user_id,
+                namespace=scope.namespace,
+                document_id=scope.document_id,
+                job_result_id=scope.job_result_id,
+                page_num=page_num,
+                modality="visual",
+                chunk_id=chunk_id,
+                model=model_name,
+                dims=len(vector),
+                embedding=vector,
+            )
+            db.add(row)
+        else:
+            row.embedding = vector
+            row.dims = len(vector)
+            row.model = model_name
+        repaired += 1
+    for row in rows:
+        owner: str | None = owner_by_page.get(int(row.page_num))
+        if owner:
+            row.chunk_id = owner
+    db.flush()
+    return repaired
 
 
 def query_visual_candidate_pages(

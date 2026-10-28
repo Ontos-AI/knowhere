@@ -10,6 +10,8 @@ from shared.core.exceptions.domain_exceptions import JobOperationException
 from shared.models.schemas.job import JobResultResponse, StandardErrorObject
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.jobs.result_delivery import JobResultDeliveryResolver
+from shared.services.jobs.progressive_ingestion import read_progressive_state, publish_snapshot_descriptors
+from shared.services.storage.job_file_storage import JobFileStorage
 from shared.utils.error_details import normalize_error_details
 
 JobStatusValue = Literal[
@@ -152,10 +154,19 @@ async def build_job_result_response(
     file_name = _resolve_source_file_name(original_request)
     parsing_params = _resolve_parsing_params(job_metadata, original_request)
     result, result_url, result_url_expires_at = await _resolve_result_delivery(job)
+    progressive_state = read_progressive_state(
+        getattr(getattr(job, "job_result", None), "document_metadata", None)
+    )
+    raw_page_count: object = getattr(job, "page_count", None) or (job_metadata or {}).get("page_count")
+    page_count: int | None = raw_page_count if isinstance(raw_page_count, int) and not isinstance(raw_page_count, bool) and raw_page_count > 0 else None
 
     return JobResultResponse(
         job_result_id=getattr(getattr(job, "job_result", None), "id", None),
         job_id=job.job_id,
+        page_count=page_count,
+        enhancement=progressive_state.enhancement if progressive_state else None,
+        snapshots=publish_snapshot_descriptors(progressive_state, JobFileStorage()) if progressive_state else None,
+        current_snapshot_id=progressive_state.current_snapshot_id if progressive_state else None,
         namespace=JobMetadataHelper.get_namespace(job_metadata),
         document_id=resolve_job_document_id(job, job_metadata),
         status=to_job_status_value(job.status),

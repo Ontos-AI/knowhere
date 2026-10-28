@@ -13,7 +13,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-
 @dataclass(frozen=True)
 class RetrievalRevisionPins(Mapping[str, str]):
     """The active document revisions admitted to one retrieval request."""
@@ -42,9 +41,21 @@ async def capture_revision_pins(
 ) -> RetrievalRevisionPins:
     """Capture active document revisions in one database read transaction."""
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
-    generationQuery = select(corpusStorage.RetrievalNamespaceGeneration.generation).where(corpusStorage.RetrievalNamespaceGeneration.user_id == corpusStorage.resolve_owner(user_id), corpusStorage.RetrievalNamespaceGeneration.namespace == namespace).scalar_subquery()
+    generationQuery = (
+        select(corpusStorage.RetrievalNamespaceGeneration.generation)
+        .where(
+            corpusStorage.RetrievalNamespaceGeneration.user_id
+            == corpusStorage.resolve_owner(user_id),
+            corpusStorage.RetrievalNamespaceGeneration.namespace == namespace,
+        )
+        .scalar_subquery()
+    )
     statement = (
-        select(corpusStorage.Document.document_id, corpusStorage.Document.current_job_result_id, func.coalesce(generationQuery, 0))
+        select(
+            corpusStorage.Document.document_id,
+            corpusStorage.Document.current_job_result_id,
+            func.coalesce(generationQuery, 0),
+        )
         .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
         .where(corpusStorage.Document.namespace == namespace)
         .where(corpusStorage.Document.status == "active")
@@ -52,9 +63,30 @@ async def capture_revision_pins(
         .order_by(corpusStorage.Document.document_id)
     )
     if corpusStorage.is_demo:
-        statement = statement.join(corpusStorage.DocumentMapUnitIndex, (corpusStorage.DocumentMapUnitIndex.document_id == corpusStorage.Document.document_id) & (corpusStorage.DocumentMapUnitIndex.job_result_id == corpusStorage.Document.current_job_result_id))
+        statement = statement.join(
+            corpusStorage.DocumentMapUnitIndex,
+            (
+                corpusStorage.DocumentMapUnitIndex.document_id
+                == corpusStorage.Document.document_id
+            )
+            & (
+                corpusStorage.DocumentMapUnitIndex.job_result_id
+                == corpusStorage.Document.current_job_result_id
+            ),
+        )
     capturedRows = (await db.execute(statement)).all()
-    generation_row = capturedRows[0][2] if capturedRows else 0
+    generation_row = (
+        capturedRows[0][2]
+        if capturedRows
+        else await db.scalar(
+            select(corpusStorage.RetrievalNamespaceGeneration.generation)
+            .where(
+                corpusStorage.RetrievalNamespaceGeneration.user_id
+                == corpusStorage.resolve_owner(user_id)
+            )
+            .where(corpusStorage.RetrievalNamespaceGeneration.namespace == namespace)
+        )
+    )
     rows = [(identity, revision) for identity, revision, _generation in capturedRows]
     revisions = {
         str(document_id): str(job_result_id)
@@ -73,17 +105,23 @@ async def is_revision_generation_stable(
     user_id: str,
     namespace: str,
     pins: RetrievalRevisionPins,
+    strict: bool = False,
 ) -> bool:
     """Return whether the namespace generation is unchanged since capture."""
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     try:
         result = await db.execute(
             select(corpusStorage.RetrievalNamespaceGeneration.generation)
-            .where(corpusStorage.RetrievalNamespaceGeneration.user_id == corpusStorage.resolve_owner(user_id))
+            .where(
+                corpusStorage.RetrievalNamespaceGeneration.user_id
+                == corpusStorage.resolve_owner(user_id)
+            )
             .where(corpusStorage.RetrievalNamespaceGeneration.namespace == namespace)
         )
         current_generation = result.scalar_one_or_none()
     except SQLAlchemyError:
         await db.rollback()
+        if strict:
+            raise
         return True
     return int(current_generation or 0) == int(pins.generation or 0)

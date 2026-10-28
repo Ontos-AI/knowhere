@@ -6,6 +6,7 @@ from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from shared.models.schemas.llm_config import LLMConfig
+from shared.models.schemas.progressive_ingestion import EnhancementProgress, PublishedSnapshot
 
 IngestionMode = Literal["full", "progressive"]
 
@@ -103,8 +104,8 @@ class JobCreateV2(JobCreateBase):
             "Ingestion mode for page-memory documents. 'full' runs the "
             "complete C1-C7 pipeline synchronously before publishing; "
             "'progressive' publishes an askable per-page text baseline first, "
-            "then structures coarse scopes in the background and refines hit "
-            "scopes on demand."
+            "then automatically enhances the whole document in the background, "
+            "prioritizing accessed scopes."
         ),
     )
     llm_config: Optional[LLMConfig] = Field(
@@ -163,6 +164,10 @@ class JobResultResponse(BaseModel):
     """Job status query response (for GET /jobs/{job_id}/result)"""
 
     job_result_id: Optional[str] = Field(None, description="Immutable completed publication revision, when available")
+    enhancement: Optional[EnhancementProgress] = Field(default=None, exclude_if=lambda value: value is None)
+    snapshots: Optional[list[PublishedSnapshot]] = Field(default=None, exclude_if=lambda value: value is None)
+    current_snapshot_id: Optional[str] = Field(default=None, exclude_if=lambda value: value is None)
+    page_count: Optional[int] = Field(default=None, ge=1, exclude_if=lambda value: value is None)
 
     job_id: str = Field(..., description="Job ID")
     namespace: Optional[str] = Field(None, description="Effective retrieval namespace")

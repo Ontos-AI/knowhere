@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from contextlib import AbstractAsyncContextManager
 
 from loguru import logger
@@ -23,9 +24,15 @@ from shared.services.retrieval.routing import config as query_router_config
 from shared.services.retrieval.routing.classifier import classify_query_mode
 from shared.services.retrieval.routing.types import QueryMode, RouterDecision
 from shared.services.retrieval.search.ranking import rank_retrieval_candidates
+from shared.services.retrieval.trace.types import DecisionTraceStep
 from shared.services.retrieval.search.scoped_corpus import (
     count_scoped_chunks,
     load_all_scoped_chunks,
+)
+from shared.services.ai.retrieval_ledger import (
+    cleanup_retrieval_ledger,
+    get_current_retrieval_ledger,
+    init_retrieval_ledger,
 )
 from shared.services.retrieval.search.visual_discovery import hybrid_discovery
 
@@ -76,23 +83,27 @@ def _evidence_fields(rows: list[dict]) -> dict:
 async def run_retrieval_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
-    small_corpus_outcome = await _try_run_small_corpus_route(context)
-    if small_corpus_outcome is not None:
-        return small_corpus_outcome
+    init_retrieval_ledger()
+    try:
+        small_corpus_outcome = await _try_run_small_corpus_route(context)
+        if small_corpus_outcome is not None:
+            return small_corpus_outcome
 
-    use_agentic = context.use_agentic
-    decision: RouterDecision | None = None
-    if use_agentic is None:
-        use_agentic, decision = await _resolve_auto_route(context)
+        use_agentic = context.use_agentic
+        decision: RouterDecision | None = None
+        if use_agentic is None:
+            use_agentic, decision = await _resolve_auto_route(context)
 
-    if use_agentic is False:
-        outcome = await _run_classic_topk_route(context)
-    else:
-        outcome = await _run_agent_explore_route(context)
+        if use_agentic is False:
+            outcome = await _run_classic_topk_route(context)
+        else:
+            outcome = await _run_agent_explore_route(context)
 
-    if decision is not None:
-        outcome.response["router_decision"] = decision.to_dict()
-    return outcome
+        if decision is not None:
+            outcome.response["router_decision"] = decision.to_dict()
+        return outcome
+    finally:
+        cleanup_retrieval_ledger()
 
 
 async def _resolve_auto_route(
@@ -170,13 +181,20 @@ async def _try_run_small_corpus_route(
         "answer_text": "",
         "results": results,
     }
-    return RetrievalRouteOutcome(
+    outcome = RetrievalRouteOutcome(
         response=response,
         hit_stats_results=results,
         completion_label="Small corpus",
         completion_count=len(results),
         completion_detail="results",
     )
+    await _persist_retrieval_usage_run(
+        db=context.db,
+        context=context,
+        router_used="small_corpus_all",
+        ranked_rows=results,
+    )
+    return outcome
 
 
 async def _run_classic_topk_route(
@@ -227,13 +245,20 @@ async def _run_classic_topk_route(
         "answer_text": "",
         "results": results,
     }
-    return RetrievalRouteOutcome(
+    outcome = RetrievalRouteOutcome(
         response=response,
         hit_stats_results=results,
         completion_label="CLASSIC TOP-K",
         completion_count=len(results),
         completion_detail="results",
     )
+    await _persist_retrieval_usage_run(
+        db=context.db,
+        context=context,
+        router_used="classic_topk",
+        ranked_rows=results,
+    )
+    return outcome
 
 
 async def _run_agent_explore_route(
@@ -255,7 +280,6 @@ async def _run_agent_explore_route(
         pool_chunk_refs,
     )
     from shared.services.retrieval.agent_explore.harness import resolve_harness
-    from shared.services.retrieval.trace import TraceRecorder
 
     # End any read transaction created by the route's pre-episode work before
     # handing control to the external agent/LLM. The episode can outlive
@@ -316,26 +340,20 @@ async def _run_agent_explore_route(
         selected_doc_ids = list(
             {row.get("document_id", "") for row in resolved.rows if row.get("document_id")}
         )
-        trace = TraceRecorder(
-            final_db,
-            user_id=context.user_id,
-            namespace=context.namespace,
-            query=context.query,
-            top_k=context.top_k,
-            chunk_types=context.allowed_chunk_types,
-            policy_name="agent_explore_v1",
-        )
-        await trace.create_run()
-        for step in decision_steps:
-            trace.record_decision_trace_step(step)
-        if episode.stop_reason.startswith("budget_"):
-            trace.record_budget_stop(episode.stop_reason.removeprefix("budget_"))
-        await trace.complete(
-            assembled_rows,
-            "agent_explore",
-            token_count=episode.tokens_used,
+        await _persist_retrieval_usage_run(
+            db=final_db,
+            context=context,
+            router_used="agent_explore",
+            ranked_rows=assembled_rows,
+            decision_steps=decision_steps,
+            budget_stop_reason=(
+                episode.stop_reason.removeprefix("budget_")
+                if episode.stop_reason.startswith("budget_")
+                else None
+            ),
             model_name=episode.model_name,
             selected_doc_ids=selected_doc_ids,
+            policy_name="agent_explore_v1",
         )
 
     decision_trace = [step.to_dict() for step in decision_steps]
@@ -358,4 +376,51 @@ async def _run_agent_explore_route(
         completion_detail=(
             f"chunks | evidence={len(evidence)} parts | router=agent_explore"
         ),
+    )
+
+
+async def _persist_retrieval_usage_run(
+    *,
+    db: AsyncSession,
+    context: RetrievalRouteContext,
+    router_used: str,
+    ranked_rows: list[dict],
+    decision_steps: Sequence[DecisionTraceStep] | None = None,
+    budget_stop_reason: str | None = None,
+    model_name: str | None = None,
+    selected_doc_ids: list[str] | None = None,
+    policy_name: str = "retrieval_usage_v1",
+) -> None:
+    ledger = get_current_retrieval_ledger()
+    if ledger is None:
+        return
+
+    from shared.services.retrieval.trace import TraceRecorder
+
+    recorder = TraceRecorder(
+        db,
+        user_id=context.user_id,
+        namespace=context.namespace,
+        query=context.query,
+        top_k=context.top_k,
+        chunk_types=context.allowed_chunk_types,
+        policy_name=policy_name,
+        agentic_enabled=router_used == "agent_explore",
+    )
+    await recorder.create_run()
+    for step in decision_steps or []:
+        recorder.record_decision_trace_step(step)
+    if budget_stop_reason:
+        recorder.record_budget_stop(budget_stop_reason)
+    for entry in ledger.entries:
+        recorder.record_model_call(entry)
+    token_count = ledger.total_tokens_or_none()
+    latency_ms = ledger.wall_ms()
+    await recorder.complete(
+        ranked_rows,
+        router_used,
+        token_count=token_count,
+        model_name=model_name,
+        selected_doc_ids=selected_doc_ids,
+        latency_ms=latency_ms,
     )

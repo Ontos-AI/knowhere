@@ -88,3 +88,18 @@ def sweep_progressive_enrichments() -> dict[str, Any]:
         if not acquired:
             return {"status": "skipped", "reason": "duplicate Beat firing"}
         return sweep_progressive_enrichments_sync()
+
+
+@celery_app.task(
+    bind=True,
+    base=ScopeEnrichmentBaseTask,
+    name="app.core.tasks.enrichment_tasks.recover_progressive_revision",
+    ignore_result=True,
+)
+def recover_progressive_revision(self: Any, job_result_id: str) -> dict[str, Any]:
+    from app.services.page_memory.scope_enrichment_service import (
+        execute_progressive_recovery,
+    )
+
+    with log_context(task_id=self.request.id):
+        return execute_progressive_recovery(job_result_id=str(job_result_id))

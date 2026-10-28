@@ -19,7 +19,6 @@ from loguru import logger
 from app.services.document_agent.calibration.types import (
     CalibrationRegime,
     CalibrationResult,
-    CalibrationSegment,
 )
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.structure.hierarchy_locator import (
@@ -35,7 +34,6 @@ from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
     apply_null_page_locates_and_prune,
     prune_unanchored_toc_leaves,
-    serialize_skeleton_anchor,
 )
 from app.services.document_agent.structure import anchoring_primitives as _anchoring
 
@@ -418,89 +416,6 @@ def anchor_hierarchy_from_regimes(
     )
 
 
-def _annotate_regimes_from_anchor(
-    *,
-    result: CalibrationResult,
-    anchor: SkeletonAnchor,
-    entries: list[dict[str, Any]],
-    nodes: list[TitleNode],
-) -> list[CalibrationRegime]:
-    """Attach production segment view onto agent regimes for diagnostics."""
-    path_by_title = {
-        node.title: path for path, node in iter_leaf_title_nodes(nodes)
-    }
-    out: list[CalibrationRegime] = []
-    for regime in result.regimes:
-        kind = normalize_kind(regime.kind)
-        entry_titles = _entry_titles_for_regime(regime=regime, entries=entries)
-        indices = list(regime.entry_indices or [])
-        if not indices:
-            indices = [
-                idx
-                for idx, entry in enumerate(entries)
-                if isinstance(entry, dict)
-                and classify_page_number_kind(entry.get("page_number")) == kind
-            ]
-
-        ok_indices: list[int] = []
-        no_toc: list[int] = []
-        for idx in indices:
-            if idx < 0 or idx >= len(entries):
-                continue
-            heading = str(entries[idx].get("heading") or "")
-            from app.services.document_parser.structure.body_boundary import (
-                normalize_heading_label,
-            )
-
-            title = normalize_heading_label(heading)
-            path = path_by_title.get(title)
-            if path is not None and path in (anchor.match_overrides or {}):
-                ok_indices.append(idx)
-            else:
-                no_toc.append(idx)
-
-        # Fallback: kind-matched leaves present in overrides.
-        if not ok_indices and entry_titles is None:
-            for path, node in iter_leaf_title_nodes(nodes):
-                if _leaf_in_regime(node, kind=kind, entry_titles=None) and path in (
-                    anchor.match_overrides or {}
-                ):
-                    # No stable entry index — treat as complete via offset status.
-                    ok_indices = indices
-                    no_toc = []
-                    break
-
-        segments: list[CalibrationSegment] = []
-        if ok_indices and regime.offset is not None:
-            segments = [
-                CalibrationSegment(
-                    offset=int(regime.offset),
-                    leaf_start=0,
-                    leaf_end=max(0, len(ok_indices) - 1),
-                    entry_indices=ok_indices,
-                    status="ok",
-                )
-            ]
-
-        out.append(
-            CalibrationRegime(
-                kind=kind,
-                offset=regime.offset,
-                offset_status="ok" if segments else "failed",
-                entry_indices=indices,
-                samples=list(regime.samples),
-                segments=segments,
-                no_toc_entry_indices=no_toc,
-                notes=(
-                    f"production_bulk={anchor.bulk_count}; "
-                    f"locate_method={anchor.locate_method}; "
-                    f"regime_anchored={len(ok_indices)}"
-                ),
-            )
-        )
-    return out
-
-
 def finalize_calibration_result(
     *,
     result: CalibrationResult,
@@ -512,7 +427,7 @@ def finalize_calibration_result(
     body_pages: list[int] | None = None,
     nodes: list[TitleNode] | None = None,
 ) -> tuple[list[TitleNode], SkeletonAnchor, CalibrationResult]:
-    """Run production multi-regime Phase-2 from agent candidate offsets."""
+    """Run production multi-regime Phase-2 from candidate offsets."""
     texts = dict(page_texts or {})
     bodies = list(body_pages or sorted(texts.keys()) or list(range(1, page_count + 1)))
     if nodes is None:
@@ -543,18 +458,14 @@ def finalize_calibration_result(
         len(result.regimes),
     )
 
-    regimes = _annotate_regimes_from_anchor(
-        result=result, anchor=anchor, entries=entries, nodes=working
-    )
-    complete = sum(len(r.segments) for r in regimes)
     notes_parts = [result.notes] if result.notes else []
     notes_parts.append(
         f"phase2 production locate_method={anchor.locate_method} "
-        f"bulk={anchor.bulk_count} complete_regime_segments={complete}"
+        f"bulk={anchor.bulk_count}"
     )
     finalized = CalibrationResult(
         status="ok" if anchor.offset_status == "ok" and anchor.bulk_count > 0 else "failed",
-        regimes=regimes,
+        regimes=list(result.regimes),
         offset=anchor.offset,
         offset_status=anchor.offset_status,
         tool_calls=result.tool_calls,
@@ -564,28 +475,3 @@ def finalize_calibration_result(
         scans=list(result.scans),
     )
     return working, anchor, finalized
-
-
-def build_calibration_payload(
-    *,
-    anchor: SkeletonAnchor,
-    result: CalibrationResult,
-    region_payloads: list[dict[str, Any]] | None = None,
-    tool_calls: int | None = None,
-) -> dict[str, Any]:
-    """Production SkeletonAnchor fields + experiment diagnostics."""
-    payload = serialize_skeleton_anchor(anchor)
-    payload.update(
-        {
-            "status": result.status,
-            "regimes": [
-                regime.to_dict() if hasattr(regime, "to_dict") else regime
-                for regime in (result.to_dict().get("regimes") or [])
-            ],
-            "regions": list(region_payloads or []),
-            "tool_calls": int(tool_calls if tool_calls is not None else result.tool_calls),
-            "notes": result.notes,
-            "failure_kind": result.failure_kind,
-        }
-    )
-    return payload

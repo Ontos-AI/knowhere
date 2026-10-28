@@ -25,15 +25,11 @@ def clean_texts_by_form(text, form="html"):
     return text
 
 
-def parse_texts(file_path: str, baseurl: str = "") -> list:
-    """Parse text file and return lines list."""
-    txt_bytes = load_file_bytes(file_path, file_url=baseurl)
-    text = txt_bytes.decode("utf-8")
-    txt_lines = []
-    for line in text.splitlines():
-        line = re.sub(r"\s", "", line)
-        txt_lines.append(line)
-    return txt_lines
+def parse_texts(file_path: str, baseurl: str = "") -> list[str]:
+    """Read UTF-8 lines without removing whitespace within each line."""
+    text_bytes: bytes = load_file_bytes(file_path, file_url=baseurl)
+    text: str = text_bytes.decode("utf-8")
+    return text.splitlines()
 
 
 def divide_long_contents(texts, max_threshold=None, min_threshold=None):

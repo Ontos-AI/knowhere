@@ -359,9 +359,7 @@ def test_full_mode_run_invokes_full_page_dataframe_and_writes_no_phase_b_manifes
         lambda **kwargs: (str(source), "doc.pdf"),
     )
     monkeypatch.setattr(memory_service, "profile_document", fake_profile)
-    monkeypatch.setattr(
-        memory_service, "_build_page_dataframe", fake_build_page_df
-    )
+    monkeypatch.setattr(memory_service, "_build_page_dataframe", fake_build_page_df)
 
     output_dir, _df = memory_service.run(
         PageMemoryInput(
@@ -378,8 +376,9 @@ def test_full_mode_run_invokes_full_page_dataframe_and_writes_no_phase_b_manifes
     assert not (Path(output_dir) / PHASE_B_BLACKBOARD_REL).exists()
 
 
+@pytest.mark.parametrize("embedding_status", ["pending", "missing"])
 def test_page_memory_upload_m0_marks_text_status(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, embedding_status: str
 ) -> None:
     result_dir = tmp_path / "result_m0"
     result_dir.mkdir()
@@ -392,6 +391,9 @@ def test_page_memory_upload_m0_marks_text_status(
     zip_path.write_bytes(b"zip")
 
     class FakeStorage:
+        def upload_raw_file(self, **kwargs: object) -> None:
+            assert kwargs["raw_prefix"] == "results/job-m0/"
+
         def upload(self, **kwargs: object) -> SimpleNamespace:
             refs = sorted(kwargs["artifact_refs"] or [])
             return SimpleNamespace(
@@ -409,7 +411,11 @@ def test_page_memory_upload_m0_marks_text_status(
     success_finalization_mod._upload_result_package(  # noqa: SLF001
         result_package=ParseResultPackage(
             artifact=ParseArtifact(add_dir=str(result_dir), dataframe=pd.DataFrame()),
-            chunks=[],
+            chunks=[{
+                "chunk_id": "native-page", "type": "page", "content": "native body",
+                "path": "native.pdf/p1",
+                "metadata": {"embedding_status": embedding_status, "page_nums": [1]},
+            }],
         ),
         generated_package=GeneratedResultPackage(
             zip_file_path=str(zip_path),
@@ -427,6 +433,7 @@ def test_page_memory_upload_m0_marks_text_status(
         ),  # type: ignore[arg-type]
     )
     assert persisted["enrichment_status"] == "text"
+    assert persisted["progressive_missing_embedding_pages"] == [1]
     assert persisted["page_memory_phase_b"] == [
         PHASE_B_SOURCE_PDF_REL,
         PHASE_B_BLACKBOARD_REL,
@@ -529,24 +536,66 @@ def test_result_storage_uploads_phase_b_internal_files(tmp_path: Path) -> None:
     assert "results/job-1/pages/page-1.png" not in adapter.uploaded_keys
 
 
-def test_scanned_progressive_m0_builds_visual_page_chunks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("is_scanned", [True, False])
+def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, is_scanned: bool
 ) -> None:
     from app.services.page_memory import memory_service, page_renderer
+    from app.services.document_agent.coordinator import ProfileCoordinator
+    from app.services.document_agent.manifest import DocumentProfile
+    from app.services.document_agent.registry import REGISTRY
     from app.services.page_memory.memory_service import PageMemoryInput
     from shared.core.config import settings
     from shared.services.ai import embedding as embedding_pkg
     from shared.services.ai.embedding import DEFAULT_EMBEDDING_DIM
 
+    ocr_called: list[bool] = []
+    monkeypatch.setattr(
+        REGISTRY,
+        "dispatch",
+        lambda name, ctx, args: (
+            ocr_called.append(True)
+            if name == "ocr.pages"
+            else SimpleNamespace(status="ok", payload={}, output_summary={})
+        ),
+    )
+
+    import pymupdf
+
     source = tmp_path / "scanned.pdf"
-    source.write_bytes(b"%PDF")
+    with pymupdf.open() as document:
+        document.new_page()
+        document.new_page()
+        document.save(source)
+    coord = ProfileCoordinator(
+        pdf_path=str(source),
+        job_id="job-scan-m0",
+        output_dir=str(tmp_path / "_agent"),
+        db=None,
+        model="deepseek-flash",
+        settings={"skip_scanned_ocr": True},
+    )
+    coord.blackboard.page_count = 2
+    coord.blackboard.document_profile = DocumentProfile(
+        is_scanned=is_scanned,
+        category=["04000000"],
+        category_label="Scanned Report",
+        routing_category="scanned" if is_scanned else "generic",
+        language="en",
+    )
+    coord._run_text_scan()  # noqa: SLF001
+    assert ocr_called == []
+    assert not any(
+        bands.lines for bands in coord.blackboard.page_full_text_cache.values()
+    )
+
     profile = _profile(
         skeletons=[],
         page_texts={},
         body_texts={},
         monkeypatch=monkeypatch,
     )
-    profile.is_scanned = True
+    profile.is_scanned = is_scanned
     profile.page_count = 2
 
     def fake_profile(*args: object, **kwargs: object) -> SimpleNamespace:
@@ -601,9 +650,41 @@ def test_scanned_progressive_m0_builds_visual_page_chunks(
         chunks[0]["metadata"]["page_assets"][0]["artifact_ref"]
         == "page_citation_assets/page-1.png"
     )
-    assert (
-        Path(output_dir) / "page_citation_assets" / "page-1.png"
-    ).is_file()
+    assert (Path(output_dir) / "page_citation_assets" / "page-1.png").is_file()
+
+
+def test_visual_baseline_records_missing_embedding_without_losing_page_row(
+    tmp_path: Path,
+) -> None:
+    dataframe = build_coarse_text_dataframe(
+        page_texts={},
+        body_text_by_page={},
+        page_count=2,
+        filename="scan.pdf",
+        image_path_by_page={},
+        embeddings_by_page={1: [0.1]},
+        output_dir=str(tmp_path),
+    )
+    metadata = list(dataframe["extra_metadata"])
+    assert len(metadata) == 2
+    assert metadata[0]["embedding_status"] == "complete"
+    assert metadata[1]["embedding_status"] == "missing"
+
+
+def test_native_baseline_defers_visual_vectors_without_losing_required_work(
+    tmp_path: Path,
+) -> None:
+    from app.services.page_memory.phase_a import build_coarse_text_dataframe
+
+    dataframe = build_coarse_text_dataframe(
+        page_count=2, filename="native.pdf",
+        page_texts={1: "native body", 2: "chart caption"}, body_text_by_page={},
+        image_path_by_page={1: "page-1.png", 2: "page-2.png"},
+        embeddings_by_page=None, output_dir=str(tmp_path),
+    )
+    chunks = dataframe_to_chunks(dataframe)
+    assert [chunk["metadata"]["embedding_status"] for chunk in chunks] == ["pending", "pending"]
+    assert all("_page_embedding" not in chunk["metadata"] for chunk in chunks)
 
 
 def test_routing_scanned_progressive_m0_also_embeds_pages(
@@ -663,5 +744,3 @@ def test_routing_scanned_progressive_m0_also_embeds_pages(
     chunks = dataframe_to_chunks(dataframe)
     assert len(chunks) == 1
     assert chunks[0]["metadata"]["_page_embedding"][0] == 1.0
-
-
