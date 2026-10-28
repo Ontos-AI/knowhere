@@ -119,6 +119,8 @@ def test_merge_token_usage_adds_task_buckets_without_replacing() -> None:
 
 
 def test_record_provider_usage_writes_retrieval_ledger_not_parse_tracker() -> None:
+    parse_tracker = init_token_tracker()
+    parse_tracker["total_tokens"] = 4
     init_retrieval_ledger()
     try:
         record_provider_usage(
@@ -137,6 +139,7 @@ def test_record_provider_usage_writes_retrieval_ledger_not_parse_tracker() -> No
         assert ledger.total_tokens_or_none() == 8
     finally:
         cleanup_retrieval_ledger()
+        cleanup_token_tracker()
 
 
 def test_retrieval_ledger_unknown_tokens_keep_run_total_empty() -> None:

@@ -50,9 +50,16 @@ async def test_persist_writes_model_steps_and_query_totals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     recorder = _Recorder()
+    captured: dict[str, Any] = {}
+
+    def _factory(*args: object, **kwargs: object) -> _Recorder:
+        del args
+        captured.update(kwargs)
+        return recorder
+
     monkeypatch.setattr(
         "shared.services.retrieval.trace.TraceRecorder",
-        lambda *args, **kwargs: recorder,
+        _factory,
     )
     init_retrieval_ledger()
     try:
@@ -95,12 +102,72 @@ async def test_persist_writes_model_steps_and_query_totals(
         assert len(recorder.model_calls) == 2
         assert recorder.complete_kwargs["token_count"] == 18
         assert recorder.complete_kwargs["latency_ms"] >= 0
+        assert captured["agentic_enabled"] is False
     finally:
         cleanup_retrieval_ledger()
 
 
 @pytest.mark.asyncio
-async def test_persist_skips_classic_when_ledger_is_closed() -> None:
+async def test_persist_marks_agent_explore_as_agentic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _factory(*args: object, **kwargs: object) -> _Recorder:
+        del args
+        captured.update(kwargs)
+        return _Recorder()
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.trace.TraceRecorder",
+        _factory,
+    )
+    init_retrieval_ledger()
+    try:
+        context = RetrievalRouteContext(
+            db=cast(AsyncSession, object()),
+            user_id="u1",
+            namespace="ns",
+            query="q",
+            top_k=3,
+            exclude_document_ids=[],
+            exclude_sections=[],
+            allowed_chunk_types=None,
+            chunk_types=None,
+            signal_paths=None,
+            filter_mode="delete",
+            rerank=False,
+            threshold=0.0,
+            internal_recall_k=None,
+            effective_recall_k=3,
+            use_agentic=True,
+        )
+        await _persist_retrieval_usage_run(
+            db=cast(AsyncSession, object()),
+            context=context,
+            router_used="agent_explore",
+            ranked_rows=[],
+        )
+        assert captured["agentic_enabled"] is True
+    finally:
+        cleanup_retrieval_ledger()
+
+
+@pytest.mark.asyncio
+async def test_persist_skips_when_ledger_is_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created: list[object] = []
+
+    def _factory(*args: object, **kwargs: object) -> _Recorder:
+        del args, kwargs
+        created.append(object())
+        return _Recorder()
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.trace.TraceRecorder",
+        _factory,
+    )
     context = RetrievalRouteContext(
         db=cast(AsyncSession, object()),
         user_id="u1",
@@ -122,9 +189,10 @@ async def test_persist_skips_classic_when_ledger_is_closed() -> None:
     await _persist_retrieval_usage_run(
         db=cast(AsyncSession, object()),
         context=context,
-        router_used="classic_topk",
+        router_used="agent_explore",
         ranked_rows=[],
     )
+    assert created == []
 
 
 def test_cursor_missing_usage_does_not_become_zero() -> None:

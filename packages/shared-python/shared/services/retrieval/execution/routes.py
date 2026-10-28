@@ -354,8 +354,6 @@ async def _run_agent_explore_route(
             model_name=episode.model_name,
             selected_doc_ids=selected_doc_ids,
             policy_name="agent_explore_v1",
-            require_ledger=False,
-            episode_token_count=episode.tokens_used,
         )
 
     decision_trace = [step.to_dict() for step in decision_steps]
@@ -392,11 +390,9 @@ async def _persist_retrieval_usage_run(
     model_name: str | None = None,
     selected_doc_ids: list[str] | None = None,
     policy_name: str = "retrieval_usage_v1",
-    require_ledger: bool = True,
-    episode_token_count: int | None = None,
 ) -> None:
     ledger = get_current_retrieval_ledger()
-    if require_ledger and ledger is None:
+    if ledger is None:
         return
 
     from shared.services.retrieval.trace import TraceRecorder
@@ -409,19 +405,17 @@ async def _persist_retrieval_usage_run(
         top_k=context.top_k,
         chunk_types=context.allowed_chunk_types,
         policy_name=policy_name,
+        agentic_enabled=router_used == "agent_explore",
     )
     await recorder.create_run()
     for step in decision_steps or []:
         recorder.record_decision_trace_step(step)
     if budget_stop_reason:
         recorder.record_budget_stop(budget_stop_reason)
-    if ledger is not None:
-        for entry in ledger.entries:
-            recorder.record_model_call(entry)
-    token_count = (
-        ledger.total_tokens_or_none() if ledger is not None else episode_token_count
-    )
-    latency_ms = ledger.wall_ms() if ledger is not None else None
+    for entry in ledger.entries:
+        recorder.record_model_call(entry)
+    token_count = ledger.total_tokens_or_none()
+    latency_ms = ledger.wall_ms()
     await recorder.complete(
         ranked_rows,
         router_used,

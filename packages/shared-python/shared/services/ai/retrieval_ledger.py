@@ -46,6 +46,9 @@ _ledger: ContextVar[RetrievalLedger | None] = ContextVar(
 
 
 def init_retrieval_ledger() -> RetrievalLedger:
+    from shared.services.ai.token_tracking import cleanup_token_tracker
+
+    cleanup_token_tracker()
     ledger = RetrievalLedger()
     _ledger.set(ledger)
     return ledger

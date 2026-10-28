@@ -192,6 +192,7 @@ def test_roman_and_decimal_regimes_calibrate_independently(patch_scan) -> None:
         [
             {"heading": "Preface", "page_number": "ii", "level": 1},
             {"heading": "Foreword", "page_number": "iv", "level": 1},
+            {"heading": "Acknowledgments", "page_number": "xxv", "level": 1},
             {"heading": "Chapter 1", "page_number": "10", "level": 1},
             {"heading": "Chapter 2", "page_number": "20", "level": 1},
         ]
@@ -205,8 +206,50 @@ def test_roman_and_decimal_regimes_calibrate_independently(patch_scan) -> None:
         ("roman", 2),
         ("decimal", 5),
     }
-    # Both regimes scan from toc_end + 1 (printed floor disabled).
-    assert fake.calls == [("Preface", 4), ("Chapter 1", 4)]
+    # Roman confirms offset=2 (xxv=25 -> physical 27), so decimal starts at 28
+    # instead of re-scanning the 20+ roman front-matter pages from toc_end + 1.
+    assert fake.calls == [("Preface", 4), ("Chapter 1", 28)]
+
+
+def test_long_roman_front_matter_advances_cursor_for_decimal_body(
+    patch_scan,
+) -> None:
+    """SICP shape: TOC pages 3..8, roman ix..xxv (9..25), decimal body at p35."""
+    fake = patch_scan(
+        _FakeScan(
+            {
+                "Unofficial Texinfo Format": 9,
+                "1.1.1 Expressions": 35,
+            }
+        )
+    )
+    hierarchies = [
+        {
+            "toc_range": [3, 8],
+            "toc_with_level": [
+                {"heading": "Unofficial Texinfo Format", "page_number": "ix", "level": 1},
+                {"heading": "Dedication", "page_number": "xii", "level": 1},
+                {"heading": "Acknowledgments", "page_number": "xxv", "level": 1},
+                {"heading": "1 Building Abstractions", "page_number": "1", "level": 1},
+                {"heading": "1.1 The Elements of Programming", "page_number": "6", "level": 2},
+                {"heading": "1.1.1 Expressions", "page_number": "7", "level": 3},
+            ],
+        }
+    ]
+
+    result = run_calibration_phase1(
+        ctx=_ctx(page_count=883), toc_hierarchies=hierarchies, page_count=883
+    )
+
+    assert [(r.kind, r.offset) for r in result.regimes] == [
+        ("roman", 0),
+        ("decimal", 28),
+    ]
+    # Roman starts at toc_end+1=9, spans through xxv+0=25 → decimal starts at 26.
+    assert fake.calls == [
+        ("Unofficial Texinfo Format", 9),
+        ("1.1.1 Expressions", 26),
+    ]
 
 
 def test_scan_starts_after_toc_so_negative_offset_is_allowed(

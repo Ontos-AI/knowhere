@@ -172,6 +172,15 @@ def execute_structure_enrichment(
             job_metadata=target.job_metadata,
             output_dir=add_dir,
         )
+        publication_scope = _build_publication_scope(
+            target=target,
+            job_result_id=job_result_id,
+        )
+        _generate_and_persist_page_embeddings(
+            add_dir=add_dir,
+            workspace_dir=workspace_dir,
+            publication_scope=publication_scope,
+        )
         profile = _resume_profile_from_m0_workspace(
             add_dir=add_dir,
             target=target,
@@ -217,10 +226,6 @@ def execute_structure_enrichment(
                     target.job_metadata, "summary_use_llm", False
                 )
             ),
-        )
-        publication_scope = _build_publication_scope(
-            target=target,
-            job_result_id=job_result_id,
         )
         published_ok = _publish_coarse_structure_and_write_scopes(
             job_result_id=job_result_id,
@@ -683,6 +688,22 @@ def _load_and_validate_structure_target(
         )
 
 
+def _load_m0_document_profile(bb_raw: dict[str, Any]) -> Any:
+    from app.services.document_agent.manifest import DocumentProfile
+    from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
+
+    dp_raw = bb_raw.get("document_profile") or {}
+    return DocumentProfile(
+        is_scanned=bool(dp_raw.get("is_scanned", False)),
+        category=list(dp_raw.get("category") or [OTHER_CODE]),
+        category_label=str(dp_raw.get("category_label") or "unknown"),
+        routing_category=str(dp_raw.get("routing_category") or "generic"),
+        language=str(dp_raw.get("language") or "unknown"),
+        header_y=dp_raw.get("header_y"),
+        footer_y=dp_raw.get("footer_y"),
+    )
+
+
 def _resume_profile_from_m0_workspace(
     *,
     add_dir: str,
@@ -690,7 +711,6 @@ def _resume_profile_from_m0_workspace(
     job_result_id: str,
 ) -> Any:
     from app.services.document_agent.coordinator import ProfileCoordinator
-    from app.services.document_agent.manifest import DocumentProfile
     from app.services.document_agent.pdf_text import (
         page_bands_map,
         page_body_content_map,
@@ -701,7 +721,6 @@ def _resume_profile_from_m0_workspace(
         _prefix_toc_keywords_for_categories,
     )
     from app.services.document_parser.profiling.doc_profiler import _map_toc_profile
-    from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
     from app.services.document_parser.profiling.profile_model import (
         ParserDocumentProfile,
     )
@@ -729,16 +748,7 @@ def _resume_profile_from_m0_workspace(
     bb_raw = _read_json_dict(bb_path)
     bb = coordinator.blackboard
     bb.page_count = int(bb_raw.get("page_count") or 0)
-    dp_raw = bb_raw.get("document_profile") or {}
-    doc_profile = DocumentProfile(
-        is_scanned=bool(dp_raw.get("is_scanned", False)),
-        category=list(dp_raw.get("category") or [OTHER_CODE]),
-        category_label=str(dp_raw.get("category_label") or "unknown"),
-        routing_category=str(dp_raw.get("routing_category") or "generic"),
-        language=str(dp_raw.get("language") or "unknown"),
-        header_y=dp_raw.get("header_y"),
-        footer_y=dp_raw.get("footer_y"),
-    )
+    doc_profile = _load_m0_document_profile(bb_raw)
     bb.document_profile = doc_profile
     coordinator._coarse_profile_cache = doc_profile
     features, labels = _parse_features_and_labels(
@@ -913,10 +923,13 @@ def _generate_and_persist_page_embeddings(
     *,
     add_dir: str,
     workspace_dir: str,
-    profile: Any,
     publication_scope: DocumentPublicationScope,
 ) -> int:
-    """Render and embed pages for electronic documents after coarse structure publish."""
+    """Render and embed pages for electronic documents before coarse structure build."""
+    from app.services.document_agent.pdf_text import (
+        page_bands_map,
+        page_content_map,
+    )
     from app.services.page_memory.page_renderer import render_document_pages
     from shared.core.config import settings
     from shared.services.retrieval.cache_service import (
@@ -928,18 +941,24 @@ def _generate_and_persist_page_embeddings(
 
     if not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)):
         return 0
-    if treat_profile_as_scanned(profile):
-        return 0
-    page_count = max(int(getattr(profile, "page_count", 0) or 0), 0)
-    if page_count <= 0:
-        return 0
 
     try:
+        bb_raw = _read_json_dict(os.path.join(add_dir, PHASE_B_BLACKBOARD_REL))
+        doc_profile = _load_m0_document_profile(bb_raw)
+        if treat_profile_as_scanned(doc_profile):
+            return 0
+        page_count = max(int(bb_raw.get("page_count") or 0), 0)
+        if page_count <= 0:
+            return 0
         pdf_path = os.path.join(add_dir, PHASE_B_SOURCE_PDF_REL)
         pages = list(range(1, page_count + 1))
-        page_texts = coerce_page_text_cache(
-            getattr(profile, "page_full_text_cache", None)
-        )
+        full_text_path = os.path.join(add_dir, PHASE_B_FULL_TEXT_REL)
+        if os.path.isfile(full_text_path):
+            page_texts = coerce_page_text_cache(_read_json_dict(full_text_path))
+        else:
+            page_texts = page_content_map(
+                page_bands_map(bb_raw.get("page_full_text_bands") or {})
+            )
         rendered = render_document_pages(
             pdf_path=pdf_path,
             page_count=page_count,

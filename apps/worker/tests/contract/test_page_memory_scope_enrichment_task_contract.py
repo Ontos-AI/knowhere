@@ -1505,9 +1505,12 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
         page_full_text_cache={1: "p1 text", 2: "p2 text", 3: "p3 text", 4: "p4 text"},
         page_body_text_cache={1: "p1 body", 2: "p2 body", 3: "p3 body", 4: "p4 body"},
     )
+    call_order: list[str] = []
+
     def _resume_and_record(**_kw: object) -> object:
         from shared.services.ai.token_tracking import record_tokens
 
+        call_order.append("resume_profile")
         record_tokens(
             {"prompt_tokens": 6, "completion_tokens": 1, "total_tokens": 7},
             model="test-toc-model",
@@ -1540,6 +1543,7 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
         page_texts: dict[int, str],
         **_kw: object,
     ) -> list[PageRenderResult]:
+        call_order.append(f"render:{scope_id}")
         render_dir = Path(output_dir) / "pages" / scope_id
         render_dir.mkdir(parents=True, exist_ok=True)
         out: list[PageRenderResult] = []
@@ -1565,7 +1569,9 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
     monkeypatch.setattr(
         embedding_pkg,
         "embed_images",
-        lambda inputs, **_kw: [vec_one for _ in inputs],
+        lambda inputs, **_kw: (
+            call_order.append("embed_images") or [vec_one for _ in inputs]
+        ),
     )
 
     storage = _InMemoryResultStorage(
@@ -1679,6 +1685,7 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
         )
         assert result["status"] == "coarse"
         assert result["scope_count"] == 2
+        assert call_order == ["render:m0_defer", "embed_images", "resume_profile"]
         assert PHASE_B_MANIFEST_REL not in storage.uploaded_raw
         assert any(
             reference.startswith("phase_b/") and reference.endswith("/manifest.json")
