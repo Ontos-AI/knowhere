@@ -210,6 +210,7 @@ def execute_structure_enrichment(
             job_id=target.job_id,
             raw_prefix=target.raw_prefix,
             workspace_dir=workspace_dir,
+            add_dir=add_dir,
             artifact_refs=set(phase_b_artifacts),
             artifact_mapping=phase_b_artifacts,
         )
@@ -1166,17 +1167,29 @@ def _upload_scope_artifacts(
     workspace_dir: str,
     artifact_refs: set[str],
     artifact_mapping: dict[str, str] | None = None,
+    add_dir: str | None = None,
 ) -> None:
     if not artifact_refs:
         return
-    add_dirs = [
-        os.path.join(workspace_dir, entry)
-        for entry in os.listdir(workspace_dir)
-        if os.path.isdir(os.path.join(workspace_dir, entry))
-    ]
-    if not add_dirs:
+    if add_dir is None:
+        add_dirs = [
+            os.path.join(workspace_dir, entry)
+            for entry in os.listdir(workspace_dir)
+            if os.path.isdir(os.path.join(workspace_dir, entry))
+        ]
+        add_dir = next(
+            (
+                child
+                for child in add_dirs
+                if any(
+                    os.path.isfile(os.path.join(child, relative_path))
+                    for relative_path in artifact_refs
+                )
+            ),
+            add_dirs[0] if add_dirs else None,
+        )
+    if not add_dir:
         return
-    add_dir = add_dirs[0]
     for relative_path in sorted(artifact_refs):
         local_path = os.path.join(add_dir, relative_path)
         if not os.path.isfile(local_path):
