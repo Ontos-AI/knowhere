@@ -9,10 +9,12 @@ from sqlalchemy import delete, event, select
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import DocumentChunk, DocumentSection
+from shared.services.chunks.chunk_connections import merge_connections
 from shared.services.retrieval.cache_service import (
     bump_retrieval_namespace_cache_version_sync,
 )
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.hydration.row_utils import iter_connected_target_ids
 from shared.services.retrieval.map_unit_index import replace_document_map_units
 from shared.services.retrieval.page_embedding_index import (
     extract_and_strip_page_embeddings,
@@ -61,17 +63,25 @@ def replace_document_scope_content(
         )
 
     with trace_publication_stage(trace, "chunks_persist"):
-        delete_stmt = (
-            delete(corpusStorage.DocumentChunk)
-            .where(corpusStorage.DocumentChunk.document_id == scope.document_id)
-            .where(corpusStorage.DocumentChunk.job_result_id == scope.job_result_id)
-        )
-        if scope_id != "*":
-            delete_stmt = delete_stmt.where(
-                corpusStorage.DocumentChunk.chunk_metadata["scope_id"].as_string()
-                == scope_id
+        if scope_id == "*":
+            db.execute(
+                delete(corpusStorage.DocumentChunk)
+                .where(corpusStorage.DocumentChunk.document_id == scope.document_id)
+                .where(corpusStorage.DocumentChunk.job_result_id == scope.job_result_id)
             )
-        db.execute(delete_stmt)
+        else:
+            _delete_or_transfer_scope_chunks(
+                db,
+                corpus_storage=corpusStorage,
+                scope=scope,
+                scope_id=scope_id,
+            )
+        deduped_chunks = _reuse_existing_revision_source_paths(
+            db,
+            corpus_storage=corpusStorage,
+            scope=scope,
+            incoming_chunks=deduped_chunks,
+        )
 
     with trace_publication_stage(trace, "sections_persist"):
         _delete_scope_exclusive_leaf_sections(
@@ -166,6 +176,160 @@ def replace_document_scope_content(
         namespace=scope.namespace,
     )
     return manifest_payload
+
+
+def _delete_or_transfer_scope_chunks(
+    db: Session,
+    *,
+    corpus_storage: CorpusStorage,
+    scope: DocumentPublicationScope,
+    scope_id: str,
+) -> None:
+    """Delete this scope's chunks, transferring shared boundary assets to live peers."""
+    scope_chunks = list(
+        db.scalars(
+            select(corpus_storage.DocumentChunk)
+            .where(corpus_storage.DocumentChunk.document_id == scope.document_id)
+            .where(corpus_storage.DocumentChunk.job_result_id == scope.job_result_id)
+            .where(
+                corpus_storage.DocumentChunk.chunk_metadata["scope_id"].as_string()
+                == scope_id
+            )
+        ).all()
+    )
+    if not scope_chunks:
+        return
+
+    scope_assets_by_id = {
+        str(chunk.chunk_id): chunk
+        for chunk in scope_chunks
+        if chunk.chunk_type in ("image", "table") and chunk.chunk_id
+    }
+    transferred_asset_pks: set[str] = set()
+    if scope_assets_by_id:
+        peer_chunks = list(
+            db.scalars(
+                select(corpus_storage.DocumentChunk)
+                .where(corpus_storage.DocumentChunk.document_id == scope.document_id)
+                .where(corpus_storage.DocumentChunk.job_result_id == scope.job_result_id)
+                .where(
+                    corpus_storage.DocumentChunk.chunk_metadata["scope_id"].as_string()
+                    != scope_id
+                )
+            ).all()
+        )
+        for peer in peer_chunks:
+            peer_meta = peer.chunk_metadata if isinstance(peer.chunk_metadata, dict) else {}
+            peer_scope_id = str(peer_meta.get("scope_id") or "").strip()
+            if not peer_scope_id:
+                continue
+            for target_id in iter_connected_target_ids({"chunk_metadata": peer_meta}):
+                asset_row = scope_assets_by_id.get(target_id)
+                if asset_row is None or asset_row.id in transferred_asset_pks:
+                    continue
+                asset_meta = dict(asset_row.chunk_metadata or {})
+                asset_meta["scope_id"] = peer_scope_id
+                asset_row.chunk_metadata = asset_meta
+                transferred_asset_pks.add(str(asset_row.id))
+
+    delete_pks = [
+        str(chunk.id)
+        for chunk in scope_chunks
+        if str(chunk.id) not in transferred_asset_pks
+    ]
+    if delete_pks:
+        db.execute(
+            delete(corpus_storage.DocumentChunk)
+            .where(corpus_storage.DocumentChunk.document_id == scope.document_id)
+            .where(corpus_storage.DocumentChunk.job_result_id == scope.job_result_id)
+            .where(corpus_storage.DocumentChunk.id.in_(delete_pks))
+        )
+    db.flush()
+
+
+def _reuse_existing_revision_source_paths(
+    db: Session,
+    *,
+    corpus_storage: CorpusStorage,
+    scope: DocumentPublicationScope,
+    incoming_chunks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Reuse existing peer chunks on overlapping boundary pages instead of colliding."""
+    incoming_paths = [
+        source_path
+        for chunk in incoming_chunks
+        if (
+            source_path := _get_source_path(
+                chunk=chunk,
+                chunk_metadata=_get_chunk_metadata(chunk),
+            )
+        )
+    ]
+    if not incoming_paths:
+        return incoming_chunks
+
+    existing_by_path = {
+        str(row.source_chunk_path): row
+        for row in db.scalars(
+            select(corpus_storage.DocumentChunk)
+            .where(corpus_storage.DocumentChunk.document_id == scope.document_id)
+            .where(corpus_storage.DocumentChunk.job_result_id == scope.job_result_id)
+            .where(corpus_storage.DocumentChunk.source_chunk_path.in_(incoming_paths))
+        ).all()
+        if row.source_chunk_path
+    }
+    if not existing_by_path:
+        return incoming_chunks
+
+    remapped_ids: dict[str, str] = {}
+    incoming_edges_by_existing_id: dict[str, list[Any]] = {}
+    retained_chunks: list[dict[str, Any]] = []
+    for chunk in incoming_chunks:
+        metadata = _get_chunk_metadata(chunk)
+        source_path = _get_source_path(chunk=chunk, chunk_metadata=metadata)
+        existing = existing_by_path.get(source_path or "")
+        if existing is None:
+            retained_chunks.append(chunk)
+            continue
+        incoming_id = str(chunk.get("chunk_id") or "").strip()
+        existing_id = str(existing.chunk_id or "").strip()
+        if incoming_id and existing_id and incoming_id != existing_id:
+            remapped_ids[incoming_id] = existing_id
+        incoming_edges = metadata.get("connect_to")
+        if existing_id and isinstance(incoming_edges, list) and incoming_edges:
+            incoming_edges_by_existing_id.setdefault(existing_id, []).extend(
+                incoming_edges
+            )
+
+    if remapped_ids:
+        for chunk in retained_chunks:
+            metadata = _get_chunk_metadata(chunk)
+            connections = metadata.get("connect_to")
+            if not isinstance(connections, list) or not connections:
+                continue
+            rewritten: list[Any] = []
+            for item in connections:
+                if not isinstance(item, dict):
+                    rewritten.append(item)
+                    continue
+                target = str(item.get("target") or "").strip()
+                mapped = remapped_ids.get(target)
+                rewritten.append({**item, "target": mapped} if mapped else item)
+            metadata["connect_to"] = merge_connections(rewritten)
+
+    for row in existing_by_path.values():
+        extra_edges = incoming_edges_by_existing_id.get(str(row.chunk_id or ""))
+        if not extra_edges:
+            continue
+        row_meta = dict(row.chunk_metadata or {})
+        existing_edges = row_meta.get("connect_to")
+        row_meta["connect_to"] = merge_connections(
+            existing_edges if isinstance(existing_edges, list) else [],
+            extra_edges,
+        )
+        row.chunk_metadata = row_meta
+
+    return retained_chunks
 
 
 def _delete_scope_exclusive_leaf_sections(

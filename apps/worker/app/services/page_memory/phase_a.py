@@ -26,7 +26,10 @@ from app.services.page_memory._utils import (
     page_scope_info,
 )
 from app.services.page_memory.body_text_preview import build_body_text_preview
-from app.services.page_memory.fine_hierarchy import build_next_title_by_path
+from app.services.page_memory.fine_hierarchy import (
+    EndTitleAnchor,
+    build_next_title_by_path,
+)
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
 from shared.services.chunks.path_segments import join_document_path
 
@@ -53,7 +56,7 @@ COARSE_ENRICHMENT_STATE = "coarse"
 @dataclass(frozen=True)
 class PhaseAResult:
     coarse_scopes: list[CoarseScope]
-    next_title_by_path: dict[str, str | None]
+    next_title_by_path: dict[str, EndTitleAnchor]
     toc_pages: list[int]
     skeletons: list[SectionSkeleton]
     coarse_df: pd.DataFrame
@@ -181,7 +184,7 @@ def build_phase_a_manifest(
     page_count: int,
     skeletons: list[SectionSkeleton],
     coarse_scopes: list[CoarseScope],
-    next_title_by_path: dict[str, str | None],
+    next_title_by_path: dict[str, EndTitleAnchor],
     toc_pages: list[int],
 ) -> dict[str, Any]:
     scope_entries: list[dict[str, Any]] = []
@@ -467,13 +470,29 @@ def skeletons_from_rows(rows: list[Any]) -> list[SectionSkeleton]:
     return skeletons
 
 
-def next_title_by_path_from_manifest(manifest: dict[str, Any]) -> dict[str, str | None]:
+def next_title_by_path_from_manifest(
+    manifest: dict[str, Any],
+) -> dict[str, EndTitleAnchor]:
     raw = manifest.get("next_title_by_path")
     if not isinstance(raw, dict):
         raise ValueError("phase A manifest is missing next_title_by_path")
-    next_map: dict[str, str | None] = {}
+    next_map: dict[str, EndTitleAnchor] = {}
     for path, title in raw.items():
-        next_map[str(path)] = None if title is None else str(title)
+        if title is None:
+            next_map[str(path)] = None
+        elif isinstance(title, list | tuple):
+            items = [str(x).strip() for x in title if str(x).strip()]
+            next_map[str(path)] = (
+                None if not items else items[0] if len(items) == 1 else items
+            )
+        else:
+            next_map[str(path)] = str(title)
+    skeleton_rows = manifest.get("skeletons")
+    if isinstance(skeleton_rows, list) and skeleton_rows:
+        recomputed = build_next_title_by_path(skeletons_from_rows(skeleton_rows))
+        for path, anchors in recomputed.items():
+            if anchors is not None:
+                next_map[path] = anchors
     return next_map
 
 
