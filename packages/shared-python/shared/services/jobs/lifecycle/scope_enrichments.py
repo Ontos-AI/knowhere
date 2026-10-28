@@ -193,6 +193,7 @@ def _on_demand_retryable_scope_filter(now: datetime) -> ColumnElement[bool]:
             DocumentScopeEnrichment.state == _COARSE_STATE,
             DocumentScopeEnrichment.last_hit_at.is_not(None),
         ),
+        DocumentScopeEnrichment.state == _QUEUED_STATE,
         and_(
             DocumentScopeEnrichment.state == _FAILED_STATE,
             DocumentScopeEnrichment.attempts < MAX_SCOPE_ENRICHMENT_ATTEMPTS,
