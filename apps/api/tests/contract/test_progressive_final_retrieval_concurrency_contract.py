@@ -20,7 +20,6 @@ from shared.services.retrieval.publication_scope_content import (
 from shared.services.retrieval.publication_service import RetrievalPublicationService
 from shared.services.retrieval.serving_generation import (
     advance_namespace_generation,
-    lock_namespace_generation,
 )
 from shared.testing.contract_runtime import (
     PostgreSQLProcess,
@@ -73,9 +72,6 @@ def test_query_retries_if_final_publication_crosses_a_serving_read(
     from shared.services.retrieval.execution import plan
     from shared.services.retrieval.execution import routes
     from shared.services.retrieval.app_service import run_retrieval_query
-    from shared.services.retrieval.namespace_map_snapshot import (
-        patch_namespace_map_snapshot,
-    )
     from shared.core.exceptions.domain_exceptions import ConflictException
 
     engine = create_engine(
@@ -110,9 +106,6 @@ def test_query_retries_if_final_publication_crosses_a_serving_read(
 
     def publish_final() -> None:
         with Session(engine) as db:
-            generation = lock_namespace_generation(
-                db, user_id=scope.user_ref, namespace=scope.namespace_ref
-            )
             db.execute(
                 select(Document)
                 .where(Document.document_id == document_id)
@@ -125,20 +118,8 @@ def test_query_retries_if_final_publication_crosses_a_serving_read(
                 job_result_id=scope.revision_ref,
                 source_file_name="report.pdf",
             )
-            payload = replace_document_scope_content(
+            replace_document_scope_content(
                 db, scope=publication_scope, scope_id="*", chunks=build_chunks("final")
-            )
-            patch_namespace_map_snapshot(
-                db,
-                scope=publication_scope,
-                manifest_payload=payload,
-                current_generation=generation,
-            )
-            advance_namespace_generation(
-                db,
-                user_id=scope.user_ref,
-                namespace=scope.namespace_ref,
-                locked_generation=generation,
             )
             db.commit()
         published_during_read.append(True)

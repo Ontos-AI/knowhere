@@ -1038,12 +1038,6 @@ def test_m0_text_publish_enqueues_structure_and_supports_any_stage_explore_and_a
                 NORMAL_ENRICHMENT_QUEUE,
                 None,
             ),
-            (
-                "app.core.tasks.enrichment_tasks.recover_progressive_revision",
-                [scope.revision_ref],
-                "document_ingestion_low",
-                None,
-            ),
         ]
 
         # Stage M0 (state=text): recall/grep/read work; outline/node_filter/assets/query_table return informative notes.
@@ -1111,7 +1105,7 @@ def test_m0_text_publish_enqueues_structure_and_supports_any_stage_explore_and_a
 
         asyncio.run(_verify_m0_tools())
         # Reading an M0 page must NOT enqueue scope tasks (no acceleration channel).
-        assert len(sent_tasks) == 2
+        assert len(sent_tasks) == 1
 
         # Stage 1 (coarse): whole-doc restructure publish + write scope rows.
         from shared.models.database.job_result import JobResult

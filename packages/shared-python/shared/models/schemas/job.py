@@ -103,9 +103,9 @@ class JobCreateV2(JobCreateBase):
         description=(
             "Ingestion mode for page-memory documents. 'full' runs the "
             "complete C1-C7 pipeline synchronously before publishing; "
-            "'progressive' publishes an askable per-page text baseline first, "
-            "then automatically enhances the whole document in the background, "
-            "prioritizing accessed scopes."
+            "'progressive' publishes an askable per-page baseline first, "
+            "builds the coarse section structure in the background, and "
+            "refines coarse scopes on demand when pages are read."
         ),
     )
     llm_config: Optional[LLMConfig] = Field(

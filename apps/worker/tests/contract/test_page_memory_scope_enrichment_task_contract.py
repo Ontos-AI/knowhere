@@ -415,438 +415,6 @@ def _install_fake_scope_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-@pytest.mark.parametrize("failure_stage", ["none", "upload", "publication"])
-@pytest.mark.parametrize("has_missing_vectors", [False, True])
-def test_deferred_enrichment_keeps_baseline_until_final_package_is_durable(
-    worker_contract_environment: None,
-    monkeypatch: pytest.MonkeyPatch,
-    failure_stage: str,
-    has_missing_vectors: bool,
-) -> None:
-    import zipfile
-    import io
-    import json
-
-    from app.services.page_memory import scope_enrichment_service as service
-    from shared.models.database.document import (
-        DocumentMapUnit,
-        DocumentPageEmbedding,
-        RetrievalNamespaceGeneration,
-    )
-    from shared.models.schemas.progressive_ingestion import StoredSnapshot
-    from shared.services.jobs.progressive_ingestion import (
-        initialize_baseline_state,
-        read_progressive_state,
-        write_progressive_state,
-    )
-    from shared.services.retrieval.publication_scope_content import (
-        replace_document_scope_content,
-    )
-    from shared.services.retrieval.publication_models import DocumentPublicationScope
-    from shared.services.storage.result_storage import UploadedResultBundle
-
-    del worker_contract_environment
-    _install_fake_scope_pipeline(monkeypatch)
-    engine = create_engine(
-        make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2")
-    )
-    uploads: list[bytes] = []
-    publications: list[str] = []
-    invalidations: list[str] = []
-
-    class Storage(_InMemoryResultStorage):
-        def upload(
-            self,
-            *,
-            job_id: str,
-            result_dir: str,
-            zip_file_path: str,
-            artifact_refs: set[str] | None = None,
-            snapshot_id: str | None = None,
-        ) -> UploadedResultBundle:
-            if failure_stage == "upload" and not uploads:
-                uploads.append(b"failed")
-                raise OSError("Interrupted final package upload")
-            uploads.append(Path(zip_file_path).read_bytes())
-            return super().upload(
-                job_id=job_id,
-                result_dir=result_dir,
-                zip_file_path=zip_file_path,
-                artifact_refs=artifact_refs,
-                snapshot_id=snapshot_id,
-            )
-
-    def publish(
-        db: Session,
-        *,
-        scope: DocumentPublicationScope,
-        scope_id: str,
-        chunks: list[dict[str, object]],
-        section_summaries: dict[str, str] | None = None,
-    ) -> dict[str, object]:
-        publications.append(scope_id)
-        manifest = replace_document_scope_content(
-            db,
-            scope=scope,
-            scope_id=scope_id,
-            chunks=chunks,
-            section_summaries=section_summaries,
-        )
-        if failure_stage == "publication" and len(publications) == 1:
-            raise RuntimeError("Interrupted database publication")
-        return manifest
-
-    from shared.services.retrieval import publication_scope_content as publication
-
-    monkeypatch.setattr(
-        publication,
-        "bump_retrieval_namespace_cache_version_sync",
-        lambda **kwargs: invalidations.append(kwargs["namespace"]),
-    )
-    monkeypatch.setattr(service, "_resolve_default_scope_publisher", lambda: publish)
-    storage = Storage(_build_storage_inputs())
-    try:
-        with Session(engine) as db:
-            document_id, job_id, revision_id = _seed_published_coarse_doc(
-                db,
-                suffix=f"deferred-{failure_stage}",
-                scope_states=[("p1-2", 1, 2, "queued"), ("p3-4", 3, 4, "queued")],
-            )
-            result = db.get(JobResult, revision_id)
-            state = initialize_baseline_state(
-                snapshot=StoredSnapshot(
-                    snapshot_id="baseline",
-                    stage="baseline",
-                    job_id=job_id,
-                    job_result_id=revision_id,
-                    document_id=document_id,
-                    checksum="a" * 64,
-                    archive_key=result.result_s3_key,
-                ),
-                missing_pages=[1] if has_missing_vectors else [],
-            )
-            state.stages["structure"]["status"] = "complete"
-            result.document_metadata = write_progressive_state(
-                result.document_metadata, state
-            )
-            db.commit()
-            baseline_chunks = list(
-                db.scalars(
-                    select(DocumentChunk.id).where(
-                        DocumentChunk.job_result_id == revision_id
-                    )
-                )
-            )
-            baseline_units = list(
-                db.scalars(
-                    select(DocumentMapUnit.id).where(
-                        DocumentMapUnit.job_result_id == revision_id
-                    )
-                )
-            )
-            initial_generation: int = db.scalar(
-                select(RetrievalNamespaceGeneration.generation).where(
-                    RetrievalNamespaceGeneration.user_id
-                    == f"enrich-user-deferred-{failure_stage}"
-                )
-            ) or 0
-
-        first = service.execute_scope_enrichment(
-            job_result_id=revision_id,
-            scope_id="p1-2",
-            result_storage_factory=lambda: storage,
-        )
-        assert first["status"] == "refined"
-        assert first["all_refined"] is False
-        assert publications == [], "A completed scope must not rebuild the live index"
-        assert invalidations == []
-        with Session(engine) as db:
-            assert (
-                list(
-                    db.scalars(
-                        select(DocumentChunk.id).where(
-                            DocumentChunk.job_result_id == revision_id
-                        )
-                    )
-                )
-                == baseline_chunks
-            )
-            assert (
-                list(
-                    db.scalars(
-                        select(DocumentMapUnit.id).where(
-                            DocumentMapUnit.job_result_id == revision_id
-                        )
-                    )
-                )
-                == baseline_units
-            )
-            assert db.get(JobResult, revision_id).result_s3_key.endswith("_coarse.zip")
-
-        if has_missing_vectors:
-            from shared.services.ai import embedding
-            import tempfile
-
-            monkeypatch.setattr(
-                embedding,
-                "embed_images",
-                lambda paths, **kwargs: [[0.1] * 3072 for _ in paths],
-            )
-            with Session(engine) as db:
-                target = service._build_claimed_target(
-                    document=db.get(Document, document_id),
-                    job=db.get(Job, job_id),
-                    job_metadata=dict(db.get(Job, job_id).job_metadata or {}),
-                    source_file_name="doc.pdf",
-                )
-            with tempfile.TemporaryDirectory() as workspace:
-                service._repair_missing_page_embeddings(
-                    job_result_id=revision_id,
-                    target=target,
-                    storage=storage,
-                    workspace_dir=workspace,
-                )
-            with Session(engine) as db:
-                assert (
-                    list(
-                        db.scalars(
-                            select(DocumentPageEmbedding.id).where(
-                                DocumentPageEmbedding.job_result_id == revision_id
-                            )
-                        )
-                    )
-                    == []
-                ), "Repaired vectors must remain staged until final publication"
-            assert invalidations == []
-
-        second = service.execute_scope_enrichment(
-            job_result_id=revision_id,
-            scope_id="p3-4",
-            result_storage_factory=lambda: storage,
-        )
-        assert second["all_refined"] is True
-        if failure_stage != "none":
-            with Session(engine) as db:
-                assert (
-                    list(
-                        db.scalars(
-                            select(DocumentChunk.id).where(
-                                DocumentChunk.job_result_id == revision_id
-                            )
-                        )
-                    )
-                    == baseline_chunks
-                )
-                assert (
-                    read_progressive_state(
-                        db.get(JobResult, revision_id).document_metadata
-                    ).current_snapshot_id
-                    == "baseline"
-                )
-                target = service._build_claimed_target(
-                    document=db.get(Document, document_id),
-                    job=db.get(Job, job_id),
-                    job_metadata=dict(db.get(Job, job_id).job_metadata or {}),
-                    source_file_name="doc.pdf",
-                )
-                state = read_progressive_state(
-                    db.get(JobResult, revision_id).document_metadata
-                )
-                state.stages["finalization"]["next_retry_at"] = None
-                db.get(
-                    JobResult, revision_id
-                ).document_metadata = write_progressive_state(
-                    db.get(JobResult, revision_id).document_metadata, state
-                )
-                db.commit()
-            assert publications == (["*"] if failure_stage == "publication" else [])
-            assert invalidations == []
-            import tempfile
-
-            with tempfile.TemporaryDirectory() as workspace:
-                service._finalize_all_scopes_refined(
-                    job_result_id=revision_id,
-                    target=target,
-                    storage=storage,
-                    workspace_dir=workspace,
-                )
-
-        assert publications == (["*", "*"] if failure_stage == "publication" else ["*"])
-        assert len(invalidations) == 1
-        with Session(engine) as db:
-            rows = list(
-                db.scalars(
-                    select(DocumentChunk).where(
-                        DocumentChunk.job_result_id == revision_id
-                    )
-                )
-            )
-            assert not any(row.chunk_id.startswith("coarse-") for row in rows)
-            assert {row.chunk_metadata["scope_id"] for row in rows} == {"p1-2", "p3-4"}
-            assert {
-                row.chunk_metadata["enrichment_state"]
-                for row in rows
-                if row.chunk_type == "page"
-            } == {"refined"}
-            state = read_progressive_state(
-                db.get(JobResult, revision_id).document_metadata
-            )
-            assert state.enhancement.status == "complete"
-            assert [snapshot.stage for snapshot in state.snapshots] == [
-                "baseline",
-                "final",
-            ]
-            assert db.get(Job, job_id).status == "done"
-            assert db.scalar(
-                select(RetrievalNamespaceGeneration.generation).where(
-                    RetrievalNamespaceGeneration.user_id
-                    == f"enrich-user-deferred-{failure_stage}"
-                )
-            ) == initial_generation + 1
-            if has_missing_vectors:
-                vector = db.scalars(
-                    select(DocumentPageEmbedding).where(
-                        DocumentPageEmbedding.job_result_id == revision_id
-                    )
-                ).one()
-                assert vector.page_num == 1
-                assert vector.chunk_id in {row.chunk_id for row in rows}
-            with zipfile.ZipFile(io.BytesIO(uploads[-1])) as archive:
-                chunks_file = next(
-                    name for name in archive.namelist() if name.endswith("chunks.json")
-                )
-                archived = json.loads(archive.read(chunks_file))
-                assert {chunk["chunk_id"] for chunk in archived["chunks"]} == {
-                    row.chunk_id for row in rows
-                }
-    finally:
-        engine.dispose()
-
-
-def test_deferred_structure_schedules_staged_ranges_without_republishing_baseline(
-    worker_contract_environment: None,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from datetime import timedelta
-    from app.services.page_memory import scope_enrichment_service as service
-    from shared.models.schemas.progressive_ingestion import StoredSnapshot
-    from shared.services.jobs.progressive_ingestion import (
-        initialize_baseline_state,
-        write_progressive_state,
-    )
-    from shared.services.jobs.lifecycle.scope_enrichments import (
-        sweep_progressive_enrichments_sync,
-    )
-    from shared.utils.utc_now import utc_now_naive
-    from shared.core import celery_app as celery_module
-
-    del worker_contract_environment
-
-    class Broker:
-        def send_task(self, *args: object, **kwargs: object) -> None:
-            pass
-
-    monkeypatch.setattr(celery_module, "get_celery_app", lambda: Broker())
-    engine = create_engine(
-        make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2")
-    )
-    publications: list[str] = []
-    try:
-        with Session(engine) as db:
-            document_id, job_id, revision_id = _seed_published_coarse_doc(
-                db,
-                suffix="staged-structure",
-                scope_states=[("p1-2", 1, 2, "coarse"), ("p3-4", 3, 4, "coarse")],
-            )
-            result = db.get(JobResult, revision_id)
-            state = initialize_baseline_state(
-                snapshot=StoredSnapshot(
-                    snapshot_id="baseline",
-                    stage="baseline",
-                    job_id=job_id,
-                    job_result_id=revision_id,
-                    document_id=document_id,
-                    checksum="a" * 64,
-                    archive_key=result.result_s3_key,
-                ),
-                missing_pages=[],
-            )
-            state.stages["structure"].update(
-                status="running", claim_generation="structure"
-            )
-            result.document_metadata = {
-                **write_progressive_state(result.document_metadata, state),
-                "enrichment_status": "text",
-                "structure_claim_generation": "structure",
-                "structure_claimed_at": (
-                    utc_now_naive() - timedelta(hours=2)
-                ).isoformat(),
-            }
-            db.commit()
-            baseline = list(
-                db.scalars(
-                    select(DocumentChunk.id).where(
-                        DocumentChunk.job_result_id == revision_id
-                    )
-                )
-            )
-            target = service._build_claimed_target(
-                document=db.get(Document, document_id),
-                job=db.get(Job, job_id),
-                job_metadata=dict(db.get(Job, job_id).job_metadata or {}),
-                source_file_name="doc.pdf",
-                claim_generation="structure",
-                result_metadata=result.document_metadata,
-            )
-        has_published_structure: bool = service._publish_coarse_structure_and_write_scopes(
-            job_result_id=revision_id,
-            target=target,
-            publication_scope=service._build_publication_scope(
-                target=target, job_result_id=revision_id
-            ),
-            chunks=[
-                {
-                    "chunk_id": "staged-scope",
-                    "type": "page",
-                    "content": "private coarse text",
-                    "path": "doc.pdf/Chapter",
-                    "metadata": {"scope_id": "p1-4"},
-                }
-            ],
-            section_summaries={},
-            phase_b_refs=[],
-            scope_publisher=lambda *args, **kwargs: publications.append(
-                kwargs["scope_id"]
-            ),
-        )
-        assert has_published_structure
-        assert publications == []
-        with Session(engine) as db:
-            assert (
-                list(
-                    db.scalars(
-                        select(DocumentChunk.id).where(
-                            DocumentChunk.job_result_id == revision_id
-                        )
-                    )
-                )
-                == baseline
-            )
-            assert list(
-                db.scalars(
-                    select(DocumentScopeEnrichment.scope_id).where(
-                        DocumentScopeEnrichment.job_result_id == revision_id
-                    )
-                )
-            ) == ["p1-4"]
-        swept = sweep_progressive_enrichments_sync(structure_timeout_seconds=0)
-        assert revision_id not in swept["reenqueued_structures"], (
-            "Completed staging must not be treated as an unpublished structure"
-        )
-    finally:
-        engine.dispose()
-
-
 def test_enrichment_task_routes_and_does_not_fail_job() -> None:
     from app.core.tasks.enrichment_tasks import (
         build_page_memory_structure,
@@ -1860,9 +1428,6 @@ def test_final_upload_failure_recovers_without_reparsing_completed_scopes(
                 ),
                 missing_pages=[],
             )
-            # An in-flight revision that already published its scopes retains
-            # the legacy protocol; new revisions are covered by deferred tests.
-            state.publication_mode = "incremental"
             state.stages["structure"]["status"] = "complete"
             result.document_metadata = write_progressive_state(
                 result.document_metadata, state
@@ -1930,13 +1495,11 @@ def test_final_upload_failure_recovers_without_reparsing_completed_scopes(
         engine.dispose()
 
 
-@pytest.mark.parametrize("has_deferred_publication", [False, True])
 @pytest.mark.parametrize("has_initial_vectors", [True, False])
 def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors(
     worker_contract_environment: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    has_deferred_publication: bool,
     has_initial_vectors: bool,
 ) -> None:
     from types import SimpleNamespace
@@ -2002,8 +1565,6 @@ def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors
                 ),
                 missing_pages=[2, 3] if has_initial_vectors else [1, 2, 3],
             )
-            if not has_deferred_publication:
-                state.publication_mode = "incremental"
             state.stages["structure"]["status"] = "complete"
             result.document_metadata = write_progressive_state(
                 result.document_metadata, state
@@ -2055,23 +1616,9 @@ def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors
                 .where(DocumentPageEmbedding.job_result_id == revision)
                 .order_by(DocumentPageEmbedding.page_num)
             ).all()
-            assert [row.page_num for row in rows] == (
-                ([1] if has_initial_vectors else []) if has_deferred_publication else [1, 2, 3]
-            )
+            assert [row.page_num for row in rows] == [1, 2, 3]
             if has_initial_vectors:
                 assert rows[0].id == "existing-page-one"
-            if has_deferred_publication:
-                from app.services.page_memory.staged_enrichment import StagedEnrichment
-                references = db.get(JobResult, revision).document_metadata["page_memory_staged_vectors"]
-                repaired: dict[int, list[float]] = {}
-                for reference in references:
-                    output = StagedEnrichment.download(
-                        storage=storage, job_id=job_id, raw_prefix=target.raw_prefix,
-                        reference=reference, workspace_dir=str(tmp_path),
-                        job_result_id=revision, scope_id="vector-repair",
-                    )
-                    repaired.update(output.embeddings)
-                assert set(repaired) == ({2, 3} if has_initial_vectors else {1, 2, 3})
             assert (
                 read_progressive_state(
                     db.get(JobResult, revision).document_metadata
@@ -2079,7 +1626,7 @@ def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors
                 == "complete"
             )
         assert rendered_pages == [([2, 3] if has_initial_vectors else [1, 2, 3]), [3]]
-        assert invalidations == ([] if has_deferred_publication else [target.namespace, target.namespace])
+        assert invalidations == [target.namespace, target.namespace]
     finally:
         engine.dispose()
 
