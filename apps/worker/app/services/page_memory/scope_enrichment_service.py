@@ -861,9 +861,9 @@ def _publish_coarse_structure_and_write_scopes(
         if state is not None:
             stages: dict[str, EnhancementStage] = dict(state.stages)
             stages["structure"] = {**stages.get("structure", {}), "status": "complete"}
-            vector_repair_stage: EnhancementStage = dict(
-                stages.get("vector_repair") or {}
-            )
+            vector_repair_stage: EnhancementStage = {
+                **(stages.get("vector_repair") or {}),
+            }
             pending_pages = list(vector_repair_stage.get("pending_pages") or [])
             if pending_pages:
                 corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(

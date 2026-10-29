@@ -1,7 +1,6 @@
 """Final artifact publication and its outbox event form one logical commit."""
 
 from unittest.mock import Mock
-import pytest
 
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.progressive_ingestion import StoredSnapshot
