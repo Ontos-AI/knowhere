@@ -1513,18 +1513,18 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                     {
                         "chunk_id": "coarse-sec-1",
                         "type": "page",
-                        "content": "ocr text page one",
+                        "content": "ocr text page one and boundary",
                         "path": f"{scope.source_file_name}/Chapter1/SecA",
                         "metadata": {
-                            "scope_id": "p1-1",
+                            "scope_id": "p1-2",
                             "enrichment_state": "coarse",
-                            "page_nums": [1],
+                            "page_nums": [1, 2],
                         },
                     },
                     {
                         "chunk_id": "coarse-sec-2",
                         "type": "page",
-                        "content": "ocr text page two",
+                        "content": "ocr text page two opening",
                         "path": f"{scope.source_file_name}/Chapter1/SecB",
                         "metadata": {
                             "scope_id": "p2-2",
@@ -1544,6 +1544,8 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                     .order_by(DocumentPageEmbedding.page_num)
                 ).all()
             )
+            # Boundary page 2 is the end of SecA [1, 2] and the start of SecB [2]:
+            # start-page owner (SecB) wins the nominal chunk_id binding.
             assert [r.chunk_id for r in emb_rows_after_coarse] == [
                 "coarse-sec-1",
                 "coarse-sec-2",
@@ -1565,7 +1567,9 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                     query="second page chart",
                     top_k=2,
                 )
-                assert hyb_res.payload["fused_rows"][0]["chunk_id"] == "coarse-sec-2"
+                assert {
+                    row["chunk_id"] for row in hyb_res.payload["fused_rows"]
+                } == {"coarse-sec-1", "coarse-sec-2"}
 
                 vis_res = await visual_page_discovery(
                     async_db,
@@ -1575,7 +1579,37 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                     top_k=2,
                 )
                 vis_rows = vis_res.payload["fused_rows"]
-                assert vis_rows[0]["chunk_id"] == "coarse-sec-2"
+                vis_by_id = {row["chunk_id"]: row for row in vis_rows}
+                # Both sections include boundary page 2 in their page_nums, so both
+                # receive page 2 in visual discovery without either section losing it.
+                assert vis_by_id["coarse-sec-1"]["matched_page_nums"] == [2, 1]
+                assert vis_by_id["coarse-sec-2"]["matched_page_nums"] == [2]
+
+                sec_a_only = await visual_page_discovery(
+                    async_db,
+                    user_id=scope.user_ref,
+                    namespace=scope.namespace_ref,
+                    query="second page chart",
+                    top_k=2,
+                    section_targets=[(doc_id, "Chapter1 / SecA")],
+                )
+                assert [row["chunk_id"] for row in sec_a_only.payload["fused_rows"]] == [
+                    "coarse-sec-1"
+                ]
+                assert sec_a_only.payload["fused_rows"][0]["matched_page_nums"] == [2, 1]
+
+                sec_b_only = await visual_page_discovery(
+                    async_db,
+                    user_id=scope.user_ref,
+                    namespace=scope.namespace_ref,
+                    query="second page chart",
+                    top_k=2,
+                    section_targets=[(doc_id, "Chapter1 / SecB")],
+                )
+                assert [row["chunk_id"] for row in sec_b_only.payload["fused_rows"]] == [
+                    "coarse-sec-2"
+                ]
+                assert sec_b_only.payload["fused_rows"][0]["matched_page_nums"] == [2]
 
                 excluded = await visual_page_discovery(
                     async_db,
@@ -1593,6 +1627,8 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                 assert "coarse-sec-2" not in [
                     row["chunk_id"] for row in excluded.payload["fused_rows"]
                 ]
+                assert excluded.payload["fused_rows"][0]["chunk_id"] == "coarse-sec-1"
+                assert excluded.payload["fused_rows"][0]["matched_page_nums"] == [2, 1]
                 return float(vis_rows[0]["score"])
 
         page2_score = asyncio.run(_verify_hybrid_after_coarse())
