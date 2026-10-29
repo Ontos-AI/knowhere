@@ -106,8 +106,9 @@ Service endpoints:
 Next steps:
   1. Copy the API/Worker .env.example files to .env and configure your provider keys.
   2. Migrate: cd apps/api && MIGRATION_DATABASE_URL=postgresql+asyncpg://root:root123@localhost:5432/Knowhere uv run alembic upgrade heads
-  3. Start the API: cd apps/api && uv run uvicorn main:app --host 0.0.0.0 --port 5005 --reload
-  4. Start the worker: cd apps/worker && uv run python worker.py
+  3. Start API + worker with full .env: ./deploy/local-dev/debug-live.sh start
+     Do not hand-export a partial env and run main.py / worker.py. Fine title
+     detection reads IMAGE_MODEL from the process environment.
 
 Stop services:
   ${SCRIPT_DIR}/stop-dev.sh

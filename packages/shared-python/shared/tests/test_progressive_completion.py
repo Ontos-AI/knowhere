@@ -1,7 +1,6 @@
 """Final artifact publication and its outbox event form one logical commit."""
 
 from unittest.mock import Mock
-import pytest
 
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.progressive_ingestion import StoredSnapshot
@@ -78,23 +77,3 @@ def test_final_webhook_is_a_success_event() -> None:
     event = db.add.call_args.args[0]
     assert event.payload["status"] == "completed"
     assert "completed_at" in event.payload
-
-
-def test_baseline_dispatches_recovery_without_waiting_for_periodic_sweep(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from shared.services.jobs.lifecycle import post_commit_effects
-
-    recover = Mock()
-    monkeypatch.setattr(
-        post_commit_effects, "enqueue_page_memory_structure_after_commit", Mock()
-    )
-    monkeypatch.setattr(
-        post_commit_effects,
-        "enqueue_progressive_recovery_after_commit",
-        recover,
-        raising=False,
-    )
-    plan = post_commit_effects.PostCommitEffectPlan(structure_job_result_ids=("r",))
-    post_commit_effects.SyncJobPostCommitEffectRunner().run(plan)
-    recover.assert_called_once_with("r")

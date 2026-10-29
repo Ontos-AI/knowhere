@@ -62,8 +62,6 @@ class ProgressiveIngestionState(BaseModel):
     # projection/retry updates without exposing them as client configuration.
     model_config = ConfigDict(extra="allow")
 
-    # Existing in-flight revisions retain their original publication protocol.
-    publication_mode: Literal["incremental", "final"] = "incremental"
     enhancement: EnhancementProgress = Field(default_factory=EnhancementProgress)
     snapshots: list[StoredSnapshot] = Field(default_factory=list, max_length=2)
     current_snapshot_id: str | None = None
