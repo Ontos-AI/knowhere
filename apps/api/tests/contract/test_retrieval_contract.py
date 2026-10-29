@@ -11,6 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.contract_database import ContractDatabase
 
+from shared.services.ai.retrieval_ledger import (
+    cleanup_retrieval_ledger,
+    init_retrieval_ledger,
+)
 from shared.services.retrieval.agent_explore.evidence_pool import Candidate
 from shared.services.retrieval.execution import routes as retrieval_routes
 from shared.services.retrieval.execution.reference_resolver import (
@@ -829,26 +833,30 @@ async def test_agent_explore_should_release_route_session_before_final_hydration
     monkeypatch.setattr(retrieval_routes, "assemble_retrieval_results", fake_assemble_retrieval_results)
     monkeypatch.setattr("shared.services.retrieval.trace.TraceRecorder", FakeTraceRecorder)
 
-    outcome = await retrieval_routes._run_agent_explore_route(
-        RetrievalRouteContext(
-            db=cast(AsyncSession, route_db),
-            user_id="contract-user",
-            namespace="contract-namespace",
-            query="session lifetime",
-            top_k=1,
-            exclude_document_ids=[],
-            exclude_sections=[],
-            allowed_chunk_types=None,
-            chunk_types=None,
-            signal_paths=None,
-            filter_mode="delete",
-            rerank=False,
-            threshold=0.0,
-            internal_recall_k=None,
-            effective_recall_k=3,
-            use_agentic=True,
+    init_retrieval_ledger()
+    try:
+        outcome = await retrieval_routes._run_agent_explore_route(
+            RetrievalRouteContext(
+                db=cast(AsyncSession, route_db),
+                user_id="contract-user",
+                namespace="contract-namespace",
+                query="session lifetime",
+                top_k=1,
+                exclude_document_ids=[],
+                exclude_sections=[],
+                allowed_chunk_types=None,
+                chunk_types=None,
+                signal_paths=None,
+                filter_mode="delete",
+                rerank=False,
+                threshold=0.0,
+                internal_recall_k=None,
+                effective_recall_k=3,
+                use_agentic=True,
+            )
         )
-    )
+    finally:
+        cleanup_retrieval_ledger()
 
     assert events == [
         "route_rollback",

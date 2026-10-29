@@ -584,3 +584,73 @@ def test_refine_fat_leaf_drops_boundary_page_on_tail_miss(monkeypatch) -> None:
     assert [item.title for item in refined] == ["History", "NCC 2022"]
     assert all("amendment" not in item.title.casefold() for item in refined)
     assert all(item.start_page != 23 for item in refined)
+
+
+def test_build_next_title_by_path_includes_same_page_parent_anchor_and_trims_it(
+    monkeypatch,
+) -> None:
+    prev_leaf = SectionSkeleton(
+        section_path="taocp.pdf/Chapter 1/1.2. Preliminaries/*1.2.11 Asymptotic/*1.2.11.3 Some asymptotic calculations",
+        level=4,
+        start_page=131,
+        end_page=139,
+        title="*1.2.11.3 Some asymptotic calculations",
+        parent_path="taocp.pdf/Chapter 1/1.2. Preliminaries/*1.2.11 Asymptotic",
+    )
+    next_leaf = SectionSkeleton(
+        section_path="taocp.pdf/Chapter 1/1.3 MIX/1.3.1. Description of MIX",
+        level=3,
+        start_page=139,
+        end_page=159,
+        title="1.3.1. Description of MIX",
+        parent_path="taocp.pdf/Chapter 1/1.3 MIX",
+    )
+
+    next_map = fine_hierarchy.build_next_title_by_path([prev_leaf, next_leaf])
+    assert next_map[prev_leaf.section_path] == [
+        "1.3 MIX",
+        "1.3.1. Description of MIX",
+    ]
+
+    tags = [
+        PageTagResult(
+            page_index=131,
+            observed_titles=[
+                {"text": "*1.2.11.3 Some asymptotic calculations", "prominence": 1.0}
+            ],
+        ),
+        PageTagResult(
+            page_index=136,
+            observed_titles=[{"text": "EXERCISES", "prominence": 1.0}],
+        ),
+        PageTagResult(
+            page_index=139,
+            observed_titles=[
+                {"text": "1.3. MIX", "prominence": 1.0},
+                {"text": "1.3.1. Description of MIX", "prominence": 0.9},
+            ],
+        ),
+    ]
+
+    monkeypatch.setattr(
+        fine_hierarchy,
+        "get_text_client",
+        lambda requested_model=None: (
+            _FakeClient([{"id": 1, "level": 1}]),
+            requested_model,
+        ),
+    )
+
+    refined = fine_hierarchy.refine_fat_leaf_skeletons(
+        coarse_skeletons=[prev_leaf],
+        tag_results=tags,
+        fat_leaf_pages=set(range(131, 140)),
+        next_title_by_path=next_map,
+        model_name="test-model",
+    )
+
+    assert [item.title for item in refined] == [
+        "*1.2.11.3 Some asymptotic calculations",
+        "EXERCISES",
+    ]
+    assert all("mix" not in item.title.casefold() for item in refined)

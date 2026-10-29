@@ -1,10 +1,8 @@
 """Calibration result types.
 
-Phase-1 produces only what Phase-2 cannot recompute: ``status``, per-regime
-numbering ``kind`` + candidate ``offset`` (plus the anchor ``samples`` already
-confirmed by vision), and one short ``notes`` reason. ``segments`` /
-``no_toc_entry_indices`` / ``offset_status`` / per-regime ``notes`` are Phase-2
-outputs.
+Phase-1 produces ``status``, per-regime numbering ``kind`` + candidate ``offset``
+(plus the anchor ``samples`` confirmed by vision), and one short ``notes``
+reason. Phase-2 consumes ``regimes`` and ``samples`` to anchor ``TitleNode``s.
 """
 
 from __future__ import annotations
@@ -28,27 +26,13 @@ class CalibrationSample:
 
 
 @dataclass
-class CalibrationSegment:
-    """A contiguous leaf range that fully completed Phase-2 for one offset."""
-
-    offset: int
-    leaf_start: int
-    leaf_end: int
-    entry_indices: list[int] = field(default_factory=list)
-    status: str = "ok"
-
-
-@dataclass
 class CalibrationRegime:
     kind: str
     offset: int | None = None
     # Optional membership override; empty → Phase-2 matches leaves by ``kind``.
     entry_indices: list[int] = field(default_factory=list)
     samples: list[CalibrationSample] = field(default_factory=list)
-    # Phase-2 outputs below; Phase-1 never fills these.
     offset_status: str = "failed"
-    segments: list[CalibrationSegment] = field(default_factory=list)
-    no_toc_entry_indices: list[int] = field(default_factory=list)
     notes: str = ""
 
 

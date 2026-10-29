@@ -8,6 +8,7 @@ token pool and automatically rotated on 429 RateLimitError.
 """
 import os
 import threading
+import time
 from typing import Any, Dict, List, Optional, Union
 
 import openai
@@ -20,7 +21,7 @@ from shared.core.exceptions.domain_exceptions import LLMServiceException, Unavai
 from shared.services.http.client_pool import get_sync_client
 from shared.services.ai.llm_mock import build_mock_chat_completion_response
 from shared.utils.security_utils import mask_api_key
-from shared.services.ai.token_tracking import record_tokens
+from shared.services.ai.token_tracking import record_provider_usage
 from shared.services.ai.page_memory_vlm_limiter import (
     PageMemoryVlmLease,
     get_page_memory_vlm_limiter,
@@ -224,6 +225,7 @@ class OpenAICompatibleClientSync:
                     base_url=base_url,
                     max_retries=settings.ALI_SDK_MAX_RETRIES,
                 )
+                started_at = time.monotonic()
                 response = client.chat.completions.create(
                     model=model,
                     messages=all_messages,
@@ -231,13 +233,19 @@ class OpenAICompatibleClientSync:
                     max_tokens=max_tokens,
                     **api_kwargs,
                 )
+                duration_ms = max(int((time.monotonic() - started_at) * 1000), 0)
                 if not response.choices:
                     raise LLMServiceException(
                         internal_message="AI returned empty result",
                         provider=self.default_model,
                     )
                 usage = _extract_usage(response)
-                record_tokens(usage, model=model, task=usage_task)
+                record_provider_usage(
+                    usage,
+                    model=model,
+                    task=usage_task,
+                    duration_ms=duration_ms,
+                )
                 return response, usage
             except openai.RateLimitError as exc:
                 retry_after = _parse_retry_after(exc)
@@ -366,6 +374,7 @@ class OpenAICompatibleClientSync:
                     internal_message="OpenAI client is not initialized for direct provider requests",
                     provider=self.default_model,
                 )
+            started_at = time.monotonic()
             response = client.chat.completions.create(
                 model=effective_model,
                 messages=all_messages,
@@ -373,13 +382,19 @@ class OpenAICompatibleClientSync:
                 max_tokens=max_tokens,
                 **api_kwargs,
             )
+            duration_ms = max(int((time.monotonic() - started_at) * 1000), 0)
             if not response.choices:
                 raise LLMServiceException(
                     internal_message="AI returned empty result",
                     provider=self.default_model,
                 )
             usage = _extract_usage(response)
-            record_tokens(usage, model=effective_model, task=usage_task)
+            record_provider_usage(
+                usage,
+                model=effective_model,
+                task=usage_task,
+                duration_ms=duration_ms,
+            )
             return response, usage
         except LLMServiceException:
             raise
@@ -475,6 +490,7 @@ class OpenAICompatibleClientSync:
                     internal_message="OpenAI client is not initialized for direct provider requests",
                     provider=self.default_model,
                 )
+            started_at = time.monotonic()
             response = client.chat.completions.create(
                 model=effective_model,
                 messages=all_messages,
@@ -482,6 +498,7 @@ class OpenAICompatibleClientSync:
                 max_tokens=max_tokens,
                 **api_kwargs,
             )
+            duration_ms = max(int((time.monotonic() - started_at) * 1000), 0)
 
             choices = response.choices
             if not choices:
@@ -492,7 +509,12 @@ class OpenAICompatibleClientSync:
 
             content = choices[0].message.content or ""
             usage = _extract_usage(response)
-            record_tokens(usage, model=effective_model, task=usage_task)
+            record_provider_usage(
+                usage,
+                model=effective_model,
+                task=usage_task,
+                duration_ms=duration_ms,
+            )
             return content, usage
         except LLMServiceException:
             raise

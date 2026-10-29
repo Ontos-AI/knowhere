@@ -7,18 +7,15 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-_NUMERIC_USAGE_FIELDS = ("prompt_tokens", "completion_tokens", "total_tokens", "calls")
+from shared.services.ai.token_tracking import empty_token_usage, merge_token_usage
 
-
-def empty_token_usage() -> dict[str, Any]:
-    return {
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "total_tokens": 0,
-        "calls": 0,
-        "by_model": {},
-        "by_task": {},
-    }
+_NUMERIC_USAGE_FIELDS = (
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "calls",
+    "duration_ms",
+)
 
 
 def token_usage_delta(prev: dict[str, Any], cur: dict[str, Any]) -> dict[str, Any]:
@@ -55,16 +52,6 @@ def token_usage_delta(prev: dict[str, Any], cur: dict[str, Any]) -> dict[str, An
         if bucket:
             delta[bucket_key] = bucket
     return delta
-
-
-def merge_token_usage(destination: dict[str, Any], source: dict[str, Any]) -> None:
-    for key, value in source.items():
-        if isinstance(value, dict):
-            child = destination.setdefault(str(key), {})
-            if isinstance(child, dict):
-                merge_token_usage(child, value)
-        elif isinstance(value, int | float) and not isinstance(value, bool):
-            destination[str(key)] = destination.get(str(key), 0) + value
 
 
 def load_stage_ledger(path: Path, *, version: str = "1.0") -> dict[str, Any]:

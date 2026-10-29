@@ -627,7 +627,7 @@ def _run_hierarchy_scope(
     asset_extraction_enabled: bool,
     trace_recorder: Any | None,
     page_memory_config: PageMemoryConfig,
-    next_title_by_path: dict[str, str | None] | None = None,
+    next_title_by_path: dict[str, Any] | None = None,
     toc_pages: list[int] | None = None,
 ) -> _ScopeRunResult:
     from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc

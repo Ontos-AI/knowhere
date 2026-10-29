@@ -491,6 +491,7 @@ async def test_openai_harness_runs_pick_phase_after_read_without_counting_it(
     )
 
     assert len(client.seen) == 4
+    assert all(call["usage_task"] == "retrieval.agent_explore" for call in client.seen)
     user_texts: list[str] = []
     for call in client.seen:
         messages = call["messages"]

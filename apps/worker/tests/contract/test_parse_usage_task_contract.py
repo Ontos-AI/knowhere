@@ -20,6 +20,8 @@ _LLM_CALL_NAMES = {
     "chat_completion_raw_with_usage",
     "summarize",
     "transcribe",
+    "embed_query",
+    "embed_images",
 }
 
 

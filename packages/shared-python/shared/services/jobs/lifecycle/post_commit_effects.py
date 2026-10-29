@@ -8,7 +8,6 @@ from shared.services.jobs.lifecycle.publication import (
 )
 from shared.services.jobs.lifecycle.scope_enrichments import (
     enqueue_page_memory_structure_after_commit,
-    enqueue_progressive_recovery_after_commit,
 )
 from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
 
@@ -73,6 +72,5 @@ class SyncJobPostCommitEffectRunner:
             )
         for job_result_id in plan.structure_job_result_ids:
             enqueue_page_memory_structure_after_commit(job_result_id)
-            enqueue_progressive_recovery_after_commit(job_result_id)
         for webhook_event_id in plan.webhook_event_ids:
             self._webhook_outbox.enqueue_event_id_after_commit(webhook_event_id)

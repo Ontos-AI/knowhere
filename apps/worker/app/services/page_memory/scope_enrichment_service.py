@@ -29,6 +29,9 @@ from app.services.document_agent.pdf_text import coerce_page_text_cache
 from app.services.document_ingestion.artifact_refs import (
     collect_referenced_artifact_refs,
 )
+from app.services.document_ingestion.processing_context import (
+    merge_persisted_job_token_usage,
+)
 from app.services.document_parser.support.parser_rows import PARSER_DF_COLUMNS
 from app.services.page_memory._utils import CoarseScope, sort_skeletons
 from app.services.page_memory.memory_service import (
@@ -53,7 +56,6 @@ from app.services.page_memory.skeleton_extractor import (
     SectionSkeleton,
     collapse_single_child_chains,
 )
-from app.services.page_memory.staged_enrichment import StagedEnrichment
 from shared.core.config import app_config
 from shared.core.database_sync import get_sync_db_context
 from shared.models.database.document import (
@@ -76,9 +78,13 @@ from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.page_memory_config import PageMemoryConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.ai.llm_overrides import cleanup_llm_overrides, init_llm_overrides
+from shared.services.ai.token_tracking import (
+    cleanup_token_tracker,
+    get_current_token_tracker,
+    init_token_tracker,
+)
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.jobs.lifecycle.scope_enrichments import (
-    enqueue_low_priority_scope_enrichments_after_commit,
     scope_claimable_filter,
     write_coarse_scope_enrichments,
 )
@@ -89,6 +95,20 @@ from shared.services.storage.zip_result_service import ZipResultService
 from shared.utils.utc_now import utc_now_naive
 
 REFINED_ENRICHMENT_STATE = "refined"
+
+
+def _flush_parse_token_usage(job_id: str) -> None:
+    tracker = get_current_token_tracker()
+    if tracker is None:
+        return
+    try:
+        merge_persisted_job_token_usage(job_id=job_id, delta=dict(tracker))
+    except Exception as exc:
+        logger.warning(
+            "[page_memory] failed to merge enrichment token usage job_id={}: {}",
+            job_id,
+            exc,
+        )
 
 ScopePublisher = Callable[..., Any]
 
@@ -104,7 +124,6 @@ class _ClaimedScopeTarget:
     job_metadata: dict[str, Any]
     page_memory_config: PageMemoryConfig
     claim_generation: str | None = None
-    has_deferred_publication: bool = False
     serving_raw_prefix: str | None = None
 
 
@@ -123,7 +142,7 @@ def execute_structure_enrichment(
     result_storage_factory: Callable[[], ResultStorage] = get_result_storage,
     scope_publisher: ScopePublisher | None = None,
 ) -> dict[str, Any]:
-    """Resume profiling and schedule scopes, retaining the baseline for new revisions."""
+    """Resume profiling (TOC + anatomy + Phase A) and publish the coarse structure."""
     claim_status, target = _load_and_validate_structure_target(
         job_result_id=job_result_id,
     )
@@ -137,6 +156,7 @@ def execute_structure_enrichment(
     publisher = scope_publisher or _resolve_default_scope_publisher()
     workspace_dir = tempfile.mkdtemp(prefix=f"pm_struct_{job_result_id}_")
     init_llm_overrides(JobMetadataHelper.get_llm_config(target.job_metadata))
+    init_token_tracker()
     try:
         add_dir = os.path.join(
             workspace_dir,
@@ -149,6 +169,15 @@ def execute_structure_enrichment(
             raw_prefix=target.raw_prefix,
             job_metadata=target.job_metadata,
             output_dir=add_dir,
+        )
+        publication_scope = _build_publication_scope(
+            target=target,
+            job_result_id=job_result_id,
+        )
+        _generate_and_persist_page_embeddings(
+            add_dir=add_dir,
+            workspace_dir=workspace_dir,
+            publication_scope=publication_scope,
         )
         profile = _resume_profile_from_m0_workspace(
             add_dir=add_dir,
@@ -180,6 +209,7 @@ def execute_structure_enrichment(
             job_id=target.job_id,
             raw_prefix=target.raw_prefix,
             workspace_dir=workspace_dir,
+            add_dir=add_dir,
             artifact_refs=set(phase_b_artifacts),
             artifact_mapping=phase_b_artifacts,
         )
@@ -196,10 +226,6 @@ def execute_structure_enrichment(
                 )
             ),
         )
-        publication_scope = _build_publication_scope(
-            target=target,
-            job_result_id=job_result_id,
-        )
         published_ok = _publish_coarse_structure_and_write_scopes(
             job_result_id=job_result_id,
             target=target,
@@ -213,22 +239,10 @@ def execute_structure_enrichment(
         if not published_ok:
             return {"status": "aborted", "job_result_id": job_result_id}
 
-        if not target.has_deferred_publication:
-            _generate_and_persist_page_embeddings(
-                add_dir=add_dir,
-                workspace_dir=workspace_dir,
-                profile=profile,
-                publication_scope=publication_scope,
-            )
-
-        enqueued_scopes = enqueue_low_priority_scope_enrichments_after_commit(
-            job_result_id
-        )
         return {
             "status": "coarse",
             "job_result_id": job_result_id,
             "scope_count": len(phase_a.coarse_scopes),
-            "enqueued_scopes": enqueued_scopes,
             "chunk_count": len(coarse_chunks),
         }
     except Exception:
@@ -245,6 +259,8 @@ def execute_structure_enrichment(
         )
         raise
     finally:
+        _flush_parse_token_usage(target.job_id)
+        cleanup_token_tracker()
         cleanup_llm_overrides()
         shutil.rmtree(workspace_dir, ignore_errors=True)
 
@@ -256,7 +272,7 @@ def execute_scope_enrichment(
     result_storage_factory: Callable[[], ResultStorage] = get_result_storage,
     scope_publisher: ScopePublisher | None = None,
 ) -> dict[str, Any]:
-    """Run one scope and durably stage its output before acknowledging completion."""
+    """Claim one scope, run C1-C7 on its subtree, and publish its refined rows."""
     claim_status, target = _claim_and_validate_scope(
         job_result_id=job_result_id,
         scope_id=scope_id,
@@ -272,6 +288,7 @@ def execute_scope_enrichment(
     publisher = scope_publisher or _resolve_default_scope_publisher()
     workspace_dir = tempfile.mkdtemp(prefix=f"pm_scope_{scope_id}_")
     init_llm_overrides(JobMetadataHelper.get_llm_config(target.job_metadata))
+    init_token_tracker()
     try:
         output = _run_scope_in_workspace(
             workspace_dir=workspace_dir,
@@ -283,6 +300,8 @@ def execute_scope_enrichment(
             output=output,
             workspace_dir=workspace_dir,
             claim_generation=str(target.claim_generation),
+            raw_prefix=target.raw_prefix,
+            serving_raw_prefix=target.serving_raw_prefix,
         )
         _upload_scope_artifacts(
             storage=storage,
@@ -291,29 +310,12 @@ def execute_scope_enrichment(
             workspace_dir=workspace_dir,
             artifact_refs=output.artifact_refs,
         )
-        staged_reference: str | None = None
-        if target.has_deferred_publication:
-            staged_reference = StagedEnrichment.model_validate(
-                {
-                    "job_result_id": job_result_id,
-                    "scope_id": scope_id,
-                    "claim_generation": str(target.claim_generation),
-                    "chunks": output.chunks,
-                    "section_summaries": output.section_summaries,
-                }
-            ).upload(
-                storage=storage,
-                job_id=target.job_id,
-                raw_prefix=target.raw_prefix,
-                workspace_dir=workspace_dir,
-            )
         all_refined = _publish_and_mark_refined(
             job_result_id=job_result_id,
             scope_id=scope_id,
             target=target,
             output=output,
             scope_publisher=publisher,
-            staged_reference=staged_reference,
         )
         if all_refined is None:
             return {
@@ -327,7 +329,6 @@ def execute_scope_enrichment(
                 target=target,
                 storage=storage,
                 workspace_dir=workspace_dir,
-                scope_publisher=publisher,
             )
         return {
             "status": REFINED_ENRICHMENT_STATE,
@@ -344,6 +345,8 @@ def execute_scope_enrichment(
         )
         raise
     finally:
+        _flush_parse_token_usage(target.job_id)
+        cleanup_token_tracker()
         cleanup_llm_overrides()
         shutil.rmtree(workspace_dir, ignore_errors=True)
 
@@ -487,9 +490,7 @@ def _build_claimed_target(
     job_metadata: dict[str, Any],
     source_file_name: str,
     claim_generation: str | None = None,
-    result_metadata: dict[str, Any] | None = None,
 ) -> _ClaimedScopeTarget:
-    state = read_progressive_state(result_metadata)
     raw_prefix_val: object = job_metadata.get(
         "page_memory_working_raw_prefix"
     ) or job_metadata.get("result_raw_prefix")
@@ -500,7 +501,6 @@ def _build_claimed_target(
     )
     serving_prefix_value: object = (
         job_metadata.get("result_serving_raw_prefix")
-        or (result_metadata or {}).get("result_raw_prefix")
         or job_metadata.get("result_raw_prefix")
     )
     serving_raw_prefix: str | None = (
@@ -519,7 +519,6 @@ def _build_claimed_target(
         job_metadata=job_metadata,
         page_memory_config=JobMetadataHelper.get_page_memory_config(job_metadata),
         claim_generation=claim_generation,
-        has_deferred_publication=state is not None and state.publication_mode == "final",
         serving_raw_prefix=serving_raw_prefix,
     )
 
@@ -664,9 +663,24 @@ def _load_and_validate_structure_target(
                 job_metadata=job_metadata,
                 source_file_name=source_file_name,
                 claim_generation=claim_generation,
-                result_metadata=job_result.document_metadata,
             ),
         )
+
+
+def _load_m0_document_profile(bb_raw: dict[str, Any]) -> Any:
+    from app.services.document_agent.manifest import DocumentProfile
+    from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
+
+    dp_raw = bb_raw.get("document_profile") or {}
+    return DocumentProfile(
+        is_scanned=bool(dp_raw.get("is_scanned", False)),
+        category=list(dp_raw.get("category") or [OTHER_CODE]),
+        category_label=str(dp_raw.get("category_label") or "unknown"),
+        routing_category=str(dp_raw.get("routing_category") or "generic"),
+        language=str(dp_raw.get("language") or "unknown"),
+        header_y=dp_raw.get("header_y"),
+        footer_y=dp_raw.get("footer_y"),
+    )
 
 
 def _resume_profile_from_m0_workspace(
@@ -676,7 +690,6 @@ def _resume_profile_from_m0_workspace(
     job_result_id: str,
 ) -> Any:
     from app.services.document_agent.coordinator import ProfileCoordinator
-    from app.services.document_agent.manifest import DocumentProfile
     from app.services.document_agent.pdf_text import (
         page_bands_map,
         page_body_content_map,
@@ -687,7 +700,6 @@ def _resume_profile_from_m0_workspace(
         _prefix_toc_keywords_for_categories,
     )
     from app.services.document_parser.profiling.doc_profiler import _map_toc_profile
-    from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
     from app.services.document_parser.profiling.profile_model import (
         ParserDocumentProfile,
     )
@@ -715,16 +727,7 @@ def _resume_profile_from_m0_workspace(
     bb_raw = _read_json_dict(bb_path)
     bb = coordinator.blackboard
     bb.page_count = int(bb_raw.get("page_count") or 0)
-    dp_raw = bb_raw.get("document_profile") or {}
-    doc_profile = DocumentProfile(
-        is_scanned=bool(dp_raw.get("is_scanned", False)),
-        category=list(dp_raw.get("category") or [OTHER_CODE]),
-        category_label=str(dp_raw.get("category_label") or "unknown"),
-        routing_category=str(dp_raw.get("routing_category") or "generic"),
-        language=str(dp_raw.get("language") or "unknown"),
-        header_y=dp_raw.get("header_y"),
-        footer_y=dp_raw.get("footer_y"),
-    )
+    doc_profile = _load_m0_document_profile(bb_raw)
     bb.document_profile = doc_profile
     coordinator._coarse_profile_cache = doc_profile
     features, labels = _parse_features_and_labels(
@@ -853,26 +856,21 @@ def _publish_coarse_structure_and_write_scopes(
                 or state.enhancement.status == "failed"
             ):
                 return False
-        has_deferred_publication: bool = (
-            state is not None and state.publication_mode == "final"
+        scope_publisher(
+            db,
+            scope=publication_scope,
+            scope_id="*",
+            chunks=chunks,
+            section_summaries=section_summaries,
         )
-        if not has_deferred_publication:
-            scope_publisher(
-                db,
-                scope=publication_scope,
-                scope_id="*",
-                chunks=chunks,
-                section_summaries=section_summaries,
-            )
         write_coarse_scope_enrichments(
             db,
             document_id=target.document_id,
             job_result_id=job_result_id,
-            chunks=chunks if has_deferred_publication else None,
         )
         job_result.document_metadata = {
             **dict(job_result.document_metadata or {}),
-            "enrichment_status": "text" if has_deferred_publication else "coarse",
+            "enrichment_status": "coarse",
             "page_memory_phase_b": phase_b_refs,
             "page_memory_phase_b_artifacts": dict(phase_b_artifacts or {}),
         }
@@ -880,6 +878,35 @@ def _publish_coarse_structure_and_write_scopes(
         if state is not None:
             stages: dict[str, EnhancementStage] = dict(state.stages)
             stages["structure"] = {**stages.get("structure", {}), "status": "complete"}
+            vector_repair_stage: EnhancementStage = {
+                **(stages.get("vector_repair") or {}),
+            }
+            pending_pages = list(vector_repair_stage.get("pending_pages") or [])
+            if pending_pages:
+                corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(
+                    target.namespace
+                )
+                persisted_pages = set(
+                    db.scalars(
+                        select(corpus_storage.DocumentPageEmbedding.page_num)
+                        .where(
+                            corpus_storage.DocumentPageEmbedding.document_id
+                            == target.document_id
+                        )
+                        .where(
+                            corpus_storage.DocumentPageEmbedding.job_result_id
+                            == job_result_id
+                        )
+                    ).all()
+                )
+                remaining_pages = [
+                    page for page in pending_pages if page not in persisted_pages
+                ]
+                vector_repair_stage["pending_pages"] = remaining_pages
+                if not remaining_pages:
+                    vector_repair_stage["status"] = "complete"
+                    vector_repair_stage["error"] = None
+                stages["vector_repair"] = vector_repair_stage
             state.stages = stages
             job_result.document_metadata = write_progressive_state(
                 job_result.document_metadata, state
@@ -889,7 +916,7 @@ def _publish_coarse_structure_and_write_scopes(
         ).scalar_one()
         job.job_metadata = {
             **dict(job.job_metadata or {}),
-            "enrichment_status": "text" if has_deferred_publication else "coarse",
+            "enrichment_status": "coarse",
             "page_memory_phase_b": phase_b_refs,
             "page_memory_phase_b_artifacts": dict(phase_b_artifacts or {}),
         }
@@ -901,10 +928,13 @@ def _generate_and_persist_page_embeddings(
     *,
     add_dir: str,
     workspace_dir: str,
-    profile: Any,
     publication_scope: DocumentPublicationScope,
 ) -> int:
-    """Render and embed pages for electronic documents after coarse structure publish."""
+    """Render and embed pages for electronic documents before coarse structure build."""
+    from app.services.document_agent.pdf_text import (
+        page_bands_map,
+        page_content_map,
+    )
     from app.services.page_memory.page_renderer import render_document_pages
     from shared.core.config import settings
     from shared.services.retrieval.cache_service import (
@@ -916,18 +946,24 @@ def _generate_and_persist_page_embeddings(
 
     if not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)):
         return 0
-    if treat_profile_as_scanned(profile):
-        return 0
-    page_count = max(int(getattr(profile, "page_count", 0) or 0), 0)
-    if page_count <= 0:
-        return 0
 
     try:
+        bb_raw = _read_json_dict(os.path.join(add_dir, PHASE_B_BLACKBOARD_REL))
+        doc_profile = _load_m0_document_profile(bb_raw)
+        if treat_profile_as_scanned(doc_profile):
+            return 0
+        page_count = max(int(bb_raw.get("page_count") or 0), 0)
+        if page_count <= 0:
+            return 0
         pdf_path = os.path.join(add_dir, PHASE_B_SOURCE_PDF_REL)
         pages = list(range(1, page_count + 1))
-        page_texts = coerce_page_text_cache(
-            getattr(profile, "page_full_text_cache", None)
-        )
+        full_text_path = os.path.join(add_dir, PHASE_B_FULL_TEXT_REL)
+        if os.path.isfile(full_text_path):
+            page_texts = coerce_page_text_cache(_read_json_dict(full_text_path))
+        else:
+            page_texts = page_content_map(
+                page_bands_map(bb_raw.get("page_full_text_bands") or {})
+            )
         rendered = render_document_pages(
             pdf_path=pdf_path,
             page_count=page_count,
@@ -1052,7 +1088,6 @@ def _claim_and_validate_scope(
                 job_metadata=job_metadata,
                 source_file_name=source_file_name,
                 claim_generation=claim_generation,
-                result_metadata=job_result.document_metadata,
             ),
         )
 
@@ -1148,17 +1183,29 @@ def _upload_scope_artifacts(
     workspace_dir: str,
     artifact_refs: set[str],
     artifact_mapping: dict[str, str] | None = None,
+    add_dir: str | None = None,
 ) -> None:
     if not artifact_refs:
         return
-    add_dirs = [
-        os.path.join(workspace_dir, entry)
-        for entry in os.listdir(workspace_dir)
-        if os.path.isdir(os.path.join(workspace_dir, entry))
-    ]
-    if not add_dirs:
+    if add_dir is None:
+        add_dirs = [
+            os.path.join(workspace_dir, entry)
+            for entry in os.listdir(workspace_dir)
+            if os.path.isdir(os.path.join(workspace_dir, entry))
+        ]
+        add_dir = next(
+            (
+                child
+                for child in add_dirs
+                if any(
+                    os.path.isfile(os.path.join(child, relative_path))
+                    for relative_path in artifact_refs
+                )
+            ),
+            add_dirs[0] if add_dirs else None,
+        )
+    if not add_dir:
         return
-    add_dir = add_dirs[0]
     for relative_path in sorted(artifact_refs):
         local_path = os.path.join(add_dir, relative_path)
         if not os.path.isfile(local_path):
@@ -1178,7 +1225,6 @@ def _publish_and_mark_refined(
     target: _ClaimedScopeTarget,
     output: ScopeRefinementOutput,
     scope_publisher: ScopePublisher,
-    staged_reference: str | None = None,
 ) -> bool | None:
     now = utc_now_naive()
     publication_scope = _build_publication_scope(
@@ -1207,12 +1253,11 @@ def _publish_and_mark_refined(
             )
             return None
 
-        job_result = db.execute(
+        db.execute(
             select(JobResult)
             .where(JobResult.id == job_result_id)
             .with_for_update(of=JobResult)
         ).scalar_one()
-        state = read_progressive_state(job_result.document_metadata)
         claimed_scope = db.execute(
             select(DocumentScopeEnrichment)
             .where(DocumentScopeEnrichment.job_result_id == job_result_id)
@@ -1226,26 +1271,13 @@ def _publish_and_mark_refined(
         ):
             return None
 
-        if state is not None and state.publication_mode == "final":
-            if not staged_reference:
-                raise ValueError("Deferred enhancement requires a durable scope output")
-            metadata: dict[str, Any] = dict(job_result.document_metadata or {})
-            references: dict[str, str] = dict(
-                metadata.get("page_memory_staged_scopes") or {}
-            )
-            references[scope_id] = staged_reference
-            job_result.document_metadata = {
-                **metadata,
-                "page_memory_staged_scopes": references,
-            }
-        else:
-            scope_publisher(
-                db,
-                scope=publication_scope,
-                scope_id=scope_id,
-                chunks=output.chunks,
-                section_summaries=output.section_summaries,
-            )
+        scope_publisher(
+            db,
+            scope=publication_scope,
+            scope_id=scope_id,
+            chunks=output.chunks,
+            section_summaries=output.section_summaries,
+        )
         db.execute(
             update(DocumentScopeEnrichment)
             .where(DocumentScopeEnrichment.job_result_id == job_result_id)
@@ -1273,7 +1305,6 @@ def _finalize_all_scopes_refined(
     target: _ClaimedScopeTarget,
     storage: ResultStorage,
     workspace_dir: str,
-    scope_publisher: ScopePublisher | None = None,
 ) -> None:
     from shared.services.jobs.progressive_completion import commit_final_completion
     from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
@@ -1308,37 +1339,16 @@ def _finalize_all_scopes_refined(
     if state is not None and token is None:
         return
     try:
-        staged: StagedEnrichment | None = None
-        if state is not None and state.publication_mode == "final":
-            staged = _load_staged_final_content(
-                job_result_id=job_result_id,
-                target=target,
-                storage=storage,
-                workspace_dir=workspace_dir,
-            )
         snapshot, zip_size = _regenerate_and_upload_full_package(
             job_result_id=job_result_id,
             target=target,
             storage=storage,
             workspace_dir=workspace_dir,
             snapshot_id=f"snapshot_{uuid4().hex}",
-            staged_chunks=staged.chunks if staged is not None else None,
         )
         if snapshot is None:
             raise ValueError("Final document package contains no chunks")
         with get_sync_db_context() as db:
-            from shared.services.retrieval.serving_generation import (
-                advance_namespace_generation,
-                lock_namespace_generation,
-            )
-
-            generation = (
-                lock_namespace_generation(
-                    db, user_id=target.user_id, namespace=target.namespace
-                )
-                if staged is not None
-                else None
-            )
             document = db.execute(
                 select(Document)
                 .where(Document.document_id == target.document_id)
@@ -1369,48 +1379,6 @@ def _finalize_all_scopes_refined(
                     or current.enhancement.status == "failed"
                 ):
                     return
-                if staged is not None:
-                    publication_scope = DocumentPublicationScope(
-                        user_id=target.user_id,
-                        namespace=target.namespace,
-                        document_id=target.document_id,
-                        job_result_id=job_result_id,
-                        source_file_name=target.source_file_name,
-                    )
-                    publisher = scope_publisher or _resolve_default_scope_publisher()
-                    manifest_payload = publisher(
-                        db,
-                        scope=publication_scope,
-                        scope_id="*",
-                        chunks=staged.chunks,
-                        section_summaries=staged.section_summaries,
-                    )
-                    if staged.embeddings:
-                        from shared.services.retrieval.page_embedding_index import (
-                            upsert_document_page_embeddings,
-                        )
-
-                        upsert_document_page_embeddings(
-                            db,
-                            scope=publication_scope,
-                            incoming_embeddings_by_page=staged.embeddings,
-                        )
-                    from shared.services.retrieval.namespace_map_snapshot import (
-                        patch_namespace_map_snapshot,
-                    )
-
-                    patch_namespace_map_snapshot(
-                        db,
-                        scope=publication_scope,
-                        manifest_payload=manifest_payload,
-                        current_generation=generation,
-                    )
-                    advance_namespace_generation(
-                        db,
-                        user_id=target.user_id,
-                        namespace=target.namespace,
-                        locked_generation=generation,
-                    )
                 stage["status"] = "complete"
                 stages["finalization"] = stage
                 current.stages = stages
@@ -1457,13 +1425,10 @@ def _regenerate_and_upload_full_package(
     storage: ResultStorage,
     workspace_dir: str,
     snapshot_id: str,
-    staged_chunks: list[dict[str, Any]] | None = None,
 ) -> tuple[StoredSnapshot | None, int]:
-    chunks = staged_chunks
-    if chunks is None:
-        chunks = _load_published_package_chunks(
-            job_result_id=job_result_id, target=target
-        )
+    chunks = _load_published_package_chunks(
+        job_result_id=job_result_id, target=target
+    )
     if not chunks:
         return None, 0
 
@@ -1551,89 +1516,6 @@ def _regenerate_and_upload_full_package(
         checksum=checksum_value,
         archive_key=bundle.zip_key,
     ), zip_size
-
-
-def _load_staged_final_content(
-    *,
-    job_result_id: str,
-    target: _ClaimedScopeTarget,
-    storage: ResultStorage,
-    workspace_dir: str,
-) -> StagedEnrichment:
-    from shared.services.retrieval.page_embedding_index import (
-        inherit_missing_page_assets,
-        load_revision_page_assets_by_page,
-    )
-
-    with get_sync_db_context() as db:
-        result = db.get(JobResult, job_result_id)
-        if result is None:
-            raise ValueError("Enhancement revision no longer exists")
-        metadata: dict[str, Any] = dict(result.document_metadata or {})
-        references: dict[str, str] = dict(
-            metadata.get("page_memory_staged_scopes") or {}
-        )
-        scopes: list[tuple[str, str | None]] = [
-            (row.scope_id, row.claim_generation)
-            for row in db.scalars(
-                select(DocumentScopeEnrichment)
-                .where(DocumentScopeEnrichment.job_result_id == job_result_id)
-                .order_by(
-                    DocumentScopeEnrichment.page_start, DocumentScopeEnrichment.scope_id
-                )
-            )
-        ]
-        prior_assets = load_revision_page_assets_by_page(
-            db,
-            scope=DocumentPublicationScope(
-                user_id=target.user_id,
-                namespace=target.namespace,
-                document_id=target.document_id,
-                job_result_id=job_result_id,
-                source_file_name=target.source_file_name,
-            ),
-        )
-    combined = StagedEnrichment(
-        job_result_id=job_result_id,
-        scope_id="final",
-        claim_generation="final",
-    )
-    for scope_id, generation in scopes:
-        if scope_id not in references:
-            raise ValueError(f"Scope {scope_id} has no committed enhancement output")
-        output = StagedEnrichment.download(
-            storage=storage,
-            job_id=target.job_id,
-            raw_prefix=target.raw_prefix,
-            reference=references[scope_id],
-            workspace_dir=workspace_dir,
-            job_result_id=job_result_id,
-            scope_id=scope_id,
-            claim_generation=generation,
-        )
-        for chunk in output.chunks:
-            chunk_metadata = chunk.get("metadata")
-            if not isinstance(chunk_metadata, dict):
-                raise ValueError(f"Scope {scope_id} contains a chunk without metadata")
-            chunk_metadata["scope_id"] = scope_id
-            if chunk.get("type") == "page":
-                chunk_metadata["enrichment_state"] = REFINED_ENRICHMENT_STATE
-                inherit_missing_page_assets(chunk_metadata, prior_assets)
-            chunk["order"] = len(combined.chunks)
-            combined.chunks.append(chunk)
-        combined.section_summaries.update(output.section_summaries)
-    for reference in metadata.get("page_memory_staged_vectors") or []:
-        repaired = StagedEnrichment.download(
-            storage=storage,
-            job_id=target.job_id,
-            raw_prefix=target.raw_prefix,
-            reference=reference,
-            workspace_dir=workspace_dir,
-            job_result_id=job_result_id,
-            scope_id="vector-repair",
-        )
-        combined.embeddings.update(repaired.embeddings)
-    return combined
 
 
 def _load_published_package_chunks(
@@ -1964,7 +1846,6 @@ def execute_progressive_recovery(
             job=job,
             job_metadata=dict(job.job_metadata or {}),
             source_file_name=str(document.source_file_name),
-            result_metadata=result.document_metadata,
         )
         stages: dict[str, EnhancementStage] = dict(state.stages)
         scope_states = db.execute(
@@ -1991,8 +1872,6 @@ def execute_progressive_recovery(
         )
 
         enqueue_page_memory_structure_after_commit(job_result_id)
-    else:
-        enqueue_low_priority_scope_enrichments_after_commit(job_result_id)
     workspace: str = tempfile.mkdtemp(prefix="pm_recovery_")
     storage = result_storage_factory()
     try:
@@ -2083,15 +1962,6 @@ def _repair_missing_page_embeddings(
         repaired: dict[int, list[float]] = {
             page: vector for page, vector in zip(pages, vectors, strict=True) if vector
         }
-        staged_reference: str | None = None
-        if state.publication_mode == "final" and repaired:
-            staged_reference = StagedEnrichment(
-                job_result_id=job_result_id, scope_id="vector-repair",
-                claim_generation=token, embeddings=repaired,
-            ).upload(
-                storage=storage, job_id=target.job_id, raw_prefix=target.raw_prefix,
-                workspace_dir=workspace_dir,
-            )
         with get_sync_db_context() as db:
             document = db.execute(
                 select(Document)
@@ -2117,38 +1987,37 @@ def _repair_missing_page_embeddings(
                 or stage.get("status") != "running"
             ):
                 return
-            if state.publication_mode == "final":
-                if staged_reference is not None:
-                    metadata: dict[str, Any] = dict(result.document_metadata or {})
-                    references: list[str] = list(metadata.get("page_memory_staged_vectors") or [])
-                    result.document_metadata = {
-                        **metadata, "page_memory_staged_vectors": [*references, staged_reference],
-                    }
-                persisted_pages: set[int] = set(repaired)
-            else:
-                upsert_document_page_embeddings(
-                    db,
-                    scope=DocumentPublicationScope(
-                        user_id=target.user_id,
-                        namespace=target.namespace,
-                        document_id=target.document_id,
-                        job_result_id=job_result_id,
-                        source_file_name=target.source_file_name,
-                    ),
-                    incoming_embeddings_by_page=repaired,
+            upsert_document_page_embeddings(
+                db,
+                scope=DocumentPublicationScope(
+                    user_id=target.user_id,
+                    namespace=target.namespace,
+                    document_id=target.document_id,
+                    job_result_id=job_result_id,
+                    source_file_name=target.source_file_name,
+                ),
+                incoming_embeddings_by_page=repaired,
+            )
+            if repaired:
+                _invalidate_namespace_after_commit(
+                    db, user_id=target.user_id, namespace=target.namespace
                 )
-                if repaired:
-                    _invalidate_namespace_after_commit(
-                        db, user_id=target.user_id, namespace=target.namespace
+            corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(
+                target.namespace
+            )
+            persisted_pages = set(
+                db.scalars(
+                    select(corpus_storage.DocumentPageEmbedding.page_num)
+                    .where(
+                        corpus_storage.DocumentPageEmbedding.document_id
+                        == target.document_id
                     )
-                corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(target.namespace)
-                persisted_pages = set(
-                    db.scalars(
-                        select(corpus_storage.DocumentPageEmbedding.page_num)
-                        .where(corpus_storage.DocumentPageEmbedding.document_id == target.document_id)
-                        .where(corpus_storage.DocumentPageEmbedding.job_result_id == job_result_id)
-                    ).all()
-                )
+                    .where(
+                        corpus_storage.DocumentPageEmbedding.job_result_id
+                        == job_result_id
+                    )
+                ).all()
+            )
             pending = [page for page in pending if page not in persisted_pages]
             stage["pending_pages"] = pending
             stages["vector_repair"] = stage
@@ -2177,13 +2046,19 @@ def _repair_missing_page_embeddings(
 
 
 def _freeze_scope_artifacts(
-    *, output: ScopeRefinementOutput, workspace_dir: str, claim_generation: str
+    *,
+    output: ScopeRefinementOutput,
+    workspace_dir: str,
+    claim_generation: str,
+    raw_prefix: str | None = None,
+    serving_raw_prefix: str | None = None,
 ) -> ScopeRefinementOutput:
     """Give one claim exclusive asset keys before any remote write.
 
     Fencing only the SQL publication cannot protect objects uploaded earlier.
     Claim-prefixed filenames make a late upload harmless while preserving the
-    existing flat client asset directory contract.
+    existing flat client asset directory contract. Persist their origins so
+    partial Fine reads need no copy into the retained baseline snapshot.
     """
     if not output.artifact_refs:
         return output
@@ -2217,6 +2092,17 @@ def _freeze_scope_artifacts(
     for previous, current in zip(output.chunks, chunks, strict=True):
         previous_content: str = str(previous.get("content") or "")
         metadata = current.get("metadata") or {}
+        if raw_prefix:
+            owned_refs: set[str] = collect_referenced_artifact_refs([current]) & set(
+                artifact_mapping.values()
+            )
+            if owned_refs:
+                metadata["artifact_origins"] = {
+                    reference: raw_prefix for reference in sorted(owned_refs)
+                }
+                if serving_raw_prefix:
+                    metadata["artifact_origin_snapshot_prefix"] = serving_raw_prefix
+                current["metadata"] = metadata
         if "length" in metadata:
             metadata["length"] = len(str(current.get("content") or ""))
         connections = (current.get("metadata") or {}).get("connect_to") or []

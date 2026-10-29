@@ -243,7 +243,7 @@ def test_snapshot_bootstrap_objects_match_archive_bytes_without_internal_inputs(
 
 
 @pytest.mark.parametrize("has_immutable_origin", [True, False])
-def test_another_worker_packages_inherited_baseline_assets_with_staged_assets(
+def test_another_worker_packages_inherited_baseline_assets_with_published_assets(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, has_immutable_origin: bool
 ) -> None:
     from app.services.page_memory import scope_enrichment_service as service
@@ -280,33 +280,34 @@ def test_another_worker_packages_inherited_baseline_assets_with_staged_assets(
         },
     )
     monkeypatch.setattr(service, "enrich_doc_nav_summaries", lambda *args, **kwargs: {})
+    published_chunks: list[dict[str, object]] = [
+        {
+            "chunk_id": "page",
+            "type": "page",
+            "content": "text",
+            "path": "document.pdf/Root",
+            "metadata": {
+                "page_nums": [1],
+                "page_assets": [{"artifact_ref": "page_citation_assets/page-1.jpg"}],
+            },
+        },
+        {
+            "chunk_id": "image",
+            "type": "image",
+            "content": "figure",
+            "path": "images/claim-new-figure.jpg",
+            "metadata": {"file_path": "images/claim-new-figure.jpg"},
+        },
+    ]
+    monkeypatch.setattr(
+        service, "_load_published_package_chunks", lambda **kwargs: published_chunks
+    )
     snapshot, _size = service._regenerate_and_upload_full_package(
         job_result_id="result",
         target=target,
         storage=JobResultStorage(results_bucket="test", storage_adapter=objects),
         workspace_dir=str(tmp_path),
         snapshot_id="final",
-        staged_chunks=[
-            {
-                "chunk_id": "page",
-                "type": "page",
-                "content": "text",
-                "path": "document.pdf/Root",
-                "metadata": {
-                    "page_nums": [1],
-                    "page_assets": [
-                        {"artifact_ref": "page_citation_assets/page-1.jpg"}
-                    ],
-                },
-            },
-            {
-                "chunk_id": "image",
-                "type": "image",
-                "content": "figure",
-                "path": "images/claim-new-figure.jpg",
-                "metadata": {"file_path": "images/claim-new-figure.jpg"},
-            },
-        ],
     )
     assert snapshot is not None
     final_prefix: str = "results/job/snapshots/final/"
@@ -338,22 +339,146 @@ def test_another_worker_packages_inherited_baseline_assets_with_staged_assets(
                 ),
                 workspace_dir=str(tmp_path / "another-worker"),
                 snapshot_id="final-retry",
-                staged_chunks=[
-                    {
-                        "chunk_id": "page",
-                        "type": "page",
-                        "content": "text",
-                        "path": "document.pdf/Root",
-                        "metadata": {
-                            "page_nums": [1],
-                            "page_assets": [
-                                {"artifact_ref": "page_citation_assets/page-1.jpg"}
-                            ],
-                        },
-                    }
-                ],
             )
         assert not any("final-retry" in key for key in objects.uploaded)
+
+
+def test_partial_fine_assets_are_readable_without_mutating_baseline_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services.page_memory import scope_enrichment_service as service
+    from shared.services.retrieval.hydration import assets, evidence_compose, table_grid
+    from shared.services.storage.result_storage import JobResultStorage
+
+    root: Path = tmp_path / "document"
+    (root / "images").mkdir(parents=True)
+    (root / "tables").mkdir()
+    (root / "images/figure.jpg").write_bytes(b"fine image")
+    (root / "tables/table.html").write_text("<table><tr><td>Fine</td></tr></table>")
+    chunks: list[dict[str, object]] = [
+        {
+            "chunk_id": "figure",
+            "type": "image",
+            "metadata": {"file_path": "images/figure.jpg"},
+        },
+        {
+            "chunk_id": "table",
+            "type": "table",
+            "metadata": {"file_path": "tables/table.html"},
+        },
+    ]
+    output = service._freeze_scope_artifacts(
+        output=service.ScopeRefinementOutput(
+            scope_id="scope",
+            dataframe=pd.DataFrame(),
+            chunks=chunks,
+            section_summaries={},
+            artifact_refs={"images/figure.jpg", "tables/table.html"},
+        ),
+        workspace_dir=str(tmp_path),
+        claim_generation="claim",
+        raw_prefix="results/job/",
+        serving_raw_prefix="results/job/snapshots/baseline/",
+    )
+    baseline_prefix: str = "results/job/snapshots/baseline/"
+    objects: MemoryObjects = MemoryObjects()
+    objects.objects = {
+        f"{baseline_prefix}page_citation_assets/page-1.jpg": b"baseline image",
+        f"{baseline_prefix}chunks.json": b"immutable baseline",
+    }
+    baseline_objects: dict[str, bytes] = dict(objects.objects)
+    storage: JobResultStorage = JobResultStorage(
+        results_bucket="test", storage_adapter=objects
+    )
+    service._upload_scope_artifacts(
+        storage=storage,
+        job_id="job",
+        raw_prefix="results/job/",
+        workspace_dir=str(tmp_path),
+        artifact_refs=output.artifact_refs,
+    )
+    monkeypatch.setattr(assets, "get_result_storage", lambda: storage)
+    monkeypatch.setattr(evidence_compose, "get_result_storage", lambda: storage)
+    monkeypatch.setattr(table_grid, "get_result_storage", lambda: storage)
+    image_chunk, table_chunk = output.chunks
+    image_row: dict[str, object] = {
+        "job_id": "job",
+        "chunk_type": "image",
+        "result_raw_prefix": baseline_prefix,
+        "file_path": image_chunk["metadata"]["file_path"],
+        "chunk_metadata": image_chunk["metadata"],
+    }
+    image = evidence_compose._try_read_image_artifact(
+        image_row, str(image_row["file_path"]), media_type="image/jpeg"
+    )
+    assert image is not None
+    assert base64.b64decode(image["data"]) == b"fine image"
+    assert asyncio.run(
+        assets._generate_retrieval_asset_url(row=image_row, log_context="contract")
+    )
+    assert "Fine" in table_grid.load_table_html(
+        {
+            "job_id": "job",
+            "chunk_type": "table",
+            "result_raw_prefix": baseline_prefix,
+            "file_path": table_chunk["metadata"]["file_path"],
+            "chunk_metadata": table_chunk["metadata"],
+        }
+    )
+    page_row: dict[str, object] = {
+        "job_id": "job",
+        "chunk_type": "page",
+        "result_raw_prefix": baseline_prefix,
+        "chunk_metadata": {
+            "page_nums": [1],
+            "page_assets": [
+                {"page_num": 1, "artifact_ref": "page_citation_assets/page-1.jpg"}
+            ],
+        },
+    }
+    assert asyncio.run(
+        assets._enrich_page_assets(row=page_row, log_context="contract")
+    )[0]["asset_url"].endswith(f"{baseline_prefix}page_citation_assets/page-1.jpg")
+    assert {
+        key: value
+        for key, value in objects.objects.items()
+        if key.startswith(baseline_prefix)
+    } == baseline_objects
+    final_prefix: str = "results/job/snapshots/final/"
+    objects.objects[f"{final_prefix}{image_row['file_path']}"] = b"final image"
+    image_row["result_raw_prefix"] = final_prefix
+    final_image = evidence_compose._try_read_image_artifact(
+        image_row, str(image_row["file_path"]), media_type="image/jpeg"
+    )
+    assert final_image is not None
+    assert base64.b64decode(final_image["data"]) == b"final image"
+
+
+@pytest.mark.parametrize(
+    "origin", ["results/another-job/", "results/job/../another-job/", "results/job"]
+)
+def test_partial_asset_origin_cannot_read_another_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, origin: str
+) -> None:
+    from shared.services.retrieval.hydration import evidence_compose
+    from shared.services.storage.result_storage import JobResultStorage
+
+    objects: MemoryObjects = MemoryObjects()
+    objects.objects[f"{origin}images/figure.jpg"] = b"unrelated bytes"
+    storage: JobResultStorage = JobResultStorage(
+        results_bucket="test", storage_adapter=objects
+    )
+    monkeypatch.setattr(evidence_compose, "get_result_storage", lambda: storage)
+    image = evidence_compose._try_read_image_artifact(
+        {
+            "job_id": "job",
+            "result_raw_prefix": "results/job/snapshots/baseline/",
+            "chunk_metadata": {"artifact_origins": {"images/figure.jpg": origin}},
+        },
+        "images/figure.jpg",
+        media_type="image/jpeg",
+    )
+    assert image is None
 
 
 def test_final_commit_moves_serving_origin_and_retains_baseline_identity() -> None:

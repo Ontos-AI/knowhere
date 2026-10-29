@@ -688,16 +688,12 @@ def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants
             session.commit()
             _finalize(session, job_id=scope.job_ref, chunks=chunks)
             _write_scope_rows(session, scope=scope)
-            # Mark p3-4 as low-queued and p5-6 as already refined before read.
             for row in session.scalars(
                 select(DocumentScopeEnrichment).where(
                     DocumentScopeEnrichment.job_result_id == scope.revision_ref
                 )
             ).all():
-                if row.scope_id == "p3-4":
-                    row.state = "queued"
-                    row.priority = "low"
-                elif row.scope_id == "p5-6":
+                if row.scope_id == "p5-6":
                     row.state = "refined"
             doc_id = session.execute(
                 select(Document.document_id).where(
@@ -768,6 +764,114 @@ def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants
             ]
             assert rows[0].last_hit_at is not None
             assert rows[1].last_hit_at is not None
+    finally:
+        engine.dispose()
+
+
+def test_assemble_retrieval_results_promotes_only_returned_coarse_pages(
+    monkeypatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    from shared.core import celery_app as celery_app_mod
+    from shared.core.database import get_db_context
+
+    database_url = make_url(get_contract_database_url()).set(
+        drivername="postgresql+psycopg2"
+    )
+    engine = create_engine(database_url)
+    scope = _scope("assemble-promote")
+    sent_tasks: list[tuple[str, list[object], str | None, int | None]] = []
+
+    class _FakeCelery:
+        def send_task(
+            self,
+            name: str,
+            args: list[object] | None = None,
+            queue: str | None = None,
+            priority: int | None = None,
+            **kwargs: object,
+        ) -> None:
+            del kwargs
+            sent_tasks.append((name, list(args or []), queue, priority))
+
+    monkeypatch.setattr(celery_app_mod, "get_celery_app", lambda: _FakeCelery())
+
+    chunks = [
+        _page_chunk(
+            chunk_id="chunk-p1-2",
+            path=f"{scope.source_file_name}/Chapter1/SecA",
+            scope_id="p1-2",
+            page_nums=[1, 2],
+        ),
+        _page_chunk(
+            chunk_id="chunk-p3-4",
+            path=f"{scope.source_file_name}/Chapter1/SecB",
+            scope_id="p3-4",
+            page_nums=[3, 4],
+        ),
+    ]
+    try:
+        with Session(engine) as session:
+            seed_publication_fixture(session, scope=scope)
+            _set_job_progressive(session, job_id=scope.job_ref)
+            session.commit()
+            _finalize(session, job_id=scope.job_ref, chunks=chunks)
+            _write_scope_rows(session, scope=scope)
+            doc_id = session.execute(
+                select(Document.document_id).where(
+                    Document.current_job_result_id == scope.revision_ref
+                )
+            ).scalar_one()
+            session.commit()
+
+        async def _assemble_hit_pages() -> list[dict[str, object]]:
+            async with get_db_context() as async_db:
+                return await assemble_retrieval_results(
+                    db=async_db,
+                    rows=[
+                        {
+                            "chunk_id": "chunk-p1-2",
+                            "document_id": doc_id,
+                            "job_result_id": scope.revision_ref,
+                            "chunk_type": "page",
+                            "content": "raw p1-2",
+                            "matched_page_nums": [1],
+                            "chunk_metadata": {
+                                "scope_id": "p1-2",
+                                "enrichment_state": "coarse",
+                                "page_nums": [1, 2],
+                            },
+                        }
+                    ],
+                    exclude_document_ids=[],
+                    exclude_sections=[],
+                )
+
+        assembled = asyncio.run(_assemble_hit_pages())
+        assert assembled[0]["page_nums"] == [1]
+        assert sent_tasks == [
+            (
+                ENRICH_SCOPE_TASK_NAME,
+                [scope.revision_ref, "p1-2"],
+                HIGH_ENRICHMENT_QUEUE,
+                HIGH_ENRICHMENT_TASK_PRIORITY,
+            )
+        ]
+        with Session(engine) as session:
+            rows = {
+                r.scope_id: (r.state, r.priority, r.last_hit_at is not None)
+                for r in session.scalars(
+                    select(DocumentScopeEnrichment).where(
+                        DocumentScopeEnrichment.job_result_id == scope.revision_ref
+                    )
+                ).all()
+            }
+            assert rows == {
+                "p1-2": ("queued", "high", True),
+                "p3-4": ("coarse", None, False),
+            }
     finally:
         engine.dispose()
 
@@ -934,12 +1038,6 @@ def test_m0_text_publish_enqueues_structure_and_supports_any_stage_explore_and_a
                 NORMAL_ENRICHMENT_QUEUE,
                 None,
             ),
-            (
-                "app.core.tasks.enrichment_tasks.recover_progressive_revision",
-                [scope.revision_ref],
-                "document_ingestion_low",
-                None,
-            ),
         ]
 
         # Stage M0 (state=text): recall/grep/read work; outline/node_filter/assets/query_table return informative notes.
@@ -1007,7 +1105,7 @@ def test_m0_text_publish_enqueues_structure_and_supports_any_stage_explore_and_a
 
         asyncio.run(_verify_m0_tools())
         # Reading an M0 page must NOT enqueue scope tasks (no acceleration channel).
-        assert len(sent_tasks) == 2
+        assert len(sent_tasks) == 1
 
         # Stage 1 (coarse): whole-doc restructure publish + write scope rows.
         from shared.models.database.job_result import JobResult
@@ -1093,20 +1191,13 @@ def test_m0_text_publish_enqueues_structure_and_supports_any_stage_explore_and_a
                 )
                 assert assets_res.error is None
                 assert "not extracted yet (state=coarse)" in assets_res.text
+                assert "corpus.read first" in assets_res.text
 
                 ld_res = await list_documents(ctx, {})
                 assert ld_res.payload["documents"][0]["status"] == "coarse"
 
         asyncio.run(_verify_coarse_tools())
-        # Calling assets on a coarse scope promotes that scope to high priority!
-        assert sent_tasks == [
-            (
-                ENRICH_SCOPE_TASK_NAME,
-                [scope.revision_ref, "p1-1"],
-                HIGH_ENRICHMENT_QUEUE,
-                HIGH_ENRICHMENT_TASK_PRIORITY,
-            )
-        ]
+        assert sent_tasks == []
 
         # Stage 2 (fine) on p1-1: verify shared ancestor 'Chapter1' summary is NOT overwritten.
         with Session(engine) as session:
@@ -1422,18 +1513,18 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                     {
                         "chunk_id": "coarse-sec-1",
                         "type": "page",
-                        "content": "ocr text page one",
+                        "content": "ocr text page one and boundary",
                         "path": f"{scope.source_file_name}/Chapter1/SecA",
                         "metadata": {
-                            "scope_id": "p1-1",
+                            "scope_id": "p1-2",
                             "enrichment_state": "coarse",
-                            "page_nums": [1],
+                            "page_nums": [1, 2],
                         },
                     },
                     {
                         "chunk_id": "coarse-sec-2",
                         "type": "page",
-                        "content": "ocr text page two",
+                        "content": "ocr text page two opening",
                         "path": f"{scope.source_file_name}/Chapter1/SecB",
                         "metadata": {
                             "scope_id": "p2-2",
@@ -1453,6 +1544,8 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                     .order_by(DocumentPageEmbedding.page_num)
                 ).all()
             )
+            # Boundary page 2 is the end of SecA [1, 2] and the start of SecB [2]:
+            # start-page owner (SecB) wins the nominal chunk_id binding.
             assert [r.chunk_id for r in emb_rows_after_coarse] == [
                 "coarse-sec-1",
                 "coarse-sec-2",
@@ -1474,7 +1567,9 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                     query="second page chart",
                     top_k=2,
                 )
-                assert hyb_res.payload["fused_rows"][0]["chunk_id"] == "coarse-sec-2"
+                assert {
+                    row["chunk_id"] for row in hyb_res.payload["fused_rows"]
+                } == {"coarse-sec-1", "coarse-sec-2"}
 
                 vis_res = await visual_page_discovery(
                     async_db,
@@ -1484,7 +1579,37 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                     top_k=2,
                 )
                 vis_rows = vis_res.payload["fused_rows"]
-                assert vis_rows[0]["chunk_id"] == "coarse-sec-2"
+                vis_by_id = {row["chunk_id"]: row for row in vis_rows}
+                # Both sections include boundary page 2 in their page_nums, so both
+                # receive page 2 in visual discovery without either section losing it.
+                assert vis_by_id["coarse-sec-1"]["matched_page_nums"] == [2, 1]
+                assert vis_by_id["coarse-sec-2"]["matched_page_nums"] == [2]
+
+                sec_a_only = await visual_page_discovery(
+                    async_db,
+                    user_id=scope.user_ref,
+                    namespace=scope.namespace_ref,
+                    query="second page chart",
+                    top_k=2,
+                    section_targets=[(doc_id, "Chapter1 / SecA")],
+                )
+                assert [row["chunk_id"] for row in sec_a_only.payload["fused_rows"]] == [
+                    "coarse-sec-1"
+                ]
+                assert sec_a_only.payload["fused_rows"][0]["matched_page_nums"] == [2, 1]
+
+                sec_b_only = await visual_page_discovery(
+                    async_db,
+                    user_id=scope.user_ref,
+                    namespace=scope.namespace_ref,
+                    query="second page chart",
+                    top_k=2,
+                    section_targets=[(doc_id, "Chapter1 / SecB")],
+                )
+                assert [row["chunk_id"] for row in sec_b_only.payload["fused_rows"]] == [
+                    "coarse-sec-2"
+                ]
+                assert sec_b_only.payload["fused_rows"][0]["matched_page_nums"] == [2]
 
                 excluded = await visual_page_discovery(
                     async_db,
@@ -1502,6 +1627,8 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
                 assert "coarse-sec-2" not in [
                     row["chunk_id"] for row in excluded.payload["fused_rows"]
                 ]
+                assert excluded.payload["fused_rows"][0]["chunk_id"] == "coarse-sec-1"
+                assert excluded.payload["fused_rows"][0]["matched_page_nums"] == [2, 1]
                 return float(vis_rows[0]["score"])
 
         page2_score = asyncio.run(_verify_hybrid_after_coarse())
@@ -1569,3 +1696,192 @@ def test_scanned_visual_m0_retrieval_evidence_and_cross_stage_embedding_reuse(
         engine.dispose()
 
 
+def test_replace_document_scope_content_reuses_and_transfers_shared_boundary_assets(
+    monkeypatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    from shared.services.redis import redis_sync_service
+    from shared.services.retrieval.publication_scope_content import (
+        replace_document_scope_content as replace_scope_content,
+    )
+    from shared.testing.contract_runtime import (
+        CONTRACT_REDIS_DATABASE,
+        CONTRACT_REDIS_HOST,
+        CONTRACT_REDIS_PORT,
+        ContractFakeSyncRedis,
+    )
+
+    monkeypatch.setattr(
+        redis_sync_service,
+        "SyncRedisClient",
+        lambda **_kw: ContractFakeSyncRedis.from_url(
+            f"redis://{CONTRACT_REDIS_HOST}:{CONTRACT_REDIS_PORT}/{CONTRACT_REDIS_DATABASE}"
+        ),
+    )
+    redis_sync_service.SyncRedisServiceFactory.reset()
+
+    database_url = make_url(get_contract_database_url()).set(
+        drivername="postgresql+psycopg2"
+    )
+    engine = create_engine(database_url)
+    scope = _scope("sba")
+    coarse_chunks = [
+        _page_chunk(
+            chunk_id="coarse-p122-126",
+            path=f"{scope.source_file_name}/Ch1/SecA",
+            scope_id="p122-126",
+            page_nums=[122, 126],
+        ),
+        _page_chunk(
+            chunk_id="coarse-p126-131",
+            path=f"{scope.source_file_name}/Ch1/SecB",
+            scope_id="p126-131",
+            page_nums=[126, 131],
+        ),
+    ]
+    shared_path = "images/image_page_126_figure_1.png"
+    try:
+        with Session(engine) as session:
+            seed_publication_fixture(session, scope=scope)
+            _set_job_progressive(session, job_id=scope.job_ref)
+            session.commit()
+            _finalize(session, job_id=scope.job_ref, chunks=coarse_chunks)
+            session.commit()
+
+            doc = session.execute(
+                select(Document).where(
+                    Document.current_job_result_id == scope.revision_ref
+                )
+            ).scalar_one()
+            pub_scope = DocumentPublicationScope(
+                user_id=scope.user_ref,
+                namespace=scope.namespace_ref,
+                document_id=doc.document_id,
+                job_result_id=scope.revision_ref,
+                source_file_name=scope.source_file_name,
+            )
+
+            replace_scope_content(
+                session,
+                scope=pub_scope,
+                scope_id="p122-126",
+                chunks=[
+                    {
+                        "chunk_id": "asset-from-a",
+                        "type": "image",
+                        "content": f"Fig 12\n[{shared_path}]",
+                        "path": shared_path,
+                        "metadata": {
+                            "file_path": shared_path,
+                            "page_nums": [126],
+                            "connect_to": [
+                                {"target": "node-a", "relation": "embedded_by"}
+                            ],
+                        },
+                    },
+                    {
+                        "chunk_id": "node-a",
+                        "type": "page",
+                        "content": "sec a refined",
+                        "path": f"{scope.source_file_name}/Ch1/SecA",
+                        "metadata": {
+                            "page_nums": [122, 126],
+                            "connect_to": [
+                                {
+                                    "target": "asset-from-a",
+                                    "relation": "embeds",
+                                    "ref": f"[{shared_path}]",
+                                }
+                            ],
+                        },
+                    },
+                ],
+            )
+            session.commit()
+
+            # Overlapping scope p126-131 re-extracts the same boundary asset with a slightly different bbox/chunk_id.
+            replace_scope_content(
+                session,
+                scope=pub_scope,
+                scope_id="p126-131",
+                chunks=[
+                    {
+                        "chunk_id": "asset-from-b-diff-bbox",
+                        "type": "image",
+                        "content": f"Fig 12\n[{shared_path}]",
+                        "path": shared_path,
+                        "metadata": {
+                            "file_path": shared_path,
+                            "page_nums": [126],
+                            "connect_to": [
+                                {"target": "node-b", "relation": "embedded_by"}
+                            ],
+                        },
+                    },
+                    {
+                        "chunk_id": "node-b",
+                        "type": "page",
+                        "content": "sec b refined",
+                        "path": f"{scope.source_file_name}/Ch1/SecB",
+                        "metadata": {
+                            "page_nums": [126, 131],
+                            "connect_to": [
+                                {
+                                    "target": "asset-from-b-diff-bbox",
+                                    "relation": "embeds",
+                                    "ref": f"[{shared_path}]",
+                                }
+                            ],
+                        },
+                    },
+                ],
+            )
+            session.commit()
+
+            asset_rows = list(
+                session.scalars(
+                    select(DocumentChunk).where(
+                        DocumentChunk.job_result_id == scope.revision_ref,
+                        DocumentChunk.source_chunk_path == shared_path,
+                    )
+                ).all()
+            )
+            assert len(asset_rows) == 1
+            assert asset_rows[0].chunk_id == "asset-from-a"
+            node_b = session.execute(
+                select(DocumentChunk).where(
+                    DocumentChunk.job_result_id == scope.revision_ref,
+                    DocumentChunk.chunk_id == "node-b",
+                )
+            ).scalar_one()
+            assert node_b.chunk_metadata["connect_to"][0]["target"] == "asset-from-a"
+
+            # Re-publishing p122-126 without the asset transfers ownership to p126-131 instead of deleting it.
+            replace_scope_content(
+                session,
+                scope=pub_scope,
+                scope_id="p122-126",
+                chunks=[
+                    {
+                        "chunk_id": "node-a",
+                        "type": "page",
+                        "content": "sec a republished",
+                        "path": f"{scope.source_file_name}/Ch1/SecA",
+                        "metadata": {"page_nums": [122]},
+                    }
+                ],
+            )
+            session.commit()
+
+            surviving = session.execute(
+                select(DocumentChunk).where(
+                    DocumentChunk.job_result_id == scope.revision_ref,
+                    DocumentChunk.source_chunk_path == shared_path,
+                )
+            ).scalar_one()
+            assert surviving.chunk_id == "asset-from-a"
+            assert surviving.chunk_metadata["scope_id"] == "p126-131"
+    finally:
+        engine.dispose()

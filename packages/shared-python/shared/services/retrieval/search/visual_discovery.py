@@ -18,7 +18,10 @@ from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.document_scope import DocumentScope
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.row_utils import (
+    apply_matched_page_nums,
     coerce_page_nums,
+    extract_matched_page_nums,
+    is_unrefined_page,
     iter_connected_target_ids,
     normalize_chunk_type,
 )
@@ -35,10 +38,14 @@ from shared.services.retrieval.search.map_unit_discovery import (
     map_unit_discovery,
 )
 from shared.services.retrieval.search.scoring import normalize_row_scores
-from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
+from shared.services.retrieval.settings import ASSET_CHUNK_TYPES, DEFAULT_TOP_K
 from shared.services.retrieval.required_query_embedding import RequiredQueryEmbeddingException
 
-__all__ = ["hybrid_discovery", "visual_page_discovery"]
+__all__ = [
+    "hybrid_discovery",
+    "light_unrefined_section_pages",
+    "visual_page_discovery",
+]
 
 
 def _build_visual_revision_scope(
@@ -79,14 +86,14 @@ def _build_visual_section_subtree_clause(
         doc_key = f"_vsec_doc_{index}"
         params[doc_key] = document_id
         if not section_path:
-            parts.append(f"(dpe.document_id = :{doc_key})")
+            parts.append(f"(dc.document_id = :{doc_key})")
             continue
         path_key = f"_vsec_path_{index}"
         like_key = f"_vsec_pathlike_{index}"
         params[path_key] = section_path
         params[like_key] = f"{section_path} / %"
         parts.append(
-            f"(dpe.document_id = :{doc_key} AND "
+            f"(dc.document_id = :{doc_key} AND "
             f"(ds.section_path = :{path_key} OR ds.section_path LIKE :{like_key}))"
         )
     return f"AND ({' OR '.join(parts)})", params
@@ -111,7 +118,7 @@ def _build_visual_exclude_sections_clause(
         params[path_key] = section_path
         params[like_key] = f"{section_path} / %"
         parts.append(
-            f"(dpe.document_id = :{doc_key} AND "
+            f"(dc.document_id = :{doc_key} AND "
             f"(ds.section_path = :{path_key} OR ds.section_path LIKE :{like_key}))"
         )
     if not parts:
@@ -250,47 +257,105 @@ async def visual_page_discovery(
     }
 
     search_sql = f"""
+        WITH scoped_chunks AS MATERIALIZED (
+            SELECT
+                dc.chunk_id,
+                dc.document_id,
+                dc.section_id,
+                dc.chunk_type,
+                dc.content,
+                dc.source_chunk_path,
+                dc.file_path,
+                dc.chunk_metadata,
+                dc.job_result_id,
+                dc.sort_order,
+                ds.section_path,
+                d.source_file_name,
+                jr.job_id,
+                jr.document_metadata ->> 'result_raw_prefix' AS result_raw_prefix
+            FROM documents d
+            JOIN document_chunks dc
+                ON dc.document_id = d.document_id
+                AND dc.chunk_type = 'page'
+            LEFT JOIN document_sections ds
+                ON ds.section_id = dc.section_id
+            LEFT JOIN job_results jr
+                ON jr.id = dc.job_result_id
+            WHERE d.user_id = :user_id
+                AND d.namespace = :namespace
+                AND d.status = 'active'
+                { "AND d.current_job_result_id = dc.job_result_id" if revision_pins is None else revision_clause.replace("dpe.", "dc.") }
+                {document_scope_clause}
+                {signal_clause}
+                {section_clause}
+                {exclude_clause}
+        ),
+        scoped_chunk_pages AS MATERIALIZED (
+            SELECT
+                sc.chunk_id,
+                sc.document_id,
+                sc.job_result_id,
+                CAST(p.val AS integer) AS page_num
+            FROM scoped_chunks sc
+            CROSS JOIN LATERAL json_array_elements_text(
+                CASE
+                    WHEN json_typeof(sc.chunk_metadata -> 'page_nums') = 'array'
+                    THEN sc.chunk_metadata -> 'page_nums'
+                    ELSE '[]'::json
+                END
+            ) AS p(val)
+            WHERE p.val ~ '^[0-9]+$'
+        ),
+        top_pages AS MATERIALIZED (
+            SELECT
+                dpe.document_id,
+                dpe.job_result_id,
+                dpe.page_num,
+                (dpe.embedding <=> CAST(:query_embedding AS halfvec)) AS distance,
+                1.0 - (dpe.embedding <=> CAST(:query_embedding AS halfvec))
+                    AS similarity
+            FROM document_page_embeddings dpe
+            WHERE EXISTS (
+                SELECT 1
+                FROM scoped_chunk_pages scp
+                WHERE scp.document_id = dpe.document_id
+                    AND scp.job_result_id = dpe.job_result_id
+                    AND scp.page_num = dpe.page_num
+            )
+            ORDER BY distance ASC,
+                     dpe.page_num ASC
+            LIMIT :top_k
+        )
         SELECT
-            dpe.page_num,
-            1.0 - (dpe.embedding <=> CAST(:query_embedding AS halfvec))
-                AS similarity,
-            dc.chunk_id,
-            dc.document_id,
-            dc.section_id,
-            dc.chunk_type,
-            dc.content,
-            dc.source_chunk_path,
-            dc.file_path,
-            dc.chunk_metadata,
-            dc.job_result_id,
-            dc.sort_order,
-            ds.section_path,
-            d.source_file_name,
-            jr.job_id,
-            jr.document_metadata ->> 'result_raw_prefix' AS result_raw_prefix
-        FROM document_page_embeddings dpe
-        JOIN documents d
-            ON d.document_id = dpe.document_id
-            {revision_join}
-        JOIN document_chunks dc
-            ON dc.document_id = dpe.document_id
-            AND dc.job_result_id = dpe.job_result_id
-            AND dc.chunk_id = dpe.chunk_id
-        LEFT JOIN document_sections ds
-            ON ds.section_id = dc.section_id
-        LEFT JOIN job_results jr
-            ON jr.id = dc.job_result_id
-        WHERE d.user_id = :user_id
-            AND d.namespace = :namespace
-            AND d.status = 'active'
-            {revision_clause}
-            {document_scope_clause}
-            {signal_clause}
-            {section_clause}
-            {exclude_clause}
-        ORDER BY dpe.embedding <=> CAST(:query_embedding AS halfvec) ASC,
-                 dpe.page_num ASC
-        LIMIT :top_k
+            tp.page_num,
+            tp.similarity,
+            sc.chunk_id,
+            sc.document_id,
+            sc.section_id,
+            sc.chunk_type,
+            sc.content,
+            sc.source_chunk_path,
+            sc.file_path,
+            sc.chunk_metadata,
+            sc.job_result_id,
+            sc.sort_order,
+            sc.section_path,
+            sc.source_file_name,
+            sc.job_id,
+            sc.result_raw_prefix
+        FROM top_pages tp
+        JOIN scoped_chunk_pages scp
+            ON scp.document_id = tp.document_id
+            AND scp.job_result_id = tp.job_result_id
+            AND scp.page_num = tp.page_num
+        JOIN scoped_chunks sc
+            ON sc.document_id = scp.document_id
+            AND sc.job_result_id = scp.job_result_id
+            AND sc.chunk_id = scp.chunk_id
+        ORDER BY tp.distance ASC,
+                 tp.page_num ASC,
+                 sc.sort_order ASC,
+                 sc.chunk_id ASC
     """
     result = await db.execute(
         text(corpusStorage.compile_sql(search_sql)), query_params
@@ -353,6 +418,79 @@ async def visual_page_discovery(
         payload={"fused_rows": fused_rows},
         latency_ms=latency,
     )
+
+
+async def light_unrefined_section_pages(
+    db: AsyncSession | None,
+    *,
+    user_id: str,
+    namespace: str,
+    query: str,
+    rows: list[dict[str, Any]],
+    document_scope: DocumentScope = DocumentScope(),
+    revision_pins: Mapping[str, str] | None = None,
+) -> None:
+    """Populate ``matched_page_nums`` on unrefined page rows via section-scoped visual discovery."""
+    if (
+        db is None
+        or not rows
+        or not str(query or "").strip()
+        or not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True))
+    ):
+        return
+
+    pending: list[dict[str, Any]] = []
+    targets: list[tuple[str, str]] = []
+    seen_targets: set[tuple[str, str]] = set()
+    for row in rows:
+        if normalize_chunk_type(row.get("chunk_type")) != "page":
+            continue
+        if not is_unrefined_page(row):
+            continue
+        if extract_matched_page_nums(row):
+            continue
+        document_id = str(row.get("document_id") or "").strip()
+        section_path = str(row.get("section_path") or "").strip()
+        if not document_id or not section_path:
+            continue
+        pending.append(row)
+        target = (document_id, section_path)
+        if target not in seen_targets:
+            seen_targets.add(target)
+            targets.append(target)
+
+    if not pending or not targets:
+        return
+
+    pages_by_chunk: dict[tuple[str, str], list[int]] = {}
+    for document_id, section_path in targets:
+        discovery = await visual_page_discovery(
+            db,
+            user_id=user_id,
+            namespace=namespace,
+            query=query,
+            top_k=DEFAULT_TOP_K,
+            document_scope=document_scope,
+            revision_pins=revision_pins,
+            section_targets=[(document_id, section_path)],
+        )
+        for vis_row in discovery.payload.get("fused_rows") or []:
+            if not isinstance(vis_row, dict):
+                continue
+            doc_id = str(vis_row.get("document_id") or "").strip()
+            chunk_id = str(vis_row.get("chunk_id") or "").strip()
+            pages = coerce_page_nums(vis_row.get("matched_page_nums"))
+            if doc_id and chunk_id and pages:
+                pages_by_chunk[(doc_id, chunk_id)] = pages
+
+    for row in pending:
+        key = (
+            str(row.get("document_id") or "").strip(),
+            str(row.get("chunk_id") or "").strip(),
+        )
+        pages = pages_by_chunk.get(key)
+        if pages:
+            apply_matched_page_nums(row, pages)
 
 
 async def hybrid_discovery(
@@ -453,6 +591,15 @@ async def hybrid_discovery(
         fused_rows.append(merged)
 
     if fused_rows:
+        await light_unrefined_section_pages(
+            db,
+            user_id=user_id,
+            namespace=namespace,
+            query=query,
+            rows=fused_rows,
+            document_scope=document_scope,
+            revision_pins=revision_pins,
+        )
         normalize_row_scores(
             fused_rows,
             source_field="score",

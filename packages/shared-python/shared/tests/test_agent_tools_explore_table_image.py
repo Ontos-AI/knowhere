@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
+from typing import cast
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
@@ -14,7 +16,7 @@ os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 import pytest
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, update
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
@@ -354,6 +356,66 @@ async def test_query_table_select_returns_html_rows(
     assert result.payload["table_html"]
     assert "30 mg" in result.payload["table_html"]
     assert result.payload["table_html"].startswith("<table>")
+
+
+@pytest.mark.asyncio
+async def test_query_table_reads_partial_fine_artifact_and_then_final_snapshot(
+    explore_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.hydration import table_grid
+    from shared.services.storage.result_storage import JobResultStorage
+    from shared.services.storage.storage_adapter import StorageAdapter
+
+    baselinePrefix: str = f"results/{JOB_ID}/snapshots/baseline/"
+    finalPrefix: str = f"results/{JOB_ID}/snapshots/final/"
+    workingPrefix: str = f"results/{JOB_ID}/"
+    artifact: str = "tables/claim-partial-table.html"
+    session: Session = cast(_AsyncSessionAdapter, explore_ctx.db)._session
+    table: DocumentChunk | None = session.get(DocumentChunk, "row_small")
+    assert table is not None
+    session.execute(update(JobResult).where(JobResult.id == REV_ID).values(document_metadata={"result_raw_prefix": baselinePrefix}))
+    table.content = ""
+    table.file_path = artifact
+    table.chunk_metadata = {
+        "artifact_origins": {artifact: workingPrefix},
+        "artifact_origin_snapshot_prefix": baselinePrefix,
+    }
+    session.commit()
+
+    class MemoryObjects:
+        def __init__(self) -> None:
+            self.objects: dict[str, bytes] = {
+                workingPrefix + artifact: SMALL_HTML.encode(),
+                finalPrefix + artifact: SMALL_HTML.replace("30 mg", "60 mg").encode(),
+            }
+            self.downloaded: list[str] = []
+
+        def download_file(self, key: str, local_path: str, bucket: str | None = None) -> str:
+            self.downloaded.append(key)
+            Path(local_path).write_bytes(self.objects[key])
+            return local_path
+
+    objects: MemoryObjects = MemoryObjects()
+    storage: JobResultStorage = JobResultStorage(
+        results_bucket="test", storage_adapter=cast(StorageAdapter, objects)
+    )
+    monkeypatch.setattr(table_grid, "get_result_storage", lambda: storage)
+    arguments: dict[str, str] = {
+        "document_id": DOC_ID, "chunk_id": CHUNK_SMALL,
+        "sql": "SELECT row_header, Unit FROM t",
+    }
+    partial = await query_table(explore_ctx, arguments)
+    assert partial.error is None
+    assert "30 mg" in partial.text
+    assert objects.downloaded == [workingPrefix + artifact]
+
+    session.execute(update(JobResult).where(JobResult.id == REV_ID).values(document_metadata={"result_raw_prefix": finalPrefix}))
+    session.commit()
+    final = await query_table(explore_ctx, arguments)
+    assert final.error is None
+    assert "60 mg" in final.text and "30 mg" not in final.text
+    assert objects.downloaded == [workingPrefix + artifact, finalPrefix + artifact]
 
 
 @pytest.mark.asyncio

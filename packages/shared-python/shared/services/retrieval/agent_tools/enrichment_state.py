@@ -161,7 +161,8 @@ def format_still_structuring_note(file_names: list[str]) -> str:
 def format_assets_not_refined_note(page_range_label: str, state: str = "coarse") -> str:
     return (
         f"assets for {page_range_label} are not extracted yet (state={state}); "
-        "background refinement is queued. Do not retry corpus.assets or "
+        "read the matching pages with corpus.read first — that queues "
+        "background refinement. Do not retry corpus.assets or "
         "corpus.query_table on this range in this session — use page text "
         "via corpus.read, corpus.grep, or corpus.recall."
     )

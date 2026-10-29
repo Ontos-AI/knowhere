@@ -44,6 +44,7 @@ class TraceRecorder:
         workflow_step_id: str | None = None,
         workflow_plan: dict[str, Any] | None = None,
         policy_name: str = "llm_policy_v1",
+        agentic_enabled: bool = False,
         config: Any = None,
     ) -> None:
         del config  # unused AgentRunConfig leftover; ignored
@@ -59,6 +60,7 @@ class TraceRecorder:
         self._workflow_step_id = workflow_step_id
         self._workflow_plan = workflow_plan
         self._policy_name = policy_name
+        self._agentic_enabled = agentic_enabled
         self._steps: list[dict[str, Any]] = []
         self._start_time = time.monotonic()
         self._created = False
@@ -82,7 +84,7 @@ class TraceRecorder:
                 chunk_types=sorted(self._chunk_types) if self._chunk_types else None,
                 filters=self._filters,
                 policy_name=self._policy_name,
-                agentic_enabled=True,
+                agentic_enabled=self._agentic_enabled,
                 cache_hit=False,
                 result_count=0,
                 parent_run_id=self._parent_run_id,
@@ -150,6 +152,34 @@ class TraceRecorder:
             }
         )
 
+    def record_model_call(self, entry: Any) -> None:
+        """Buffer one provider call: tokens and client-measured duration."""
+        total_tokens = entry.total_tokens
+        if total_tokens is not None:
+            try:
+                total_tokens = int(total_tokens)
+            except (TypeError, ValueError):
+                total_tokens = None
+        self._steps.append(
+            {
+                "step_index": len(self._steps),
+                "action_type": entry.task or "unknown",
+                "action_input": {
+                    "usage_task": entry.task or "unknown",
+                    "model": entry.model,
+                },
+                "observation_status": "llm_call",
+                "observation_payload_keys": [],
+                "latency_ms": max(int(entry.duration_ms or 0), 0),
+                "token_count": total_tokens,
+                "error": None,
+                "selected_paths": None,
+                "selected_doc_ids": None,
+                "model_name": entry.model or None,
+                "created_at": _now_utc(),
+            }
+        )
+
     def record_budget_stop(self, reason: str) -> None:
         """Record that the agent loop stopped due to a budget guard."""
         self._steps.append(
@@ -178,12 +208,17 @@ class TraceRecorder:
         model_name: str | None = None,
         selected_paths: list[str] | None = None,
         selected_doc_ids: list[str] | None = None,
+        latency_ms: int | None = None,
     ) -> None:
         """Flush step records and update the run row. Best-effort."""
         if not self._created:
             return
 
-        total_latency = int((time.monotonic() - self._start_time) * 1000)
+        total_latency = (
+            max(int(latency_ms), 0)
+            if latency_ms is not None
+            else int((time.monotonic() - self._start_time) * 1000)
+        )
         run_token_count = int(token_count) if token_count is not None else None
 
         try:
@@ -203,7 +238,7 @@ class TraceRecorder:
                     selected_paths=step_data.get("selected_paths"),
                     selected_doc_ids=step_data.get("selected_doc_ids"),
                     latency_ms=step_data["latency_ms"],
-                    token_count=None,
+                    token_count=step_data.get("token_count"),
                     model_name=step_data.get("model_name") or model_name,
                     error=step_data.get("error"),
                     created_at=step_data["created_at"],

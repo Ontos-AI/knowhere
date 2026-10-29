@@ -100,10 +100,15 @@ celery_app.conf.update(
         "app.core.tasks.enrichment_tasks.build_page_memory_structure": {
             "queue": "document_ingestion_medium"
         },
+        "app.core.tasks.enrichment_tasks.enrich_page_memory_scope": {
+            "queue": "document_ingestion_high"
+        },
+        "app.core.tasks.enrichment_tasks.recover_progressive_revision": {
+            "queue": "document_ingestion_low"
+        },
         "app.core.tasks.enrichment_tasks.sweep_progressive_enrichments": {
             "queue": "default"
         },
-        "app.core.tasks.enrichment_tasks.*": {"queue": "document_ingestion_low"},
         "app.core.tasks.kb_tasks.*": {"queue": "kb_medium"},
         # Webhook orphan recovery
         "app.core.tasks.webhook_tasks.recover_orphaned_webhooks": {"queue": "default"},
