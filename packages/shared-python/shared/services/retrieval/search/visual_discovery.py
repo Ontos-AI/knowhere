@@ -86,14 +86,14 @@ def _build_visual_section_subtree_clause(
         doc_key = f"_vsec_doc_{index}"
         params[doc_key] = document_id
         if not section_path:
-            parts.append(f"(dpe.document_id = :{doc_key})")
+            parts.append(f"(dc.document_id = :{doc_key})")
             continue
         path_key = f"_vsec_path_{index}"
         like_key = f"_vsec_pathlike_{index}"
         params[path_key] = section_path
         params[like_key] = f"{section_path} / %"
         parts.append(
-            f"(dpe.document_id = :{doc_key} AND "
+            f"(dc.document_id = :{doc_key} AND "
             f"(ds.section_path = :{path_key} OR ds.section_path LIKE :{like_key}))"
         )
     return f"AND ({' OR '.join(parts)})", params
@@ -118,7 +118,7 @@ def _build_visual_exclude_sections_clause(
         params[path_key] = section_path
         params[like_key] = f"{section_path} / %"
         parts.append(
-            f"(dpe.document_id = :{doc_key} AND "
+            f"(dc.document_id = :{doc_key} AND "
             f"(ds.section_path = :{path_key} OR ds.section_path LIKE :{like_key}))"
         )
     if not parts:
@@ -257,47 +257,105 @@ async def visual_page_discovery(
     }
 
     search_sql = f"""
+        WITH scoped_chunks AS MATERIALIZED (
+            SELECT
+                dc.chunk_id,
+                dc.document_id,
+                dc.section_id,
+                dc.chunk_type,
+                dc.content,
+                dc.source_chunk_path,
+                dc.file_path,
+                dc.chunk_metadata,
+                dc.job_result_id,
+                dc.sort_order,
+                ds.section_path,
+                d.source_file_name,
+                jr.job_id,
+                jr.document_metadata ->> 'result_raw_prefix' AS result_raw_prefix
+            FROM documents d
+            JOIN document_chunks dc
+                ON dc.document_id = d.document_id
+                AND dc.chunk_type = 'page'
+            LEFT JOIN document_sections ds
+                ON ds.section_id = dc.section_id
+            LEFT JOIN job_results jr
+                ON jr.id = dc.job_result_id
+            WHERE d.user_id = :user_id
+                AND d.namespace = :namespace
+                AND d.status = 'active'
+                { "AND d.current_job_result_id = dc.job_result_id" if revision_pins is None else revision_clause.replace("dpe.", "dc.") }
+                {document_scope_clause}
+                {signal_clause}
+                {section_clause}
+                {exclude_clause}
+        ),
+        scoped_chunk_pages AS MATERIALIZED (
+            SELECT
+                sc.chunk_id,
+                sc.document_id,
+                sc.job_result_id,
+                CAST(p.val AS integer) AS page_num
+            FROM scoped_chunks sc
+            CROSS JOIN LATERAL json_array_elements_text(
+                CASE
+                    WHEN json_typeof(sc.chunk_metadata -> 'page_nums') = 'array'
+                    THEN sc.chunk_metadata -> 'page_nums'
+                    ELSE '[]'::json
+                END
+            ) AS p(val)
+            WHERE p.val ~ '^[0-9]+$'
+        ),
+        top_pages AS MATERIALIZED (
+            SELECT
+                dpe.document_id,
+                dpe.job_result_id,
+                dpe.page_num,
+                (dpe.embedding <=> CAST(:query_embedding AS halfvec)) AS distance,
+                1.0 - (dpe.embedding <=> CAST(:query_embedding AS halfvec))
+                    AS similarity
+            FROM document_page_embeddings dpe
+            WHERE EXISTS (
+                SELECT 1
+                FROM scoped_chunk_pages scp
+                WHERE scp.document_id = dpe.document_id
+                    AND scp.job_result_id = dpe.job_result_id
+                    AND scp.page_num = dpe.page_num
+            )
+            ORDER BY distance ASC,
+                     dpe.page_num ASC
+            LIMIT :top_k
+        )
         SELECT
-            dpe.page_num,
-            1.0 - (dpe.embedding <=> CAST(:query_embedding AS halfvec))
-                AS similarity,
-            dc.chunk_id,
-            dc.document_id,
-            dc.section_id,
-            dc.chunk_type,
-            dc.content,
-            dc.source_chunk_path,
-            dc.file_path,
-            dc.chunk_metadata,
-            dc.job_result_id,
-            dc.sort_order,
-            ds.section_path,
-            d.source_file_name,
-            jr.job_id,
-            jr.document_metadata ->> 'result_raw_prefix' AS result_raw_prefix
-        FROM document_page_embeddings dpe
-        JOIN documents d
-            ON d.document_id = dpe.document_id
-            {revision_join}
-        JOIN document_chunks dc
-            ON dc.document_id = dpe.document_id
-            AND dc.job_result_id = dpe.job_result_id
-            AND dc.chunk_id = dpe.chunk_id
-        LEFT JOIN document_sections ds
-            ON ds.section_id = dc.section_id
-        LEFT JOIN job_results jr
-            ON jr.id = dc.job_result_id
-        WHERE d.user_id = :user_id
-            AND d.namespace = :namespace
-            AND d.status = 'active'
-            {revision_clause}
-            {document_scope_clause}
-            {signal_clause}
-            {section_clause}
-            {exclude_clause}
-        ORDER BY dpe.embedding <=> CAST(:query_embedding AS halfvec) ASC,
-                 dpe.page_num ASC
-        LIMIT :top_k
+            tp.page_num,
+            tp.similarity,
+            sc.chunk_id,
+            sc.document_id,
+            sc.section_id,
+            sc.chunk_type,
+            sc.content,
+            sc.source_chunk_path,
+            sc.file_path,
+            sc.chunk_metadata,
+            sc.job_result_id,
+            sc.sort_order,
+            sc.section_path,
+            sc.source_file_name,
+            sc.job_id,
+            sc.result_raw_prefix
+        FROM top_pages tp
+        JOIN scoped_chunk_pages scp
+            ON scp.document_id = tp.document_id
+            AND scp.job_result_id = tp.job_result_id
+            AND scp.page_num = tp.page_num
+        JOIN scoped_chunks sc
+            ON sc.document_id = scp.document_id
+            AND sc.job_result_id = scp.job_result_id
+            AND sc.chunk_id = scp.chunk_id
+        ORDER BY tp.distance ASC,
+                 tp.page_num ASC,
+                 sc.sort_order ASC,
+                 sc.chunk_id ASC
     """
     result = await db.execute(
         text(corpusStorage.compile_sql(search_sql)), query_params

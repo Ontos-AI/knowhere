@@ -16,6 +16,9 @@ from shared.services.retrieval.cache_service import (
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.hydration.row_utils import iter_connected_target_ids
 from shared.services.retrieval.map_unit_index import replace_document_map_units
+from shared.services.retrieval.namespace_map_snapshot import (
+    patch_namespace_map_snapshot,
+)
 from shared.services.retrieval.page_embedding_index import (
     extract_and_strip_page_embeddings,
     inherit_missing_page_assets,
@@ -34,6 +37,10 @@ from shared.services.retrieval.publication_content import (
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.publication_trace_stage import trace_publication_stage
 from shared.services.retrieval.search.lexical_text import section_path_from_chunk_path
+from shared.services.retrieval.serving_generation import (
+    advance_namespace_generation,
+    lock_namespace_generation,
+)
 from shared.services.retrieval.serving_manifest import persist_revision_serving_state
 from shared.utils.json_utils import remove_nul_characters
 
@@ -170,6 +177,26 @@ def replace_document_scope_content(
         replace_document_page_embeddings(db, scope=scope)
 
     manifest_payload = persist_revision_serving_state(db, scope=scope, trace=trace)
+    with trace_publication_stage(trace, "namespace_generation_lock_wait"):
+        generation = lock_namespace_generation(
+            db,
+            user_id=scope.user_id,
+            namespace=scope.namespace,
+        )
+    patch_namespace_map_snapshot(
+        db,
+        scope=scope,
+        manifest_payload=manifest_payload,
+        current_generation=generation,
+        trace=trace,
+    )
+    with trace_publication_stage(trace, "namespace_generation_lock_wait"):
+        advance_namespace_generation(
+            db,
+            user_id=scope.user_id,
+            namespace=scope.namespace,
+            locked_generation=generation,
+        )
     _invalidate_namespace_after_commit(
         db,
         user_id=scope.user_id,

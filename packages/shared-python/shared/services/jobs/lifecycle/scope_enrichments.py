@@ -77,10 +77,9 @@ def write_coarse_scope_enrichments(
     *,
     document_id: str,
     job_result_id: str,
-    chunks: list[dict[str, object]] | None = None,
 ) -> bool:
-    """Schedule scopes from staged chunks, or published chunks for legacy revisions."""
-    published = [chunk.get("metadata") for chunk in chunks] if chunks is not None else (
+    """Create ``coarse`` rows in ``document_scope_enrichments`` for published coarse scopes."""
+    published = (
         db.execute(
             select(DocumentChunk.chunk_metadata)
             .where(DocumentChunk.document_id == document_id)

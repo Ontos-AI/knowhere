@@ -132,11 +132,20 @@ def _build_owner_chunk_by_page(
         )
     ).all()
     owner_by_page: dict[int, str] = {}
+    start_owner_pages: set[int] = set()
     for chunk_id, metadata in rows:
         if not chunk_id or not isinstance(metadata, dict):
             continue
-        for page_num in _coerce_page_nums(metadata.get("page_nums")):
-            owner_by_page.setdefault(page_num, str(chunk_id))
+        pages = _coerce_page_nums(metadata.get("page_nums"))
+        for index, page_num in enumerate(pages):
+            cid = str(chunk_id)
+            if page_num not in owner_by_page:
+                owner_by_page[page_num] = cid
+                if index == 0:
+                    start_owner_pages.add(page_num)
+            elif index == 0 and page_num not in start_owner_pages:
+                owner_by_page[page_num] = cid
+                start_owner_pages.add(page_num)
     return owner_by_page
 
 
