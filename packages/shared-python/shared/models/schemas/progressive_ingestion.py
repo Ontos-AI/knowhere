@@ -1,6 +1,6 @@
 """Durable enhancement state and immutable reader artifact identities."""
 
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 from typing_extensions import TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -29,6 +29,20 @@ class StoredSnapshot(BaseModel):
     document_id: str = Field(min_length=1)
     checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
     archive_key: str = Field(min_length=1)
+
+
+class SnapshotObjectAccessRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    paths: list[Annotated[str, Field(strict=True, min_length=1, max_length=2048)]] = (
+        Field(min_length=1, max_length=200)
+    )
+
+    @model_validator(mode="after")
+    def validate_unique_paths(self) -> Self:
+        if len(set(self.paths)) != len(self.paths):
+            raise ValueError("Snapshot object paths must be unique")
+        return self
 
 
 class EnhancementRetryResponse(BaseModel):

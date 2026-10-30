@@ -1,0 +1,5 @@
+FROM public.ecr.aws/docker/library/postgres:15-bookworm
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-15-pgvector \
+    && rm -rf /var/lib/apt/lists/*

@@ -1,0 +1,198 @@
+name: knowhere-progressive-e2e
+
+x-runtime-environment: &runtime-environment
+  ENVIRONMENT: development
+  APP_ENV: development
+  API_STANDALONE_MODE_ENABLED: "true"
+  DATABASE_URL: postgresql+asyncpg://knowhere_runtime:${E2E_RUNTIME_PASSWORD:?Set a random test-only hex password}@postgres:5432/Knowhere
+  DB_SSL_MODE: disable
+  DB_POOL_SIZE: "50"
+  DB_MAX_OVERFLOW: "50"
+  DB_SYNC_POOL_SIZE: "5"
+  DB_SYNC_MAX_OVERFLOW: "5"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ""
+  REDIS_DATABASE: "0"
+  REDIS_SSL: "false"
+  REDIS_SYNC_MAX_CONNECTIONS: "200"
+  CELERY_REDIS_URL: redis://redis:6379/0
+  BROKER_POOL_LIMIT: "5"
+  TMP_PATH: /tmp/aismart_bid
+  S3_TYPE: s3
+  S3_BUCKET_NAME: knowhere-progressive-e2e-uploads
+  S3_RESULTS_BUCKET: knowhere-progressive-e2e-results
+  S3_ACCESS_KEY_ID: test
+  S3_SECRET_ACCESS_KEY: test
+  S3_ENDPOINT_URL: ${E2E_S3_ENDPOINT_URL:-http://storage:4566}
+  S3_PRIVATE_DOMAIN: ${E2E_S3_ENDPOINT_URL:-http://storage:4566}
+  S3_REGION: us-west-1
+  S3_USE_SSL: "false"
+  S3_ADDRESSING_STYLE: path
+  S3_TEMP_PATH: /tmp
+  WORKER_CONCURRENCY: "10"
+  SUMMARY_LLM_MAX_CONCURRENT: "8"
+  PAGE_MEMORY_EMBED_CONCURRENCY: "10"
+  PAGE_MEMORY_VLM_MAX_INFLIGHT: "16"
+  PAGE_MEMORY_SCOPE_CONCURRENCY: "5"
+  PAGE_MEMORY_TAG_CONCURRENCY: "4"
+  PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY: "3"
+  PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY: "3"
+  PAGE_MEMORY_FINE_TEXT_EXTRACTION_CONCURRENCY: "4"
+  PYMUPDF_MAX_CONCURRENT: "2"
+  RATE_LIMIT_ENABLED: "false"
+  BILLING_ENABLED: "false"
+  TELEMETRY_ENABLED: "false"
+  LOGFIRE_TOKEN: ""
+
+x-runtime: &runtime
+  env_file:
+    - ${E2E_RUNTIME_ENV_PATH:-./runtime.env}
+  environment: *runtime-environment
+  restart: unless-stopped
+  stop_grace_period: 120s
+  networks:
+    - default
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    storage:
+      condition: service_healthy
+
+x-api: &api
+  <<: *runtime
+  image: knowhere-progressive-e2e-api:local
+  build:
+    context: ../..
+    dockerfile: deploy/docker/Dockerfile.api
+
+x-worker: &worker
+  <<: *runtime
+  image: knowhere-progressive-e2e-worker:local
+  build:
+    context: ../..
+    dockerfile: deploy/docker/Dockerfile.worker
+  cpus: 2
+  mem_limit: 4g
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg15-trixie
+    environment:
+      POSTGRES_DB: Knowhere
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: ${E2E_POSTGRES_PASSWORD:?Set a random test-only hex password}
+      E2E_RUNTIME_PASSWORD: ${E2E_RUNTIME_PASSWORD:?Set a random test-only hex password}
+      POSTGRES_INITDB_ARGS: --encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../local-dev/postgres/init/01-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./postgres-runtime-role.sh:/docker-entrypoint-initdb.d/02-runtime-role.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U root -d Knowhere]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  storage:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: s3,sns
+      LOCALSTACK_HOST: localstack:4566
+      AWS_DEFAULT_REGION: us-west-1
+      PERSISTENCE: "1"
+      S3_SKIP_SIGNATURE_VALIDATION: "0"
+    ports:
+      - ${E2E_BIND_ADDRESS:-127.0.0.1}:${E2E_S3_PORT:-14566}:4566
+    volumes:
+      - storage-data:/var/lib/localstack
+      - ./localstack-init.sh:/etc/localstack/init/ready.d/10-create-buckets.sh:ro
+      - ./configure-storage-notifications.py:/e2e/configure-storage-notifications.py:ro
+    networks:
+      default:
+        aliases:
+          - localstack
+    healthcheck:
+      test: [CMD-SHELL, "test -f /tmp/progressive-e2e-storage-ready && awslocal s3api head-bucket --bucket knowhere-progressive-e2e-results"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  migrate:
+    <<: *api
+    profiles: [tools]
+    restart: "no"
+    entrypoint: [python, -m, alembic]
+    command: [upgrade, heads]
+    environment:
+      <<: *runtime-environment
+      MIGRATION_DATABASE_URL: postgresql+asyncpg://root:${E2E_POSTGRES_PASSWORD:?Set a random test-only hex password}@postgres:5432/Knowhere
+
+  api:
+    <<: *api
+    cpus: 0.5
+    mem_limit: 2g
+    networks:
+      default:
+        aliases:
+          - knowhere-api
+    ports:
+      - ${E2E_BIND_ADDRESS:-127.0.0.1}:${E2E_API_PORT:-15005}:5005
+
+  bootstrap-auth:
+    <<: *api
+    profiles: [tools]
+    restart: "no"
+    user: "0:0"
+    entrypoint: [python]
+    command: [/e2e/bootstrap-auth.py, --output, /artifacts/auth.json]
+    environment:
+      <<: *runtime-environment
+      DATABASE_URL: postgresql+asyncpg://root:${E2E_POSTGRES_PASSWORD:?Set a random test-only hex password}@postgres:5432/Knowhere
+    volumes:
+      - ./bootstrap-auth.py:/e2e/bootstrap-auth.py:ro
+      - ${E2E_ARTIFACT_DIR:?Set the private test artifacts directory}:/artifacts
+
+  storage-notifications:
+    image: knowhere-progressive-e2e-api:local
+    profiles: [tools]
+    restart: "no"
+    entrypoint: [python]
+    command: [/e2e/configure-storage-notifications.py, --phase, subscribe]
+    volumes:
+      - ./configure-storage-notifications.py:/e2e/configure-storage-notifications.py:ro
+    depends_on:
+      storage:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    networks:
+      - default
+
+  worker-a:
+    <<: *worker
+
+  worker-b:
+    <<: *worker
+
+volumes:
+  postgres-data:
+  redis-data:
+  storage-data:
+
+networks:
+  default:
+    name: ${E2E_NETWORK_NAME:-knowhere-progressive-e2e}

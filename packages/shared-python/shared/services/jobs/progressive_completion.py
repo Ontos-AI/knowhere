@@ -50,6 +50,7 @@ def commit_final_completion(
     job_result.document_metadata = {
         **write_progressive_state(job_result.document_metadata, state),
         "enrichment_status": "complete",
+        "result_raw_prefix": snapshot.archive_key.removesuffix(".zip") + "/",
     }
     job_result.result_s3_key = snapshot.archive_key
     job_result.inline_payload = {

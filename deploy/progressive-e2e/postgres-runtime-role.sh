@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+    --set ON_ERROR_STOP=1 --set runtime_password="$E2E_RUNTIME_PASSWORD" <<'SQL'
+SELECT format(
+    'CREATE ROLE knowhere_runtime LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS',
+    :'runtime_password'
+) WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'knowhere_runtime')
+\gexec
+ALTER ROLE knowhere_runtime NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+GRANT CONNECT ON DATABASE "Knowhere" TO knowhere_runtime;
+GRANT USAGE ON SCHEMA public TO knowhere_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO knowhere_runtime;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO knowhere_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE root IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO knowhere_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE root IN SCHEMA public
+    GRANT USAGE, SELECT ON SEQUENCES TO knowhere_runtime;
+SQL

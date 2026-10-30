@@ -1,0 +1,8 @@
+services:
+  postgres:
+    image: knowhere-progressive-e2e-postgres:local
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+  storage:
+    image: localstack/localstack:4.8.1
