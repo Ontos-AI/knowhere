@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -18,6 +19,10 @@ from shared.models.database.document import (
 )
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
+from shared.models.schemas.progressive_ingestion import (
+    EnhancementStage,
+    ProgressiveIngestionState,
+)
 from shared.services.jobs.progressive_ingestion import read_progressive_state
 from shared.services.retrieval.hydration.row_utils import (
     extract_matched_page_nums,
@@ -34,6 +39,7 @@ _RUNNING_STATE = "running"
 _FAILED_STATE = "failed"
 _RESETTABLE_STATES = (_COARSE_STATE, _QUEUED_STATE)
 MAX_SCOPE_ENRICHMENT_ATTEMPTS = 3
+_RECOVERY_BATCH_SIZE = 100
 
 ENRICH_SCOPE_TASK_NAME = "app.core.tasks.enrichment_tasks.enrich_page_memory_scope"
 BUILD_STRUCTURE_TASK_NAME = (
@@ -192,7 +198,10 @@ def _on_demand_retryable_scope_filter(now: datetime) -> ColumnElement[bool]:
             DocumentScopeEnrichment.state == _COARSE_STATE,
             DocumentScopeEnrichment.last_hit_at.is_not(None),
         ),
-        DocumentScopeEnrichment.state == _QUEUED_STATE,
+        and_(
+            DocumentScopeEnrichment.state == _QUEUED_STATE,
+            DocumentScopeEnrichment.updated_at <= stale_cutoff,
+        ),
         and_(
             DocumentScopeEnrichment.state == _FAILED_STATE,
             DocumentScopeEnrichment.attempts < MAX_SCOPE_ENRICHMENT_ATTEMPTS,
@@ -251,9 +260,7 @@ async def promote_scopes_on_read(
         if promoted:
             await db.commit()
     except Exception as exc:
-        logger.warning(
-            f"Failed to promote scope enrichment on read (ignored): {exc}"
-        )
+        logger.warning(f"Failed to promote scope enrichment on read (ignored): {exc}")
         return []
 
     if not promoted:
@@ -311,6 +318,10 @@ def _should_skip_structure_recovery(
         or state.enhancement.status in {"failed", "complete"}
     ):
         return True
+    if state is not None and not _can_recover_stage(
+        state.stages.get("structure", {}), now=now
+    ):
+        return True
     raw_claimed_at = doc_dict.get("structure_claimed_at") or job_dict.get(
         "structure_claimed_at"
     )
@@ -325,6 +336,46 @@ def _should_skip_structure_recovery(
         )
     except Exception:
         return False
+
+
+def _can_recover_stage(stage: EnhancementStage, *, now: datetime) -> bool:
+    """Claims retain their task window; exhausted stages still need terminal failure."""
+    if stage.get("status") == "complete":
+        return False
+    claimed_at: str | None = stage.get("claimed_at")
+    if stage.get("status") != "running" or not claimed_at:
+        return True
+    try:
+        claimed: datetime = datetime.fromisoformat(
+            claimed_at.replace("Z", "+00:00")
+        ).replace(tzinfo=None)
+    except ValueError:
+        return True
+    return now - claimed >= timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS)
+
+
+def _needs_progressive_recovery(
+    metadata: Mapping[str, object] | None,
+    *,
+    now: datetime,
+    has_unrefined_scopes: bool,
+    has_exhausted_scopes: bool,
+) -> bool:
+    state: ProgressiveIngestionState | None = read_progressive_state(metadata)
+    if state is None or state.enhancement.status in ("complete", "failed"):
+        return False
+    if has_exhausted_scopes:
+        return True
+    required_stages: list[EnhancementStage] = [
+        state.stages.get(name, {}) for name in ("structure", "vector_repair")
+    ]
+    if any(_can_recover_stage(stage, now=now) for stage in required_stages):
+        return True
+    if has_unrefined_scopes or any(
+        stage.get("status") != "complete" for stage in required_stages
+    ):
+        return False
+    return _can_recover_stage(state.stages.get("finalization", {}), now=now)
 
 
 def sweep_progressive_enrichments_sync(
@@ -360,6 +411,8 @@ def sweep_progressive_enrichments_sync(
                 )
                 == "text"
             )
+            .order_by(JobResult.updated_at, JobResult.id)
+            .limit(_RECOVERY_BATCH_SIZE)
         ).all()
         reenqueued_structures = [
             str(revision_id)
@@ -369,21 +422,21 @@ def sweep_progressive_enrichments_sync(
             )
         ]
 
-        db.execute(
-            update(DocumentScopeEnrichment)
-            .where(DocumentScopeEnrichment.state == _RUNNING_STATE)
-            .where(DocumentScopeEnrichment.attempts >= MAX_SCOPE_ENRICHMENT_ATTEMPTS)
-            .where(
-                DocumentScopeEnrichment.updated_at
-                < now - timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS)
+        if structure_rows:
+            # Rotate inspected rows, including live claims, so they cannot starve
+            # later work. Finish these revision locks before acquiring scope locks.
+            db.execute(
+                update(JobResult)
+                .where(JobResult.id.in_([row[0] for row in structure_rows]))
+                .values(updated_at=now)
             )
-            .values(state=_FAILED_STATE, claim_generation=None, updated_at=now)
-        )
 
+    with get_sync_db_context() as db:
         scope_candidates = db.execute(
             select(
                 DocumentScopeEnrichment.job_result_id,
                 DocumentScopeEnrichment.scope_id,
+                DocumentScopeEnrichment.attempts,
             )
             .select_from(DocumentScopeEnrichment)
             .join(
@@ -396,22 +449,58 @@ def sweep_progressive_enrichments_sync(
                 ),
             )
             .where(_on_demand_retryable_scope_filter(now))
+            .order_by(DocumentScopeEnrichment.updated_at, DocumentScopeEnrichment.id)
+            .limit(_RECOVERY_BATCH_SIZE)
+            .with_for_update(of=DocumentScopeEnrichment, skip_locked=True)
         ).all()
-        for rev_id, scope_id in scope_candidates:
+        for rev_id, scope_id, attempts in scope_candidates:
+            if attempts >= MAX_SCOPE_ENRICHMENT_ATTEMPTS:
+                db.execute(
+                    update(DocumentScopeEnrichment)
+                    .where(DocumentScopeEnrichment.job_result_id == str(rev_id))
+                    .where(DocumentScopeEnrichment.scope_id == str(scope_id))
+                    .values(state=_FAILED_STATE, claim_generation=None, updated_at=now)
+                )
+                continue
             claimed = db.execute(
                 update(DocumentScopeEnrichment)
                 .where(DocumentScopeEnrichment.job_result_id == str(rev_id))
                 .where(DocumentScopeEnrichment.scope_id == str(scope_id))
                 .where(_on_demand_retryable_scope_filter(now))
-                .values(state=_QUEUED_STATE, priority="high", updated_at=now)
+                .values(
+                    state=_QUEUED_STATE,
+                    priority="high",
+                    claim_generation=None,
+                    updated_at=now,
+                )
                 .returning(DocumentScopeEnrichment.scope_id)
             ).scalar_one_or_none()
             if claimed is not None:
                 retried_scopes.append((str(rev_id), str(claimed)))
 
     with get_sync_db_context() as db:
-        recovery_revisions = db.scalars(
-            select(JobResult.id)
+        unfinished_scope = (
+            select(DocumentScopeEnrichment.id)
+            .where(DocumentScopeEnrichment.job_result_id == JobResult.id)
+            .where(DocumentScopeEnrichment.state != "refined")
+            .correlate(JobResult)
+            .exists()
+        )
+        exhausted_scope = (
+            select(DocumentScopeEnrichment.id)
+            .where(DocumentScopeEnrichment.job_result_id == JobResult.id)
+            .where(DocumentScopeEnrichment.state == _FAILED_STATE)
+            .where(DocumentScopeEnrichment.attempts >= MAX_SCOPE_ENRICHMENT_ATTEMPTS)
+            .correlate(JobResult)
+            .exists()
+        )
+        recovery_rows = db.execute(
+            select(
+                JobResult.id,
+                JobResult.document_metadata,
+                unfinished_scope,
+                exhausted_scope,
+            )
             .join(Document, Document.current_job_result_id == JobResult.id)
             .where(Document.status == "active")
             .where(
@@ -419,13 +508,24 @@ def sweep_progressive_enrichments_sync(
                 .as_string()
                 .in_(("pending", "running"))
             )
+            .where(JobResult.id.not_in(reenqueued_structures))
             .order_by(JobResult.updated_at, JobResult.id)
-            .limit(100)
+            .limit(_RECOVERY_BATCH_SIZE)
         ).all()
-        if recovery_revisions:
+        recovery_revisions = [
+            revision_id
+            for revision_id, metadata, has_unrefined, has_exhausted in recovery_rows
+            if _needs_progressive_recovery(
+                metadata,
+                now=now,
+                has_unrefined_scopes=has_unrefined,
+                has_exhausted_scopes=has_exhausted,
+            )
+        ]
+        if recovery_rows:
             db.execute(
                 update(JobResult)
-                .where(JobResult.id.in_(recovery_revisions))
+                .where(JobResult.id.in_([row[0] for row in recovery_rows]))
                 .values(updated_at=now)
             )
     for revision in recovery_revisions:

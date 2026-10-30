@@ -27,10 +27,10 @@ class SyncJobWebhookOutbox:
         job_id: str,
         event_type: str,
         extra_payload: dict[str, Any] | None = None,
+        event_id: str | None = None,
     ) -> WebhookOutboxEvent | None:
         job_row = db.execute(
-            select(Job.webhook_url, Job.webhook_enabled)
-            .where(Job.job_id == job_id)
+            select(Job.webhook_url, Job.webhook_enabled).where(Job.job_id == job_id)
         ).one_or_none()
 
         if job_row is None:
@@ -41,7 +41,16 @@ class SyncJobWebhookOutbox:
         if not webhook_enabled or not webhook_url:
             return None
 
-        status = "completed" if event_type in {"job.completed", "job.enrichment.completed"} else "failed"
+        status = (
+            "completed"
+            if event_type
+            in {
+                "job.completed",
+                "job.enrichment.completed",
+                "job.document.directory_ready",
+            }
+            else "failed"
+        )
         timestamp_key = f"{status}_at"
         payload: dict[str, Any] = {
             "event": event_type,
@@ -59,6 +68,8 @@ class SyncJobWebhookOutbox:
             status=WebhookEventStatus.PENDING,
             attempts=0,
         )
+        if event_id is not None:
+            event.id = event_id
         db.add(event)
         db.flush()
         logger.info(f"WebhookEvent created: event_id={event.id}, job_id={job_id}")

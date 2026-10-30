@@ -66,14 +66,20 @@ class DocumentRepository:
         *,
         document_id: str,
         user_id: str,
+        requires_write_lock: bool = False,
     ) -> Document | None:
         corpusStorage: CorpusStorage = CorpusStorage.resolve_document(document_id)
-        result = await db.execute(
+        statement = (
             select(corpusStorage.Document)
             .where(corpusStorage.Document.document_id == document_id)
             .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
             .where(corpusStorage.Document.status != "archived" if corpusStorage.is_demo else true())
         )
+        if requires_write_lock:
+            statement = statement.with_for_update(of=corpusStorage.Document).execution_options(
+                populate_existing=True
+            )
+        result = await db.execute(statement)
         return result.scalar_one_or_none()
 
     async def get_current_document_job_revision(

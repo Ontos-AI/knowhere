@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 from typing import Any, Callable, cast
 
 import pandas as pd
@@ -88,6 +88,11 @@ from shared.services.jobs.lifecycle.scope_enrichments import (
     scope_claimable_filter,
     write_coarse_scope_enrichments,
 )
+from shared.services.jobs.lifecycle.directory_ready import capture_initial_directory
+from shared.services.jobs.lifecycle.webhook_outbox import (
+    SyncJobWebhookOutbox,
+    WebhookOutboxEvent,
+)
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
@@ -109,6 +114,7 @@ def _flush_parse_token_usage(job_id: str) -> None:
             job_id,
             exc,
         )
+
 
 ScopePublisher = Callable[..., Any]
 
@@ -499,10 +505,9 @@ def _build_claimed_target(
         if isinstance(raw_prefix_val, str) and raw_prefix_val
         else None
     )
-    serving_prefix_value: object = (
-        job_metadata.get("result_serving_raw_prefix")
-        or job_metadata.get("result_raw_prefix")
-    )
+    serving_prefix_value: object = job_metadata.get(
+        "result_serving_raw_prefix"
+    ) or job_metadata.get("result_raw_prefix")
     serving_raw_prefix: str | None = (
         serving_prefix_value
         if isinstance(serving_prefix_value, str) and serving_prefix_value
@@ -823,6 +828,12 @@ def _publish_coarse_structure_and_write_scopes(
     scope_publisher: ScopePublisher,
     phase_b_artifacts: dict[str, str] | None = None,
 ) -> bool:
+    from shared.services.retrieval.page_embedding_index import (
+        load_missing_document_page_embedding_pages,
+    )
+
+    outbox: SyncJobWebhookOutbox = SyncJobWebhookOutbox()
+    directory_event: WebhookOutboxEvent | None = None
     with get_sync_db_context() as db:
         document = db.execute(
             select(Document)
@@ -833,6 +844,8 @@ def _publish_coarse_structure_and_write_scopes(
             document is None
             or document.status != "active"
             or document.current_job_result_id != job_result_id
+            or document.namespace != target.namespace
+            or document.user_id != target.user_id
         ):
             return False
         job_result = db.execute(
@@ -843,10 +856,14 @@ def _publish_coarse_structure_and_write_scopes(
         ).scalar_one_or_none()
         if (
             job_result is None
+            or job_result.document_id != target.document_id
+            or job_result.job_id != target.job_id
             or (job_result.document_metadata or {}).get("structure_claim_generation")
             != target.claim_generation
         ):
             return False
+        if (job_result.document_metadata or {}).get("initial_directory") is not None:
+            return True
         state = read_progressive_state(job_result.document_metadata)
         if state is not None:
             stage: EnhancementStage = state.stages.get("structure", {})
@@ -881,32 +898,16 @@ def _publish_coarse_structure_and_write_scopes(
             vector_repair_stage: EnhancementStage = {
                 **(stages.get("vector_repair") or {}),
             }
-            pending_pages = list(vector_repair_stage.get("pending_pages") or [])
-            if pending_pages:
-                corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(
-                    target.namespace
-                )
-                persisted_pages = set(
-                    db.scalars(
-                        select(corpus_storage.DocumentPageEmbedding.page_num)
-                        .where(
-                            corpus_storage.DocumentPageEmbedding.document_id
-                            == target.document_id
-                        )
-                        .where(
-                            corpus_storage.DocumentPageEmbedding.job_result_id
-                            == job_result_id
-                        )
-                    ).all()
-                )
-                remaining_pages = [
-                    page for page in pending_pages if page not in persisted_pages
-                ]
-                vector_repair_stage["pending_pages"] = remaining_pages
-                if not remaining_pages:
-                    vector_repair_stage["status"] = "complete"
-                    vector_repair_stage["error"] = None
-                stages["vector_repair"] = vector_repair_stage
+            remaining_pages = load_missing_document_page_embedding_pages(
+                db, scope=publication_scope
+            )
+            vector_repair_stage["pending_pages"] = remaining_pages
+            if not remaining_pages:
+                vector_repair_stage["status"] = "complete"
+                vector_repair_stage["error"] = None
+            elif vector_repair_stage.get("status") == "complete":
+                vector_repair_stage["status"] = "pending"
+            stages["vector_repair"] = vector_repair_stage
             state.stages = stages
             job_result.document_metadata = write_progressive_state(
                 job_result.document_metadata, state
@@ -920,7 +921,40 @@ def _publish_coarse_structure_and_write_scopes(
             "page_memory_phase_b": phase_b_refs,
             "page_memory_phase_b_artifacts": dict(phase_b_artifacts or {}),
         }
+        directory = capture_initial_directory(
+            db, scope=publication_scope, job_id=target.job_id
+        )
+        event_id: str = str(
+            uuid5(
+                NAMESPACE_URL,
+                json.dumps(
+                    [
+                        "job.document.directory_ready",
+                        target.user_id,
+                        target.namespace,
+                        target.document_id,
+                        job_result_id,
+                    ]
+                ),
+            )
+        )
+        job_result.document_metadata = {
+            **dict(job_result.document_metadata or {}),
+            "initial_directory": directory.model_dump(mode="json"),
+        }
+        directory_event = outbox.create_event(
+            db,
+            job_id=target.job_id,
+            event_type="job.document.directory_ready",
+            event_id=event_id,
+            extra_payload={
+                **directory.model_dump(mode="json", exclude={"sections"}),
+                "event_id": event_id,
+                "completed_at": directory.directory_committed_at,
+            },
+        )
 
+    outbox.enqueue_after_commit(directory_event)
     return True
 
 
@@ -993,8 +1027,7 @@ def _generate_and_persist_page_embeddings(
             if (
                 document is None
                 or document.status != "active"
-                or document.current_job_result_id
-                != publication_scope.job_result_id
+                or document.current_job_result_id != publication_scope.job_result_id
             ):
                 return 0
             inserted = replace_document_page_embeddings(
@@ -1426,9 +1459,7 @@ def _regenerate_and_upload_full_package(
     workspace_dir: str,
     snapshot_id: str,
 ) -> tuple[StoredSnapshot | None, int]:
-    chunks = _load_published_package_chunks(
-        job_result_id=job_result_id, target=target
-    )
+    chunks = _load_published_package_chunks(job_result_id=job_result_id, target=target)
     if not chunks:
         return None, 0
 
@@ -1439,7 +1470,8 @@ def _regenerate_and_upload_full_package(
     }
     baseline_refs: set[str] = {
         str(reference)
-        for reference in target.job_metadata.get("page_memory_baseline_artifact_refs") or []
+        for reference in target.job_metadata.get("page_memory_baseline_artifact_refs")
+        or []
     }
     for relative_path in sorted(required_refs):
         target_path = Path(package_dir) / relative_path
@@ -1768,6 +1800,24 @@ def _finish_progressive_stage(
     pending_pages: list[int] | None = None,
 ) -> bool:
     with get_sync_db_context() as db:
+        document: Document | None = None
+        if stage_name == "vector_repair":
+            document_id: str | None = db.scalar(
+                select(JobResult.document_id).where(JobResult.id == job_result_id)
+            )
+            if document_id is None:
+                return False
+            document = db.execute(
+                select(Document)
+                .where(Document.document_id == document_id)
+                .with_for_update()
+            ).scalar_one_or_none()
+            if (
+                document is None
+                or document.status != "active"
+                or document.current_job_result_id != job_result_id
+            ):
+                return False
         result = db.execute(
             select(JobResult)
             .options(noload("*"))
@@ -1775,6 +1825,8 @@ def _finish_progressive_stage(
             .with_for_update(of=JobResult)
         ).scalar_one_or_none()
         if result is None:
+            return False
+        if document is not None and result.document_id != document.document_id:
             return False
         state = read_progressive_state(result.document_metadata)
         if state is None:
@@ -1786,6 +1838,27 @@ def _finish_progressive_stage(
             or stage.get("status") != "running"
         ):
             return False
+        if document is not None:
+            from shared.services.retrieval.page_embedding_index import (
+                load_missing_document_page_embedding_pages,
+            )
+
+            # Provider results and the initial probe can outlive page owners.
+            # Settle every repair exit against coverage under the publication lock.
+            pending_pages = load_missing_document_page_embedding_pages(
+                db,
+                scope=DocumentPublicationScope(
+                    user_id=document.user_id,
+                    namespace=document.namespace,
+                    document_id=document.document_id,
+                    job_result_id=job_result_id,
+                    source_file_name=document.source_file_name,
+                ),
+            )
+            if pending_pages:
+                error = error or "Page embedding provider left missing coverage"
+            else:
+                error = None
         stage["status"] = "failed" if error else "complete"
         stage["error"] = error
         if pending_pages is not None:
@@ -1903,6 +1976,7 @@ def _repair_missing_page_embeddings(
     from app.services.page_memory.page_renderer import render_document_pages
     from shared.services.ai.embedding import embed_images
     from shared.services.retrieval.page_embedding_index import (
+        load_missing_document_page_embedding_pages,
         upsert_document_page_embeddings,
     )
     from shared.services.retrieval.publication_scope_content import (
@@ -1915,6 +1989,9 @@ def _repair_missing_page_embeddings(
     if token is None:
         return
     pending: list[int] = []
+    publication_scope = _build_publication_scope(
+        target=target, job_result_id=job_result_id
+    )
     try:
         with get_sync_db_context() as db:
             result = db.get(JobResult, job_result_id)
@@ -1923,8 +2000,8 @@ def _repair_missing_page_embeddings(
             state = read_progressive_state(result.document_metadata)
             if state is None:
                 return
-            pending = sorted(
-                set(state.stages["vector_repair"].get("pending_pages", []))
+            pending = load_missing_document_page_embedding_pages(
+                db, scope=publication_scope
             )
         if not pending:
             _finish_progressive_stage(
@@ -1981,6 +2058,8 @@ def _repair_missing_page_embeddings(
             stage: EnhancementStage = {**stages["vector_repair"]}
             if (
                 document is None
+                or document.user_id != target.user_id
+                or document.namespace != target.namespace
                 or document.current_job_result_id != job_result_id
                 or document.status != "active"
                 or stage.get("claim_generation") != token
@@ -1989,36 +2068,16 @@ def _repair_missing_page_embeddings(
                 return
             upsert_document_page_embeddings(
                 db,
-                scope=DocumentPublicationScope(
-                    user_id=target.user_id,
-                    namespace=target.namespace,
-                    document_id=target.document_id,
-                    job_result_id=job_result_id,
-                    source_file_name=target.source_file_name,
-                ),
+                scope=publication_scope,
                 incoming_embeddings_by_page=repaired,
             )
             if repaired:
                 _invalidate_namespace_after_commit(
                     db, user_id=target.user_id, namespace=target.namespace
                 )
-            corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(
-                target.namespace
+            pending = load_missing_document_page_embedding_pages(
+                db, scope=publication_scope
             )
-            persisted_pages = set(
-                db.scalars(
-                    select(corpus_storage.DocumentPageEmbedding.page_num)
-                    .where(
-                        corpus_storage.DocumentPageEmbedding.document_id
-                        == target.document_id
-                    )
-                    .where(
-                        corpus_storage.DocumentPageEmbedding.job_result_id
-                        == job_result_id
-                    )
-                ).all()
-            )
-            pending = [page for page in pending if page not in persisted_pages]
             stage["pending_pages"] = pending
             stages["vector_repair"] = stage
             state.stages = stages
@@ -2041,7 +2100,9 @@ def _repair_missing_page_embeddings(
             pending_pages=pending,
         )
         logger.warning(
-            "[page_memory] embedding repair incomplete for {}: {}", job_result_id, exc
+            "[page_memory] embedding repair attempt failed for {}: {}",
+            job_result_id,
+            exc,
         )
 
 

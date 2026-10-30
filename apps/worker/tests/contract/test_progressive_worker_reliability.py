@@ -116,6 +116,8 @@ def test_repair_page_seven_preserves_other_vectors_and_rebinds_owner(
         mapper.metadata,
         Column("id", String, primary_key=True),
         Column("chunk_id", String),
+        Column("user_id", String),
+        Column("namespace", String),
         Column("document_id", String),
         Column("job_result_id", String),
         Column("chunk_type", String),
@@ -159,6 +161,8 @@ def test_repair_page_seven_preserves_other_vectors_and_rebinds_owner(
                 Chunk(
                     id=str(page),
                     chunk_id=f"new-{page}",
+                    user_id=scope.user_id,
+                    namespace=scope.namespace,
                     document_id="doc",
                     job_result_id="result",
                     chunk_type="page",
@@ -170,6 +174,8 @@ def test_repair_page_seven_preserves_other_vectors_and_rebinds_owner(
                 db.add(
                     Embedding(
                         id=str(page),
+                        user_id=scope.user_id,
+                        namespace=scope.namespace,
                         document_id="doc",
                         job_result_id="result",
                         page_num=page,

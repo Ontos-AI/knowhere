@@ -8,6 +8,7 @@ from uuid import uuid4
 from pgvector import HalfVector
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.dml import Delete
 
 from shared.core.config import settings
 from shared.services.ai.embedding import embed_query, resolve_embedding_model
@@ -18,6 +19,7 @@ __all__ = [
     "extract_and_strip_page_embeddings",
     "inherit_missing_page_assets",
     "load_revision_page_assets_by_page",
+    "load_missing_document_page_embedding_pages",
     "query_visual_candidate_pages",
     "replace_document_page_embeddings",
 ]
@@ -123,6 +125,8 @@ def _build_owner_chunk_by_page(
             corpusStorage.DocumentChunk.chunk_id,
             corpusStorage.DocumentChunk.chunk_metadata,
         )
+        .where(corpusStorage.DocumentChunk.user_id == scope.user_id)
+        .where(corpusStorage.DocumentChunk.namespace == scope.namespace)
         .where(corpusStorage.DocumentChunk.document_id == scope.document_id)
         .where(corpusStorage.DocumentChunk.job_result_id == scope.job_result_id)
         .where(corpusStorage.DocumentChunk.chunk_type == "page")
@@ -149,6 +153,62 @@ def _build_owner_chunk_by_page(
     return owner_by_page
 
 
+def _remove_orphan_page_embeddings(
+    db: Session,
+    *,
+    scope: DocumentPublicationScope,
+    owner_by_page: dict[int, str],
+) -> None:
+    """Remove vectors whose physical pages lost their published chunk owner."""
+    corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
+    statement: Delete = (
+        delete(corpus_storage.DocumentPageEmbedding)
+        .where(corpus_storage.DocumentPageEmbedding.user_id == scope.user_id)
+        .where(corpus_storage.DocumentPageEmbedding.namespace == scope.namespace)
+        .where(corpus_storage.DocumentPageEmbedding.document_id == scope.document_id)
+        .where(
+            corpus_storage.DocumentPageEmbedding.job_result_id == scope.job_result_id
+        )
+    )
+    if owner_by_page:
+        statement = statement.where(
+            corpus_storage.DocumentPageEmbedding.page_num.not_in(tuple(owner_by_page))
+        )
+    db.execute(statement)
+
+
+def load_missing_document_page_embedding_pages(
+    db: Session,
+    *,
+    scope: DocumentPublicationScope,
+) -> list[int]:
+    """Return published owner pages still missing this scope's visual vectors.
+
+    Physical pages intentionally omitted from the current published chunks are
+    outside repair coverage. Publication callers hold the document lock while
+    changing owners; recovery recomputes coverage again after provider work.
+    """
+    owner_by_page: dict[int, str] = _build_owner_chunk_by_page(db, scope=scope)
+    if not owner_by_page:
+        return []
+    corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
+    persisted_pages: set[int] = set(
+        db.scalars(
+            select(corpus_storage.DocumentPageEmbedding.page_num)
+            .where(corpus_storage.DocumentPageEmbedding.user_id == scope.user_id)
+            .where(corpus_storage.DocumentPageEmbedding.namespace == scope.namespace)
+            .where(
+                corpus_storage.DocumentPageEmbedding.document_id == scope.document_id
+            )
+            .where(
+                corpus_storage.DocumentPageEmbedding.job_result_id
+                == scope.job_result_id
+            )
+        ).all()
+    )
+    return sorted(set(owner_by_page) - persisted_pages)
+
+
 def replace_document_page_embeddings(
     db: Session,
     *,
@@ -158,13 +218,12 @@ def replace_document_page_embeddings(
     """Persist new M0 page embeddings, or rebind existing ones to the current revision's page chunks."""
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
     owner_by_page = _build_owner_chunk_by_page(db, scope=scope)
-    if not owner_by_page and not incoming_embeddings_by_page:
-        return 0
-
     if incoming_embeddings_by_page:
         model_name = resolve_embedding_model(getattr(settings, "EMBEDDING_MODEL", None))
         db.execute(
             delete(corpusStorage.DocumentPageEmbedding)
+            .where(corpusStorage.DocumentPageEmbedding.user_id == scope.user_id)
+            .where(corpusStorage.DocumentPageEmbedding.namespace == scope.namespace)
             .where(corpusStorage.DocumentPageEmbedding.document_id == scope.document_id)
             .where(
                 corpusStorage.DocumentPageEmbedding.job_result_id == scope.job_result_id
@@ -195,9 +254,14 @@ def replace_document_page_embeddings(
         db.flush()
         return inserted
 
+    _remove_orphan_page_embeddings(db, scope=scope, owner_by_page=owner_by_page)
+    if not owner_by_page:
+        return 0
     current_rows = list(
         db.scalars(
             select(corpusStorage.DocumentPageEmbedding)
+            .where(corpusStorage.DocumentPageEmbedding.user_id == scope.user_id)
+            .where(corpusStorage.DocumentPageEmbedding.namespace == scope.namespace)
             .where(corpusStorage.DocumentPageEmbedding.document_id == scope.document_id)
             .where(
                 corpusStorage.DocumentPageEmbedding.job_result_id == scope.job_result_id
@@ -227,9 +291,14 @@ def upsert_document_page_embeddings(
     """
     corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
     owner_by_page: dict[int, str] = _build_owner_chunk_by_page(db, scope=scope)
+    _remove_orphan_page_embeddings(db, scope=scope, owner_by_page=owner_by_page)
+    if not owner_by_page:
+        return 0
     rows = list(
         db.scalars(
             select(corpus_storage.DocumentPageEmbedding)
+            .where(corpus_storage.DocumentPageEmbedding.user_id == scope.user_id)
+            .where(corpus_storage.DocumentPageEmbedding.namespace == scope.namespace)
             .where(
                 corpus_storage.DocumentPageEmbedding.document_id == scope.document_id
             )
