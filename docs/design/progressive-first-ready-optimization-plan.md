@@ -877,8 +877,8 @@ This was isolated functional acceptance: exactly two Workers retained 2 CPUs,
 4 GiB and concurrency 10 each; the API retained 0.5 CPU / 2 GiB on Oracle's two
 physical CPUs. No production, disk expansion, concurrency, index, storage
 architecture or BM25 change was made. Remaining release gates are SDK PR/release
-and registry verification, Hipo's exact pin/frozen install, CI, latest-main
-integration, hosted measurements and the matched maintenance-window deployment.
+and registry verification, Hipo's exact pin/frozen install, CI, hosted
+measurements and the matched maintenance-window deployment.
 The checked-in SDK 2.7.1 lacks the new directory types; packed-candidate checks
 do not establish registry-dependency CI success.
 Hipo main `cf7af3a1` was subsequently merged locally as `25486700`. Its changes
@@ -886,6 +886,32 @@ since tested `c2a1e8a8` affect only plugin/ignore/documentation files; Web/API,
 reader, test, migration and dependency bytes remain unchanged by that merge.
 The runtime receipts precede PR creation; source publication is separate from
 registry or production release. Publication optimization remains deferred.
+
+Review artifacts are Knowhere PR #486 and Node SDK PR #142. Hipo's source branch
+is pushed; its PR waits for the new published SDK pin instead of knowingly
+running CI against missing directory types in 2.7.1. SDK CI passed. Initial
+Knowhere CI exposed test isolation and outdated M0 fixtures: eight native tests
+retained imports after other contract fixtures cleared application modules, and
+three TOC fixtures omitted already-probed page features. The deterministic
+cache-reset reproduction failed before the fixes; all 13 focused cases and the
+complete 529-case Worker suite passed afterward, retaining real PyMuPDF child
+processes and the production asset-probe guard. Three CodeQL test/harness quality
+findings were corrected separately. GitHub reanalysis remains its own gate.
+
+After acceptance, the isolated Hipo and Memento runtimes were stopped. Only
+regenerable build/dependency caches were retired, reclaiming 1,120,542,720 bytes
+and leaving 1,545,166,848 bytes available. Databases, WAL, source, lockfiles,
+Memento's runtime bundle and all evidence remain; Knowhere API and both Workers
+retain the same container identities, images, limits and environment hashes.
+The validated Next build was archived outside Oracle, with gzip integrity and
+build ID verified (archive SHA-256
+`7180e78d466269d2f02acfafc69f6b74027a8b13a919a78cebfa93f08fa135e7`).
+Restore/rebuild the preserved test dependencies before another UI run. The
+ad-hoc Hipo launcher's inherited API-port healthcheck was also corrected for
+future starts; its actual port-3000 home returned 200 before teardown.
+Receipts are `post-acceptance-cache-cleanup.json`,
+`post-acceptance-runtime-stop.json`, `validated-next-build-archive.json` and
+`hipo-launcher-health-fix.json` under the task's artifact directories.
 
 ### Separate existing lexical recall finding
 

@@ -43,8 +43,8 @@ def test_archive_waits_for_progressive_writer_without_a_lock_cycle(
     asyncio.run(prepare_contract_storage())
     from app.services.documents import lifecycle_service
 
-    async def ignore_cache_invalidation(**kwargs: object) -> None:
-        del kwargs
+    async def ignore_cache_invalidation(**_kwargs: object) -> None:
+        return None
 
     monkeypatch.setattr(
         lifecycle_service,

@@ -179,6 +179,7 @@ def wait_api_ready() -> None:
                         if callback.status == 200:
                             return
         except OSError:
+            # The disposable API may still be starting; retry until the deadline.
             pass
         time.sleep(1)
     raise RuntimeError(

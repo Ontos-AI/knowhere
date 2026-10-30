@@ -54,6 +54,51 @@ from shared.models.schemas.page_memory_config import PageMemoryConfig
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 
 
+@pytest.fixture(autouse=True)
+def _rebind_live_worker_imports() -> None:
+    """Follow the live modules after earlier contract fixtures reset imports."""
+    global coordinator_module, ProfileCoordinator, DocumentProfile, TocResult
+    global ToolContext, ToolResult, page_body_content_map, page_content_map
+    global profile_document, ParserDocumentProfile
+    global cleanup_stage_tracker, init_stage_tracker
+    global memory_service, page_assets, page_tagger, enrichment_service
+    global PageMemoryInput, PageAsset, PageRenderResult, PageTagResult
+    global PHASE_B_ANATOMY_REL, PHASE_B_BLACKBOARD_REL, PHASE_B_SOURCE_PDF_REL
+    global build_phase_a, persist_m0_inputs, persist_phase_b_inputs
+    global settings
+
+    from app.services.document_agent import coordinator as coordinator_module
+    from app.services.document_agent.coordinator import ProfileCoordinator
+    from app.services.document_agent.manifest import (
+        DocumentProfile,
+        TocResult,
+        ToolContext,
+        ToolResult,
+    )
+    from app.services.document_agent.pdf_text import page_body_content_map, page_content_map
+    from app.services.document_parser.profiling.doc_profiler import profile_document
+    from app.services.document_parser.profiling.profile_model import ParserDocumentProfile
+    from app.services.document_parser.support.stage_profiler import (
+        cleanup_stage_tracker,
+        init_stage_tracker,
+    )
+    from app.services.page_memory import memory_service, page_assets, page_tagger
+    from app.services.page_memory import scope_enrichment_service as enrichment_service
+    from app.services.page_memory.memory_service import PageMemoryInput
+    from app.services.page_memory.page_assets import PageAsset
+    from app.services.page_memory.page_renderer import PageRenderResult
+    from app.services.page_memory.page_tagger import PageTagResult
+    from app.services.page_memory.phase_a import (
+        PHASE_B_ANATOMY_REL,
+        PHASE_B_BLACKBOARD_REL,
+        PHASE_B_SOURCE_PDF_REL,
+        build_phase_a,
+        persist_m0_inputs,
+        persist_phase_b_inputs,
+    )
+    from shared.core.config import settings
+
+
 def _write_native_pdf(path: Path, *, include_text: bool = True) -> None:
     image_bytes: BytesIO = BytesIO()
     Image.new("RGB", (32, 32), "navy").save(image_bytes, format="PNG")

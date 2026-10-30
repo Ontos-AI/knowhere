@@ -238,7 +238,7 @@ def test_directory_event_rejects_stale_publication(
                 target = replace(target, user_id="another-owner")
             db.commit()
         called: list[bool] = []
-        assert not service._publish_coarse_structure_and_write_scopes(
+        published: bool = service._publish_coarse_structure_and_write_scopes(
             job_result_id=revision_id,
             target=target,
             publication_scope=service._build_publication_scope(
@@ -249,6 +249,7 @@ def test_directory_event_rejects_stale_publication(
             phase_b_refs=[],
             scope_publisher=lambda *_args, **_kwargs: called.append(True),
         )
+        assert published is False
         assert called == []
         with Session(engine) as db:
             assert (
