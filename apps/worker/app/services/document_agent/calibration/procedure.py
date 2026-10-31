@@ -48,6 +48,7 @@ def offset_guided_anchoring(
     ctx: ToolContext,
     page_count: int,
     calibration_overrides: dict[tuple[str, ...], TitleMatch],
+    body_start_page: int = 1,
 ) -> dict[tuple[str, ...], TitleMatch] | None:
     """Forward to production Phase-2 anchoring."""
     return _anchoring.offset_guided_anchoring(
@@ -56,6 +57,7 @@ def offset_guided_anchoring(
         ctx=ctx,
         page_count=page_count,
         calibration_overrides=calibration_overrides,
+        body_start_page=body_start_page,
     )
 
 def pick_primary_offset(result: CalibrationResult) -> int | None:
@@ -273,14 +275,6 @@ def anchor_hierarchy_from_regimes(
         kind = normalize_kind(regime.kind)
         offset = int(regime.offset)  # type: ignore[arg-type]
         entry_titles = _entry_titles_for_regime(regime=regime, entries=flat_entries)
-        working, pruned = prune_regime_out_of_scope(
-            working,
-            kind=kind,
-            entry_titles=entry_titles,
-            offset=offset,
-            page_count=page_count,
-        )
-        total_pruned += pruned
         if not working:
             continue
 
@@ -304,24 +298,39 @@ def anchor_hierarchy_from_regimes(
                 bulk_offset_matches,
             )
 
+            working, pruned = prune_regime_out_of_scope(
+                working,
+                kind=kind,
+                entry_titles=entry_titles,
+                offset=offset,
+                page_count=page_count,
+            )
+            total_pruned += pruned
+            projected = project_nodes_for_regime(
+                working, kind=kind, entry_titles=entry_titles
+            )
             leaves = [
                 (path, node)
                 for path, node in iter_leaf_title_nodes(projected)
                 if node.printed_page is not None
             ]
             if leaves:
-                matches = bulk_offset_matches(leaves, offset)
+                matches = bulk_offset_matches(
+                    leaves, offset, page_count=page_count
+                )
                 matches.update(regime_seed)
                 merged.update(matches)
                 regime_bulk += len(matches)
             continue
 
+        body_start_page = min(body_pages) if body_pages else 1
         matches = offset_guided_anchoring(
             nodes=projected,
             offset=offset,
             ctx=ctx,
             page_count=page_count,
             calibration_overrides=regime_seed,
+            body_start_page=body_start_page,
         )
         if matches:
             merged.update(matches)
