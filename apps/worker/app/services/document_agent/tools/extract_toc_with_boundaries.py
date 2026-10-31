@@ -382,6 +382,7 @@ def _extract_region_for_anchor(
     *,
     pdf_path: str,
     page_count: int,
+    max_page: int,
     output_dir: str,
     dpi: int,
     model: str,
@@ -395,6 +396,8 @@ def _extract_region_for_anchor(
     Each VLM batch is truncated to the contiguous TOC prefix before the first
     non-TOC page. Expand only when that prefix fills a full
     ``BOUNDARY_STEP_PAGES`` window with ``non_toc_pages == []``.
+    Expansion never crosses ``max_page`` (the page before the next confirmed
+    start, or ``page_count`` for the last start).
     """
     from app.services.document_agent.tools.vlm_toc_extractor import (
         vlm_extract_toc_batch,
@@ -410,8 +413,8 @@ def _extract_region_for_anchor(
     try:
         for round_idx in range(MAX_BOUNDARY_ROUNDS):
             batch_start = anchor_page + round_idx * BOUNDARY_STEP_PAGES
-            batch_end = min(batch_start + BOUNDARY_STEP_PAGES - 1, page_count)
-            if batch_start > page_count:
+            batch_end = min(batch_start + BOUNDARY_STEP_PAGES - 1, max_page)
+            if batch_start > max_page:
                 break
 
             batch_pages = list(range(batch_start, batch_end + 1))
@@ -457,11 +460,12 @@ def _extract_region_for_anchor(
             if kept_toc_pages:
                 region_scan_end = kept_toc_pages[-1]
 
-            should_expand = _should_expand_toc_window(
+            window_expandable = _should_expand_toc_window(
                 batch_start=batch_start,
                 non_toc_pages=list(batch_result.non_toc_pages),
                 kept_toc_pages=kept_toc_pages,
             )
+            should_expand = window_expandable and batch_end < max_page
             batch_trace.append(
                 {
                     "anchor": anchor_page,
@@ -475,7 +479,7 @@ def _extract_region_for_anchor(
                 }
             )
 
-            if not should_expand:
+            if not window_expandable:
                 logger.info(
                     "[extract.toc] boundary found: kept={} non_toc={} "
                     "batch={}-{}",
@@ -485,7 +489,7 @@ def _extract_region_for_anchor(
                     batch_end,
                 )
                 break
-            if batch_end >= page_count:
+            if batch_end >= max_page:
                 break
             logger.info(
                 "[extract.toc] full TOC window {}-{}, expanding",
@@ -549,20 +553,27 @@ def _extract_regions_for_confirmed_anchors(
         len(confirmed),
         pool_size,
     )
+    confirmed = sorted(confirmed, key=lambda item: item.page)
     pool = GeventPool(size=pool_size)
-    jobs = [
-        pool.spawn(
-            _extract_region_for_anchor,
-            anchor,
-            pdf_path=pdf_path,
-            page_count=page_count,
-            output_dir=output_dir,
-            dpi=dpi,
-            model=model,
-            render_lock=render_lock,
+    jobs = []
+    for index, anchor in enumerate(confirmed):
+        if index + 1 < len(confirmed):
+            region_max_page = min(page_count, confirmed[index + 1].page - 1)
+        else:
+            region_max_page = page_count
+        jobs.append(
+            pool.spawn(
+                _extract_region_for_anchor,
+                anchor,
+                pdf_path=pdf_path,
+                page_count=page_count,
+                max_page=region_max_page,
+                output_dir=output_dir,
+                dpi=dpi,
+                model=model,
+                render_lock=render_lock,
+            )
         )
-        for anchor in confirmed
-    ]
     pool.join()
 
     by_anchor: dict[int, _TocRegionResult] = {}

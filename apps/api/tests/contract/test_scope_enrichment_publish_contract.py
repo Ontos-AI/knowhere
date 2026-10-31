@@ -1885,6 +1885,3 @@ def test_replace_document_scope_content_reuses_and_transfers_shared_boundary_ass
             assert surviving.chunk_metadata["scope_id"] == "p126-131"
     finally:
         engine.dispose()
-
-
-

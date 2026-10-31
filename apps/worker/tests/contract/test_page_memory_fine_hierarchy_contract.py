@@ -654,4 +654,3 @@ def test_build_next_title_by_path_includes_same_page_parent_anchor_and_trims_it(
         "EXERCISES",
     ]
     assert all("mix" not in item.title.casefold() for item in refined)
-

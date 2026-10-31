@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 from typing import Any, Callable, cast
 
 import pandas as pd
@@ -88,6 +88,11 @@ from shared.services.jobs.lifecycle.scope_enrichments import (
     scope_claimable_filter,
     write_coarse_scope_enrichments,
 )
+from shared.services.jobs.lifecycle.directory_ready import capture_initial_directory
+from shared.services.jobs.lifecycle.webhook_outbox import (
+    SyncJobWebhookOutbox,
+    WebhookOutboxEvent,
+)
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
@@ -110,6 +115,7 @@ def _flush_parse_token_usage(job_id: str) -> None:
             exc,
         )
 
+
 ScopePublisher = Callable[..., Any]
 
 
@@ -124,6 +130,7 @@ class _ClaimedScopeTarget:
     job_metadata: dict[str, Any]
     page_memory_config: PageMemoryConfig
     claim_generation: str | None = None
+    serving_raw_prefix: str | None = None
 
 
 @dataclass(frozen=True)
@@ -299,6 +306,8 @@ def execute_scope_enrichment(
             output=output,
             workspace_dir=workspace_dir,
             claim_generation=str(target.claim_generation),
+            raw_prefix=target.raw_prefix,
+            serving_raw_prefix=target.serving_raw_prefix,
         )
         _upload_scope_artifacts(
             storage=storage,
@@ -488,10 +497,20 @@ def _build_claimed_target(
     source_file_name: str,
     claim_generation: str | None = None,
 ) -> _ClaimedScopeTarget:
-    raw_prefix_val = job_metadata.get("result_raw_prefix")
-    raw_prefix = (
+    raw_prefix_val: object = job_metadata.get(
+        "page_memory_working_raw_prefix"
+    ) or job_metadata.get("result_raw_prefix")
+    raw_prefix: str | None = (
         str(raw_prefix_val)
         if isinstance(raw_prefix_val, str) and raw_prefix_val
+        else None
+    )
+    serving_prefix_value: object = job_metadata.get(
+        "result_serving_raw_prefix"
+    ) or job_metadata.get("result_raw_prefix")
+    serving_raw_prefix: str | None = (
+        serving_prefix_value
+        if isinstance(serving_prefix_value, str) and serving_prefix_value
         else None
     )
     corpus_storage = CorpusStorage.resolve_namespace(document.namespace)
@@ -505,6 +524,7 @@ def _build_claimed_target(
         job_metadata=job_metadata,
         page_memory_config=JobMetadataHelper.get_page_memory_config(job_metadata),
         claim_generation=claim_generation,
+        serving_raw_prefix=serving_raw_prefix,
     )
 
 
@@ -748,6 +768,9 @@ def _resume_profile_from_m0_workspace(
             coordinator.ctx.settings["toc_visual_candidate_pages"] = sorted(
                 visual_pages
             )
+    # M0 may contain only native text features. Finish detection before TOC
+    # and anatomy consumers, then persist the completed features for fine tasks.
+    coordinator._ensure_asset_probe()
     coordinator._ensure_toc_profile(strict=False)
 
     profile = ParserDocumentProfile(
@@ -772,11 +795,10 @@ def _resume_profile_from_m0_workspace(
             coordinator.blackboard.page_full_text_cache
         ),
     )
-    if not profile.is_atlas:
-        if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
-            profile.anatomy = coordinator.run_structural()
-        else:
-            profile.anatomy = coordinator.run_lightweight_anatomy()
+    if not profile.is_atlas and profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
+        profile.anatomy = coordinator.run_structural()
+    else:
+        profile.anatomy = coordinator.run_lightweight_anatomy()
     profile.toc = _map_toc_profile(coordinator)
     return profile
 
@@ -806,6 +828,12 @@ def _publish_coarse_structure_and_write_scopes(
     scope_publisher: ScopePublisher,
     phase_b_artifacts: dict[str, str] | None = None,
 ) -> bool:
+    from shared.services.retrieval.page_embedding_index import (
+        load_missing_document_page_embedding_pages,
+    )
+
+    outbox: SyncJobWebhookOutbox = SyncJobWebhookOutbox()
+    directory_event: WebhookOutboxEvent | None = None
     with get_sync_db_context() as db:
         document = db.execute(
             select(Document)
@@ -816,6 +844,8 @@ def _publish_coarse_structure_and_write_scopes(
             document is None
             or document.status != "active"
             or document.current_job_result_id != job_result_id
+            or document.namespace != target.namespace
+            or document.user_id != target.user_id
         ):
             return False
         job_result = db.execute(
@@ -826,10 +856,14 @@ def _publish_coarse_structure_and_write_scopes(
         ).scalar_one_or_none()
         if (
             job_result is None
+            or job_result.document_id != target.document_id
+            or job_result.job_id != target.job_id
             or (job_result.document_metadata or {}).get("structure_claim_generation")
             != target.claim_generation
         ):
             return False
+        if (job_result.document_metadata or {}).get("initial_directory") is not None:
+            return True
         state = read_progressive_state(job_result.document_metadata)
         if state is not None:
             stage: EnhancementStage = state.stages.get("structure", {})
@@ -864,32 +898,16 @@ def _publish_coarse_structure_and_write_scopes(
             vector_repair_stage: EnhancementStage = {
                 **(stages.get("vector_repair") or {}),
             }
-            pending_pages = list(vector_repair_stage.get("pending_pages") or [])
-            if pending_pages:
-                corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(
-                    target.namespace
-                )
-                persisted_pages = set(
-                    db.scalars(
-                        select(corpus_storage.DocumentPageEmbedding.page_num)
-                        .where(
-                            corpus_storage.DocumentPageEmbedding.document_id
-                            == target.document_id
-                        )
-                        .where(
-                            corpus_storage.DocumentPageEmbedding.job_result_id
-                            == job_result_id
-                        )
-                    ).all()
-                )
-                remaining_pages = [
-                    page for page in pending_pages if page not in persisted_pages
-                ]
-                vector_repair_stage["pending_pages"] = remaining_pages
-                if not remaining_pages:
-                    vector_repair_stage["status"] = "complete"
-                    vector_repair_stage["error"] = None
-                stages["vector_repair"] = vector_repair_stage
+            remaining_pages = load_missing_document_page_embedding_pages(
+                db, scope=publication_scope
+            )
+            vector_repair_stage["pending_pages"] = remaining_pages
+            if not remaining_pages:
+                vector_repair_stage["status"] = "complete"
+                vector_repair_stage["error"] = None
+            elif vector_repair_stage.get("status") == "complete":
+                vector_repair_stage["status"] = "pending"
+            stages["vector_repair"] = vector_repair_stage
             state.stages = stages
             job_result.document_metadata = write_progressive_state(
                 job_result.document_metadata, state
@@ -903,7 +921,40 @@ def _publish_coarse_structure_and_write_scopes(
             "page_memory_phase_b": phase_b_refs,
             "page_memory_phase_b_artifacts": dict(phase_b_artifacts or {}),
         }
+        directory = capture_initial_directory(
+            db, scope=publication_scope, job_id=target.job_id
+        )
+        event_id: str = str(
+            uuid5(
+                NAMESPACE_URL,
+                json.dumps(
+                    [
+                        "job.document.directory_ready",
+                        target.user_id,
+                        target.namespace,
+                        target.document_id,
+                        job_result_id,
+                    ]
+                ),
+            )
+        )
+        job_result.document_metadata = {
+            **dict(job_result.document_metadata or {}),
+            "initial_directory": directory.model_dump(mode="json"),
+        }
+        directory_event = outbox.create_event(
+            db,
+            job_id=target.job_id,
+            event_type="job.document.directory_ready",
+            event_id=event_id,
+            extra_payload={
+                **directory.model_dump(mode="json", exclude={"sections"}),
+                "event_id": event_id,
+                "completed_at": directory.directory_committed_at,
+            },
+        )
 
+    outbox.enqueue_after_commit(directory_event)
     return True
 
 
@@ -976,8 +1027,7 @@ def _generate_and_persist_page_embeddings(
             if (
                 document is None
                 or document.status != "active"
-                or document.current_job_result_id
-                != publication_scope.job_result_id
+                or document.current_job_result_id != publication_scope.job_result_id
             ):
                 return 0
             inserted = replace_document_page_embeddings(
@@ -1409,9 +1459,7 @@ def _regenerate_and_upload_full_package(
     workspace_dir: str,
     snapshot_id: str,
 ) -> tuple[StoredSnapshot | None, int]:
-    chunks = _load_published_package_chunks(
-        job_result_id=job_result_id, target=target
-    )
+    chunks = _load_published_package_chunks(job_result_id=job_result_id, target=target)
     if not chunks:
         return None, 0
 
@@ -1419,6 +1467,11 @@ def _regenerate_and_upload_full_package(
     os.makedirs(package_dir, exist_ok=True)
     required_refs: set[str] = collect_referenced_artifact_refs(chunks) | {
         PHASE_B_SOURCE_PDF_REL
+    }
+    baseline_refs: set[str] = {
+        str(reference)
+        for reference in target.job_metadata.get("page_memory_baseline_artifact_refs")
+        or []
     }
     for relative_path in sorted(required_refs):
         target_path = Path(package_dir) / relative_path
@@ -1428,7 +1481,11 @@ def _regenerate_and_upload_full_package(
         temp_path = storage.download_raw_to_temp(
             job_id=target.job_id,
             relative_path=relative_path,
-            raw_prefix=target.raw_prefix,
+            raw_prefix=(
+                target.serving_raw_prefix
+                if relative_path in baseline_refs and target.serving_raw_prefix
+                else target.raw_prefix
+            ),
             suffix=suffix,
             temp_dir=package_dir,
         )
@@ -1606,14 +1663,34 @@ def _parse_features_and_labels(
                 page=int(item.get("page") or 0),
                 raw_text_length=int(item.get("raw_text_length") or 0),
                 text_density=float(item.get("text_density") or 0.0),
-                image_coverage=float(item.get("image_coverage") or 0.0),
-                image_count=int(item.get("image_count") or 0),
-                table_count=int(item.get("table_count") or 0),
-                drawings_count=int(item.get("drawings_count") or 0),
+                image_coverage=(
+                    float(item["image_coverage"])
+                    if item.get("image_coverage") is not None
+                    else None
+                ),
+                image_count=(
+                    int(item["image_count"])
+                    if item.get("image_count") is not None
+                    else None
+                ),
+                table_count=(
+                    int(item["table_count"])
+                    if item.get("table_count") is not None
+                    else None
+                ),
+                drawings_count=(
+                    int(item["drawings_count"])
+                    if item.get("drawings_count") is not None
+                    else None
+                ),
                 orientation="landscape" if orientation == "landscape" else "portrait",
                 width=float(item.get("width") or 0.0),
                 height=float(item.get("height") or 0.0),
-                has_asset=bool(item.get("has_asset", False)),
+                has_asset=(
+                    bool(item["has_asset"])
+                    if item.get("has_asset") is not None
+                    else None
+                ),
                 is_blank_like=bool(item.get("is_blank_like", False)),
                 invisible_text_length=int(item.get("invisible_text_length") or 0),
             )
@@ -1723,6 +1800,24 @@ def _finish_progressive_stage(
     pending_pages: list[int] | None = None,
 ) -> bool:
     with get_sync_db_context() as db:
+        document: Document | None = None
+        if stage_name == "vector_repair":
+            document_id: str | None = db.scalar(
+                select(JobResult.document_id).where(JobResult.id == job_result_id)
+            )
+            if document_id is None:
+                return False
+            document = db.execute(
+                select(Document)
+                .where(Document.document_id == document_id)
+                .with_for_update()
+            ).scalar_one_or_none()
+            if (
+                document is None
+                or document.status != "active"
+                or document.current_job_result_id != job_result_id
+            ):
+                return False
         result = db.execute(
             select(JobResult)
             .options(noload("*"))
@@ -1730,6 +1825,8 @@ def _finish_progressive_stage(
             .with_for_update(of=JobResult)
         ).scalar_one_or_none()
         if result is None:
+            return False
+        if document is not None and result.document_id != document.document_id:
             return False
         state = read_progressive_state(result.document_metadata)
         if state is None:
@@ -1741,6 +1838,27 @@ def _finish_progressive_stage(
             or stage.get("status") != "running"
         ):
             return False
+        if document is not None:
+            from shared.services.retrieval.page_embedding_index import (
+                load_missing_document_page_embedding_pages,
+            )
+
+            # Provider results and the initial probe can outlive page owners.
+            # Settle every repair exit against coverage under the publication lock.
+            pending_pages = load_missing_document_page_embedding_pages(
+                db,
+                scope=DocumentPublicationScope(
+                    user_id=document.user_id,
+                    namespace=document.namespace,
+                    document_id=document.document_id,
+                    job_result_id=job_result_id,
+                    source_file_name=document.source_file_name,
+                ),
+            )
+            if pending_pages:
+                error = error or "Page embedding provider left missing coverage"
+            else:
+                error = None
         stage["status"] = "failed" if error else "complete"
         stage["error"] = error
         if pending_pages is not None:
@@ -1858,6 +1976,7 @@ def _repair_missing_page_embeddings(
     from app.services.page_memory.page_renderer import render_document_pages
     from shared.services.ai.embedding import embed_images
     from shared.services.retrieval.page_embedding_index import (
+        load_missing_document_page_embedding_pages,
         upsert_document_page_embeddings,
     )
     from shared.services.retrieval.publication_scope_content import (
@@ -1870,6 +1989,9 @@ def _repair_missing_page_embeddings(
     if token is None:
         return
     pending: list[int] = []
+    publication_scope = _build_publication_scope(
+        target=target, job_result_id=job_result_id
+    )
     try:
         with get_sync_db_context() as db:
             result = db.get(JobResult, job_result_id)
@@ -1878,8 +2000,8 @@ def _repair_missing_page_embeddings(
             state = read_progressive_state(result.document_metadata)
             if state is None:
                 return
-            pending = sorted(
-                set(state.stages["vector_repair"].get("pending_pages", []))
+            pending = load_missing_document_page_embedding_pages(
+                db, scope=publication_scope
             )
         if not pending:
             _finish_progressive_stage(
@@ -1936,6 +2058,8 @@ def _repair_missing_page_embeddings(
             stage: EnhancementStage = {**stages["vector_repair"]}
             if (
                 document is None
+                or document.user_id != target.user_id
+                or document.namespace != target.namespace
                 or document.current_job_result_id != job_result_id
                 or document.status != "active"
                 or stage.get("claim_generation") != token
@@ -1944,36 +2068,16 @@ def _repair_missing_page_embeddings(
                 return
             upsert_document_page_embeddings(
                 db,
-                scope=DocumentPublicationScope(
-                    user_id=target.user_id,
-                    namespace=target.namespace,
-                    document_id=target.document_id,
-                    job_result_id=job_result_id,
-                    source_file_name=target.source_file_name,
-                ),
+                scope=publication_scope,
                 incoming_embeddings_by_page=repaired,
             )
             if repaired:
                 _invalidate_namespace_after_commit(
                     db, user_id=target.user_id, namespace=target.namespace
                 )
-            corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(
-                target.namespace
+            pending = load_missing_document_page_embedding_pages(
+                db, scope=publication_scope
             )
-            persisted_pages = set(
-                db.scalars(
-                    select(corpus_storage.DocumentPageEmbedding.page_num)
-                    .where(
-                        corpus_storage.DocumentPageEmbedding.document_id
-                        == target.document_id
-                    )
-                    .where(
-                        corpus_storage.DocumentPageEmbedding.job_result_id
-                        == job_result_id
-                    )
-                ).all()
-            )
-            pending = [page for page in pending if page not in persisted_pages]
             stage["pending_pages"] = pending
             stages["vector_repair"] = stage
             state.stages = stages
@@ -1996,18 +2100,26 @@ def _repair_missing_page_embeddings(
             pending_pages=pending,
         )
         logger.warning(
-            "[page_memory] embedding repair incomplete for {}: {}", job_result_id, exc
+            "[page_memory] embedding repair attempt failed for {}: {}",
+            job_result_id,
+            exc,
         )
 
 
 def _freeze_scope_artifacts(
-    *, output: ScopeRefinementOutput, workspace_dir: str, claim_generation: str
+    *,
+    output: ScopeRefinementOutput,
+    workspace_dir: str,
+    claim_generation: str,
+    raw_prefix: str | None = None,
+    serving_raw_prefix: str | None = None,
 ) -> ScopeRefinementOutput:
     """Give one claim exclusive asset keys before any remote write.
 
     Fencing only the SQL publication cannot protect objects uploaded earlier.
     Claim-prefixed filenames make a late upload harmless while preserving the
-    existing flat client asset directory contract.
+    existing flat client asset directory contract. Persist their origins so
+    partial Fine reads need no copy into the retained baseline snapshot.
     """
     if not output.artifact_refs:
         return output
@@ -2041,6 +2153,17 @@ def _freeze_scope_artifacts(
     for previous, current in zip(output.chunks, chunks, strict=True):
         previous_content: str = str(previous.get("content") or "")
         metadata = current.get("metadata") or {}
+        if raw_prefix:
+            owned_refs: set[str] = collect_referenced_artifact_refs([current]) & set(
+                artifact_mapping.values()
+            )
+            if owned_refs:
+                metadata["artifact_origins"] = {
+                    reference: raw_prefix for reference in sorted(owned_refs)
+                }
+                if serving_raw_prefix:
+                    metadata["artifact_origin_snapshot_prefix"] = serving_raw_prefix
+                current["metadata"] = metadata
         if "length" in metadata:
             metadata["length"] = len(str(current.get("content") or ""))
         connections = (current.get("metadata") or {}).get("connect_to") or []

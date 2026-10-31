@@ -7,6 +7,7 @@ from typing import Literal
 from app.api.dependencies.auth import require_write_permission
 from app.api.dependencies.current_user import with_current_user
 from app.services.documents.lifecycle_service import DocumentService
+from app.services.documents.directory_service import DocumentDirectoryService
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,11 +15,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.core.database import get_db
 from shared.core.exceptions.domain_exceptions import NotFoundException
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
+from shared.models.schemas.document_directory import DocumentDirectoryResponse
 
 router = APIRouter(tags=["Documents"])
 
 _document_service = DocumentService()
 DocumentChunkType = Literal["text", "image", "table", "page"]
+
+
+@router.get("/{document_id}/structure", response_model=DocumentDirectoryResponse)
+async def get_document_structure(
+    document_id: str,
+    job_result_id: str | None = Query(None, max_length=36),
+    namespace: str | None = Query(None, max_length=255),
+    current_user: CurrentUser = Depends(with_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DocumentDirectoryResponse:
+    directory: (
+        DocumentDirectoryResponse | None
+    ) = await DocumentDirectoryService().get_structure(
+        db,
+        user_id=current_user.user_id,
+        document_id=document_id,
+        job_result_id=job_result_id,
+        namespace=normalize_retrieval_namespace(namespace)
+        if namespace is not None
+        else None,
+    )
+    if directory is None:
+        raise NotFoundException(resource="Document directory", resource_id=document_id)
+    return directory
 
 
 async def _archive_document_response(

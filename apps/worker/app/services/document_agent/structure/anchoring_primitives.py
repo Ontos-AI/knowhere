@@ -298,6 +298,8 @@ def _bisect_offset_breakpoint(
 def bulk_offset_matches(
     leaves: list[tuple[tuple[str, ...], TitleNode]],
     offset: int,
+    *,
+    page_count: int | None = None,
 ) -> dict[tuple[str, ...], TitleMatch]:
     """Generate TitleMatch overrides for all leaves using offset. No VLM calls."""
     matches: dict[tuple[str, ...], TitleMatch] = {}
@@ -305,6 +307,8 @@ def bulk_offset_matches(
         if node.printed_page is None:
             continue
         page = node.printed_page + offset
+        if page < 1 or (page_count is not None and page > page_count):
+            continue
         matches[path_titles] = TitleMatch(
             page=page,
             source="bulk_offset",
@@ -408,14 +412,17 @@ def _recalibrate_after_breakpoint(
     *,
     entry_node: TitleNode,
     old_offset: int,
+    start_page: int,
     ctx: ToolContext,
     page_count: int,
 ) -> int | None:
     """Re-find offset for the first remaining leaf after a breakpoint.
 
     Same mechanic as Phase-1: forward ``inspect.pages`` scan until the title
-    START is found. Monotonicity says the physical page is strictly after the
-    failed ``printed + old_offset`` slot, so the scan cursor starts there.
+    START is found. Physical page order is monotonic across TOC entries, so the
+    scan cursor starts at the last confirmed physical page (not
+    ``entry_printed_page + old_offset + 1``), allowing the new offset to be
+    smaller, larger, or negative relative to ``old_offset``.
     """
     entry_printed_page = entry_node.printed_page
     if entry_printed_page is None:
@@ -424,32 +431,31 @@ def _recalibrate_after_breakpoint(
     # Lazy import: scan → inspect_pages → tools must not load at module import.
     from app.services.document_agent.calibration.scan import scan_title_forward
 
-    start_page = entry_printed_page + old_offset + 1
-    if start_page > page_count:
+    scan_start = max(int(start_page), 1)
+    if scan_start > page_count:
         return None
 
     scan = scan_title_forward(
         ctx=ctx,
         title=entry_node.title,
-        start_page=start_page,
+        start_page=scan_start,
         page_count=page_count,
     )
     if not scan.found or scan.found_page is None:
         logger.info(
             "[structure_anchoring] recalibrate miss: title={!r} start={} scanned={}",
             entry_node.title,
-            start_page,
+            scan_start,
             scan.scanned_pages,
         )
         return None
 
     new_offset = int(scan.found_page) - entry_printed_page
-    if new_offset <= old_offset:
+    if new_offset == old_offset:
         logger.info(
-            "[structure_anchoring] recalibrate rejected non-monotonic offset: "
-            "title={!r} old={} new={} found_page={}",
+            "[structure_anchoring] recalibrate unchanged offset: "
+            "title={!r} offset={} found_page={}",
             entry_node.title,
-            old_offset,
             new_offset,
             scan.found_page,
         )
@@ -457,7 +463,7 @@ def _recalibrate_after_breakpoint(
 
     logger.info(
         "[structure_anchoring] recalibrate: title={!r} new_offset={} "
-        "(delta=+{}, found_page={})",
+        "(delta={:+d}, found_page={})",
         entry_node.title,
         new_offset,
         new_offset - old_offset,
@@ -473,6 +479,7 @@ def offset_guided_anchoring(
     ctx: ToolContext,
     page_count: int,
     calibration_overrides: dict[tuple[str, ...], TitleMatch],
+    body_start_page: int = 1,
 ) -> dict[tuple[str, ...], TitleMatch] | None:
     """Offset-guided bulk anchoring with recursive recalibrate on breakpoints.
 
@@ -481,7 +488,8 @@ def offset_guided_anchoring(
       2. If pass → bulk apply all leaves (Theorem 1)
       3. If fail → binary search for last valid index (``-1`` if none)
       4. Bulk apply only verified prefix (empty when breakpoint is ``-1``)
-      5. Recalibrate remaining[0] via Phase-1 forward scan from printed+old+1
+      5. Recalibrate remaining[0] via Phase-1 forward scan from the last
+         confirmed physical page (or ``body_start_page`` when prefix is empty)
       6. Recurse on remaining segment with new offset
       7. If recalibrate fails → keep prefix only (caller prunes the rest)
 
@@ -502,7 +510,7 @@ def offset_guided_anchoring(
     # Single-leaf regimes (roman front-matter, F-1 appendix, …) still get a
     # deterministic printed→physical override; Phase-1 already calibrated them.
     if len(leaves) == 1:
-        all_matches.update(bulk_offset_matches(leaves, offset))
+        all_matches.update(bulk_offset_matches(leaves, offset, page_count=page_count))
     else:
         _anchor_segment_recursive(
             leaves=leaves,
@@ -511,6 +519,7 @@ def offset_guided_anchoring(
             page_count=page_count,
             matches=all_matches,
             depth=0,
+            scan_floor=max(int(body_start_page), 1),
         )
 
     if not all_matches:
@@ -532,13 +541,14 @@ def _anchor_segment_recursive(
     page_count: int,
     matches: dict[tuple[str, ...], TitleMatch],
     depth: int,
+    scan_floor: int = 1,
 ) -> None:
     """Recursively anchor a segment of leaves, handling multiple breakpoints."""
     if not leaves or depth >= _MAX_RECALIBRATE_DEPTH:
         return
 
     if _verify_offset_tail(leaves=leaves, offset=offset, ctx=ctx, page_count=page_count):
-        bulk = bulk_offset_matches(leaves, offset)
+        bulk = bulk_offset_matches(leaves, offset, page_count=page_count)
         matches.update(bulk)
         return
 
@@ -547,8 +557,17 @@ def _anchor_segment_recursive(
     )
     # bp == -1 → no leaf confirmed under this offset; do not invent a prefix.
     confirmed_leaves = leaves[: bp + 1] if bp >= 0 else []
+    next_scan_floor = scan_floor
     if confirmed_leaves:
-        matches.update(bulk_offset_matches(confirmed_leaves, offset))
+        confirmed_bulk = bulk_offset_matches(
+            confirmed_leaves, offset, page_count=page_count
+        )
+        matches.update(confirmed_bulk)
+        last_confirmed_node = confirmed_leaves[-1][1]
+        if last_confirmed_node.printed_page is not None:
+            last_confirmed_page = last_confirmed_node.printed_page + offset
+            if 1 <= last_confirmed_page <= page_count:
+                next_scan_floor = max(scan_floor, last_confirmed_page)
 
     remaining = leaves[bp + 1 :] if bp >= 0 else list(leaves)
     if not remaining:
@@ -558,11 +577,17 @@ def _anchor_segment_recursive(
     new_offset = _recalibrate_after_breakpoint(
         entry_node=first_remaining_node,
         old_offset=offset,
+        start_page=next_scan_floor,
         ctx=ctx,
         page_count=page_count,
     )
     if new_offset is None:
         return
+
+    if first_remaining_node.printed_page is not None:
+        recalibrated_page = first_remaining_node.printed_page + new_offset
+        if 1 <= recalibrated_page <= page_count:
+            next_scan_floor = max(next_scan_floor, recalibrated_page)
 
     _anchor_segment_recursive(
         leaves=remaining,
@@ -571,6 +596,7 @@ def _anchor_segment_recursive(
         page_count=page_count,
         matches=matches,
         depth=depth + 1,
+        scan_floor=next_scan_floor,
     )
 
 
@@ -788,10 +814,7 @@ def anchor_hierarchy_from_offset(
     seed_overrides = dict(calibration_overrides or {})
     pruned_count = 0
     working = nodes
-    if offset_hint is not None:
-        working, pruned_count = prune_out_of_scope_nodes(
-            working, offset=offset_hint, page_count=page_count
-        )
+    body_start_page = min(body_pages) if body_pages else 1
 
     offset_matches: dict[tuple[str, ...], TitleMatch] | None = None
     if offset_hint is not None and ctx is not None and working:
@@ -801,6 +824,11 @@ def anchor_hierarchy_from_offset(
             ctx=ctx,
             page_count=page_count,
             calibration_overrides=seed_overrides,
+            body_start_page=body_start_page,
+        )
+    elif offset_hint is not None and working:
+        working, pruned_count = prune_out_of_scope_nodes(
+            working, offset=offset_hint, page_count=page_count
         )
 
     if offset_matches is not None:
