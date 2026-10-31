@@ -35,7 +35,7 @@ def profile_document(
     output_dir: str | None = None,
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
-    stop_after: Literal["asset_probe"] | None = None,
+    stop_after: Literal["asset_probe", "native_baseline"] | None = None,
 ) -> ParserDocumentProfile:
     """
     General document profiling entry point.
@@ -52,6 +52,9 @@ def profile_document(
             ``run_toc_anchoring`` is skipped. Used by the staged debug path
             (Stage-1 TOC after Stage-0 bootstrap) so calibration stays in
             Stage-2.
+        stop_after: Internal profiling boundary. ``native_baseline`` defers
+            detailed assets only after native classification and a complete
+            text scan; scanned or empty-text profiles still probe assets.
 
     Returns:
         ParserDocumentProfile
@@ -91,7 +94,7 @@ def _profile_pdf(
     output_dir: str | None,
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
-    stop_after: Literal["asset_probe"] | None = None,
+    stop_after: Literal["asset_probe", "native_baseline"] | None = None,
 ) -> ParserDocumentProfile:
     with _profile_db_context(enabled=bool(job_id)) as db:
         return _profile_pdf_with_db(
@@ -115,7 +118,7 @@ def _profile_pdf_with_db(
     db: Any | None,
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
-    stop_after: Literal["asset_probe"] | None = None,
+    stop_after: Literal["asset_probe", "native_baseline"] | None = None,
 ) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
@@ -134,7 +137,8 @@ def _profile_pdf_with_db(
             "vlm_model": settings.IMAGE_MODEL,
             "toc_profile_enabled": page_toc_enabled,
             "skip_toc_anchoring": bool(skip_toc_anchoring),
-            "stop_after_asset_probe": stop_after == "asset_probe",
+            "stop_after_asset_probe": stop_after is not None,
+            "stop_after_native_baseline": stop_after == "native_baseline",
             "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
         },
     )
@@ -164,7 +168,7 @@ def _profile_pdf_with_db(
         ),
     )
     setattr(profile, "blackboard", coordinator.blackboard)
-    if stop_after == "asset_probe":
+    if stop_after is not None:
         if trace := getattr(coordinator, "trace", None):
             trace.persist_doc_profile(profile)
             setattr(profile, "trace_recorder", trace)

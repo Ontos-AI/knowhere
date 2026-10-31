@@ -1336,14 +1336,14 @@ def test_phase2_recalibrate_uses_forward_scan_beyond_plus_five() -> None:
     def fake_scan(**kwargs: Any) -> TitleScanResult:
         title = str(kwargs.get("title") or "")
         start = int(kwargs.get("start_page") or 0)
-        # Old slot for Ch3 was page 30; scan starts at 31 and finds 36 → offset 16.
+        # Scan starts at last confirmed physical page (Ch2 = 15) and finds 36 → offset 16.
         assert title == "Ch3"
-        assert start == 31
+        assert start == 15
         return TitleScanResult(
             title=title,
             found=True,
             found_page=36,
-            scanned_pages=[31, 32, 33, 34, 35, 36],
+            scanned_pages=list(range(15, 37)),
             next_start=37,
         )
 
@@ -1375,6 +1375,91 @@ def test_phase2_recalibrate_uses_forward_scan_beyond_plus_five() -> None:
     assert anchor.match_overrides[("Ch2",)].page == 15
     assert anchor.match_overrides[("Ch3",)].page == 36  # 20+16
     assert anchor.match_overrides[("Ch4",)].page == 46  # 30+16
+
+
+def test_phase2_recalibrate_allows_smaller_or_negative_offset_and_keeps_tail() -> None:
+    """When printed TOC over-counts pages after a breakpoint, offset decreases
+    and tail entries that exceeded page_count under old_offset still survive."""
+    from app.services.document_agent.calibration.procedure import (
+        anchor_hierarchy_from_regimes,
+    )
+    from app.services.document_agent.calibration.scan import TitleScanResult
+    from app.services.document_agent.calibration.types import (
+        CalibrationRegime,
+        CalibrationResult,
+        CalibrationSample,
+    )
+
+    leaves = [
+        _leaf("K.4", 92),
+        _leaf("L.1", 94),
+        _leaf("Ref", 143),  # 143 + 12 = 155 > 154, but 143 + 11 = 154 <= 154
+    ]
+    phase1 = CalibrationResult(
+        status="ok",
+        offset=12,
+        regimes=[
+            CalibrationRegime(
+                kind="decimal",
+                offset=12,
+                offset_status="ok",
+                entry_indices=[0, 1, 2],
+                samples=[CalibrationSample(title="K.4", physical=104)],
+            )
+        ],
+    )
+    ctx = _ctx()
+
+    def fake_verify(**kwargs: Any) -> dict[str, Any]:
+        expected = int(kwargs["candidate_matches"][0].page)
+        title = str(kwargs.get("title") or "")
+        ok = {
+            ("K.4", 104),  # 92 + 12
+            ("L.1", 105),  # 94 + 11
+            ("Ref", 154),  # 143 + 11
+        }
+        if (title, expected) in ok:
+            return {"selected_page": expected, "reason": "ok"}
+        return {"selected_page": None, "reason": "miss"}
+
+    def fake_scan(**kwargs: Any) -> TitleScanResult:
+        title = str(kwargs.get("title") or "")
+        start = int(kwargs.get("start_page") or 0)
+        assert title == "L.1"
+        assert start == 104
+        return TitleScanResult(
+            title=title,
+            found=True,
+            found_page=105,
+            scanned_pages=[104, 105],
+            next_start=106,
+        )
+
+    with (
+        _patch_verify(fake_verify),
+        patch(
+            "app.services.document_agent.calibration.scan.scan_title_forward",
+            fake_scan,
+        ),
+    ):
+        working, anchor = anchor_hierarchy_from_regimes(
+            nodes=leaves,
+            result=phase1,
+            entries=[
+                {"heading": "K.4", "level": 1, "page_number": 92},
+                {"heading": "L.1", "level": 1, "page_number": 94},
+                {"heading": "Ref", "level": 1, "page_number": 143},
+            ],
+            page_texts={104: "K.4", 105: "L.1", 154: "Ref"},
+            body_pages=list(range(13, 155)),
+            page_count=154,
+            ctx=ctx,
+        )
+
+    assert [n.title for n in working] == ["K.4", "L.1", "Ref"]
+    assert anchor.match_overrides[("K.4",)].page == 104
+    assert anchor.match_overrides[("L.1",)].page == 105
+    assert anchor.match_overrides[("Ref",)].page == 154
 
 
 def test_phase2_recalibrate_miss_drops_suffix_from_tree() -> None:

@@ -280,7 +280,7 @@ def test_progressive_run_returns_m0_text_baseline_without_toc_or_scope_vlm(
             ingestion_mode="progressive",
         )
     )
-    assert captured_stop_after == ["asset_probe"]
+    assert captured_stop_after == ["native_baseline"]
     chunks = dataframe_to_chunks(dataframe)
     assert [chunk["content"] for chunk in chunks] == ["one", "two", "three", "four"]
     assert [chunk["metadata"]["enrichment_state"] for chunk in chunks] == [

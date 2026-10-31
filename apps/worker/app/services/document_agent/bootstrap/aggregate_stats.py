@@ -102,7 +102,7 @@ def aggregate_doc_stats(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
         scan_like_pages = sum(
             1
             for feature in features
-            if feature.raw_text_length < 50 and feature.image_coverage >= 0.5
+            if feature.raw_text_length < 50 and (feature.image_coverage or 0.0) >= 0.5
         )
         asset_pages = sum(1 for feature in features if feature.has_asset)
         doc_shape.update(

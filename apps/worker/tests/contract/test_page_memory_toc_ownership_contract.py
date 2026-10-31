@@ -67,6 +67,7 @@ def _anatomy(
     overrides: dict[tuple[str, ...], int],
     hierarchies: list[dict[str, object]],
     toc_pages: list[int],
+    pending_skeleton_anchors: list[dict[str, object]] | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         page_count=page_count,
@@ -74,7 +75,7 @@ def _anatomy(
         toc_hierarchies=hierarchies,
         skeleton_anchor=serialize_skeleton_anchor(_anchor(overrides)),
         skeleton_nodes=[serialize_title_node(node) for node in nodes],
-        pending_skeleton_anchors=[],
+        pending_skeleton_anchors=list(pending_skeleton_anchors or []),
     )
 
 
@@ -86,6 +87,7 @@ def _extract(
     hierarchies: list[dict[str, object]],
     toc_pages: list[int],
     filename: str = "doc.pdf",
+    pending_skeleton_anchors: list[dict[str, object]] | None = None,
 ) -> list[SectionSkeleton]:
     return extract_section_skeletons(
         anatomy=_anatomy(
@@ -94,6 +96,7 @@ def _extract(
             overrides=overrides,
             hierarchies=hierarchies,
             toc_pages=toc_pages,
+            pending_skeleton_anchors=pending_skeleton_anchors,
         ),
         filename=filename,
         page_texts={page: "body" for page in range(1, page_count + 1)},
@@ -399,3 +402,76 @@ def test_prefix_stops_before_front_toc_and_every_page_has_an_owner() -> None:
     assert 14 not in set(range(prefix.start_page, prefix.end_page + 1))
     assert 15 not in set(range(prefix.start_page, prefix.end_page + 1))
     assert owned == set(range(1, 19))
+
+
+def test_paired_toc_does_not_cut_primary_window() -> None:
+    pending_toc = {
+        "toc_range": [7, 12],
+        "toc_range_unit": "page",
+        "paired_with_range": [1, 6],
+        "toc_with_level": [
+            {"heading": "General provisions", "level": 1, "page_number": 13}
+        ],
+    }
+    skeletons = _extract(
+        page_count=30,
+        nodes=[TitleNode(title="总则", level=1, printed_page=13)],
+        overrides={("总则",): 13},
+        hierarchies=[
+            {
+                "toc_range": [1, 6],
+                "toc_range_unit": "page",
+                "toc_with_level": [{"heading": "总则", "level": 1, "page_number": 13}],
+            },
+            pending_toc,
+        ],
+        toc_pages=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        pending_skeleton_anchors=[
+            {
+                "toc": pending_toc,
+                "relationship": "paired",
+                "host": "root",
+                "paired_with_range": [1, 6],
+            }
+        ],
+    )
+    chapter = next(item for item in skeletons if item.title == "总则")
+    assert chapter.end_page == 30
+    assert all(item.title != "General provisions" for item in skeletons)
+
+
+def test_paired_toc_pages_merge_into_host_toc_node() -> None:
+    pending_toc = {
+        "toc_range": [7, 12],
+        "toc_range_unit": "page",
+        "paired_with_range": [1, 6],
+        "toc_tree": {},
+    }
+    skeletons = _extract(
+        page_count=30,
+        nodes=[TitleNode(title="总则", level=1, printed_page=13)],
+        overrides={("总则",): 13},
+        hierarchies=[
+            {
+                "toc_range": [1, 6],
+                "toc_range_unit": "page",
+                "toc_with_level": [{"heading": "总则", "level": 1, "page_number": 13}],
+            },
+            pending_toc,
+        ],
+        toc_pages=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        pending_skeleton_anchors=[
+            {
+                "toc": pending_toc,
+                "relationship": "paired",
+                "host": "root",
+                "paired_with_range": [1, 6],
+            }
+        ],
+    )
+    toc_nodes = [item for item in skeletons if is_toc_node(item)]
+    assert len(toc_nodes) == 1
+    assert toc_nodes[0].section_path == "doc.pdf/TOC"
+    assert toc_nodes[0].parent_path == "doc.pdf"
+    assert toc_nodes[0].start_page == 1
+    assert toc_nodes[0].end_page == 12

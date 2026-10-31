@@ -19,7 +19,7 @@ from app.services.document_agent.manifest import (
     ToolContext,
     ToolResult,
 )
-from app.services.document_agent.pdf_text import read_page_text_bands
+from app.services.document_agent.pdf_text import page_content, read_page_text_bands
 from app.services.document_agent.persist import build_anatomy_map, persist_anatomy_map
 from app.services.document_agent.coarse_profile import CoarseProfiler
 from app.services.document_agent.registry import REGISTRY
@@ -28,6 +28,7 @@ from app.services.document_agent.structure.toc_anchoring import run_toc_anchorin
 from app.services.document_agent import tools as _registered_tools  # noqa: F401
 from app.services.document_agent.trace import ParseRunRecorder
 from app.services.document_agent.validators import single_shard_plan
+from app.services.document_parser.support.stage_profiler import stage_timer
 
 
 class ProfileCoordinator:
@@ -84,8 +85,30 @@ class ProfileCoordinator:
         self.state = ProfileState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
-        profile = self._ensure_coarse_profile(actor="coarse_profile")
-        self._run_text_scan()
+        with stage_timer(
+            "document_profile.classification",
+            job_id=self.ctx.job_id,
+            page_count=self.blackboard.page_count,
+        ):
+            profile: DocumentProfile = self._ensure_coarse_profile(actor="coarse_profile")
+        with stage_timer(
+            "document_profile.text_scan",
+            job_id=self.ctx.job_id,
+            page_count=self.blackboard.page_count,
+        ):
+            self._run_text_scan()
+        if (
+            self.ctx.settings.get("stop_after_native_baseline")
+            and not profile.is_scanned
+            and profile.routing_category.strip().lower() != "scanned"
+            and any(
+                page_content(bands).strip()
+                for bands in self.blackboard.page_full_text_cache.values()
+            )
+        ):
+            # Progressive native pages already have their complete band text.
+            # Asset flags remain unknown until the background structure stage.
+            return profile
         # Asset coarse probe is independent of TOC; run it before TOC so
         # PROFILE / debug Stage-0 share the same order as later anatomy
         # consumers of ``page_features.has_asset``.
@@ -197,22 +220,27 @@ class ProfileCoordinator:
             return
         if not self.blackboard.page_features:
             raise RuntimeError("page_features missing; run text bootstrap first")
-        for tool_name, handler in (
-            ("probe.page_assets", probe_page_assets),
-            ("aggregate.doc_stats", aggregate_doc_stats),
+        with stage_timer(
+            "document_profile.asset_probe",
+            job_id=self.ctx.job_id,
+            page_count=self.blackboard.page_count,
         ):
-            result = handler(self.ctx, {})
-            self.trace.record_step(
-                round_index=self.round_index,
-                actor=f"bootstrap:{tool_name}",
-                action_type="bootstrap",
-                result=result,
-                tool_name=tool_name,
-                tool_args={},
-            )
-            if result.status != "ok":
-                raise RuntimeError(result.error or f"{tool_name} failed")
-            self.round_index += 1
+            for tool_name, handler in (
+                ("probe.page_assets", probe_page_assets),
+                ("aggregate.doc_stats", aggregate_doc_stats),
+            ):
+                result: ToolResult = handler(self.ctx, {})
+                self.trace.record_step(
+                    round_index=self.round_index,
+                    actor=f"bootstrap:{tool_name}",
+                    action_type="bootstrap",
+                    result=result,
+                    tool_name=tool_name,
+                    tool_args={},
+                )
+                if result.status != "ok":
+                    raise RuntimeError(result.error or f"{tool_name} failed")
+                self.round_index += 1
 
     def _toc_result_requires_strict_retry(self) -> bool:
         toc_result = self.blackboard.toc_result

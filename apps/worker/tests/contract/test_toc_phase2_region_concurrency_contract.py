@@ -470,3 +470,66 @@ def test_extract_region_expands_only_on_full_unbroken_toc_window(
     assert regions[0].toc_pages == [10, 11, 12, 13, 14, 15]
     assert regions[0].batch_trace[0]["expanded"] is True
     assert regions[0].batch_trace[1]["expanded"] is False
+
+
+def test_extract_region_stops_before_next_confirmed_anchor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    confirmed = _anchors(tmp_path, [1, 7])
+    vlm_rounds: list[tuple[int, list[int]]] = []
+
+    def _fake_batch(
+        *,
+        page_pngs: list[tuple[int, str]],
+        model: str,
+        previous_entries: list[dict[str, Any]] | None = None,
+    ) -> BatchTocResult:
+        pages = [page for page, _ in page_pngs]
+        anchor = _anchor_from_png(page_pngs[0][1])
+        vlm_rounds.append((anchor, pages))
+        return _batch_result(
+            toc_pages=pages,
+            non_toc_pages=[],
+            page_results=[
+                BatchPageResult(
+                    page=page,
+                    is_toc=True,
+                    entries=[
+                        {
+                            "title": f"Entry {page}",
+                            "page_number": page,
+                            "level": 1,
+                        }
+                    ],
+                )
+                for page in pages
+            ],
+        )
+
+    monkeypatch.setattr(toc_tool, "run_in_child_process", _fake_batch_render)
+    monkeypatch.setattr(
+        "app.services.document_agent.tools.vlm_toc_extractor.vlm_extract_toc_batch",
+        _fake_batch,
+    )
+
+    regions = toc_tool._extract_regions_for_confirmed_anchors(  # noqa: SLF001
+        confirmed,
+        pdf_path="/tmp/doc.pdf",
+        page_count=20,
+        output_dir=str(tmp_path / "toc_pages"),
+        dpi=72,
+        model="fake-vlm",
+    )
+
+    rounds_by_anchor: dict[int, list[list[int]]] = {1: [], 7: []}
+    for anchor, pages in vlm_rounds:
+        rounds_by_anchor[anchor].append(pages)
+
+    assert rounds_by_anchor[1] == [[1, 2, 3, 4, 5], [6]]
+    assert all(page < 7 for pages in rounds_by_anchor[1] for page in pages)
+    assert regions[0].toc_pages == [1, 2, 3, 4, 5, 6]
+    assert regions[0].hierarchies[0]["toc_range"] == [1, 6]
+    assert rounds_by_anchor[7][0] == [7, 8, 9, 10, 11]
+    assert regions[1].toc_pages[0] == 7
+    assert 6 not in regions[1].toc_pages

@@ -32,8 +32,15 @@ from app.services.document_agent.structure.hierarchy_locator import (
     TitleNode,
 )
 from app.services.document_agent.structure.toc_anchoring import (
+    _assign_toc_relationships,
     classify_toc_relationship,
     run_toc_anchoring,
+)
+from app.services.document_agent.structure.toc_pairing import (
+    PairedTocMatch,
+    check_paired_toc,
+    proximity_allows_pair_check,
+    sample_head_tail_pages,
 )
 from app.services.document_agent.structure.toc_graft import graft_contained_toc
 from app.services.page_memory.skeleton_extractor import extract_section_skeletons
@@ -289,6 +296,76 @@ def test_classify_unresolvable_when_candidate_span_missing() -> None:
     )
 
 
+def test_sample_head_tail_pages_uses_first_and_last_two() -> None:
+    assert sample_head_tail_pages([1, 2, 3, 4, 5, 6]) == [1, 2, 5, 6]
+    assert sample_head_tail_pages([7, 8, 11, 12]) == [7, 8, 11, 12]
+    assert sample_head_tail_pages([1, 2, 3]) == [1, 2, 3]
+
+
+def test_proximity_gate_requires_gap_smaller_than_first_toc() -> None:
+    toc_a = {"toc_range": [1, 6], "toc_range_unit": "page"}
+    toc_b = {"toc_range": [7, 12], "toc_range_unit": "page"}
+    far = {"toc_range": [20, 21], "toc_range_unit": "page"}
+    assert proximity_allows_pair_check(toc_a, toc_b) is True
+    assert proximity_allows_pair_check(toc_a, far) is False
+
+
+def test_check_paired_toc_skips_vlm_when_gate_fails(monkeypatch) -> None:
+    called = {"vlm": False}
+
+    def _fail_vlm(**kwargs):
+        called["vlm"] = True
+        raise AssertionError("VLM should not run when proximity gate fails")
+
+    monkeypatch.setattr(
+        "app.services.document_agent.structure.toc_pairing._vlm_pair_check",
+        _fail_vlm,
+    )
+    match = check_paired_toc(
+        {"toc_range": [1, 1], "toc_range_unit": "page"},
+        {"toc_range": [20, 21], "toc_range_unit": "page"},
+        ctx=_ctx(page_count=30),
+        model="fake-vlm",
+    )
+    assert match.is_paired is False
+    assert called["vlm"] is False
+
+
+def test_check_paired_toc_vlm_marks_bilingual_pair(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    toc_dir = tmp_path / "toc_pages"
+    toc_dir.mkdir()
+    for page in (1, 2, 5, 6, 7, 8, 11, 12):
+        (toc_dir / f"toc_a1_p{page}.png").write_bytes(b"png")
+    ctx = _ctx(page_count=20)
+    ctx.output_dir = str(tmp_path)
+
+    class _Client:
+        def chat_completion_with_usage(self, **kwargs):
+            assert kwargs["usage_task"] == "document_agent.toc_pair_check"
+            assert kwargs["temperature"] == 0.0
+            return (
+                '{"is_paired": true, "pattern": "bilingual_mirror", '
+                '"reason": "same sections"}',
+                {},
+            )
+
+    monkeypatch.setattr(
+        "shared.services.ai.llm_overrides.get_vision_client",
+        lambda requested_model=None: (_Client(), "fake-vlm"),
+    )
+    match = check_paired_toc(
+        {"toc_range": [1, 6], "toc_range_unit": "page"},
+        {"toc_range": [7, 12], "toc_range_unit": "page"},
+        ctx=ctx,
+        model="fake-vlm",
+    )
+    assert match.is_paired is True
+    assert match.pattern == "bilingual_mirror"
+
+
 def test_classify_parallel_for_chapter_mini_tocs_without_extrapolation() -> None:
     """Earliest chapter TOC evidenced [6,8] must not swallow later chapters."""
     assert (
@@ -455,6 +532,122 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
     assert record["grafted"] is True
     assert record["nodes"][0]["title"] == "第一章"
     assert "第一章 / 1.2" in ctx.blackboard.skeleton_anchor["match_overrides"]
+
+
+def test_run_toc_anchoring_skips_calibration_for_paired_toc() -> None:
+    ctx = _ctx(page_count=30)
+    ctx.blackboard.toc_hierarchies = [
+        {
+            "toc_range": [1, 6],
+            "toc_range_unit": "page",
+            "toc_with_level": [{"heading": "总则", "level": 1, "page_number": 13}],
+        },
+        {
+            "toc_range": [7, 12],
+            "toc_range_unit": "page",
+            "toc_with_level": [
+                {"heading": "General provisions", "level": 1, "page_number": 13}
+            ],
+        },
+    ]
+    ctx.blackboard.toc_result = TocResult(
+        method="vlm_batch",
+        toc_pages=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    )
+    ctx.blackboard.page_full_text_cache = {page: "body" for page in range(1, 31)}
+    primary = TitleNode(title="总则", level=1, printed_page=13)
+    calibrate_calls: list[object] = []
+
+    def _fake_calibrate_offset(**kwargs):
+        calibrate_calls.append(kwargs)
+        return object()
+
+    with (
+        patch(
+            "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
+            return_value=([primary], _anchor({("总则",): 13})),
+        ),
+        patch(
+            "app.services.document_agent.structure.toc_pairing.check_paired_toc",
+            return_value=PairedTocMatch(
+                is_paired=True,
+                pattern="bilingual_mirror",
+                reason="same sections",
+            ),
+        ),
+        patch(
+            "app.services.document_agent.calibration.service.calibrate_offset",
+            side_effect=_fake_calibrate_offset,
+        ),
+    ):
+        run_toc_anchoring(ctx)
+
+    assert calibrate_calls == []
+    record = ctx.blackboard.pending_skeleton_anchors[0]
+    assert record["relationship"] == "paired"
+    assert record["host"] == "root"
+    assert record["paired_with_range"] == [1, 6]
+    assert record["paired_pattern"] == "bilingual_mirror"
+    assert "nodes" not in record
+    assert ctx.blackboard.toc_hierarchies[1]["paired_with_range"] == [1, 6]
+
+
+def test_assign_equal_span_is_paired_not_parallel() -> None:
+    root = _anchor({("总则",): 13, ("附录",): 154})
+    pending_toc = {
+        "toc_range": [7, 12],
+        "toc_range_unit": "page",
+        "toc_with_level": [
+            {"heading": "General provisions", "level": 1, "page_number": 13}
+        ],
+    }
+    record = {
+        "toc": pending_toc,
+        "nodes": [serialize_title_node(TitleNode(title="General", level=1, printed_page=13))],
+        "skeleton_anchor": serialize_skeleton_anchor(
+            _anchor({("General provisions",): 13, ("Appendix",): 154})
+        ),
+    }
+    _assign_toc_relationships(
+        root_anchor=root,
+        pending_records=[record],
+        root_toc={"toc_range": [1, 6], "toc_range_unit": "page"},
+    )
+    assert record["relationship"] == "paired"
+    assert record["host"] == "root"
+    assert record["paired_with_range"] == [1, 6]
+    assert pending_toc["paired_with_range"] == [1, 6]
+
+
+def test_assign_equal_span_between_two_pendings_keeps_earlier_parallel() -> None:
+    root = _anchor({("Vol1",): 10, ("Vol1 End",): 40})
+    toc_a = {"toc_range": [41, 42], "toc_range_unit": "page"}
+    toc_b = {"toc_range": [43, 44], "toc_range_unit": "page"}
+    rec_a = {
+        "toc": toc_a,
+        "nodes": [serialize_title_node(TitleNode(title="第二卷", level=1, printed_page=50))],
+        "skeleton_anchor": serialize_skeleton_anchor(
+            _anchor({("第二卷",): 50, ("终章",): 80})
+        ),
+    }
+    rec_b = {
+        "toc": toc_b,
+        "nodes": [serialize_title_node(TitleNode(title="Volume 2", level=1, printed_page=50))],
+        "skeleton_anchor": serialize_skeleton_anchor(
+            _anchor({("Volume 2",): 50, ("Finale",): 80})
+        ),
+    }
+    _assign_toc_relationships(
+        root_anchor=root,
+        pending_records=[rec_a, rec_b],
+        root_toc={"toc_range": [1, 2], "toc_range_unit": "page"},
+    )
+    assert rec_a["relationship"] == "parallel"
+    assert "host" not in rec_a
+    assert rec_b["relationship"] == "paired"
+    assert rec_b["host"] == 0
+    assert rec_b["paired_with_range"] == [41, 42]
+    assert toc_b["paired_with_range"] == [41, 42]
 
 
 def _feature(page: int) -> PageFeature:

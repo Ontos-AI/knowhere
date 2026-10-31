@@ -580,10 +580,13 @@ class DocumentService:
     ) -> dict[str, Any] | None:
         if CorpusStorage.resolve_document(document_id).is_demo:
             await db.run_sync(lambda session: authorize_demo_transaction(session, user_id=user_id))
+        # Progressive publication owns Document before the namespace generation.
+        # Match that order so archive cannot hold generation while waiting for it.
         document = await self._repository.get_document(
             db,
             user_id=user_id,
             document_id=document_id,
+            requires_write_lock=True,
         )
         if document is None:
             return None

@@ -81,10 +81,30 @@ def _write_m0_workspace(
                     "header_y": 0.06,
                     "footer_y": 0.95,
                 },
-                "page_features": [],
-                "page_labels": [{"page": 1, "kind": "normal", "evidence": {}}],
-                "doc_stats": {},
-                "global_signals": {},
+                "page_features": [
+                    {
+                        "page": page,
+                        "raw_text_length": 0 if is_scanned else 100,
+                        "text_density": 0.0 if is_scanned else 0.1,
+                        "image_coverage": 1.0 if is_scanned else 0.0,
+                        "image_count": 1 if is_scanned else 0,
+                        "table_count": 0,
+                        "drawings_count": 0,
+                        "orientation": "portrait",
+                        "width": 600.0,
+                        "height": 800.0,
+                        "has_asset": is_scanned,
+                        "is_blank_like": False,
+                    }
+                    for page in range(1, 21)
+                ],
+                "page_labels": [
+                    {"page": page, "kind": "normal", "evidence": {}}
+                    for page in range(1, 21)
+                ],
+                "doc_stats": {"page_count": 20},
+                # These TOC contracts resume an M0 whose asset probe completed.
+                "global_signals": {"assets_probed": True},
                 "page_full_text_bands": {
                     "14": {
                         "lines": [

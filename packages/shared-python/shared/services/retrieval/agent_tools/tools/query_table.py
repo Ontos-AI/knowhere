@@ -145,6 +145,7 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             {
                 "content": chunk.content,
                 "file_path": chunk.file_path,
+                "chunk_metadata": chunk.chunk_metadata,
                 "job_id": job_id,
                 "result_raw_prefix": result_raw_prefix,
             }

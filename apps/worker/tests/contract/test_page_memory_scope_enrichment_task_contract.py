@@ -45,6 +45,225 @@ from shared.testing.contract_runtime import (
 )
 
 
+@pytest.mark.parametrize("rollback", [False, True])
+def test_directory_event_commits_with_initial_outline_once_and_dispatches_after_commit(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    rollback: bool,
+) -> None:
+    from app.services.page_memory import scope_enrichment_service as service
+    from shared.models.database.webhook import WebhookEvent
+    from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
+
+    del worker_contract_environment
+    engine = create_engine(
+        make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2")
+    )
+    dispatched: list[str] = []
+
+    def record_dispatch(_self: SyncJobWebhookOutbox, event_id: str | None) -> None:
+        assert event_id is not None
+        with Session(engine) as observer:
+            event = observer.get(WebhookEvent, event_id)
+            assert event is not None
+            revision = observer.get(JobResult, event.payload["job_result_id"])
+            assert revision is not None
+            assert (
+                revision.document_metadata["initial_directory"]["directory_version"]
+                == 1
+            )
+        dispatched.append(event_id)
+
+    monkeypatch.setattr(
+        SyncJobWebhookOutbox, "enqueue_event_id_after_commit", record_dispatch
+    )
+    try:
+        with Session(engine) as db:
+            document_id, job_id, revision_id = _seed_published_coarse_doc(
+                db,
+                suffix=f"directory-{rollback}",
+                scope_states=[("p1-2", 1, 2, "coarse")],
+            )
+            document = db.get(Document, document_id)
+            job = db.get(Job, job_id)
+            revision = db.get(JobResult, revision_id)
+            assert document is not None and job is not None and revision is not None
+            job.webhook_enabled = True
+            job.webhook_url = "https://hooks.contract.test/directory"
+            revision.document_metadata = {"structure_claim_generation": "current"}
+            target = service._build_claimed_target(
+                document=document,
+                job=job,
+                job_metadata=dict(job.job_metadata or {}),
+                source_file_name="doc.pdf",
+                claim_generation="current",
+            )
+            db.commit()
+
+        def publish(db: Session, **_arguments: object) -> None:
+            revision = db.get(JobResult, revision_id)
+            assert revision is not None
+            revision.document_metadata = {
+                **dict(revision.document_metadata or {}),
+                "test_publication": True,
+            }
+
+        if rollback:
+            create_event = SyncJobWebhookOutbox.create_event
+
+            def reject_flush(
+                outbox: SyncJobWebhookOutbox,
+                db: Session,
+                *,
+                job_id: str,
+                event_type: str,
+                event_id: str | None = None,
+                extra_payload: dict[str, object] | None = None,
+            ) -> None:
+                create_event(
+                    outbox,
+                    db,
+                    job_id=job_id,
+                    event_type=event_type,
+                    event_id=event_id,
+                    extra_payload=extra_payload,
+                )
+                raise RuntimeError("directory outbox insert rejected")
+
+            monkeypatch.setattr(SyncJobWebhookOutbox, "create_event", reject_flush)
+
+        arguments = {
+            "job_result_id": revision_id,
+            "target": target,
+            "publication_scope": service._build_publication_scope(
+                target=target, job_result_id=revision_id
+            ),
+            "chunks": [],
+            "section_summaries": {},
+            "phase_b_refs": [],
+            "scope_publisher": publish,
+        }
+        if rollback:
+            with pytest.raises(RuntimeError, match="outbox insert rejected"):
+                service._publish_coarse_structure_and_write_scopes(**arguments)
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(
+                    executor.map(
+                        lambda _index: (
+                            service._publish_coarse_structure_and_write_scopes(
+                                **arguments
+                            )
+                        ),
+                        range(2),
+                    )
+                )
+            assert results == [True, True]
+
+        with Session(engine) as db:
+            events = list(
+                db.scalars(select(WebhookEvent).where(WebhookEvent.job_id == job_id))
+            )
+            revision = db.get(JobResult, revision_id)
+            assert revision is not None
+            if rollback:
+                assert events == []
+                assert "initial_directory" not in revision.document_metadata
+                assert "test_publication" not in revision.document_metadata
+                assert dispatched == []
+            else:
+                assert len(events) == 1
+                event = events[0]
+                snapshot = revision.document_metadata["initial_directory"]
+                assert event.payload["event"] == "job.document.directory_ready"
+                assert event.payload["status"] == "completed"
+                assert event.payload["event_id"] == event.id
+                assert (
+                    event.payload["directory_committed_at"]
+                    == snapshot["directory_committed_at"]
+                )
+                assert snapshot["job_result_id"] == revision_id
+                assert snapshot["namespace"] == target.namespace
+                assert snapshot["sections"][0]["page_nums"] == [1, 2]
+                assert dispatched == [event.id]
+                assert "result_url" not in event.payload
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "fence", ["claim", "archived", "revision", "namespace", "owner"]
+)
+def test_directory_event_rejects_stale_publication(
+    worker_contract_environment: None,
+    fence: str,
+) -> None:
+    from app.services.page_memory import scope_enrichment_service as service
+    from shared.models.database.webhook import WebhookEvent
+
+    del worker_contract_environment
+    engine = create_engine(
+        make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2")
+    )
+    try:
+        with Session(engine) as db:
+            document_id, job_id, revision_id = _seed_published_coarse_doc(
+                db, suffix=f"dir-fence-{fence}", scope_states=[("p1", 1, 1, "coarse")]
+            )
+            document = db.get(Document, document_id)
+            job = db.get(Job, job_id)
+            revision = db.get(JobResult, revision_id)
+            assert document is not None and job is not None and revision is not None
+            revision.document_metadata = {"structure_claim_generation": "current"}
+            target = service._build_claimed_target(
+                document=document,
+                job=job,
+                job_metadata=dict(job.job_metadata or {}),
+                source_file_name="doc.pdf",
+                claim_generation="current",
+            )
+            if fence == "claim":
+                revision.document_metadata = {"structure_claim_generation": "newer"}
+            elif fence == "archived":
+                document.status = "archived"
+            elif fence == "revision":
+                document.current_job_result_id = None
+            elif fence == "namespace":
+                document.namespace = "moved"
+            else:
+                from dataclasses import replace
+
+                target = replace(target, user_id="another-owner")
+            db.commit()
+        called: list[bool] = []
+        published: bool = service._publish_coarse_structure_and_write_scopes(
+            job_result_id=revision_id,
+            target=target,
+            publication_scope=service._build_publication_scope(
+                target=target, job_result_id=revision_id
+            ),
+            chunks=[],
+            section_summaries={},
+            phase_b_refs=[],
+            scope_publisher=lambda *_args, **_kwargs: called.append(True),
+        )
+        assert published is False
+        assert called == []
+        with Session(engine) as db:
+            assert (
+                list(
+                    db.scalars(
+                        select(WebhookEvent).where(WebhookEvent.job_id == job_id)
+                    )
+                )
+                == []
+            )
+    finally:
+        engine.dispose()
+
+
 class _InMemoryResultStorage:
     def __init__(self, files: dict[str, bytes]) -> None:
         self.files = dict(files)
@@ -427,12 +646,9 @@ def test_enrichment_task_routes_and_does_not_fail_job() -> None:
     assert build_page_memory_structure.name == (
         "app.core.tasks.enrichment_tasks.build_page_memory_structure"
     )
-    assert (
-        celery_app.conf.task_routes[
-            "app.core.tasks.enrichment_tasks.build_page_memory_structure"
-        ]
-        == {"queue": "document_ingestion_medium"}
-    )
+    assert celery_app.conf.task_routes[
+        "app.core.tasks.enrichment_tasks.build_page_memory_structure"
+    ] == {"queue": "document_ingestion_medium"}
     assert celery_app.conf.task_routes[
         "app.core.tasks.enrichment_tasks.enrich_page_memory_scope"
     ] == {"queue": "document_ingestion_high"}
@@ -532,19 +748,25 @@ def test_execute_scope_enrichment_claims_runs_subtree_and_completes_when_all_ref
 
             job = session.execute(select(Job).where(Job.job_id == job_id)).scalar_one()
             assert (job.job_metadata or {}).get("enrichment_status") == "complete"
-            usage = ((job.job_metadata or {}).get("stages") or {}).get("token_usage") or {}
+            usage = ((job.job_metadata or {}).get("stages") or {}).get(
+                "token_usage"
+            ) or {}
             assert usage.get("total_tokens") == 24
             assert usage.get("calls") == 2
             assert usage.get("duration_ms") == 35
-            assert usage.get("by_task", {}).get("document_agent.coarse_profile", {}).get(
-                "calls"
-            ) == 1
-            assert usage.get("by_task", {}).get("page_memory.tag", {}).get(
-                "total_tokens"
-            ) == 10
-            assert ((job.job_metadata or {}).get("stages") or {}).get("timing_ms", {}).get(
-                "worker.parse.document"
-            ) == 1200
+            assert (
+                usage.get("by_task", {})
+                .get("document_agent.coarse_profile", {})
+                .get("calls")
+                == 1
+            )
+            assert (
+                usage.get("by_task", {}).get("page_memory.tag", {}).get("total_tokens")
+                == 10
+            )
+            assert ((job.job_metadata or {}).get("stages") or {}).get(
+                "timing_ms", {}
+            ).get("worker.parse.document") == 1200
             job_result = session.execute(
                 select(JobResult).where(JobResult.id == revision_id)
             ).scalar_one()
@@ -564,7 +786,9 @@ def test_execute_scope_enrichment_claims_runs_subtree_and_completes_when_all_ref
         assert second["status"] == "skipped"
         with Session(engine) as session:
             job = session.execute(select(Job).where(Job.job_id == job_id)).scalar_one()
-            usage = ((job.job_metadata or {}).get("stages") or {}).get("token_usage") or {}
+            usage = ((job.job_metadata or {}).get("stages") or {}).get(
+                "token_usage"
+            ) or {}
             assert usage.get("total_tokens") == 24
             assert usage.get("calls") == 2
     finally:
@@ -941,9 +1165,7 @@ def test_enqueue_failure_reverts_unsent_scopes_to_coarse_and_sweeper_retries_fai
         retried_for_rev = [
             (str(args[1]), queue, priority)
             for name, args, queue, priority in sent_by_sweep
-            if name == ENRICH_SCOPE_TASK_NAME
-            and args
-            and str(args[0]) == revision_id
+            if name == ENRICH_SCOPE_TASK_NAME and args and str(args[0]) == revision_id
         ]
         assert sorted(retried_for_rev) == [
             ("p1-4", HIGH_ENRICHMENT_QUEUE, HIGH_ENRICHMENT_TASK_PRIORITY),
@@ -1052,9 +1274,7 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
     from shared.services.ai import embedding as embedding_pkg
     from shared.services.ai.embedding import DEFAULT_EMBEDDING_DIM
 
-    monkeypatch.setattr(
-        skel_mod, "extract_section_skeletons", lambda **_kw: skeletons
-    )
+    monkeypatch.setattr(skel_mod, "extract_section_skeletons", lambda **_kw: skeletons)
     monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
 
     def _fake_defer_render(
@@ -1085,9 +1305,7 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
         return out
 
     vec_one = [1.0] + [0.0] * (DEFAULT_EMBEDDING_DIM - 1)
-    monkeypatch.setattr(
-        page_renderer_mod, "render_document_pages", _fake_defer_render
-    )
+    monkeypatch.setattr(page_renderer_mod, "render_document_pages", _fake_defer_render)
     monkeypatch.setattr(
         embedding_pkg,
         "embed_images",
@@ -1262,20 +1480,23 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
                 ("p3-4", "coarse"),
             ]
             assert all(r.priority is None and r.last_hit_at is None for r in scope_rows)
-            job = session.execute(
-                select(Job).where(Job.job_id == job_id)
-            ).scalar_one()
+            job = session.execute(select(Job).where(Job.job_id == job_id)).scalar_one()
             assert (job.job_metadata or {}).get("enrichment_status") == "coarse"
-            usage = ((job.job_metadata or {}).get("stages") or {}).get("token_usage") or {}
+            usage = ((job.job_metadata or {}).get("stages") or {}).get(
+                "token_usage"
+            ) or {}
             assert usage.get("total_tokens") == 21
             assert usage.get("calls") == 2
             assert usage.get("duration_ms") == 31
-            assert usage.get("by_task", {}).get("document_agent.toc_anchor_confirm", {}).get(
-                "total_tokens"
-            ) == 7
-            assert ((job.job_metadata or {}).get("stages") or {}).get("timing_ms", {}).get(
-                "worker.parse.document"
-            ) == 800
+            assert (
+                usage.get("by_task", {})
+                .get("document_agent.toc_anchor_confirm", {})
+                .get("total_tokens")
+                == 7
+            )
+            assert ((job.job_metadata or {}).get("stages") or {}).get(
+                "timing_ms", {}
+            ).get("worker.parse.document") == 800
 
         # Reset to text while structure_claimed_at is still fresh: both a duplicate
         # structure task and sweep must skip it rather than re-running or re-enqueuing.
@@ -1315,10 +1536,14 @@ def test_sweeper_recovers_committed_queued_scope_without_broker_delivery(
     worker_contract_environment: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from datetime import timedelta
+
     from shared.core import celery_app as celery_app_mod
+    from shared.core.config import app_config
     from shared.services.jobs.lifecycle.scope_enrichments import (
         sweep_progressive_enrichments_sync,
     )
+    from shared.utils.utc_now import utc_now_naive
 
     del worker_contract_environment
     engine = create_engine(
@@ -1337,6 +1562,15 @@ def test_sweeper_recovers_committed_queued_scope_without_broker_delivery(
             _, _, revision = _seed_published_coarse_doc(
                 session, suffix="queued-gap", scope_states=[("p1-2", 1, 2, "queued")]
             )
+            session.execute(
+                update(DocumentScopeEnrichment)
+                .where(DocumentScopeEnrichment.job_result_id == revision)
+                .values(
+                    updated_at=utc_now_naive()
+                    - timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS + 1)
+                )
+            )
+            session.commit()
         sweep_progressive_enrichments_sync()
         assert [revision, "p1-2"] in sent
     finally:
@@ -1541,7 +1775,8 @@ def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors
 
     monkeypatch.setattr(page_renderer, "render_document_pages", render)
     vectors: list[list[list[float] | None]] = [
-        ([[0.25] * 3072] if has_initial_vectors else [[0.25] * 3072, [0.25] * 3072]) + [None],
+        ([[0.25] * 3072] if has_initial_vectors else [[0.25] * 3072, [0.25] * 3072])
+        + [None],
         [[0.5] * 3072],
     ]
     monkeypatch.setattr(
@@ -1606,10 +1841,14 @@ def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors
             )
             if attempt == 0:
                 service._finalize_all_scopes_refined(
-                    job_result_id=revision, target=target, storage=storage,
+                    job_result_id=revision,
+                    target=target,
+                    storage=storage,
                     workspace_dir=str(tmp_path),
                 )
-                assert storage.uploaded_zips == [], "Missing required vectors must withhold final publication"
+                assert storage.uploaded_zips == [], (
+                    "Missing required vectors must withhold final publication"
+                )
         with Session(engine) as db:
             rows = db.scalars(
                 select(DocumentPageEmbedding)
@@ -1817,7 +2056,9 @@ def test_recovery_cannot_overwrite_a_concurrent_manual_retry(
     from app.services.page_memory import scope_enrichment_service as service
     from shared.models.schemas.progressive_ingestion import StoredSnapshot
     from shared.services.jobs.progressive_ingestion import (
-        initialize_baseline_state, read_progressive_state, write_progressive_state,
+        initialize_baseline_state,
+        read_progressive_state,
+        write_progressive_state,
     )
     from shared.services.jobs.progressive_retry import renew_failed_enhancement
 
@@ -1831,22 +2072,31 @@ def test_recovery_cannot_overwrite_a_concurrent_manual_retry(
     try:
         with Session(engine) as db:
             document_id, job_id, revision_id = _seed_published_coarse_doc(
-                db, suffix="recovery-retry-race", scope_states=[("p1-2", 1, 2, "failed")],
+                db,
+                suffix="recovery-retry-race",
+                scope_states=[("p1-2", 1, 2, "failed")],
             )
             revision = db.get(JobResult, revision_id)
             assert revision is not None
             state = initialize_baseline_state(
                 snapshot=StoredSnapshot(
-                    snapshot_id="baseline", stage="baseline", job_id=job_id,
-                    job_result_id=revision_id, document_id=document_id,
-                    checksum="a" * 64, archive_key="baseline.zip",
-                ), missing_pages=[],
+                    snapshot_id="baseline",
+                    stage="baseline",
+                    job_id=job_id,
+                    job_result_id=revision_id,
+                    document_id=document_id,
+                    checksum="a" * 64,
+                    archive_key="baseline.zip",
+                ),
+                missing_pages=[],
             )
             state.enhancement.status = "running"
             revision.document_metadata = write_progressive_state({}, state)
-            db.execute(update(DocumentScopeEnrichment).where(
-                DocumentScopeEnrichment.job_result_id == revision_id
-            ).values(attempts=3))
+            db.execute(
+                update(DocumentScopeEnrichment)
+                .where(DocumentScopeEnrichment.job_result_id == revision_id)
+                .values(attempts=3)
+            )
             db.commit()
 
         @contextmanager
@@ -1857,10 +2107,9 @@ def test_recovery_cannot_overwrite_a_concurrent_manual_retry(
 
         def pause_scope_read(connection, cursor, statement, parameters, context, many):
             del connection, cursor, parameters, context, many
-            if (
-                current_thread().name.startswith("recovery-race")
-                and statement.startswith("SELECT document_scope_enrichments.state")
-            ):
+            if current_thread().name.startswith(
+                "recovery-race"
+            ) and statement.startswith("SELECT document_scope_enrichments.state"):
                 has_scope_read.set()
                 assert has_retry_started.wait(5)
                 # A guarded recovery keeps the retry blocked until its commit.
@@ -1873,31 +2122,43 @@ def test_recovery_cannot_overwrite_a_concurrent_manual_retry(
             assert has_scope_read.wait(5)
             has_retry_started.set()
             with Session(engine) as db:
-                db.execute(select(Document).where(
-                    Document.document_id == document_id
-                ).with_for_update()).scalar_one()
-                revision = db.execute(select(JobResult).where(
-                    JobResult.id == revision_id
-                ).with_for_update(of=JobResult)).scalar_one()
+                db.execute(
+                    select(Document)
+                    .where(Document.document_id == document_id)
+                    .with_for_update()
+                ).scalar_one()
+                revision = db.execute(
+                    select(JobResult)
+                    .where(JobResult.id == revision_id)
+                    .with_for_update(of=JobResult)
+                ).scalar_one()
                 state = read_progressive_state(revision.document_metadata)
                 assert state is not None
                 state.enhancement.status = "failed"
                 state.enhancement.can_retry = True
                 renewed = renew_failed_enhancement(state, job_id=job_id)
                 revision.document_metadata = write_progressive_state({}, renewed)
-                db.execute(update(DocumentScopeEnrichment).where(
-                    DocumentScopeEnrichment.job_result_id == revision_id
-                ).values(state="coarse", attempts=0, claim_generation=None))
+                db.execute(
+                    update(DocumentScopeEnrichment)
+                    .where(DocumentScopeEnrichment.job_result_id == revision_id)
+                    .values(state="coarse", attempts=0, claim_generation=None)
+                )
                 db.commit()
             has_retry_finished.set()
 
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="recovery-race") as executor:
-            recovery = executor.submit(service.execute_progressive_recovery, job_result_id=revision_id)
+        with ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="recovery-race"
+        ) as executor:
+            recovery = executor.submit(
+                service.execute_progressive_recovery, job_result_id=revision_id
+            )
             renewal = executor.submit(retry)
             assert recovery.result(timeout=10)["status"] == "failed"
             renewal.result(timeout=10)
         with Session(engine) as db:
-            state = read_progressive_state(db.get(JobResult, revision_id).document_metadata)
+            state = read_progressive_state(
+                db.get(JobResult, revision_id).document_metadata
+            )
             assert state is not None
             assert state.enhancement.attempt == 2
             assert state.enhancement.status == "pending"

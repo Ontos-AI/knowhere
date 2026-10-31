@@ -10,6 +10,7 @@ from shared.core.database import get_db_context
 from shared.models.database.demo_corpus import DemoDocument, DemoDocumentMapUnitIndex
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.hydration.artifact_origin import resolve_artifact_raw_prefix
 from shared.services.storage.demo_asset_signer import DemoAssetSigner
 
 from shared.services.retrieval.hydration.row_utils import (
@@ -173,12 +174,9 @@ async def _generate_retrieval_asset_url(
     if _is_demo_row(row):
         return _sign_demo_asset(row, str(row.get("file_path") or ""))
     try:
-        return get_result_storage().generate_artifact_url(
-            **(
-                RawPrefixArguments(raw_prefix=str(row["result_raw_prefix"]))
-                if row.get("result_raw_prefix")
-                else RawPrefixArguments()
-            ),
+        storage = get_result_storage()
+        return storage.generate_artifact_url(
+            **resolve_artifact_raw_prefix(row, artifact_ref, storage=storage),
             job_id=job_id,
             artifact_ref=artifact_ref,
         )
@@ -209,12 +207,9 @@ async def _generate_page_citation_asset_url(
 
     job_id, artifact_ref = request
     try:
-        return get_result_storage().generate_artifact_url(
-            **(
-                RawPrefixArguments(raw_prefix=str(row["result_raw_prefix"]))
-                if row.get("result_raw_prefix")
-                else RawPrefixArguments()
-            ),
+        storage = get_result_storage()
+        return storage.generate_artifact_url(
+            **resolve_artifact_raw_prefix(row, artifact_ref, storage=storage),
             job_id=job_id,
             artifact_ref=artifact_ref,
         )
@@ -250,12 +245,9 @@ async def _enrich_page_assets(
             artifact_ref = _normalize_artifact_ref(enriched.get("artifact_ref"))
             if artifact_ref is not None:
                 try:
-                    asset_url = get_result_storage().generate_artifact_url(
-                        **(
-                            RawPrefixArguments(raw_prefix=str(row["result_raw_prefix"]))
-                            if row.get("result_raw_prefix")
-                            else RawPrefixArguments()
-                        ),
+                    storage = get_result_storage()
+                    asset_url = storage.generate_artifact_url(
+                        **resolve_artifact_raw_prefix(row, artifact_ref, storage=storage),
                         job_id=job_id,
                         artifact_ref=artifact_ref,
                     )
