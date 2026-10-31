@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -56,9 +57,10 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     physical overrides (no calibrate VLM). Otherwise keep the extracted TOC tree
     and run the existing VLM calibration path.
 
-    After calibration (primary + pending), each forest runs global paged-leaf
-    rehome, then pending forests are classified/grafted. Blackboard writes happen
-    only after that sequence.
+    Nearby pending TOCs that pair with an earlier host skip pending calibration.
+    After calibration (primary + unpaired pending), each forest runs global
+    paged-leaf rehome, then pending forests are classified/grafted. Blackboard
+    writes happen only after that sequence.
     """
     from app.services.document_agent.calibration.orchestrator import (
         anchor_hierarchy,
@@ -96,6 +98,8 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
         hierarchies=hierarchies,
         filename=filename,
     )
+    if not primary:
+        return
     nodes = extract_toc_nodes(primary)
     if not nodes:
         return
@@ -112,12 +116,24 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     )
     pending_records: list[dict[str, Any]] = []
     if pending:
-        pending_records = _calibrate_pending_tocs(
-            pending_tocs=pending,
+        paired_by_index, unpaired = _split_paired_pending(
+            primary_toc=primary[0],
+            pending=pending,
             ctx=ctx,
-            page_texts=page_texts,
-            page_count=page_count,
-            body_pages=body_pages,
+        )
+        calibrated: list[dict[str, Any]] = []
+        if unpaired:
+            calibrated = _calibrate_pending_tocs(
+                pending_tocs=unpaired,
+                ctx=ctx,
+                page_texts=page_texts,
+                page_count=page_count,
+                body_pages=body_pages,
+            )
+        pending_records = _merge_pending_records(
+            pending=pending,
+            paired_by_index=paired_by_index,
+            calibrated=calibrated,
         )
 
     # scope-local TOC pre-pass: future hook (no-op this period)
@@ -132,6 +148,7 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
         _assign_toc_relationships(
             root_anchor=skeleton_anchor,
             pending_records=pending_records,
+            root_toc=primary[0],
         )
         resolve_nodes, skeleton_anchor = _graft_contained_pending(
             resolve_nodes=resolve_nodes,
@@ -495,6 +512,106 @@ def find_tightest_containing_host(
     return best_key
 
 
+def _split_paired_pending(
+    *,
+    primary_toc: dict[str, Any],
+    pending: list[dict[str, Any]],
+    ctx: ToolContext,
+) -> tuple[dict[int, dict[str, Any]], list[dict[str, Any]]]:
+    """Mark nearby duplicate TOCs as paired and keep the rest for calibration."""
+    from app.services.document_agent.structure.toc_pairing import check_paired_toc
+
+    model = ctx.settings.get("vlm_model") or os.environ.get("IMAGE_MODEL")
+    paired_by_index: dict[int, dict[str, Any]] = {}
+    unpaired: list[dict[str, Any]] = []
+    host_toc = primary_toc
+    host_is_primary = True
+    host_pending_index: int | None = None
+
+    for index, pending_toc in enumerate(pending):
+        match = check_paired_toc(host_toc, pending_toc, ctx=ctx, model=model)
+        if match.is_paired:
+            host_range = list(host_toc.get("toc_range") or [])
+            pending_toc["paired_with_range"] = host_range
+            pending_toc["paired_pattern"] = match.pattern
+            paired_by_index[index] = {
+                "toc": pending_toc,
+                "relationship": "paired",
+                "host": "root" if host_is_primary else host_pending_index,
+                "paired_with_range": host_range,
+                "paired_pattern": match.pattern,
+                "paired_reason": match.reason,
+            }
+            logger.info(
+                "{} pending TOC toc_range={} paired with {} pattern={}",
+                _LOG_PREFIX,
+                pending_toc.get("toc_range"),
+                host_range,
+                match.pattern,
+            )
+            continue
+        unpaired.append(pending_toc)
+        host_toc = pending_toc
+        host_is_primary = False
+        host_pending_index = index
+    return paired_by_index, unpaired
+
+
+def _merge_pending_records(
+    *,
+    pending: list[dict[str, Any]],
+    paired_by_index: dict[int, dict[str, Any]],
+    calibrated: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    calibrated_by_id = {id(record.get("toc")): record for record in calibrated}
+    merged: list[dict[str, Any]] = []
+    for index, toc in enumerate(pending):
+        paired = paired_by_index.get(index)
+        if paired is not None:
+            merged.append(paired)
+            continue
+        calibrated_record = calibrated_by_id.get(id(toc))
+        if calibrated_record is not None:
+            merged.append(calibrated_record)
+    _remap_paired_host_indices(pending=pending, pending_records=merged)
+    return merged
+
+
+def _remap_paired_host_indices(
+    *,
+    pending: list[dict[str, Any]],
+    pending_records: list[dict[str, Any]],
+) -> None:
+    toc_id_to_index = {
+        id(record.get("toc")): index for index, record in enumerate(pending_records)
+    }
+    for record in pending_records:
+        if record.get("relationship") != "paired":
+            continue
+        host = record.get("host")
+        if host == "root" or host is None:
+            continue
+        if not isinstance(host, int) or not (0 <= host < len(pending)):
+            continue
+        remapped = toc_id_to_index.get(id(pending[host]))
+        record["host"] = remapped
+
+
+def _toc_range_for_host(
+    *,
+    host_key: Any,
+    root_toc: dict[str, Any] | None,
+    pending_records: list[dict[str, Any]],
+) -> list[Any]:
+    if host_key == "root":
+        return list((root_toc or {}).get("toc_range") or [])
+    if isinstance(host_key, int) and 0 <= host_key < len(pending_records):
+        toc = pending_records[host_key].get("toc")
+        if isinstance(toc, dict):
+            return list(toc.get("toc_range") or [])
+    return []
+
+
 def classify_toc_relationship(
     *,
     candidate_span: tuple[int, int] | None,
@@ -520,11 +637,15 @@ def _assign_toc_relationships(
     *,
     root_anchor: SkeletonAnchor,
     pending_records: list[dict[str, Any]],
+    root_toc: dict[str, Any] | None = None,
 ) -> None:
     """Equal-footing classify: every pending vs root + other pendings' spans."""
     root_span = evidenced_physical_span(root_anchor.match_overrides)
     keyed_spans: list[tuple[Any, tuple[int, int] | None]] = [("root", root_span)]
     for index, record in enumerate(pending_records):
+        if record.get("relationship") == "paired":
+            keyed_spans.append((index, None))
+            continue
         if record.get("relationship") == "unresolvable":
             keyed_spans.append((index, None))
             continue
@@ -541,8 +662,9 @@ def _assign_toc_relationships(
             record["relationship"] = "unresolvable"
 
     for index, record in enumerate(pending_records):
-        if record.get("relationship") == "unresolvable":
-            record.pop("host", None)
+        if record.get("relationship") in {"unresolvable", "paired"}:
+            if record.get("relationship") == "unresolvable":
+                record.pop("host", None)
             continue
         candidate = keyed_spans[index + 1][1]
         if candidate is None:
@@ -556,8 +678,38 @@ def _assign_toc_relationships(
         ]
         host_key = find_tightest_containing_host(candidate, hosts)
         if host_key is None:
-            record["relationship"] = "parallel"
-            record.pop("host", None)
+            equal_host = next(
+                (
+                    key
+                    for key, span in hosts
+                    if span == candidate
+                    and (
+                        key == "root"
+                        or (
+                            isinstance(key, int)
+                            and key < index
+                            and pending_records[key].get("relationship") != "paired"
+                        )
+                    )
+                ),
+                None,
+            )
+            if equal_host is not None:
+                record["relationship"] = "paired"
+                record["host"] = equal_host
+                host_range = _toc_range_for_host(
+                    host_key=equal_host,
+                    root_toc=root_toc,
+                    pending_records=pending_records,
+                )
+                record["paired_with_range"] = host_range
+                toc = record.get("toc")
+                if isinstance(toc, dict):
+                    toc["paired_with_range"] = list(host_range)
+                record["paired_reason"] = "equal evidenced physical span"
+            else:
+                record["relationship"] = "parallel"
+                record.pop("host", None)
         else:
             record["relationship"] = "contained"
             record["host"] = host_key

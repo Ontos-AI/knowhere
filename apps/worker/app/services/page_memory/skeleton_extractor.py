@@ -319,7 +319,7 @@ def _parallel_pending_tocs(
         if record is None:
             continue
         relationship = record.get("relationship")
-        if relationship in {"unresolvable", "contained"}:
+        if relationship in {"unresolvable", "contained", "paired"}:
             continue
         if relationship != "parallel":
             raise ValueError("pending TOC relationship missing after PROFILE classify")
@@ -442,6 +442,24 @@ def _clamp_page(page: int, page_count: int) -> int:
     return min(max(page, 1), max(page_count, 1))
 
 
+def _paired_host_range(
+    hierarchy: dict[str, Any],
+    records_by_range: dict[tuple[Any, ...], dict[str, Any]],
+) -> list[int] | None:
+    record = records_by_range.get(tuple(hierarchy.get("toc_range") or []))
+    raw = None
+    if isinstance(record, dict) and record.get("relationship") == "paired":
+        raw = record.get("paired_with_range")
+    if raw is None:
+        raw = hierarchy.get("paired_with_range")
+    if not isinstance(raw, (list, tuple)) or not raw:
+        return None
+    try:
+        return [int(raw[0]), int(raw[-1])]
+    except (TypeError, ValueError):
+        return None
+
+
 def _toc_ownership_skeletons(
     *,
     skeletons: list[SectionSkeleton],
@@ -461,19 +479,50 @@ def _toc_ownership_skeletons(
         return []
 
     coverage = _coverage_from_chapter_skeletons(skeletons, filename=filename)
+    pending_records = list(getattr(anatomy, "pending_skeleton_anchors", None) or [])
+    records_by_range: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for record in pending_records:
+        toc = record.get("toc")
+        if isinstance(toc, dict):
+            records_by_range[tuple(toc.get("toc_range") or [])] = record
+
+    hierarchies = list(getattr(anatomy, "toc_hierarchies", None) or [])
+    parent_by_range: dict[tuple[Any, ...], str] = {}
     pages_by_parent: dict[str, set[int]] = {}
-    for hierarchy in list(getattr(anatomy, "toc_hierarchies", None) or []):
+
+    def _parent_path_for_span(start: int, end: int) -> str:
+        covering = deepest_covering_path(coverage, start=start, end=end)
+        return join_document_path([filename, *covering]) if covering else filename
+
+    for hierarchy in hierarchies:
         start = toc_range_start(hierarchy)
         end = toc_range_end(hierarchy)
         if start is None or end is None:
             continue
+        if _paired_host_range(hierarchy, records_by_range) is not None:
+            continue
         pages = [page for page in toc_pages if start <= page <= end]
         if not pages:
             continue
-        covering = deepest_covering_path(coverage, start=pages[0], end=pages[-1])
-        parent_path = (
-            join_document_path([filename, *covering]) if covering else filename
-        )
+        parent_path = _parent_path_for_span(pages[0], pages[-1])
+        parent_by_range[tuple(hierarchy.get("toc_range") or [])] = parent_path
+        pages_by_parent.setdefault(parent_path, set()).update(pages)
+
+    for hierarchy in hierarchies:
+        start = toc_range_start(hierarchy)
+        end = toc_range_end(hierarchy)
+        if start is None or end is None:
+            continue
+        host_range = _paired_host_range(hierarchy, records_by_range)
+        if host_range is None:
+            continue
+        pages = [page for page in toc_pages if start <= page <= end]
+        if not pages:
+            continue
+        parent_path = parent_by_range.get(tuple(host_range))
+        if parent_path is None:
+            parent_path = _parent_path_for_span(host_range[0], host_range[-1])
+            parent_by_range[tuple(host_range)] = parent_path
         pages_by_parent.setdefault(parent_path, set()).update(pages)
 
     by_path = {item.section_path: item for item in skeletons}
