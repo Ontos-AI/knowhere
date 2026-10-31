@@ -265,7 +265,7 @@ class DocumentService:
         db: AsyncSession,
         *,
         user_id: str,
-        namespace: str,
+        namespace: str | None,
         page: int,
         page_size: int,
     ) -> dict[str, Any]:
@@ -284,6 +284,60 @@ class DocumentService:
         return {
             "namespace": namespace,
             "documents": [document_payload(document) for document in documents],
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": math.ceil(total / page_size) if total else 0,
+            },
+        }
+
+    async def list_document_jobs(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+        document_id: str,
+        page: int,
+        page_size: int,
+    ) -> dict[str, Any] | None:
+        document = await self._repository.get_document(
+            db, user_id=user_id, document_id=document_id,
+        )
+        if document is None:
+            return None
+
+        # Shared demo documents do not expose their server-owned job ledger.
+        is_demo = CorpusStorage.resolve_document(document_id).is_demo
+        total = 0 if is_demo else await self._repository.count_document_jobs(
+            db, user_id=user_id, document_id=document_id,
+        )
+        rows = [] if is_demo else await self._repository.list_document_jobs(
+            db, user_id=user_id, document_id=document_id,
+            limit=page_size, offset=(page - 1) * page_size,
+        )
+        return {
+            "document_id": document.document_id,
+            "namespace": document.namespace,
+            "jobs": [
+                {
+                    "job_id": job.job_id,
+                    "job_type": job.job_type,
+                    "status": job.status,
+                    "source_type": job.source_type,
+                    "error_code": job.error_code,
+                    "page_count": job.page_count,
+                    "credits_charged": job.credits_charged,
+                    "billing_status": job.billing_status,
+                    "created_at": _datetime_payload(job.created_at),
+                    "updated_at": _datetime_payload(job.updated_at),
+                    "job_result_id": job_result.id if job_result else None,
+                    "is_current_revision": bool(
+                        job_result and job_result.id == document.current_job_result_id
+                    ),
+                }
+                for job, job_result in rows
+            ],
             "pagination": {
                 "page": page,
                 "page_size": page_size,
