@@ -712,5 +712,100 @@ def test_sweeper_reenqueues_chunk_final_not_structure(
         assert [name for name, _args in sent] == [CHUNK_FINAL_TASK_NAME]
         assert sent[0][1] == ["rev_chunk_sweep"]
         assert BUILD_STRUCTURE_TASK_NAME not in {name for name, _args in sent}
+
+        sent.clear()
+        from app.services.page_memory.scope_enrichment_service import (
+            execute_progressive_recovery,
+        )
+
+        recovery_outcome = execute_progressive_recovery(job_result_id="rev_chunk_sweep")
+        assert recovery_outcome == {
+            "status": "recovered",
+            "job_result_id": "rev_chunk_sweep",
+        }
+        assert [name for name, _args in sent] == [CHUNK_FINAL_TASK_NAME]
+        assert sent[0][1] == ["rev_chunk_sweep"]
     finally:
         engine.dispose()
+
+
+def test_chunk_progressive_markdown_zip_package_does_not_require_source_pdf(
+    tmp_path: Path,
+) -> None:
+    from zipfile import ZipFile
+
+    from shared.services.storage.zip_result_service import ZipResultService
+
+    add_dir = tmp_path / "notes"
+    add_dir.mkdir()
+    zip_path, checksum, stats, zip_size = ZipResultService().generate_zip_package(
+        job_id="job_md_prog",
+        chunks=[
+            {
+                "chunk_id": "c1",
+                "type": "text",
+                "content": "Markdown progressive baseline text",
+                "path": "notes.md/Intro",
+                "metadata": {"page_nums": []},
+            }
+        ],
+        add_dir=str(add_dir),
+        source_file_name="notes.md",
+        data_id=None,
+        job_metadata={"ingestion_mode": "progressive", "parse_track": "chunk"},
+        temp_dir=str(tmp_path),
+    )
+
+    assert zip_size > 0
+    assert checksum["value"]
+    assert stats["text_chunks"] == 1
+    with ZipFile(zip_path) as archive:
+        names = set(archive.namelist())
+        assert {"chunks.json", "doc_nav.json", "manifest.json"} <= names
+        assert "source.pdf" not in names
+
+
+def test_download_original_source_reuses_resumed_markdown_file_without_s3_download(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.document_ingestion.chunk_enrichment_service import (
+        _ChunkFinalTarget,
+        _download_original_source,
+    )
+    from shared.services.storage.job_file_storage import JobFileStorage
+
+    add_dir = tmp_path / "output" / "notes"
+    input_dir = tmp_path / "input"
+    add_dir.mkdir(parents=True)
+    input_dir.mkdir(parents=True)
+    resumed = add_dir / "notes.md"
+    resumed.write_text("# Resumed\nBody\n", encoding="utf-8")
+
+    def forbid_s3_download(*_args: object, **_kwargs: object) -> str:
+        raise AssertionError("S3 upload download must not run when resume source exists")
+
+    monkeypatch.setattr(
+        JobFileStorage,
+        "download_upload_to_temp",
+        forbid_s3_download,
+    )
+    target = _ChunkFinalTarget(
+        document_id="doc_1",
+        job_id="job_1",
+        user_id="u1",
+        namespace="default",
+        source_file_name="notes.md",
+        s3_key="uploads/notes.md",
+        raw_prefix="results/job_1/",
+        job_metadata={"parse_track": "chunk", "ingestion_mode": "progressive"},
+    )
+    resolved = _download_original_source(
+        target=target,
+        input_dir=str(input_dir),
+        add_dir=str(add_dir),
+    )
+    assert Path(resolved).is_file()
+    assert "# Resumed" in Path(resolved).read_text(encoding="utf-8")
+    assert not resumed.exists()
+

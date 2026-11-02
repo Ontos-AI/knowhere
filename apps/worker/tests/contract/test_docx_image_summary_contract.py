@@ -109,7 +109,7 @@ def test_docx_inline_image_title_remains_in_searchable_path(
 
     relative_path = str(rows[0][1])
     assert is_new_image is True
-    assert relative_path == "images/image-1 Revenue Chart.png"
+    assert relative_path == "images/image-[1] Revenue Chart.png"
     assert "Revenue Chart" in str(rows[0][0])
     assert rows[0][12] == "Revenue Chart"
     assert (tmp_path / relative_path).exists()
@@ -202,7 +202,7 @@ def test_docx_summary_image_false_makes_no_image_summary_calls(
 
     assert is_new_image is True
     assert calls == []
-    assert rows[0][5] == "image-1"
+    assert rows[0][5] == "image-[1]"
     assert "unexpected" not in str(rows[0][0])
 
 
@@ -244,7 +244,7 @@ def test_docx_table_image_summary_is_applied_before_html_render(
     assert calls == ["parser.docx.table_image"]
     assert next_image_count == 1
     assert rows[0][2] == "image"
-    assert rows[0][5] == "image-1\ntable cell summary"
+    assert rows[0][5] == "image-[1]\ntable cell summary"
     assert rows[0][12] == "table image title"
     assert "table image title" not in str(rows[0][1])
     assert rows[1][2] == "table"
@@ -284,7 +284,7 @@ def test_docx_image_summary_failure_keeps_fallback_reference(
     scheduler.run_all()
 
     assert is_new_image is True
-    assert rows[0][5] == "image-1"
+    assert rows[0][5] == "image-[1]"
     assert rows[0][12] == ""
     assert str(rows[0][0]).startswith("\n[images/")
     assert "provider failed" not in str(rows[0][0])

@@ -29,7 +29,11 @@ from shared.core.exceptions.domain_exceptions import TableParsingException
 from shared.core.exceptions.knowhere_exception import KnowhereException
 from shared.services.chunks.path_segments import join_document_path
 from app.services.common.file_loading import load_file_bytes
-from app.services.common.file_utils import path_handle
+from app.services.document_parser.assets.asset_file_names import (
+    ASSET_KIND_TABLE,
+    build_asset_file_stem,
+    build_asset_index_label,
+)
 from shared.utils.text_utils import tokenize2stw_remove
 
 
@@ -75,6 +79,7 @@ def parse_excel_workbook(request: ExcelWorkbookParseRequest) -> pd.DataFrame:
     time_stamp = get_str_time()
     sheets_dict, precision_mode_active = _load_excel_sheets(request)
     parsed_rows: list[ParsedRow] = []
+    table_seq = 0
 
     for sheet_name, sheet_frame in _iter_unique_sheets(sheets_dict):
         table_rows = _parse_excel_sheet(
@@ -83,8 +88,11 @@ def parse_excel_workbook(request: ExcelWorkbookParseRequest) -> pd.DataFrame:
             sheet_frame=sheet_frame,
             precision_mode_active=precision_mode_active,
             time_stamp=time_stamp,
+            table_index=table_seq + 1,
         )
-        parsed_rows.extend(table_rows)
+        if table_rows:
+            table_seq += 1
+            parsed_rows.extend(table_rows)
 
     return _rows_to_dataframe(parsed_rows)
 
@@ -148,6 +156,7 @@ def _parse_excel_sheet(
     sheet_frame: pd.DataFrame,
     precision_mode_active: bool,
     time_stamp: str,
+    table_index: int,
 ) -> list[ParsedRow]:
     parsed_rows: list[ParsedRow] = []
     sheet_attrs = dict(sheet_frame.attrs)
@@ -181,6 +190,7 @@ def _parse_excel_sheet(
                 table_frame=table_frame,
                 table_html=table_html,
                 time_stamp=time_stamp,
+                table_index=table_index,
             )
         )
         return parsed_rows
@@ -216,6 +226,7 @@ def _write_excel_table_asset(
     table_frame: pd.DataFrame,
     table_html: str,
     time_stamp: str,
+    table_index: int,
 ) -> ParsedRow:
     title, keywords, summary, entities = _summarize_excel_table(
         table_frame=table_frame,
@@ -224,15 +235,16 @@ def _write_excel_table_asset(
         llm_parameters=request.base_llm_paras,
     )
     table_label = _table_label(sheet_name=sheet_name, subtable_title=subtable_title)
-    table_index = f"table-{table_label}"
-    table_summary = f"{table_index}\n{summary}" if summary else table_index
-    effective_name = title or table_label
-    table_stem = path_handle(
-        remove_spaces("table-" + effective_name),
-        mode="clean_single",
+    table_index_label = build_asset_index_label(ASSET_KIND_TABLE, table_index)
+    table_summary = (
+        f"{table_index_label}\n{summary}" if summary else table_index_label
     )
-    if not isinstance(table_stem, str) or not table_stem:
-        raise ValueError(f"Failed to sanitize Excel table name: {effective_name}")
+    effective_name = title or table_label
+    table_stem = build_asset_file_stem(
+        ASSET_KIND_TABLE,
+        table_index,
+        remove_spaces(effective_name) if effective_name else "",
+    )
     table_name = table_stem + ".html"
     table_html_string = BeautifulSoup(table_html, features="html.parser").prettify()
     know_id = gen_str_codes(table_html + str(table_label))

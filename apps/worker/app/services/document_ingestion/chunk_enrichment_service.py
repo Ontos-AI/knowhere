@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +19,10 @@ from app.services.connect_builder.summary_builder import (
     build_section_summary_lookup,
     enrich_doc_nav_summaries,
     ensure_doc_nav_json,
+    load_nav_top_summary,
+)
+from app.services.document_ingestion.artifact_refs import (
+    collect_referenced_artifact_refs,
 )
 from app.services.document_ingestion.office_compat_normalizer import (
     normalize_office_source,
@@ -47,7 +52,10 @@ from shared.models.database.document import Document
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.job_metadata import JobMetadataHelper
-from shared.models.schemas.progressive_ingestion import StoredSnapshot
+from shared.models.schemas.progressive_ingestion import (
+    EnhancementStage,
+    StoredSnapshot,
+)
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.ai.llm_overrides import cleanup_llm_overrides, init_llm_overrides
 from shared.services.ai.token_tracking import (
@@ -66,6 +74,7 @@ from shared.services.retrieval.cache_service import (
     bump_retrieval_namespace_cache_version_sync,
 )
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.graph.service import DocumentGraphService
 from shared.services.retrieval.publication_content import (
     deduplicate_chunks_by_source_path,
     replace_document_revision_content,
@@ -115,14 +124,15 @@ def execute_chunk_final_enrichment(
         output_root = os.path.join(workspace_dir, "output")
         os.makedirs(input_dir, exist_ok=True)
         os.makedirs(output_root, exist_ok=True)
-        source_path = _download_original_source(
-            target=target,
-            input_dir=input_dir,
-        )
         add_dir = _download_resume_artifacts(
             storage=storage,
             target=target,
             output_root=output_root,
+        )
+        source_path = _download_original_source(
+            target=target,
+            input_dir=input_dir,
+            add_dir=add_dir,
         )
         parsed_df, add_dir = _run_full_chunk_parse(
             target=target,
@@ -139,11 +149,17 @@ def execute_chunk_final_enrichment(
             source_file_name=target.source_file_name,
             job_metadata=target.job_metadata,
         )
+        document_top_summary = (
+            load_nav_top_summary(add_dir, target.source_file_name)
+            if add_dir and target.source_file_name
+            else ""
+        )
         _publish_final_revision(
             job_result_id=job_result_id,
             target=target,
             chunks=chunks,
             section_summaries=section_summaries,
+            document_top_summary=document_top_summary,
         )
         snapshot, zip_size = _upload_final_package(
             job_result_id=job_result_id,
@@ -194,6 +210,7 @@ def execute_chunk_final_enrichment(
                 )
         cleanup_llm_overrides()
         cleanup_token_tracker()
+        shutil.rmtree(workspace_dir, ignore_errors=True)
 
 
 def _load_chunk_final_target(*, job_result_id: str) -> _ChunkFinalTarget | None:
@@ -256,13 +273,24 @@ def _download_original_source(
     *,
     target: _ChunkFinalTarget,
     input_dir: str,
+    add_dir: str | None = None,
 ) -> str:
     extension = os.path.splitext(target.source_file_name)[1].lower()
-    local_path = JobFileStorage().download_upload_to_temp(
-        target.s3_key,
-        suffix=extension,
-        temp_dir=input_dir,
+    source_name = os.path.basename(target.source_file_name)
+    resumed_source = (
+        os.path.join(add_dir, source_name)
+        if add_dir and source_name
+        else ""
     )
+    if resumed_source and os.path.isfile(resumed_source):
+        local_path = os.path.join(input_dir, source_name)
+        Path(resumed_source).replace(local_path)
+    else:
+        local_path = JobFileStorage().download_upload_to_temp(
+            target.s3_key,
+            suffix=extension,
+            temp_dir=input_dir,
+        )
     prepared = prepare_internal_parse_input(
         local_path,
         target.source_file_name,
@@ -430,6 +458,7 @@ def _publish_final_revision(
     target: _ChunkFinalTarget,
     chunks: list[dict[str, Any]],
     section_summaries: dict[str, str],
+    document_top_summary: str | None = None,
 ) -> None:
     publication_scope = DocumentPublicationScope(
         user_id=target.user_id,
@@ -468,6 +497,14 @@ def _publish_final_revision(
             scope=publication_scope,
             manifest_payload=manifest_payload,
         )
+        DocumentGraphService().publish_document_graph(
+            db,
+            user_id=target.user_id,
+            namespace=target.namespace,
+            document_id=target.document_id,
+            job_result_id=job_result_id,
+            top_summary=document_top_summary,
+        )
     bump_retrieval_namespace_cache_version_sync(
         user_id=target.user_id,
         namespace=target.namespace,
@@ -483,6 +520,9 @@ def _upload_final_package(
     workspace_dir: str,
     storage: ResultStorage,
 ) -> tuple[StoredSnapshot, int]:
+    artifact_refs = collect_referenced_artifact_refs(chunks)
+    if add_dir and os.path.isfile(os.path.join(add_dir, "source.pdf")):
+        artifact_refs.add("source.pdf")
     zip_path, checksum, _statistics, zip_size = ZipResultService().generate_zip_package(
         job_id=target.job_id,
         chunks=chunks,
@@ -497,7 +537,7 @@ def _upload_final_package(
         job_id=target.job_id,
         result_dir=add_dir,
         zip_file_path=zip_path,
-        artifact_refs=None,
+        artifact_refs=artifact_refs,
         snapshot_id=snapshot_id,
     )
     checksum_value = (
@@ -546,15 +586,16 @@ def _commit_final_snapshot(
         current = read_progressive_state(result.document_metadata)
         if current is None:
             raise ValueError("Final enhancement requires a committed baseline")
-        stage = dict(current.stages.get("finalization") or {})
+        stages: dict[str, EnhancementStage] = dict(current.stages)
+        stage: EnhancementStage = {**stages.get("finalization", {})}
         if (
             stage.get("claim_generation") != claim_token
             or stage.get("status") != "running"
             or current.enhancement.status == "failed"
         ):
             raise ValueError("Finalization claim is no longer valid")
-        stages = dict(current.stages)
-        stages["finalization"] = {**stage, "status": "complete"}
+        stage["status"] = "complete"
+        stages["finalization"] = stage
         current.stages = stages
         result.document_metadata = write_progressive_state(
             result.document_metadata,

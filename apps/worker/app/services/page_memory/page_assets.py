@@ -17,6 +17,11 @@ from loguru import logger
 from PIL import Image, ImageDraw, ImageFont
 
 from app.services.document_agent.visual import visual_debug_enabled
+from app.services.document_parser.assets.asset_file_names import (
+    ASSET_KIND_IMAGE,
+    ASSET_KIND_TABLE,
+    build_asset_file_stem,
+)
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import serialize_entities
 from app.services.page_memory.page_renderer import PageRenderResult
@@ -191,11 +196,12 @@ def crop_page_asset(
     asset: PageAsset,
     page_image_path: str,
     output_dir: str,
+    file_index: int,
     margin_px: int = _ASSET_CROP_MARGIN_PX,
 ) -> PageAsset:
     image_dir = Path(output_dir) / "images"
     image_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"image_page_{asset.page_index}_{asset.kind}_{asset.asset_index}.png"
+    filename = f"{build_asset_file_stem(ASSET_KIND_IMAGE, file_index, asset.title)}.png"
     output_path = image_dir / filename
     try:
         with Image.open(page_image_path) as image:
@@ -227,6 +233,7 @@ def extract_table_html(
     asset: PageAsset,
     pdf_path: str,
     output_dir: str,
+    file_index: int,
     table_engine: str = "tabula",
 ) -> PageAsset:
     """Extract table HTML with tabula stream mode; degrade on missing Java/package."""
@@ -295,7 +302,7 @@ def extract_table_html(
 
     table_dir = Path(output_dir) / "tables"
     table_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"table_page_{asset.page_index}_{asset.asset_index}.html"
+    filename = f"{build_asset_file_stem(ASSET_KIND_TABLE, file_index, asset.title)}.html"
     output_path = table_dir / filename
     html = frame.fillna("").astype(str).to_html(index=False, header=False)
     output_path.write_text(html, encoding="utf-8")
@@ -375,6 +382,8 @@ def extract_page_assets_from_renders(
     source_name = Path(pdf_path).name
     assets_by_page: dict[int, list[PageAsset]] = {}
     pending_summaries: list[PageAsset] = []
+    image_seq = 0
+    table_seq = 0
 
     for page in pages:
         detected = detect_page_assets(
@@ -385,17 +394,21 @@ def extract_page_assets_from_renders(
         )
         page_assets_list: list[PageAsset] = []
         for asset in detected:
+            image_seq += 1
             crop_page_asset(
                 asset=asset,
                 page_image_path=page.image_path,
                 output_dir=output_dir,
+                file_index=image_seq,
             )
             if asset.kind == "table":
+                table_seq += 1
                 extract_table_html(
                     asset=asset,
                     pdf_path=pdf_path,
                     output_dir=output_dir,
                     table_engine=table_engine,
+                    file_index=table_seq,
                 )
             if asset.image_uri or asset.html_uri:
                 page_assets_list.append(asset)

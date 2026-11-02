@@ -69,7 +69,7 @@ def _make_asset(page_index: int, asset_index: int, html_path: str) -> PageAsset:
         width_pt=612.0,
         height_pt=792.0,
         html_path=html_path,
-        html_uri=f"tables/table_page_{page_index}_{asset_index}.html",
+        html_uri=f"tables/table-[{asset_index}].html",
         extraction_status="table_html_extracted",
     )
 

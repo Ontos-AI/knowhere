@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -29,7 +28,12 @@ from shared.core.config import settings
 from shared.services.ai.summary.engine import summarize
 from shared.services.ai.summary.model import AssetSummary, BodySummary
 from shared.utils.chunk_refs import build_chunk_ref
-from app.services.common.file_utils import MAX_ASSET_FILE_NAME_CHARS, path_handle
+from app.services.document_parser.assets.asset_file_names import (
+    ASSET_KIND_IMAGE,
+    ASSET_KIND_TABLE,
+    build_asset_file_stem,
+    parse_asset_file_index,
+)
 
 # Each deferred task now carries the engine's typed contract straight through to
 # the apply step (audit §4.5): assets → AssetSummary, text → BodySummary. The row
@@ -239,8 +243,8 @@ def _apply_asset_result_preserving_index(
 ) -> None:
     """Write an asset result onto a markdown row, keeping the summary's index tag.
 
-    Markdown image/table rows seed the summary column with an ``image-N`` /
-    ``table-N`` index token on the first line (see ``image_asset`` /
+    Markdown image/table rows seed the summary column with an ``image-[N]`` /
+    ``table-[N]`` index token on the first line (see ``image_asset`` /
     ``table_asset``). We preserve that token and append the generated summary
     below it, then write entities, asset_title, and the transitional keywords by
     name (audit §4.5).
@@ -280,20 +284,11 @@ def _apply_image_summary_result(
     image_dir = original_task.image_dir
     old_img_name = original_task.image_name
     image_suffix = original_task.image_suffix
-    cleaned_title = path_handle(str(img_title), mode="clean_single")
-    if not isinstance(cleaned_title, str) or not cleaned_title:
+    img_num = parse_asset_file_index(str(old_img_name), kind=ASSET_KIND_IMAGE)
+    if img_num is None:
         return
-    safe_title = cleaned_title[:MAX_ASSET_FILE_NAME_CHARS]
-    img_num_match = re.match(r"image-(\d+)", str(old_img_name))
-    img_num = (
-        img_num_match.group(1)
-        if img_num_match
-        else str(old_img_name).split("-")[1]
-        if "-" in str(old_img_name)
-        else "0"
-    )
-    new_img_name = path_handle(f"image-{img_num}-{safe_title}", mode="clean_single")
-    if not isinstance(new_img_name, str) or not new_img_name:
+    new_img_name = build_asset_file_stem(ASSET_KIND_IMAGE, img_num, str(img_title))
+    if not new_img_name:
         return
     old_path = os.path.join(image_dir, f"{old_img_name}{image_suffix}")
     new_path = os.path.join(image_dir, f"{new_img_name}{image_suffix}")
@@ -321,19 +316,11 @@ def _apply_table_summary_result(
 
     table_dir = original_task.table_dir
     old_table_name = original_task.table_name
-    # Keep the original table-N index (same pattern as image rename).
-    table_num_match = re.match(r"table-(\d+)", str(old_table_name))
-    table_num = (
-        table_num_match.group(1)
-        if table_num_match
-        else str(old_table_name).split("-")[1]
-        if "-" in str(old_table_name)
-        else "0"
-    )
+    table_num = parse_asset_file_index(str(old_table_name), kind=ASSET_KIND_TABLE)
+    if table_num is None:
+        return
     safe_title = sanitize_table_name_from_header(str(title))
-    new_table_name = path_handle(
-        f"table-{table_num} {safe_title}", mode="clean_single"
-    )
+    new_table_name = build_asset_file_stem(ASSET_KIND_TABLE, table_num, safe_title)
     old_path = os.path.join(table_dir, f"{old_table_name}.html")
     new_path = os.path.join(table_dir, f"{new_table_name}.html")
     if old_path == new_path or not os.path.exists(old_path):

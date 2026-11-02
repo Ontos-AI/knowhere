@@ -22,9 +22,14 @@ from app.services.document_parser.support.parser_rows import (
     ParsedRowsBuilder,
     serialize_entities,
 )
+from app.services.document_parser.assets.asset_file_names import (
+    ASSET_KIND_IMAGE,
+    ASSET_KIND_TABLE,
+    build_asset_file_stem,
+    build_asset_index_label,
+)
 from app.services.document_parser.support.path_helpers import (
     find_matches_parsing,
-    process_path_texts,
     remove_spaces,
 )
 from app.services.document_parser.structure.heading_hierarchy import (
@@ -46,7 +51,6 @@ from shared.core.exceptions.knowhere_exception import KnowhereException
 from shared.services.chunks.path_segments import escape_path_segment
 from shared.utils.chunk_refs import build_chunk_ref, has_chunk_ref
 from app.services.common.file_loading import load_file_bytes
-from app.services.common.file_utils import path_handle
 from shared.utils.text_utils import tokenize2stw_remove
 
 
@@ -149,12 +153,13 @@ def handle_image(
 
     last_context = _find_img_context(headings_stack)
 
-    # Image index (always present)
-    image_index = f"image-{img_count + 1}"
+    image_index = build_asset_index_label(ASSET_KIND_IMAGE, img_count + 1)
 
     img_ext = os.path.splitext(img_file["image_name"])[-1]
-    raw_img_name = process_path_texts(
-        f"image-{str(img_count + 1)} {current_heading} {last_context}", last=30
+    raw_img_name = build_asset_file_stem(
+        ASSET_KIND_IMAGE,
+        img_count + 1,
+        f"{current_heading} {last_context}".strip(),
     )
     image_asset = asset_store.write_image(raw_img_name, img_ext, img_file["data"])
 
@@ -330,11 +335,12 @@ def handle_table(
 
                 img_count += 1
                 img_ext = os.path.splitext(img_data["image_name"])[-1]
-                image_index = f"image-{img_count}"
+                image_index = build_asset_index_label(ASSET_KIND_IMAGE, img_count)
 
-                # Save image to disk
-                img_name = process_path_texts(
-                    f"table-{table_count + 1}-{image_index} {current_heading}", last=30
+                img_name = build_asset_file_stem(
+                    ASSET_KIND_IMAGE,
+                    img_count,
+                    current_heading,
                 )
                 image_asset = asset_store.write_image(
                     img_name, img_ext, img_data["data"]
@@ -401,7 +407,7 @@ def handle_table(
             )
 
         logger.info(
-            f"Extracted {sum(len(v) for v in cell_images.values())} images from table-{table_count + 1} cells"
+            f"Extracted {sum(len(v) for v in cell_images.values())} images from table-[{table_count + 1}] cells"
         )
 
     # Generate HTML with image descriptions embedded
@@ -420,8 +426,7 @@ def handle_table(
         sanitize_table_name_from_header(first_row_text) if first_row_text else ""
     )
 
-    # Table index (always present)
-    table_index = f"table-{table_count + 1}"
+    table_index = build_asset_index_label(ASSET_KIND_TABLE, table_count + 1)
 
     # LLM title + keywords + summary (only when summary_table is enabled)
     llm_title = None
@@ -443,7 +448,7 @@ def handle_table(
         llm_summary = result.summary or None
         tb_entities = serialize_entities(result.entities)
 
-    # Build tb_summary for df_list: table-n + optional LLM summary
+    # Build tb_summary for df_list: table-[n] + optional LLM summary
     if llm_summary:
         tb_summary = f"{table_index}\n{llm_summary}"
     else:
@@ -453,8 +458,10 @@ def handle_table(
 
     # Use LLM title for filename when available, fallback to raw_tb_name
     effective_name = llm_title if llm_title else raw_tb_name
-    tb_name = path_handle(
-        f"table-{str(table_count + 1)} {effective_name}", mode="clean_single"
+    tb_name = build_asset_file_stem(
+        ASSET_KIND_TABLE,
+        table_count + 1,
+        effective_name or "",
     )
     table_asset = asset_store.write_table(tb_name, tb_html_str)
     tb_ref = build_chunk_ref(table_asset.relative_path)

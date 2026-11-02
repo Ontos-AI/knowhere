@@ -9,6 +9,9 @@ from app.services.document_parser.formats.markdown.deferred_summary import (
     MarkdownDeferredSummaryInput,
     apply_markdown_deferred_summaries,
 )
+from app.services.document_parser.assets.asset_file_names import (
+    is_owned_image_filename,
+)
 from app.services.document_parser.formats.markdown.image_asset import (
     MarkdownImageAssetRequest,
     build_markdown_image_name,
@@ -310,9 +313,10 @@ def parse_md(
     os.makedirs(tb_dir, exist_ok=True)
     img_dir = os.path.join(output_dir, "images")
     if os.path.isdir(img_dir):
-        # Only remove parse_md's own output (image-N-*) from previous runs
+        # Only remove parse_md's own output (image-[N] / leftover image-N) from
+        # previous runs.
         for fname in os.listdir(img_dir):
-            if re.match(r"^image-\d+", fname):
+            if is_owned_image_filename(fname):
                 os.remove(os.path.join(img_dir, fname))
     os.makedirs(img_dir, exist_ok=True)
 

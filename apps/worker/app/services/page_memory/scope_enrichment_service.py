@@ -1914,13 +1914,26 @@ def execute_progressive_recovery(
             or document.current_job_result_id != job_result_id
         ):
             return {"status": "skipped"}
+        parse_track = str(
+            JobMetadataHelper.get_parse_track(job.job_metadata or {})
+            or document.parse_track
+            or ""
+        )
+        stages: dict[str, EnhancementStage] = dict(state.stages)
+        if parse_track == "chunk":
+            if stages.get("finalization", {}).get("status") != "complete":
+                from shared.services.jobs.lifecycle.scope_enrichments import (
+                    enqueue_chunk_final_after_commit,
+                )
+
+                enqueue_chunk_final_after_commit(job_result_id)
+            return {"status": "recovered", "job_result_id": job_result_id}
         target = _build_claimed_target(
             document=document,
             job=job,
             job_metadata=dict(job.job_metadata or {}),
             source_file_name=str(document.source_file_name),
         )
-        stages: dict[str, EnhancementStage] = dict(state.stages)
         scope_states = db.execute(
             select(
                 DocumentScopeEnrichment.state, DocumentScopeEnrichment.attempts

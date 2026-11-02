@@ -30,7 +30,7 @@ _IMG_TAG_WITH_SRC_RE = re.compile(
 @dataclass(frozen=True)
 class TableEmbeddedImagesResult:
     rewritten_html: str
-    """HTML with <img src> rewritten to stable images/image-N-* paths."""
+    """HTML with <img src> rewritten to stable images/image-[N] paths."""
 
     image_assets: list[MarkdownImageAsset]
     """Newly created image assets that should be registered as rows."""
@@ -104,7 +104,7 @@ def extract_table_embedded_images(
 
         if image_asset.should_advance_image_count:
             image_assets.append(image_asset)
-            # Advance immediately so the next distinct src gets a new image-N.
+            # Advance immediately so the next distinct src gets a new image-[N].
             parser_state.image_count += 1
             if (
                 image_asset.cache_key is not None
