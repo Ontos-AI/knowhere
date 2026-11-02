@@ -33,10 +33,18 @@ def iter_block_items(doc_data):
 
     with zipfile.ZipFile(io.BytesIO(doc_data), "r") as docx:
         xml = docx.read("word/document.xml")
-        rels = etree.fromstring(docx.read("word/_rels/document.xml.rels"))
-        rel_map = {
-            r.get("Id"): r.get("Target") for r in rels.findall(".//{*}Relationship")
-        }
+        rel_map: dict[str | None, str | None] = {}
+        try:
+            relationships_xml: bytes = docx.read("word/_rels/document.xml.rels")
+        except KeyError:
+            # Documents without relationships may omit this package part.
+            pass
+        else:
+            relationships: etree._Element = etree.fromstring(relationships_xml)
+            rel_map = {
+                relationship.get("Id"): relationship.get("Target")
+                for relationship in relationships.findall(".//{*}Relationship")
+            }
         ns = {
             "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
             "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
