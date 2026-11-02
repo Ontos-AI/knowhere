@@ -254,8 +254,14 @@ class DocumentIngestionService:
                 )
 
         if (
-            payload.source_type == "file"
-            and payload.file_name
+            payload.file_name
+            and (
+                payload.source_type == "file"
+                or (
+                    payload.source_type == "url"
+                    and os.path.splitext(payload.file_name)[1]
+                )
+            )
             and not _is_supported_file_name(payload.file_name)
         ):
             raise ValidationException(

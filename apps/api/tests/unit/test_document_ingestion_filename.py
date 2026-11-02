@@ -1,6 +1,7 @@
 from app.services.document_ingestion.creation_service import (
     _resolve_url_source_file_name,
 )
+from app.services.jobs.result_projection import _resolve_source_file_name
 
 
 def test_resolve_url_source_file_name_decodes_percent_encoded_path() -> None:
@@ -16,3 +17,34 @@ def test_resolve_url_source_file_name_decodes_percent_encoded_path() -> None:
     )
 
     assert source_file_name == "中文简历-雷翔-中科院(5).doc"
+
+
+def test_resolve_url_source_file_name_prefers_explicit_file_name() -> None:
+    source_file_name = _resolve_url_source_file_name(
+        source_url="https://files.example.test/original.md",
+        file_extension=".md",
+        file_name="hipo-upload-optimization_a884bd1b.plan.md",
+    )
+
+    assert source_file_name == "hipo-upload-optimization_a884bd1b.plan.md"
+
+
+def test_resolve_url_source_file_name_appends_extension_when_missing() -> None:
+    source_file_name = _resolve_url_source_file_name(
+        source_url="https://files.example.test/original.md",
+        file_extension=".md",
+        file_name="uploaded-plan",
+    )
+
+    assert source_file_name == "uploaded-plan.md"
+
+
+def test_resolve_source_file_name_prefers_request_file_name_over_url_basename() -> None:
+    file_name = _resolve_source_file_name(
+        {
+            "source_url": "https://files.example.test/original.md",
+            "file_name": "hipo-upload-optimization_a884bd1b.plan.md",
+        }
+    )
+
+    assert file_name == "hipo-upload-optimization_a884bd1b.plan.md"
