@@ -78,11 +78,23 @@ def _indexed_term_search_text(namespace: str = "default") -> Any:
     return func.lower(func.coalesce(CorpusStorage.resolve_namespace(namespace).DocumentChunk.term_search_text, ""))
 
 
+def _escape_like_literal(term: str) -> str:
+    """Escape LIKE metacharacters so a search term matches itself literally.
+
+    ``corpus.grep`` advertises exact string search, but raw interpolation of a
+    term into ``LIKE '%...%'`` lets percent, underscore and backslash act as
+    wildcards. Escape them and attach an escape character so a term like
+    ``30%`` only matches a literal ``30%``.
+    """
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _term_search(terms: list[str], namespace: str = "default") -> tuple[re.Pattern[str], Any]:
     """Build the Python matcher and the SQL term predicate.
 
     Every term uses ``LIKE`` on the indexed lowercased haystack. Several
-    terms become ``OR`` of those same clauses.
+    terms become ``OR`` of those same clauses. Terms are escaped so LIKE
+    metacharacters in user input match literally (exact string search).
     """
     compiled = re.compile(
         "|".join(re.escape(term) for term in terms),
@@ -90,7 +102,9 @@ def _term_search(terms: list[str], namespace: str = "default") -> tuple[re.Patte
     )
     return compiled, or_(
         *(
-            _indexed_term_search_text(namespace).like(f"%{term.lower()}%")
+            _indexed_term_search_text(namespace).like(
+                f"%{_escape_like_literal(term.lower())}%", escape="\\"
+            )
             for term in terms
         )
     )
