@@ -19,7 +19,9 @@ from app.services.document_parser.formats.docx.parser import (
 from app.services.document_parser.formats.text.parser import postprocess_leaf_dics
 
 
-def test_docx_preserves_four_paragraphs_before_the_first_heading(tmp_path: Path) -> None:
+def test_docx_preserves_four_paragraphs_before_the_first_heading(
+    tmp_path: Path,
+) -> None:
     document = Document()
     document.add_heading("Document title", level=0)
     references: list[str] = [f"LEADING-PARAGRAPH-{index}" for index in range(1, 5)]

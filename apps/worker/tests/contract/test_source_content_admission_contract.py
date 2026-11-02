@@ -183,7 +183,51 @@ def test_rejects_unchanged_explicit_document_update(
     )
     with pytest.raises(ConflictException) as failure:
         admit_source(incoming)
-    assert failure.value.to_client(incoming.job_id)["error"]["details"]["id"] == existing.document_id
+    assert (
+        failure.value.to_client(incoming.job_id)["error"]["details"]["id"]
+        == existing.document_id
+    )
+
+
+def test_reparses_unchanged_bytes_only_for_the_explicit_existing_document(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    from shared.core.database_sync import get_sync_db_context
+    from shared.models.database.job import Job
+    from shared.models.database.document import Document
+
+    contract: WorkerParseContract = WorkerParseContract.create()
+    existing: SourceJob = create_source_job(contract, tmp_path, content=b"repair bytes")
+    admit_source(existing)
+    publish_source(existing)
+    incoming: SourceJob = create_source_job(
+        contract,
+        tmp_path,
+        content=b"repair bytes",
+        user_id=existing.user_id,
+        document_id=existing.document_id,
+    )
+    with get_sync_db_context() as database:
+        job = database.get(Job, incoming.job_id)
+        assert job is not None
+        job.job_metadata = {
+            **dict(job.job_metadata or {}),
+            "original_request": {
+                "document_id": existing.document_id,
+                "reparse": True,
+            },
+        }
+    assert admit_source(incoming)["source_content_sha256"]
+    publish_source(incoming)
+    with get_sync_db_context() as database:
+        documents = list(
+            database.scalars(
+                select(Document).where(Document.user_id == existing.user_id)
+            )
+        )
+        assert len(documents) == 1
+        assert documents[0].document_id == existing.document_id
 
 
 @pytest.mark.parametrize("scope_change", ["user", "namespace", "archived"])
@@ -380,7 +424,9 @@ def test_serializes_concurrent_content_claims_and_allows_retries_after_failure(
 
     # Hold the first transaction after its empty snapshot. The second must wait
     # for its advisory lock, rather than also admitting from an empty snapshot.
-    event.listen(contract.engine, "after_cursor_execute", pause_first_claim_after_lookup)
+    event.listen(
+        contract.engine, "after_cursor_execute", pause_first_claim_after_lookup
+    )
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
             first_claim: Future[bool] = executor.submit(claim_content, first)
@@ -418,3 +464,26 @@ def test_serializes_concurrent_content_claims_and_allows_retries_after_failure(
         ).scalar_one()
         job.status = "failed"
     assert admit_source(loser)["source_content_sha256"]
+
+
+@pytest.mark.parametrize("version", ["v1", "v2"])
+def test_explicit_reparse_requires_an_existing_document_id(
+    worker_contract_environment: None, version: str
+) -> None:
+    from pydantic import ValidationError
+    from shared.models.schemas.job import JobCreate, JobCreateV2
+
+    model = JobCreate if version == "v1" else JobCreateV2
+    with pytest.raises(ValidationError, match="document_id"):
+        model(
+            source_type="url",
+            source_url="https://files.example/source.docx",
+            reparse=True,
+        )
+    request = model(
+        source_type="url",
+        source_url="https://files.example/source.docx",
+        document_id="doc_existing",
+        reparse=True,
+    )
+    assert request.model_dump()["reparse"] is True

@@ -33,6 +33,7 @@ class _SourceScope:
     user_id: str
     namespace: str
     is_demo: bool
+    reparse_document_id: str | None = None
 
 
 class SourceContentAdmission:
@@ -65,12 +66,22 @@ class SourceContentAdmission:
                 raise NotFoundException(resource="Job", resource_id=job_id)
             metadata: dict[str, object] = dict(job.job_metadata or {})
             namespace: object = metadata.get("namespace")
+            original_request: object = metadata.get("original_request")
+            reparse_document_id: str | None = None
+            if (
+                isinstance(original_request, dict)
+                and original_request.get("reparse") is True
+            ):
+                target: object = original_request.get("document_id")
+                if isinstance(target, str) and target == metadata.get("document_id"):
+                    reparse_document_id = target
             return _SourceScope(
                 user_id=job.user_id,
                 namespace=normalize_retrieval_namespace(
                     namespace if isinstance(namespace, str) else None,
                 ),
                 is_demo=metadata.get("corpus_target") == "DEMO",
+                reparse_document_id=reparse_document_id,
             )
 
     @staticmethod
@@ -132,6 +143,9 @@ class SourceContentAdmission:
             .where(Document.user_id == scope.user_id)
             .where(Document.namespace == scope.namespace)
             .where(Document.status == "active")
+            # Only an explicit same-document reparse may replace identical bytes.
+            # Other documents and every active content claim remain protected.
+            .where(Document.document_id != scope.reparse_document_id)
             .union_all(
                 select(literal("Job"), Job.job_id)
                 .where(Job.user_id == scope.user_id)

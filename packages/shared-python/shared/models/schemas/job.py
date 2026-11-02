@@ -1,12 +1,15 @@
 """Unified job schemas."""
 
 from datetime import datetime
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from shared.models.schemas.llm_config import LLMConfig
-from shared.models.schemas.progressive_ingestion import EnhancementProgress, PublishedSnapshot
+from shared.models.schemas.progressive_ingestion import (
+    EnhancementProgress,
+    PublishedSnapshot,
+)
 
 IngestionMode = Literal["full", "progressive"]
 
@@ -69,6 +72,17 @@ class JobCreateBase(BaseModel):
     document_id: Optional[str] = Field(
         None, description="Existing document ID for update flows"
     )
+    reparse: bool = Field(
+        False,
+        description="Reparse unchanged original bytes for the specified existing document ID",
+    )
+
+    @model_validator(mode="after")
+    def validate_reparse_target(self) -> Self:
+        if self.reparse and not str(self.document_id or "").strip():
+            raise ValueError("reparse requires an existing document_id")
+        return self
+
     source_type: Literal["file", "url"] = Field(..., description="Document source type")
     source_url: Optional[str] = Field(
         None, description="Source URL; required when source_type=url"
@@ -163,11 +177,21 @@ class StandardErrorObject(BaseModel):
 class JobResultResponse(BaseModel):
     """Job status query response (for GET /jobs/{job_id}/result)"""
 
-    job_result_id: Optional[str] = Field(None, description="Immutable completed publication revision, when available")
-    enhancement: Optional[EnhancementProgress] = Field(default=None, exclude_if=lambda value: value is None)
-    snapshots: Optional[list[PublishedSnapshot]] = Field(default=None, exclude_if=lambda value: value is None)
-    current_snapshot_id: Optional[str] = Field(default=None, exclude_if=lambda value: value is None)
-    page_count: Optional[int] = Field(default=None, ge=1, exclude_if=lambda value: value is None)
+    job_result_id: Optional[str] = Field(
+        None, description="Immutable completed publication revision, when available"
+    )
+    enhancement: Optional[EnhancementProgress] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    snapshots: Optional[list[PublishedSnapshot]] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    current_snapshot_id: Optional[str] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    page_count: Optional[int] = Field(
+        default=None, ge=1, exclude_if=lambda value: value is None
+    )
 
     job_id: str = Field(..., description="Job ID")
     namespace: Optional[str] = Field(None, description="Effective retrieval namespace")
