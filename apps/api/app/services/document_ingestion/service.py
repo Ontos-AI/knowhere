@@ -11,6 +11,7 @@ from app.services.document_ingestion.confirmation_service import (
 from app.services.document_ingestion.command import (
     ApiVersion,
     DocumentIngestionCommand,
+    allows_progressive_ingestion,
     build_v1_ingestion_command,
     build_v2_ingestion_command,
 )
@@ -123,15 +124,21 @@ class DocumentIngestionService:
                 api_version=api_version,
             )
             command = build_command(file_extension)
-            if command.ingestion_mode == "progressive" and command.parse_track != "page_memory":
+            if command.ingestion_mode == "progressive" and not allows_progressive_ingestion(
+                parse_track=command.parse_track,
+                file_extension=file_extension,
+            ):
                 raise ValidationException(
-                    user_message="Progressive ingestion is only supported for page-memory formats (.pdf, .pptx) on /v2/jobs",
+                    user_message=(
+                        "Progressive ingestion is only supported for page-memory "
+                        "formats (.pdf, .pptx) and chunk formats (.docx, .md, .txt)"
+                    ),
                     violations=[
                         {
                             "field": "ingestion_mode",
                             "description": (
-                                "ingestion_mode=progressive requires a page_memory "
-                                "document (.pdf, .pptx) submitted via /v2/jobs"
+                                "ingestion_mode=progressive requires .pdf/.pptx "
+                                "(page_memory) or .docx/.md/.txt (chunk)"
                             ),
                         }
                     ],

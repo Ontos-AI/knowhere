@@ -200,18 +200,20 @@ def test_v2_progressive_ingestion_mode_rejected_for_non_page_memory_formats() ->
     import asyncio
     from unittest.mock import AsyncMock
 
+    from app.services.document_ingestion.command import allows_progressive_ingestion
     from app.services.document_ingestion.service import DocumentIngestionService
     from app.services.rate_limit.data_structures import CurrentUser
     from shared.models.schemas.job_metadata import JobMetadataHelper
 
     payload = _build_job_create_v2(
         source_type="file",
-        file_name="policy.docx",
+        file_name="policy.xlsx",
         ingestion_mode="progressive",
     )
     meta = JobMetadataHelper.create_from_request(payload, api_version="v2")
     assert JobMetadataHelper.get_ingestion_mode(meta) == "progressive"
     assert JobMetadataHelper.get_ingestion_mode({}) == "full"
+    assert allows_progressive_ingestion(parse_track="chunk", file_extension=".xlsx") is False
 
     svc = DocumentIngestionService(
         creation_service=AsyncMock(),
@@ -227,6 +229,66 @@ def test_v2_progressive_ingestion_mode_rejected_for_non_page_memory_formats() ->
             )
         )
     assert exc_info.value.details["violations"][0]["field"] == "ingestion_mode"
+
+
+@pytest.mark.parametrize("file_extension", [".docx", ".md", ".txt"])
+def test_v2_progressive_ingestion_mode_allowed_for_chunk_formats(
+    file_extension: str,
+) -> None:
+    from app.services.document_ingestion.command import (
+        allows_progressive_ingestion,
+        build_v2_ingestion_command,
+    )
+
+    payload = _build_job_create_v2(
+        source_type="file",
+        file_name=f"policy{file_extension}",
+        ingestion_mode="progressive",
+    )
+    command = build_v2_ingestion_command(
+        payload=payload,
+        file_extension=file_extension,
+    )
+
+    assert command.parse_track == "chunk"
+    assert command.ingestion_mode == "progressive"
+    assert allows_progressive_ingestion(
+        parse_track=command.parse_track,
+        file_extension=file_extension,
+    )
+
+
+@pytest.mark.parametrize("file_extension", [".docx", ".md", ".txt"])
+def test_v2_service_accepts_progressive_for_chunk_formats(
+    file_extension: str,
+) -> None:
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from app.services.document_ingestion.service import DocumentIngestionService
+    from app.services.rate_limit.data_structures import CurrentUser
+
+    payload = _build_job_create_v2(
+        source_type="file",
+        file_name=f"policy{file_extension}",
+        ingestion_mode="progressive",
+    )
+    creation_service = AsyncMock()
+    creation_service.create_job = AsyncMock(return_value={"job_id": "job_ok"})
+    svc = DocumentIngestionService(
+        creation_service=creation_service,
+        confirmation_service=AsyncMock(),
+        job_admission_service=AsyncMock(),
+    )
+    svc._resolve_scope = AsyncMock(return_value=object())  # noqa: SLF001
+    asyncio.run(
+        svc.create_v2_job(
+            AsyncMock(),
+            payload=payload,
+            current_user=CurrentUser(user_id="u1", user_tier="pro"),
+        )
+    )
+    creation_service.create_job.assert_awaited()
 
 
 def test_v2_job_polling_system_rule_matches_before_default() -> None:

@@ -15,7 +15,11 @@ from app.services.document_parser.formats.markdown.parse_state import ParserRowV
 from app.services.document_parser.tables.table_text_parser import sanitize_table_name_from_header
 
 from shared.utils.chunk_refs import build_chunk_ref
-from app.services.common.file_utils import path_handle
+from app.services.document_parser.assets.asset_file_names import (
+    ASSET_KIND_TABLE,
+    build_asset_file_stem,
+    build_asset_index_label,
+)
 
 
 @dataclass(frozen=True)
@@ -41,13 +45,13 @@ def build_markdown_table_asset(
     request: MarkdownTableAssetRequest,
 ) -> MarkdownTableAsset:
     first_row_text, _first_col_text = first_cols_rows_html(request.table_html)
-    table_index = f"table-{request.table_count}"
+    table_index = build_asset_index_label(ASSET_KIND_TABLE, request.table_count)
 
     raw_table_name = (
         sanitize_table_name_from_header(first_row_text) if first_row_text else ""
     )
-    table_name = _sanitize_table_file_stem(
-        f"table-{str(request.table_count)} {raw_table_name}"
+    table_name = build_asset_file_stem(
+        ASSET_KIND_TABLE, request.table_count, raw_table_name
     )
     relative_table_path = f"tables/{table_name}.html"
     table_ref = build_chunk_ref(relative_table_path)
@@ -79,13 +83,6 @@ def build_markdown_table_asset(
         deferred_task=deferred_task,
         relative_path=relative_table_path,
     )
-
-
-def _sanitize_table_file_stem(raw_name: str) -> str:
-    table_name = path_handle(raw_name, mode="clean_single")
-    if not isinstance(table_name, str) or not table_name:
-        raise ValueError(f"Failed to sanitize Markdown table name: {raw_name}")
-    return table_name
 
 
 def _write_table_html(*, table_path: str, table_html: str) -> None:

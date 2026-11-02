@@ -6,7 +6,6 @@ from typing import Any
 
 from shared.utils.chunk_refs import extract_chunk_refs
 from shared.services.chunks.path_segments import join_document_path
-from app.services.common.file_utils import path_handle
 
 SUMMARY_PATH_MARKERS: tuple[str, ...] = ("summary", "\u6458\u8981\u603b\u7ed3")
 
@@ -59,14 +58,6 @@ def flatten_dic2paths(
         else:
             result.append(join_document_path(new_path))
     return result
-
-
-def process_path_texts(path_: str, last: int = 50) -> str:
-    """Normalize path text for downstream use."""
-    temp_path = path_handle(path_, mode="sanitize")
-    if not isinstance(temp_path, str) or temp_path == "":
-        return ""
-    return "_".join(temp_path.split(os.sep))[:last]
 
 
 def remove_spaces(text: str, handle_punctuation: bool = False) -> str:

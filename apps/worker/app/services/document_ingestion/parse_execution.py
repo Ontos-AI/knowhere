@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import os
+import shutil
+
 from app.services.document_ingestion.processing_context import ParseJobContext
 from app.services.document_ingestion.source_preparation import PreparedSourceFile
 from app.services.document_parser import parse_service
 from app.services.document_parser.orchestration.parse_output import ParseOutput
+from app.services.document_parser.orchestration.parse_session import _resolve_output_paths
 from app.services.document_parser.support.stage_profiler import (
     stage_timer,
     init_stage_tracker,
@@ -12,6 +16,7 @@ from app.services.document_parser.support.stage_profiler import (
 )
 from loguru import logger
 
+from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.ai.token_tracking import (
     init_token_tracker,
@@ -63,6 +68,11 @@ def execute_document_parse(
                 parse_output = _execute_page_memory_parse(
                     job_id=job_id,
                     job_context=job_context,
+                    prepared_source=prepared_source,
+                    output_dir=output_dir,
+                )
+            elif JobMetadataHelper.get_ingestion_mode(job_context.job_metadata) == "progressive":
+                parse_output = _execute_chunk_baseline_parse(
                     prepared_source=prepared_source,
                     output_dir=output_dir,
                 )
@@ -148,3 +158,88 @@ def _execute_page_memory_parse(
         )
     )
     return ParseOutput(output_dir=page_output_dir, parsed_df=parsed_df)
+
+
+def _execute_chunk_baseline_parse(
+    *,
+    prepared_source: PreparedSourceFile,
+    output_dir: str,
+) -> ParseOutput:
+    relative_root, full_output_dir = _resolve_output_paths(
+        filename=prepared_source.source_file_name,
+        internal_output_filename=prepared_source.internal_parse_name,
+        output_dir=output_dir,
+    )
+    extension = (
+        prepared_source.file_extension
+        or os.path.splitext(prepared_source.source_file_name)[1]
+    ).lower()
+    if extension in {".md", ".txt"}:
+        parsed_df = _parse_markdown_text_baseline(
+            prepared_source=prepared_source,
+            output_dir=full_output_dir,
+            relative_root=relative_root,
+            extension=extension,
+        )
+        _persist_source_file(
+            local_file_path=prepared_source.local_file_path,
+            output_dir=full_output_dir,
+            source_file_name=prepared_source.source_file_name,
+        )
+        return ParseOutput(output_dir=full_output_dir, parsed_df=parsed_df)
+    if extension == ".docx":
+        from app.services.document_parser.formats.docx.baseline import parse_docx_baseline
+
+        parsed_df = parse_docx_baseline(
+            prepared_source.local_file_path,
+            full_output_dir,
+            filename=prepared_source.source_file_name,
+        )
+        return ParseOutput(output_dir=full_output_dir, parsed_df=parsed_df)
+    raise ValidationException(
+        user_message="Progressive ingestion is not supported for this file type",
+        violations=[
+            {
+                "field": "ingestion_mode",
+                "description": (
+                    "chunk-track progressive baseline supports .docx, .md, and .txt"
+                ),
+            }
+        ],
+    )
+
+
+def _parse_markdown_text_baseline(
+    *,
+    prepared_source: PreparedSourceFile,
+    output_dir: str,
+    relative_root: str,
+    extension: str,
+):
+    from app.services.document_parser.formats.markdown.parser import parse_md_baseline
+    from app.services.document_parser.formats.text.parser import parse_texts
+
+    if extension == ".txt":
+        md_lines = parse_texts(file_path=prepared_source.local_file_path)
+    else:
+        with open(prepared_source.local_file_path, encoding="utf-8") as markdown_file:
+            md_lines = markdown_file.readlines()
+    return parse_md_baseline(
+        md_lines,
+        output_dir,
+        relative_root=relative_root,
+    )
+
+
+def _persist_source_file(
+    *,
+    local_file_path: str,
+    output_dir: str,
+    source_file_name: str,
+) -> str:
+    source_name = os.path.basename(source_file_name)
+    destination = os.path.join(output_dir, source_name)
+    if os.path.realpath(local_file_path) != os.path.realpath(destination):
+        shutil.copyfile(local_file_path, destination)
+    return destination
+

@@ -7,6 +7,7 @@ from shared.services.jobs.lifecycle.publication import (
     SyncJobPublicationFinalizer,
 )
 from shared.services.jobs.lifecycle.scope_enrichments import (
+    enqueue_chunk_final_after_commit,
     enqueue_page_memory_structure_after_commit,
 )
 from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
@@ -19,6 +20,7 @@ class PostCommitEffectPlan:
     )
     webhook_event_ids: tuple[str, ...] = field(default_factory=tuple)
     structure_job_result_ids: tuple[str, ...] = field(default_factory=tuple)
+    chunk_final_job_result_ids: tuple[str, ...] = field(default_factory=tuple)
 
     @classmethod
     def none(cls) -> PostCommitEffectPlan:
@@ -31,6 +33,7 @@ class PostCommitEffectPlan:
         cache_invalidation: RetrievalCacheInvalidation | None,
         webhook_event_id: str | None,
         structure_job_result_id: str | None = None,
+        chunk_final_job_result_id: str | None = None,
     ) -> PostCommitEffectPlan:
         return cls(
             retrieval_cache_invalidations=(
@@ -40,6 +43,11 @@ class PostCommitEffectPlan:
             structure_job_result_ids=(
                 (structure_job_result_id,)
                 if structure_job_result_id
+                else ()
+            ),
+            chunk_final_job_result_ids=(
+                (chunk_final_job_result_id,)
+                if chunk_final_job_result_id
                 else ()
             ),
         )
@@ -72,5 +80,7 @@ class SyncJobPostCommitEffectRunner:
             )
         for job_result_id in plan.structure_job_result_ids:
             enqueue_page_memory_structure_after_commit(job_result_id)
+        for job_result_id in plan.chunk_final_job_result_ids:
+            enqueue_chunk_final_after_commit(job_result_id)
         for webhook_event_id in plan.webhook_event_ids:
             self._webhook_outbox.enqueue_event_id_after_commit(webhook_event_id)

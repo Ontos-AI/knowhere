@@ -19,6 +19,7 @@ from shared.models.database.document import (
 )
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.progressive_ingestion import (
     EnhancementStage,
     ProgressiveIngestionState,
@@ -45,6 +46,7 @@ ENRICH_SCOPE_TASK_NAME = "app.core.tasks.enrichment_tasks.enrich_page_memory_sco
 BUILD_STRUCTURE_TASK_NAME = (
     "app.core.tasks.enrichment_tasks.build_page_memory_structure"
 )
+CHUNK_FINAL_TASK_NAME = "app.core.tasks.enrichment_tasks.run_chunk_final_enrichment"
 LOW_ENRICHMENT_QUEUE = "document_ingestion_low"
 NORMAL_ENRICHMENT_QUEUE = "document_ingestion_medium"
 HIGH_ENRICHMENT_QUEUE = "document_ingestion_high"
@@ -152,6 +154,27 @@ def enqueue_page_memory_structure_after_commit(job_result_id: str) -> bool:
     except Exception as exc:
         logger.warning(
             "Failed to send build_page_memory_structure task after commit "
+            f"(ignored): job_result_id={job_result_id}, error={exc}"
+        )
+        return False
+
+
+def enqueue_chunk_final_after_commit(job_result_id: str) -> bool:
+    """Enqueue the chunk-track progressive final parse at normal priority."""
+    if not job_result_id:
+        return False
+    try:
+        from shared.core.celery_app import get_celery_app
+
+        get_celery_app().send_task(
+            CHUNK_FINAL_TASK_NAME,
+            args=[job_result_id],
+            queue=NORMAL_ENRICHMENT_QUEUE,
+        )
+        return True
+    except Exception as exc:
+        logger.warning(
+            "Failed to send run_chunk_final_enrichment task after commit "
             f"(ignored): job_result_id={job_result_id}, error={exc}"
         )
         return False
@@ -304,6 +327,16 @@ async def promote_scopes_on_read(
     return sent
 
 
+def _should_skip_chunk_final_recovery(*, doc_meta: object, now: datetime) -> bool:
+    doc_dict = doc_meta if isinstance(doc_meta, dict) else {}
+    state = read_progressive_state(doc_dict)
+    if state is None:
+        return True
+    if state.enhancement.status in {"failed", "complete"}:
+        return True
+    return not _can_recover_stage(state.stages.get("finalization", {}), now=now)
+
+
 def _should_skip_structure_recovery(
     *,
     doc_meta: object,
@@ -414,13 +447,20 @@ def sweep_progressive_enrichments_sync(
             .order_by(JobResult.updated_at, JobResult.id)
             .limit(_RECOVERY_BATCH_SIZE)
         ).all()
-        reenqueued_structures = [
-            str(revision_id)
-            for revision_id, doc_meta, job_meta in structure_rows
+        reenqueued_structures: list[str] = []
+        reenqueued_chunk_finals: list[str] = []
+        for revision_id, doc_meta, job_meta in structure_rows:
+            parse_track = JobMetadataHelper.get_parse_track(
+                job_meta if isinstance(job_meta, dict) else {}
+            )
+            if parse_track == "chunk":
+                if not _should_skip_chunk_final_recovery(doc_meta=doc_meta, now=now):
+                    reenqueued_chunk_finals.append(str(revision_id))
+                continue
             if not _should_skip_structure_recovery(
                 doc_meta=doc_meta, job_meta=job_meta, now=now
-            )
-        ]
+            ):
+                reenqueued_structures.append(str(revision_id))
 
         if structure_rows:
             # Rotate inspected rows, including live claims, so they cannot starve
@@ -503,6 +543,7 @@ def sweep_progressive_enrichments_sync(
             )
             .join(Document, Document.current_job_result_id == JobResult.id)
             .where(Document.status == "active")
+            .where(Document.parse_track != "chunk")
             .where(
                 JobResult.document_metadata["progressive"]["enhancement"]["status"]
                 .as_string()
@@ -536,6 +577,11 @@ def sweep_progressive_enrichments_sync(
         if enqueue_page_memory_structure_after_commit(rev_id):
             sent_structures.append(rev_id)
 
+    sent_chunk_finals: list[str] = []
+    for rev_id in reenqueued_chunk_finals:
+        if enqueue_chunk_final_after_commit(rev_id):
+            sent_chunk_finals.append(rev_id)
+
     sent_scopes: list[tuple[str, str]] = []
     if retried_scopes:
         try:
@@ -562,6 +608,7 @@ def sweep_progressive_enrichments_sync(
     return {
         "status": "success",
         "reenqueued_structures": sent_structures,
+        "reenqueued_chunk_finals": sent_chunk_finals,
         "retried_scopes": sent_scopes,
     }
 

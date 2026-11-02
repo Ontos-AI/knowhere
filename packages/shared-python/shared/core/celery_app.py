@@ -100,6 +100,9 @@ celery_app.conf.update(
         "app.core.tasks.enrichment_tasks.build_page_memory_structure": {
             "queue": "document_ingestion_medium"
         },
+        "app.core.tasks.enrichment_tasks.run_chunk_final_enrichment": {
+            "queue": "document_ingestion_medium"
+        },
         "app.core.tasks.enrichment_tasks.enrich_page_memory_scope": {
             "queue": "document_ingestion_high"
         },
