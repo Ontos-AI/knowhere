@@ -52,14 +52,14 @@ def test_xlsx_parser_contract_uses_stable_entrypoint_and_ignores_hidden_sheets(
     assert full_output_dir.endswith("budget.xlsx")
     assert parsed_df is not None
     assert parsed_df["type"].iloc[0].startswith("table")
-    assert "[tables/table-Visible.html]" in parsed_df["type"].iloc[0]
+    assert "[tables/table-[1] Visible.html]" in parsed_df["type"].iloc[0]
     assert parsed_df["path"].tolist() == ["budget.xlsx/Visible"]
-    assert parsed_df["summary"].tolist() == ["table-Visible"]
-    assert parsed_df["content"].iloc[0] == "tables/table-Visible.html"
+    assert parsed_df["summary"].tolist() == ["table-[1]"]
+    assert parsed_df["content"].iloc[0] == "tables/table-[1] Visible.html"
     assert "Region" in parsed_df["keywords"].iloc[0]
     assert "Value" in parsed_df["keywords"].iloc[0]
 
-    table_html = Path(full_output_dir) / "tables" / "table-Visible.html"
+    table_html = Path(full_output_dir) / "tables" / "table-[1] Visible.html"
     table_html_text = table_html.read_text(encoding="utf-8")
 
     assert "North" in table_html_text
@@ -147,7 +147,7 @@ def test_xlsx_parser_tolerates_nat_in_datetime_column(
     assert len(parsed_df) == 1
 
     table_html = (
-        Path(parse_output.output_dir) / "tables" / "table-Roster.html"
+        Path(parse_output.output_dir) / "tables" / "table-[1] Roster.html"
     ).read_text(encoding="utf-8")
     assert "Alice" in table_html
     assert "2026-06-27" in table_html

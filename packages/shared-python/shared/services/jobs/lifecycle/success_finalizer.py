@@ -131,15 +131,21 @@ class SyncJobSuccessFinalizer:
             select(Job.job_metadata).where(Job.job_id == job_id)
         ).scalar_one_or_none()
         job_metadata = job_row if isinstance(job_row, dict) else {}
-        should_enqueue_structure = bool(
+        parse_track = JobMetadataHelper.get_parse_track(job_metadata)
+        is_progressive_text = bool(
             published_document_id
-            and JobMetadataHelper.get_parse_track(job_metadata) == "page_memory"
             and JobMetadataHelper.get_ingestion_mode(job_metadata) == "progressive"
             and str(job_metadata.get("enrichment_status") or "").strip().lower()
             == "text"
         )
+        should_enqueue_structure = bool(
+            is_progressive_text and parse_track == "page_memory"
+        )
+        should_enqueue_chunk_final = bool(
+            is_progressive_text and parse_track == "chunk"
+        )
         baseline_snapshot: StoredSnapshot | None = None
-        if should_enqueue_structure:
+        if should_enqueue_structure or should_enqueue_chunk_final:
             snapshot_id = str(job_metadata.get("progressive_baseline_snapshot_id") or f"baseline_{checksum}")
             baseline_snapshot = StoredSnapshot(
                 snapshot_id=snapshot_id, stage="baseline", job_id=job_id,
@@ -147,7 +153,15 @@ class SyncJobSuccessFinalizer:
                 checksum=checksum, archive_key=result_s3_key,
             )
             raw_pages = job_metadata.get("progressive_missing_embedding_pages", [])
-            missing_pages = [page for page in raw_pages if isinstance(page, int) and not isinstance(page, bool)] if isinstance(raw_pages, list) else []
+            missing_pages = (
+                [
+                    page
+                    for page in raw_pages
+                    if isinstance(page, int) and not isinstance(page, bool)
+                ]
+                if should_enqueue_structure and isinstance(raw_pages, list)
+                else []
+            )
             job_result.document_metadata = write_progressive_state(
                 job_result.document_metadata,
                 initialize_baseline_state(snapshot=baseline_snapshot, missing_pages=missing_pages),
@@ -193,6 +207,9 @@ class SyncJobSuccessFinalizer:
                 webhook_event_id=webhook_event.event_id if webhook_event else None,
                 structure_job_result_id=(
                     str(job_result.id) if should_enqueue_structure else None
+                ),
+                chunk_final_job_result_id=(
+                    str(job_result.id) if should_enqueue_chunk_final else None
                 ),
             ),
         )

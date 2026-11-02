@@ -7,6 +7,9 @@ from typing import Any
 from loguru import logger
 
 from app.core.tasks.base_task import DocumentIngestionBaseTask
+from app.services.document_ingestion.chunk_enrichment_service import (
+    execute_chunk_final_enrichment,
+)
 from app.services.page_memory.scope_enrichment_service import (
     execute_scope_enrichment,
     execute_structure_enrichment,
@@ -70,6 +73,26 @@ def build_page_memory_structure(
         )
         logger.bind(event=LogEvent.WORKER_TASK_COMPLETE.value).info(
             "Task completed: build_page_memory_structure "
+            f"job_result_id={job_result_id} status={result.get('status')}"
+        )
+        return result
+
+
+@celery_app.task(
+    bind=True,
+    base=ScopeEnrichmentBaseTask,
+    name="app.core.tasks.enrichment_tasks.run_chunk_final_enrichment",
+    ignore_result=True,
+)
+def run_chunk_final_enrichment(
+    self: Any,
+    job_result_id: str,
+) -> dict[str, Any]:
+    """Run the background full parse that replaces a chunk-track baseline."""
+    with log_context(task_id=self.request.id):
+        result = execute_chunk_final_enrichment(job_result_id=str(job_result_id))
+        logger.bind(event=LogEvent.WORKER_TASK_COMPLETE.value).info(
+            "Task completed: run_chunk_final_enrichment "
             f"job_result_id={job_result_id} status={result.get('status')}"
         )
         return result

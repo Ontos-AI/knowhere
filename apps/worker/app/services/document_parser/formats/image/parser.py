@@ -25,7 +25,10 @@ from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response
 from shared.utils.chunk_refs import build_chunk_ref
 from app.services.common.file_loading import is_remote, load_file_bytes
-from app.services.common.file_utils import path_handle
+from app.services.document_parser.assets.asset_file_names import (
+    ASSET_KIND_IMAGE,
+    build_asset_file_stem,
+)
 from app.services.document_parser.formats.image.vlm_input import prepare_vlm_image_input
 from app.services.document_parser.orchestration.format_router import (
     IMAGE_SOURCE_EXTENSIONS,
@@ -284,7 +287,9 @@ def parse_image(
             image_content = asset.summary or filename
 
         # 2. Decide whether to rename based on image title and filename
-        img_name = path_handle((img_title or image_summary)[:20], mode="clean_single")
+        img_name = build_asset_file_stem(
+            ASSET_KIND_IMAGE, 1, img_title or image_summary or ""
+        )
         img_suffix = os.path.splitext(img_path)[-1]
         img_stem, inferred_suffix = os.path.splitext(img_name)
         if inferred_suffix.lower() in IMAGE_SOURCE_EXTENSIONS:
