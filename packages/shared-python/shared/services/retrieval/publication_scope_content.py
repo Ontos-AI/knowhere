@@ -36,7 +36,9 @@ from shared.services.retrieval.publication_content import (
 )
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.publication_trace_stage import trace_publication_stage
-from shared.services.retrieval.search.lexical_text import section_path_from_chunk_path
+from shared.services.retrieval.search.lexical_text import (
+    section_parts_from_chunk_path,
+)
 from shared.services.retrieval.serving_generation import (
     advance_namespace_generation,
     lock_namespace_generation,
@@ -134,11 +136,12 @@ def replace_document_scope_content(
                 chunk=safe_chunk,
                 chunk_metadata=chunk_metadata,
             )
-            section_path = section_path_from_chunk_path(
-                source_path,
-                source_file_name=scope.source_file_name,
+            section = section_publisher.ensure_section(
+                section_parts_from_chunk_path(
+                    source_path,
+                    source_file_name=scope.source_file_name,
+                )
             )
-            section = section_publisher.ensure_section(section_path)
             prepared_chunks.append(
                 (index, safe_chunk, chunk_metadata, source_path, section)
             )
@@ -397,11 +400,14 @@ def _delete_scope_exclusive_leaf_sections(
             chunk=safe_chunk,
             chunk_metadata=chunk_metadata,
         )
-        section_path = section_path_from_chunk_path(
-            source_path,
-            source_file_name=scope.source_file_name,
+        retained_paths.update(
+            _strict_ancestor_paths(
+                section_parts_from_chunk_path(
+                    source_path,
+                    source_file_name=scope.source_file_name,
+                )
+            )
         )
-        retained_paths.update(_strict_ancestor_paths(section_path))
 
     stale_section_ids = [
         section.section_id
@@ -498,8 +504,8 @@ def _self_and_ancestor_paths(section_path: str) -> list[str]:
     return [" / ".join(parts[:depth]) for depth in range(1, len(parts) + 1)]
 
 
-def _strict_ancestor_paths(section_path: str) -> list[str]:
-    parts = [part for part in section_path.split(" / ") if part]
+def _strict_ancestor_paths(section_parts: list[str]) -> list[str]:
+    parts = [part for part in section_parts if part]
     if len(parts) <= 1:
         return []
     return [" / ".join(parts[:depth]) for depth in range(1, len(parts))]

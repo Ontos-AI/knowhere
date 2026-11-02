@@ -82,14 +82,19 @@ def _resolve_original_request(job_metadata: Optional[dict[str, Any]]) -> dict[st
 
 
 def _resolve_source_file_name(original_request: dict[str, Any]) -> str | None:
+    requested_name = original_request.get("file_name")
     source_url = original_request.get("source_url")
-    file_name = None
+    url_basename = None
     if source_url:
-        parsed_source = urlparse(str(source_url))
-        file_name = os.path.basename(parsed_source.path) or None
-    if not file_name:
-        file_name = original_request.get("file_name")
-    return str(file_name) if file_name else None
+        url_basename = os.path.basename(urlparse(str(source_url)).path) or None
+    if isinstance(requested_name, str) and requested_name.strip():
+        file_name = requested_name.strip()
+        if not os.path.splitext(file_name)[1]:
+            url_extension = os.path.splitext(url_basename or "")[1]
+            if url_extension:
+                file_name = f"{file_name}{url_extension}"
+        return file_name
+    return str(url_basename) if url_basename else None
 
 
 def _resolve_file_extension(file_name: str | None) -> str | None:

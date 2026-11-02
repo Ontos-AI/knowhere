@@ -75,6 +75,25 @@ def build_content_lexical_text(chunk: dict[str, Any]) -> Optional[str]:
     return "\n".join(lexical_parts) if lexical_parts else content
 
 
+def section_parts_from_chunk_path(
+    source_path: Optional[str],
+    *,
+    source_file_name: str | None = None,
+) -> list[str]:
+    """Return unescaped section titles from a parser chunk path.
+
+    Splits on the raw hierarchy ``/`` first, then unescapes ``U+2215`` in each
+    title so a heading that contains `` / `` stays one part.
+    """
+    if not source_path:
+        return []
+    _, section_parts = split_document_path(
+        source_path,
+        source_file_name=source_file_name,
+    )
+    return section_parts
+
+
 def section_path_from_chunk_path(
     source_path: Optional[str],
     *,
@@ -85,9 +104,7 @@ def section_path_from_chunk_path(
     Expected format: "<file>.ext/<Section>/<Subsection>/..."
     Returns " / "-joined section parts, or "Root" if no section hierarchy.
     """
-    if not source_path:
-        return "Root"
-    _, section_parts = split_document_path(
+    section_parts = section_parts_from_chunk_path(
         source_path,
         source_file_name=source_file_name,
     )

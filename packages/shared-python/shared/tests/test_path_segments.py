@@ -21,6 +21,7 @@ from shared.services.chunks.path_segments import (
     unescape_path_segment,
 )
 from shared.services.retrieval.search.lexical_text import (
+    section_parts_from_chunk_path,
     section_path_from_chunk_path,
     split_section_path,
 )
@@ -87,6 +88,23 @@ def test_section_path_from_chunk_path_preserves_slash_title() -> None:
         "Index",
         "Symbols/Numbers",
     ]
+
+
+def test_section_parts_from_chunk_path_keep_spaced_slash_title() -> None:
+    chunk_path = join_document_path(
+        ["notes.md", "MD / TXT（2 层）", "Details"]
+    )
+    assert section_parts_from_chunk_path(
+        chunk_path,
+        source_file_name="notes.md",
+    ) == ["MD / TXT（2 层）", "Details"]
+    assert (
+        section_path_from_chunk_path(
+            chunk_path,
+            source_file_name="notes.md",
+        )
+        == "MD / TXT（2 层） / Details"
+    )
 
 
 def test_doc_nav_keeps_slash_title_as_single_section() -> None:
