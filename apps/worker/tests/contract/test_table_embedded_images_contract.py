@@ -101,7 +101,7 @@ def test_table_embedded_images_are_extracted_rewritten_and_linked(
     assert len(embedded.image_refs) == 1
     assert hash_name not in embedded.rewritten_html
     assert "<img src=" in embedded.rewritten_html
-    assert embedded.image_refs[0].startswith("[images/image-1-")
+    assert embedded.image_refs[0].startswith("[images/image-[1]")
 
     image_asset = embedded.image_assets[0]
     assert image_asset.relative_path is not None
@@ -138,7 +138,7 @@ def test_table_embedded_images_are_extracted_rewritten_and_linked(
     assert image_asset.relative_path in saved_html
     assert hash_name not in saved_html
 
-    # Extracted image-N files are kept; leftover hash names referenced by HTML
+    # Extracted image-[N] files are kept; leftover hash names referenced by HTML
     # would also be protected, but this case has none left.
     leftover_hash = "b" * 64 + ".jpg"
     _write_jpeg(

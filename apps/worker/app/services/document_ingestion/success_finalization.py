@@ -284,24 +284,42 @@ def _upload_result_package(
         else "full"
     )
     phase_b_refs = existing_phase_b_input_refs(add_dir) if add_dir else []
+    source_file_name = (
+        JobMetadataHelper.get_source_file_name(job_context.job_metadata)
+        if job_context is not None
+        else ""
+    )
+    chunk_progressive_refs = (
+        existing_chunk_progressive_artifact_refs(
+            add_dir,
+            source_file_name=str(source_file_name or ""),
+        )
+        if add_dir
+        and parse_track == "chunk"
+        and ingestion_mode == "progressive"
+        else []
+    )
     if parse_track == "page_memory" and ingestion_mode == "progressive":
         artifact_refs.update(phase_b_refs)
     snapshot_options: dict[str, str] = {}
     if (
         job_context is not None
-        and parse_track == "page_memory"
         and ingestion_mode == "progressive"
+        and parse_track in {"page_memory", "chunk"}
     ):
         snapshot_id: str = f"snapshot_{uuid4().hex}"
         snapshot_options["snapshot_id"] = snapshot_id
-        missing_pages: list[int] = sorted(
-            {
-                int(page)
-                for chunk in result_package.chunks
-                if (chunk.get("metadata") or {}).get("embedding_status") in {"missing", "pending"}
-                for page in (chunk.get("metadata") or {}).get("page_nums", [])
-            }
-        )
+        missing_pages: list[int] = []
+        if parse_track == "page_memory":
+            missing_pages = sorted(
+                {
+                    int(page)
+                    for chunk in result_package.chunks
+                    if (chunk.get("metadata") or {}).get("embedding_status")
+                    in {"missing", "pending"}
+                    for page in (chunk.get("metadata") or {}).get("page_nums", [])
+                }
+            )
         persist_job_metadata_updates(
             job_id=job_id,
             job_context=job_context,
@@ -325,7 +343,9 @@ def _upload_result_package(
     working_raw_prefix: str = result_bundle.raw_prefix
     if snapshot_options:
         working_raw_prefix = f"results/{job_id}/"
-        working_refs: list[str] = phase_b_refs
+        working_refs: list[str] = (
+            phase_b_refs if parse_track == "page_memory" else chunk_progressive_refs
+        )
         with (
             logfire.span("Upload progressive working inputs for {job_id}", job_id=job_id) as working_span,
             stage_timer("worker.result.working_inputs_upload", job_id=job_id),
@@ -364,6 +384,16 @@ def _upload_result_package(
             metadata_updates["enrichment_status"] = "text"
     if (
         job_context is not None
+        and parse_track == "chunk"
+        and ingestion_mode == "progressive"
+    ):
+        metadata_updates["result_raw_prefix"] = working_raw_prefix
+        if snapshot_options:
+            metadata_updates["result_serving_raw_prefix"] = result_bundle.raw_prefix
+        metadata_updates["chunk_progressive_artifact_refs"] = list(chunk_progressive_refs)
+        metadata_updates["enrichment_status"] = "text"
+    if (
+        job_context is not None
         and job_context.job_metadata.get("corpus_target") == "DEMO"
     ):
         metadata_updates["demo_asset_manifest"] = sorted(result_bundle.raw_files)
@@ -375,3 +405,29 @@ def _upload_result_package(
             metadata_updates=metadata_updates,
         )
     return result_bundle.zip_key
+
+
+def existing_chunk_progressive_artifact_refs(
+    add_dir: str,
+    *,
+    source_file_name: str,
+) -> list[str]:
+    from app.services.document_parser.formats.docx.baseline import (
+        PAGE_TEXT_CACHE_REL,
+        RENDERED_PDF_REL,
+    )
+
+    candidates = [RENDERED_PDF_REL, PAGE_TEXT_CACHE_REL]
+    source_name = os.path.basename(source_file_name)
+    if source_name:
+        candidates.append(source_name)
+    seen: set[str] = set()
+    refs: list[str] = []
+    for relative_path in candidates:
+        if relative_path in seen:
+            continue
+        seen.add(relative_path)
+        if os.path.isfile(os.path.join(add_dir, relative_path)):
+            refs.append(relative_path)
+    return refs
+

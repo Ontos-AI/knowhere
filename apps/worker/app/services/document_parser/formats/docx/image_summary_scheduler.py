@@ -10,7 +10,11 @@ import gevent
 from gevent.pool import Pool as GeventPool
 from loguru import logger
 
-from app.services.document_parser.support.path_helpers import process_path_texts
+from app.services.document_parser.assets.asset_file_names import (
+    ASSET_KIND_IMAGE,
+    build_asset_file_stem,
+    parse_asset_file_index,
+)
 from app.services.document_parser.support.parser_rows import (
     COL_ASSET_TITLE,
     COL_ENTITIES,
@@ -209,7 +213,12 @@ class DocxImageSummaryScheduler:
         if task is None or not task.title_path_prefix or not title:
             return current_relative_path
 
-        new_name = process_path_texts(f"{task.title_path_prefix} {title}", last=30)
+        image_index = parse_asset_file_index(
+            task.title_path_prefix, kind=ASSET_KIND_IMAGE
+        )
+        if image_index is None:
+            return current_relative_path
+        new_name = build_asset_file_stem(ASSET_KIND_IMAGE, image_index, title)
         if not new_name:
             return current_relative_path
 
