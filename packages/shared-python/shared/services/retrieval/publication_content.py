@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
@@ -26,7 +27,7 @@ from shared.services.retrieval.search.lexical_text import (
     build_path_lexical_text,
     build_path_search_text,
     build_term_search_text,
-    section_path_from_chunk_path,
+    section_parts_from_chunk_path,
 )
 from shared.utils.json_utils import remove_nul_characters
 
@@ -93,11 +94,12 @@ def replace_document_revision_content(
                 chunk=safe_chunk,
                 chunk_metadata=chunk_metadata,
             )
-            section_path = section_path_from_chunk_path(
-                source_path,
-                source_file_name=scope.source_file_name,
+            section = section_publisher.ensure_section(
+                section_parts_from_chunk_path(
+                    source_path,
+                    source_file_name=scope.source_file_name,
+                )
             )
-            section = section_publisher.ensure_section(section_path)
             prepared_chunks.append(
                 (index, safe_chunk, chunk_metadata, source_path, section)
             )
@@ -187,9 +189,13 @@ class DocumentSectionPublisher:
             self._sections_by_path.setdefault(existing.section_path, existing)
             self._preexisting_paths.add(existing.section_path)
 
-    def ensure_section(self, section_path: str) -> DocumentSection:
+    def ensure_section(self, section_parts: Sequence[str]) -> DocumentSection:
         self._ensure_existing_loaded()
         corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(self._scope.namespace)
+        path_parts = [part for part in section_parts if part]
+        if not path_parts:
+            path_parts = ["Root"]
+        section_path = " / ".join(path_parts)
         existing_section = self._sections_by_path.get(section_path)
         if existing_section is not None:
             if (
@@ -201,7 +207,6 @@ class DocumentSectionPublisher:
                 existing_section.summary = summary
             return existing_section
 
-        path_parts = [part for part in section_path.split(" / ") if part]
         for depth in range(1, len(path_parts) + 1):
             ancestor_path = " / ".join(path_parts[:depth])
             existing_ancestor = self._sections_by_path.get(ancestor_path)
