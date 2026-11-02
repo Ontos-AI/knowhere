@@ -475,3 +475,102 @@ def parse_md(
         doc_df = parser_state.to_dataframe()
 
     return doc_df
+
+
+def parse_md_baseline(
+    md_lines,
+    output_dir,
+    *,
+    relative_root=None,
+    stopwords=None,
+):
+    """Fast markdown/text baseline: heading regex + long-leaf divide, no LLM."""
+    del output_dir
+    from app.services.document_parser.formats.text.parser import divide_long_contents
+    from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
+    from app.services.document_parser.support.parser_rows import ParsedRow, ParsedRowsBuilder
+    from app.services.document_parser.support.path_helpers import find_matches_parsing
+    from shared.core.constants import ProcessingConstants
+    from shared.services.chunks.path_segments import (
+        append_document_path,
+        join_document_path,
+        split_escaped_document_path,
+    )
+    from shared.utils.text_utils import tokenize2stw_remove
+
+    summary_len = ProcessingConstants.POSTPROCESS_SUMMARY_LEN
+    max_threshold = int(3 * summary_len)
+    root_path = str(relative_root or "").strip()
+    timestamp = get_str_time()
+    heading_stack: list[tuple[str, int]] = []
+    path_counter: dict[str, int] = {}
+    current_lines: list[str] = []
+    current_path = root_path
+    rows_builder = ParsedRowsBuilder()
+
+    def _section_path() -> str:
+        parts = [root_path] if root_path else []
+        parts.extend(heading for heading, _level in heading_stack)
+        return join_document_path(parts) if parts else root_path
+
+    def _emit_section(path: str, lines: list[str]) -> None:
+        content_lines = list(lines)
+        joined = "\n".join(content_lines).strip()
+        if not joined:
+            return
+        sublists, part_count = divide_long_contents(
+            content_lines,
+            max_threshold=max_threshold,
+        )
+        if part_count <= 1:
+            _append_text_row(path, joined)
+            return
+        path_parts = split_escaped_document_path(path)
+        leaf_title = path_parts[-1] if path_parts else (root_path or "document")
+        for part_index in range(part_count):
+            part_title = f"{leaf_title} part {part_index + 1}"
+            part_path = append_document_path(path, part_title)
+            part_content = "\n".join(sublists[part_index]).strip()
+            if part_content:
+                _append_text_row(part_path, part_content)
+
+    def _append_text_row(path: str, content: str) -> None:
+        tokens = tokenize2stw_remove([content], stopwords)
+        rows_builder.append(
+            ParsedRow(
+                content=content,
+                path=path,
+                type=find_matches_parsing(content, path),
+                keywords="",
+                summary="",
+                know_id=gen_str_codes(content),
+                tokens=tokens[0] if tokens else "",
+                addtime=timestamp,
+            )
+        )
+
+    for raw_line in md_lines or []:
+        line = str(raw_line).rstrip("\r\n")
+        heading_text, heading_level = md_heading_match(line, as_is=False)
+        if 1 <= heading_level <= 6:
+            _emit_section(current_path, current_lines)
+            current_lines = []
+            heading_stack = [
+                (title, level)
+                for title, level in heading_stack
+                if level < heading_level
+            ]
+            heading_stack.append((heading_text, heading_level))
+            tentative_path = _section_path()
+            if tentative_path in path_counter:
+                path_counter[tentative_path] += 1
+                suffixed_heading = f"{heading_text}_{path_counter[tentative_path]}"
+                heading_stack[-1] = (suffixed_heading, heading_level)
+            else:
+                path_counter[tentative_path] = 1
+            current_path = _section_path()
+            continue
+        current_lines.append(line)
+
+    _emit_section(current_path, current_lines)
+    return rows_builder.to_dataframe()

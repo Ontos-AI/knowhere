@@ -12,6 +12,21 @@ ApiVersion = Literal["v1", "v2"]
 ParseTrack = Literal["chunk", "page_memory"]
 ProcessingGeneration = Literal["legacy_chunk", "page_memory"]
 _PAGE_MEMORY_PARSE_TRACK_EXTENSIONS: frozenset[str] = frozenset({".pdf", ".pptx"})
+_CHUNK_PROGRESSIVE_EXTENSIONS: frozenset[str] = frozenset({".docx", ".md", ".txt"})
+
+
+def allows_progressive_ingestion(
+    *,
+    parse_track: ParseTrack,
+    file_extension: str,
+) -> bool:
+    """Return whether progressive ingestion is supported for this resolved track."""
+    if parse_track == "page_memory":
+        return True
+    return (
+        parse_track == "chunk"
+        and file_extension.lower() in _CHUNK_PROGRESSIVE_EXTENSIONS
+    )
 
 
 @dataclass(frozen=True)

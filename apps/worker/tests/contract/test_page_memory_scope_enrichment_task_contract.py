@@ -638,6 +638,7 @@ def test_enrichment_task_routes_and_does_not_fail_job() -> None:
     from app.core.tasks.enrichment_tasks import (
         build_page_memory_structure,
         enrich_page_memory_scope,
+        run_chunk_final_enrichment,
     )
 
     assert enrich_page_memory_scope.name == (
@@ -646,8 +647,14 @@ def test_enrichment_task_routes_and_does_not_fail_job() -> None:
     assert build_page_memory_structure.name == (
         "app.core.tasks.enrichment_tasks.build_page_memory_structure"
     )
+    assert run_chunk_final_enrichment.name == (
+        "app.core.tasks.enrichment_tasks.run_chunk_final_enrichment"
+    )
     assert celery_app.conf.task_routes[
         "app.core.tasks.enrichment_tasks.build_page_memory_structure"
+    ] == {"queue": "document_ingestion_medium"}
+    assert celery_app.conf.task_routes[
+        "app.core.tasks.enrichment_tasks.run_chunk_final_enrichment"
     ] == {"queue": "document_ingestion_medium"}
     assert celery_app.conf.task_routes[
         "app.core.tasks.enrichment_tasks.enrich_page_memory_scope"
@@ -658,6 +665,7 @@ def test_enrichment_task_routes_and_does_not_fail_job() -> None:
     assert "app.core.tasks.enrichment_tasks.*" not in celery_app.conf.task_routes
     assert enrich_page_memory_scope.finalize_job_on_failure is False
     assert build_page_memory_structure.finalize_job_on_failure is False
+    assert run_chunk_final_enrichment.finalize_job_on_failure is False
     assert (
         enrich_page_memory_scope._extract_job_id(("rev-1", "p1-2"), {}) is None  # noqa: SLF001
     )
