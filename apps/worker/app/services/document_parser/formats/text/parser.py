@@ -122,9 +122,6 @@ def postprocess_leaf_dics(
     # TODO rough dividing of contents (need more smart dividing)
     df_with_divides = pd.DataFrame(columns=["path", "content_lst", "path_identifier"])
     for i, row in merge_df.iterrows():
-        if len(row["path"]) == 0:
-            continue
-
         local_contents = row["content_lst"]
         if len(local_contents) > 0 and llm_paras["doc_type"] not in "templates":
             sublists, num = divide_long_contents(
