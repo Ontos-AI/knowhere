@@ -244,6 +244,7 @@ def test_docx_table_image_summary_is_applied_before_html_render(
     assert calls == ["parser.docx.table_image"]
     assert next_image_count == 1
     assert rows[0][2] == "image"
+    assert str(rows[0][1]) == "images/table-[1]-image-[1] Heading.png"
     assert rows[0][5] == "image-[1]\ntable cell summary"
     assert rows[0][12] == "table image title"
     assert "table image title" not in str(rows[0][1])

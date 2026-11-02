@@ -27,6 +27,7 @@ from app.services.document_parser.assets.asset_file_names import (
     ASSET_KIND_TABLE,
     build_asset_file_stem,
     build_asset_index_label,
+    build_table_image_file_stem,
 )
 from app.services.document_parser.support.path_helpers import (
     find_matches_parsing,
@@ -337,8 +338,8 @@ def handle_table(
                 img_ext = os.path.splitext(img_data["image_name"])[-1]
                 image_index = build_asset_index_label(ASSET_KIND_IMAGE, img_count)
 
-                img_name = build_asset_file_stem(
-                    ASSET_KIND_IMAGE,
+                img_name = build_table_image_file_stem(
+                    table_count + 1,
                     img_count,
                     current_heading,
                 )

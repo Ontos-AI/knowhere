@@ -119,19 +119,17 @@ def test_page_asset_extraction_keeps_debug_output_minimal(
             )
         ]
 
-    def _fake_crop(*, asset, page_image_path, output_dir, file_index, margin_px=4):
-        asset.image_uri = "images/image-[1] table.png"
+    def _fake_crop(*, asset, page_image_path, output_dir, margin_px=4):
+        asset.image_uri = "images/image-[1-1] table.png"
         asset.image_path = str(tmp_path / asset.image_uri)
         return asset
 
-    def _fake_extract_table(
-        *, asset, pdf_path, output_dir, file_index, table_engine="tabula"
-    ):
+    def _fake_extract_table(*, asset, pdf_path, output_dir, table_engine="tabula"):
         assert table_engine == "tabula"
-        table_path = tmp_path / "tables" / "table-[1] table.html"
+        table_path = tmp_path / "tables" / "table-[1-1] table.html"
         table_path.parent.mkdir(parents=True, exist_ok=True)
         table_path.write_text("<table><tr><td>A</td></tr></table>", encoding="utf-8")
-        asset.html_uri = "tables/table-[1] table.html"
+        asset.html_uri = "tables/table-[1-1] table.html"
         asset.html_path = str(table_path)
         asset.extraction_status = "table_html_extracted"
         return asset
@@ -153,7 +151,7 @@ def test_page_asset_extraction_keeps_debug_output_minimal(
     )
 
     assert sorted(assets_by_page) == [1]
-    assert (tmp_path / "tables" / "table-[1] table.html").exists()
+    assert (tmp_path / "tables" / "table-[1-1] table.html").exists()
     assert not (tmp_path / "asset_annotate" / "page_1.png").exists()
     assert not (tmp_path / "page_asset_bboxes.json").exists()
 

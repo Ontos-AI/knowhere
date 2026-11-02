@@ -390,8 +390,8 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
         title="资产表",
         summary="表格资产摘要",
         keywords=["资产", "表格"],
-        image_uri="images/image-[1] 资产表.png",
-        html_uri="tables/table-[1] 资产表.html",
+        image_uri="images/image-[231-1] 资产表.png",
+        html_uri="tables/table-[231-1] 资产表.html",
         extraction_status="table_html_extracted",
     )
 
@@ -412,8 +412,8 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
     )
 
     assert [row["type"] for row in rows] == ["table", "page", "page"]
-    assert rows[0]["path"] == "tables/table-[1] 资产表.html"
-    assert rows[0]["content"] == "tables/table-[1] 资产表.html"
+    assert rows[0]["path"] == "tables/table-[231-1] 资产表.html"
+    assert rows[0]["content"] == "tables/table-[231-1] 资产表.html"
     assert rows[0]["know_id"] == "asset_table_1"
     assert "owner_hierarchy_path" not in rows[0]["extra_metadata"]
     assert "related_hierarchy_paths" not in rows[0]["extra_metadata"]
@@ -429,7 +429,7 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
     owner = by_path["demo.pdf/3 基本规定/3.1 职责"]
     shared = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
     assert '"relation": "embeds"' in owner["connectto"]
-    assert '"target": "tables/table-[1] 资产表.html"' in owner["connectto"]
+    assert '"target": "tables/table-[231-1] 资产表.html"' in owner["connectto"]
     assert '"relation": "related"' in shared["connectto"]
     assert "same_as_owner" not in shared["connectto"]
 

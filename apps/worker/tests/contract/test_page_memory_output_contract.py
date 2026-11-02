@@ -42,13 +42,13 @@ def test_asset_region_and_metadata_match_between_chunks_and_zip() -> None:
     figure = _page_asset(
         kind="figure",
         asset_index=1,
-        image_uri="images/image-[1] figure title.png",
+        image_uri="images/image-[5-1] figure title.png",
     )
     table = _page_asset(
         kind="table",
         asset_index=2,
-        image_uri="images/image-[2] table title.png",
-        html_uri="tables/table-[1] table title.html",
+        image_uri="images/image-[5-2] table title.png",
+        html_uri="tables/table-[5-2] table title.html",
     )
     rows = build_asset_rows({5: [figure, table]})
     df = pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
@@ -57,9 +57,9 @@ def test_asset_region_and_metadata_match_between_chunks_and_zip() -> None:
     formatted = ZipChunkSchemaBuilder().format_chunks(
         chunks,
         image_files_map={
-            "asset_figure_1": {"file_path": "images/image-[1] figure title.png"}
+            "asset_figure_1": {"file_path": "images/image-[5-1] figure title.png"}
         },
-        table_files_map={"asset_table_2": {"file_path": "tables/table-[1] table title.html"}},
+        table_files_map={"asset_table_2": {"file_path": "tables/table-[5-2] table title.html"}},
     )
 
     chunk_by_id = {chunk["chunk_id"]: chunk["metadata"] for chunk in chunks}
