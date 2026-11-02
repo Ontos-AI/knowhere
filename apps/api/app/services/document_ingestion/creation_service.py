@@ -231,6 +231,7 @@ class DocumentIngestionCreationService:
         source_file_name = _resolve_url_source_file_name(
             source_url=payload.source_url,
             file_extension=file_extension,
+            file_name=payload.file_name,
         )
         s3_key = f"uploads/{job_id}{file_extension}"
         JobMetadataHelper.set_url_source(
@@ -306,7 +307,17 @@ def _build_job_response(
     )
 
 
-def _resolve_url_source_file_name(*, source_url: str, file_extension: str) -> str:
+def _resolve_url_source_file_name(
+    *,
+    source_url: str,
+    file_extension: str,
+    file_name: str | None = None,
+) -> str:
+    preferred_name = str(file_name or "").strip()
+    if preferred_name:
+        if os.path.splitext(preferred_name)[1]:
+            return preferred_name
+        return f"{preferred_name}{file_extension}"
     parsed_url = urlparse(source_url)
     url_basename = unquote(str(os.path.basename(parsed_url.path)))
     if url_basename and os.path.splitext(url_basename)[1].lower() == file_extension:
