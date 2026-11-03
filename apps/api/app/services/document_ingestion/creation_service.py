@@ -315,7 +315,7 @@ def _resolve_url_source_file_name(
 ) -> str:
     preferred_name = str(file_name or "").strip()
     if preferred_name:
-        if os.path.splitext(preferred_name)[1]:
+        if os.path.splitext(preferred_name)[1].lower() == file_extension:
             return preferred_name
         return f"{preferred_name}{file_extension}"
     parsed_url = urlparse(source_url)
