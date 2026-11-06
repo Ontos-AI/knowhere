@@ -37,15 +37,25 @@ from pathlib import Path
 import sys
 
 @atexit.register
-def verifyLateCleanupCanUseGreenlet():
-    from greenlet import getcurrent
-    if getcurrent() is not None:
+def verifyNativeWorkerRetired():
+    if Path(sys.argv[3]).is_file():
         Path(sys.argv[2]).touch()
 
 from gevent import monkey
 monkey.patch_all()
 import gevent
+from gevent.threadpool import ThreadPool
 from shared.services.background import BackgroundWorkPool
+
+# Gevent removes its worker from the pool before the native thread exits.
+runWorker = ThreadPool._WorkerGreenlet._begin
+nativeSleep = monkey.get_original('time', 'sleep')
+def delayNativeRetirement(worker):
+    runWorker(worker)
+    nativeSleep(0.15)
+    Path(sys.argv[3]).touch()
+
+ThreadPool._WorkerGreenlet._begin = delayNativeRetirement
 pool = BackgroundWorkPool(name='interpreter-exit-probe', maximumWorkers=1)
 def finishNativeOperation():
     gevent.sleep(0.05)
@@ -55,15 +65,17 @@ gevent.sleep(0.01)
 pool.close()
 """
     marker: Path = tmp_path / "completed.txt"
-    cleanupMarker: Path = tmp_path / "greenlet-available.txt"
+    cleanupMarker: Path = tmp_path / "atexit-observed-retirement.txt"
+    retirementMarker: Path = tmp_path / "retired.txt"
     environment: dict[str, str] = dict(os.environ)
     environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
     result = subprocess.run(
-        [sys.executable, "-X", "faulthandler", "-c", program, str(marker), str(cleanupMarker)],
+        [sys.executable, "-X", "faulthandler", "-c", program,
+         str(marker), str(cleanupMarker), str(retirementMarker)],
         env=environment, capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stderr
     assert marker.is_file(), "Interpreter teardown overtook the active native operation"
-    assert cleanupMarker.is_file(), "Greenlet became unavailable during atexit cleanup"
+    assert cleanupMarker.is_file(), "Interpreter teardown overtook native thread retirement"
 
 
 def test_gevent_background_thread_releases_its_native_hub() -> None:
