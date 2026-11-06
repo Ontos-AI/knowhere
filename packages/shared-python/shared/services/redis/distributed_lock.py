@@ -9,6 +9,7 @@ release, and a gevent greenlet for periodic TTL renewal.
 """
 
 import uuid
+from collections.abc import Callable
 from typing import Optional
 
 import gevent
@@ -66,6 +67,7 @@ class RedisJobLock:
         job_id: str,
         ttl: int = 60,
         renewal_interval: int = 20,
+        *, ownerToken: str | None = None, onRenew: Callable[[], bool] | None = None,
     ) -> None:
         self._redis = redis_service
         self._job_id = job_id
@@ -73,7 +75,8 @@ class RedisJobLock:
         self._renewal_interval = renewal_interval
 
         self._lock_key: str = redis_key_builder.lock_job_processing(job_id)
-        self._token: str = uuid.uuid4().hex
+        self._token: str = ownerToken or uuid.uuid4().hex
+        self._onRenew: Callable[[], bool] | None = onRenew
         self._acquired: bool = False
         self._renewal_greenlet: Optional[gevent.Greenlet] = None
         self._stop_event = gevent.event.Event()
@@ -168,6 +171,9 @@ class RedisJobLock:
                 if result != 1:
                     logger.warning(f"Lock lost during renewal: {self._lock_key}")
                     self._acquired = False
+                    break
+                if self._onRenew is not None and not self._onRenew():
+                    logger.warning(f"Durable parsing ownership lost: {self._job_id}")
                     break
             except Exception as exc:
                 logger.warning(f"Lock renewal failed for {self._lock_key}: {exc}")

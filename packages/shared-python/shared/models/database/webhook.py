@@ -48,6 +48,7 @@ class WebhookEvent(Base):
     job_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("jobs.job_id", ondelete="CASCADE"), nullable=False
     )
+    milestone_key: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
 
     # Webhook configuration (snapshot at creation time)
     target_url: Mapped[str] = mapped_column(String(2048), nullable=False)

@@ -11,7 +11,7 @@ from shared.services.retrieval.corpus_storage import CorpusStorage, DEMO_NAMESPA
 from shared.services.retrieval.demo_authorization import authorize_demo_transaction
 
 
-def validate_job_corpus(db: Session, *, job: Job) -> CorpusStorage:
+def validate_job_corpus(db: Session, *, job: Job, lock_document: bool = True) -> CorpusStorage:
     metadata: dict[str, object] = dict(job.job_metadata or {})
     storage: CorpusStorage = CorpusStorage.resolve_namespace(
         str(metadata.get("namespace") or "")
@@ -33,13 +33,15 @@ def validate_job_corpus(db: Session, *, job: Job) -> CorpusStorage:
         raise PermissionDeniedException(
             user_message="Invalid internal demo ingestion target."
         )
+    statement = select(DemoDocument)
+    if lock_document:
+        statement = statement.with_for_update()
     document: DemoDocument | None = db.execute(
-        select(DemoDocument)
+        statement
         .where(
             DemoDocument.document_id == documentId,
             DemoDocument.demo_source_id == metadata.get("demo_source_id"),
         )
-        .with_for_update()
     ).scalar_one_or_none()
     if document is None or document.status == "archived":
         raise PermissionDeniedException(

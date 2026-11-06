@@ -62,6 +62,7 @@ class SyncJobLifecycleService:
         delivery_mode: str = "url",
         section_summaries: Optional[Dict[str, str]] = None,
         document_top_summary: Optional[str] = None,
+        parsingOwnerToken: str | None = None,
     ) -> Dict[str, Any]:
         """Finalize a successful job in a single atomic transaction.
 
@@ -91,6 +92,7 @@ class SyncJobLifecycleService:
                 delivery_mode=delivery_mode,
                 section_summaries=section_summaries,
                 document_top_summary=document_top_summary,
+                parsingOwnerToken=parsingOwnerToken,
             ),
             should_commit=lambda finalization: finalization.response.should_commit(),
             build_response=lambda finalization: finalization.response.to_dict(),
@@ -105,6 +107,7 @@ class SyncJobLifecycleService:
         error_code: str = "UNKNOWN",
         error_details: Optional[Dict[str, Any]] = None,
         should_refund: bool = False,
+        parsingOwnerToken: str | None = None,
     ) -> bool:
         """Finalize a failed job in a single atomic transaction.
 
@@ -127,6 +130,7 @@ class SyncJobLifecycleService:
                 error_code=error_code,
                 error_details=error_details,
                 should_refund=should_refund,
+                parsingOwnerToken=parsingOwnerToken,
             ),
             should_commit=lambda finalization: finalization.succeeded,
             build_response=lambda finalization: finalization.succeeded,
@@ -148,6 +152,7 @@ class SyncJobLifecycleService:
         delivery_mode: str,
         section_summaries: dict[str, str] | None,
         document_top_summary: str | None,
+        parsingOwnerToken: str | None = None,
     ) -> Any:
         if trace is not None:
             counter_names = {
@@ -178,6 +183,7 @@ class SyncJobLifecycleService:
             section_summaries=section_summaries,
             document_top_summary=document_top_summary,
             trace=trace,
+            parsingOwnerToken=parsingOwnerToken,
         )
 
     def update_progress(

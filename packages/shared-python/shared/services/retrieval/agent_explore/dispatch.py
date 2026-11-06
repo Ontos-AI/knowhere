@@ -27,6 +27,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+from shared.services.retrieval.execution.native_failure import NativeFailureState
+from shared.services.retrieval.lexical.error import LexicalIndexError
 
 from shared.services.retrieval.agent_tools import (
     REGISTRY,
@@ -67,6 +69,7 @@ async def dispatch_tool_call(
     is a pass-through, not a new source of truth. ``readable``/``decided`` are
     the episode's ``corpus.read`` gates, passed through unchanged.
     """
+    NativeFailureState.raiseCurrent()
     try:
         async with db_factory() as db:
             pins = CorpusRevisionContext.get_pins()
@@ -85,6 +88,9 @@ async def dispatch_tool_call(
             )
             return await REGISTRY.dispatch(name, tool_ctx, args)
     except RequiredQueryEmbeddingException:
+        raise
+    except LexicalIndexError as error:
+        NativeFailureState.recordCurrent(error)
         raise
     except Exception as exc:  # noqa: BLE001 - ordinary tool errors remain recoverable
         return ToolResult(text="", error=f"{type(exc).__name__}: {exc}")

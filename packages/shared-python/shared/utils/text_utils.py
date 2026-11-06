@@ -5,12 +5,10 @@
 import importlib
 import re
 import warnings
-from collections.abc import Iterable
+from collections.abc import Callable, Generator, Iterable, Iterator
 from typing import List, Optional, Protocol, cast
 
 from syntok.tokenizer import Tokenizer as _SyntokTokenizer
-
-from shared.utils.chunk_refs import CHUNK_REF_PATTERN
 
 try:
     from blingfire import text_to_words as _blingfire_text_to_words
@@ -155,11 +153,20 @@ def _get_retrieval_stopwords() -> tuple[frozenset[str], frozenset[str]]:
     return _RETRIEVAL_ZH_STOPWORDS, _RETRIEVAL_EN_STOPWORDS
 
 
-# Pre-clean: strip chunk reference markers before tokenization
-_CHUNK_MARKER_RE = re.compile(
-    rf'{CHUNK_REF_PATTERN}|image-\d+|table-\d+',
-    re.IGNORECASE,
+# Fixed-width parts of CHUNK_REF_PATTERN and the inline labels. Searching for
+# each opener's suffix with the full lazy regex can rescan the same line once
+# per malformed opener. Each resource kind instead shares its next boundary.
+_SCAN_CHARACTERS: int = 4096
+_MARKER_LOOKAHEAD: int = 8
+_MARKER_START_RE: re.Pattern[str] = re.compile(
+    r"(?P<image>\[images/)|(?P<table>\[tables/)|(?:image|table)-\d", re.IGNORECASE
 )
+_MARKER_BOUNDARIES: dict[str, re.Pattern[str]] = {
+    "image": re.compile(r"\.(?:png|jpe?g|gif|webp)\]|\n", re.IGNORECASE),
+    "table": re.compile(r"\.(?:html|csv)\]|\n", re.IGNORECASE),
+}
+_LABEL_DIGITS_RE: re.Pattern[str] = re.compile(r"\d+")
+_LANGUAGE_RUN_RE: re.Pattern[str] = re.compile(r"[\u4e00-\u9fff]+|[^\u4e00-\u9fff]+")
 
 
 def _normalize_retrieval_token(token: str) -> str:
@@ -169,24 +176,85 @@ def _normalize_retrieval_token(token: str) -> str:
     return token.lower() if re.search(r"[A-Za-z]", token) else token
 
 
-def _split_mixed_language_segments(text: str) -> list[tuple[str, bool]]:
-    segments: list[tuple[str, bool]] = []
-    current: list[str] = []
-    current_is_cjk: Optional[bool] = None
+def _find_marker_boundary(text: str, start: int, pattern: re.Pattern[str]) -> Generator[None, None, re.Match[str] | None]:
+    position: int = start
+    while position < len(text):
+        limit: int = min(position + _SCAN_CHARACTERS, len(text))
+        match: re.Match[str] | None = pattern.search(text, position, limit + _MARKER_LOOKAHEAD)
+        if match is not None and match.start() < limit:
+            return match
+        position = limit
+        yield None
+    return None
 
-    for char in text:
-        char_is_cjk = _is_cjk_char(char)
-        if current_is_cjk is None or char_is_cjk == current_is_cjk:
-            current.append(char)
-            current_is_cjk = char_is_cjk
+
+def _skip_label_digits(text: str, start: int) -> Generator[None, None, int]:
+    position: int = start
+    while position < len(text):
+        limit: int = min(position + _SCAN_CHARACTERS, len(text))
+        match: re.Match[str] | None = _LABEL_DIGITS_RE.match(text, position, limit)
+        if match is None:
+            break
+        position = match.end()
+        if position < limit:
+            break
+        yield None
+    return position
+
+
+def _iterate_clean_text_steps(text: str) -> Iterator[str | None]:
+    position: int = 0
+    checkpoint: int = _SCAN_CHARACTERS
+    boundaries: dict[str, re.Match[str] | None] = {}
+    while position < len(text):
+        if position >= checkpoint:
+            yield None
+            checkpoint = position + _SCAN_CHARACTERS
+        limit: int = min(checkpoint, len(text))
+        marker: re.Match[str] | None = _MARKER_START_RE.search(text, position, limit + _MARKER_LOOKAHEAD)
+        if marker is None or marker.start() >= limit:
+            yield text[position:limit]
+            position = limit
             continue
-        segments.append(("".join(current), current_is_cjk))
-        current = [char]
-        current_is_cjk = char_is_cjk
+        if marker.start() > position:
+            yield text[position:marker.start()]
+        position = marker.end()
+        kind: str | None = marker.lastgroup
+        if kind is None:
+            position = yield from _skip_label_digits(text, position)
+            continue
+        boundary: re.Match[str] | None = boundaries.get(kind)
+        if kind not in boundaries or (boundary is not None and boundary.start() < position):
+            boundary = yield from _find_marker_boundary(text, position, _MARKER_BOUNDARIES[kind])
+        if boundary is not None and boundary.start() == position and text[position] == ".":
+            # The lazy path expression requires at least one character before
+            # the extension. An immediate suffix may still be part of a path
+            # that ends at the next matching suffix on this line.
+            boundary = yield from _find_marker_boundary(text, boundary.end(), _MARKER_BOUNDARIES[kind])
+        boundaries[kind] = boundary
+        if boundary is None or text[boundary.start()] == "\n":
+            yield marker.group()
+        else:
+            position = boundary.end()
 
-    if current:
-        segments.append(("".join(current), bool(current_is_cjk)))
-    return segments
+
+def _iterate_retrieval_segment_steps(text: str) -> Iterator[tuple[str, bool] | None]:
+    """Stream the legacy language runs and checkpoints between scan windows."""
+    parts: list[str] = []
+    isCjk: bool | None = None
+    for fragment in _iterate_clean_text_steps(str(text or "")):
+        if fragment is None:
+            yield None
+            continue
+        for run in _LANGUAGE_RUN_RE.finditer(fragment):
+            runIsCjk: bool = _is_cjk_char(fragment[run.start()])
+            if isCjk is not None and runIsCjk != isCjk:
+                yield "".join(parts), isCjk
+                parts.clear()
+            parts.append(run.group())
+            isCjk = runIsCjk
+    if isCjk is not None:
+        yield "".join(parts), isCjk
 
 
 def _tokenize_english_segment(text: str) -> list[str]:
@@ -220,6 +288,46 @@ def _resolve_retrieval_stopwords(
     return (zh_words or None), (en_words or None)
 
 
+def _iterate_retrieval_token_steps(
+    text: str,
+    *,
+    stopwords: Optional[Iterable[str]] = None,
+    dedupe: bool = False,
+    min_token_length: int = 2,
+    validateCjkSpan: Callable[[str], None] | None = None,
+) -> Iterator[str | None]:
+    """Yield checkpoints around the unchanged authoritative language spans."""
+    zh_stopwords, en_stopwords = _resolve_retrieval_stopwords(stopwords)
+    seen: set[str] = set()
+    for step in _iterate_retrieval_segment_steps(text):
+        if step is None:
+            yield None
+            continue
+        segment, is_cjk = step
+        if is_cjk and validateCjkSpan is not None:
+            validateCjkSpan(segment)
+        yield None
+        raw_tokens = _tokenize_cjk_segment(segment) if is_cjk else _tokenize_english_segment(segment)
+        yield None
+        for raw_token in raw_tokens:
+            yield None
+            token = _normalize_retrieval_token(raw_token)
+            if not token or not _is_meaningful_token(token):
+                continue
+            if len(token) < min_token_length:
+                continue
+            if _has_cjk_char(token):
+                if zh_stopwords and token in zh_stopwords:
+                    continue
+            elif en_stopwords and token in en_stopwords:
+                continue
+            if dedupe:
+                if token in seen:
+                    continue
+                seen.add(token)
+            yield token
+
+
 def tokenize_for_retrieval(
     text: str,
     *,
@@ -233,28 +341,8 @@ def tokenize_for_retrieval(
     blingfire when available. Tokens are normalized to lowercase for English,
     filtered for minimum length / useful characters, and optionally deduplicated.
     """
-    content = _CHUNK_MARKER_RE.sub('', str(text or ""))
-    zh_stopwords, en_stopwords = _resolve_retrieval_stopwords(stopwords)
-    tokens: list[str] = []
-
-    for segment, is_cjk in _split_mixed_language_segments(content):
-        raw_tokens = _tokenize_cjk_segment(segment) if is_cjk else _tokenize_english_segment(segment)
-        for raw_token in raw_tokens:
-            token = _normalize_retrieval_token(raw_token)
-            if not token or not _is_meaningful_token(token):
-                continue
-            if len(token) < min_token_length:
-                continue
-            if _has_cjk_char(token):
-                if zh_stopwords and token in zh_stopwords:
-                    continue
-            elif en_stopwords and token in en_stopwords:
-                continue
-            tokens.append(token)
-
-    if dedupe:
-        tokens = remove_duplicates_orderkept(tokens)
-    return tokens
+    return [token for token in _iterate_retrieval_token_steps(text, stopwords=stopwords,
+        dedupe=dedupe, min_token_length=min_token_length) if token is not None]
 
 
 def tokenize_contents_for_retrieval(
@@ -301,7 +389,7 @@ def tokenize2stw_remove(contents: List[str], stopwords: Optional[List[str]] = No
     res_contents = []
     for content in contents:
         # Pre-clean: remove IMAGE_/TABLE_ markers and reference labels
-        content = _CHUNK_MARKER_RE.sub('', content)
+        content = "".join(part for part in _iterate_clean_text_steps(content) if part is not None)
         try:
             raw_tokens = _jieba.lcut(content)
         except AttributeError:

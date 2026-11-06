@@ -8,6 +8,7 @@ import uuid
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from shared.core.logging import log_context
+from shared.services.retrieval.lexical.stage_observer import StageObserver
 
 SKIP_PATHS = {"/health", "/api/health"}
 
@@ -53,5 +54,7 @@ class LoggingMiddleware:
                 message["headers"] = raw_headers
             await send(message)
 
-        with log_context(request_id=request_id):
+        with log_context(request_id=request_id), StageObserver.bindRequest(
+            request_id, isRetry=path.endswith("/indexing/retry")
+        ):
             await self.app(scope, receive, send_wrapper)

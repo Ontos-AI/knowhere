@@ -26,6 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.services.retrieval.document_scope import DocumentScope
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 from shared.services.retrieval.execution.revision_pins import capture_revision_pins
+from shared.services.retrieval.execution.native_failure import NativeFailureState
+from shared.services.retrieval.lexical.error import LexicalIndexError
 from shared.services.retrieval.settings import EVIDENCE_TEXT_CHAR_BUDGET
 from shared.services.retrieval.required_query_embedding import RequiredQueryEmbeddingException
 
@@ -192,6 +194,7 @@ class ToolRegistry:
     async def dispatch(
         self, name: str, ctx: ToolContext, args: dict[str, Any]
     ) -> ToolResult:
+        NativeFailureState.raiseCurrent()
         spec = self.get(name)
         if spec is None:
             return ToolResult(text="", error=f"unknown tool: {name}")
@@ -203,8 +206,13 @@ class ToolRegistry:
             if pins is None:
                 pins = await capture_revision_pins(ctx.db, user_id=ctx.user_id, namespace=ctx.namespace)
             with CorpusRevisionContext.bind(pins):
-                return await spec.run(replace(ctx, document_scope=ctx.document_scope.narrow(list(pins))), args)
+                result: ToolResult = await spec.run(replace(ctx, document_scope=ctx.document_scope.narrow(list(pins))), args)
+                NativeFailureState.raiseCurrent()
+                return result
         except RequiredQueryEmbeddingException:
+            raise
+        except LexicalIndexError as error:
+            NativeFailureState.recordCurrent(error)
             raise
         except Exception as exc:  # noqa: BLE001 - ordinary tool errors remain recoverable
             logger.exception("corpus tool %s raised", name)

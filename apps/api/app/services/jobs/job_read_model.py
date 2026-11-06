@@ -16,6 +16,8 @@ from shared.core.exceptions.domain_exceptions import (
     JobOperationException,
     NotFoundException,
     PermissionDeniedException,
+    UnavailableException,
+    TimeoutException,
     ValidationException,
 )
 from shared.models.schemas.job import JobList, JobResultResponse
@@ -55,8 +57,9 @@ class JobReadModel:
         *,
         job_id: str,
         user_id: str,
+        shouldSignResultURL: bool = True,
     ) -> JobResultResponse:
-        return await get_job_result_for_user(db, job_id=job_id, user_id=user_id)
+        return await get_job_result_for_user(db, job_id=job_id, user_id=user_id, shouldSignResultURL=shouldSignResultURL)
 
 
 def check_job_permission(job, user_id: str, job_id: str) -> None:
@@ -179,6 +182,7 @@ async def get_job_result_for_user(
     *,
     job_id: str,
     user_id: str,
+    shouldSignResultURL: bool = True,
 ) -> JobResultResponse:
     try:
         job_repo = JobRepository()
@@ -192,15 +196,22 @@ async def get_job_result_for_user(
 
         redis_service = RedisServiceFactory.get_service()
         job_metadata = await job_repo.get_job_metadata(db, job_id, redis_service)
-        return await build_job_result_response(
-            job=job,
-            job_metadata=job_metadata,
-            progress=progress,
-        )
+        try:
+            return await build_job_result_response(
+                job=job,
+                job_metadata=job_metadata,
+                progress=progress,
+                shouldSignResultURL=shouldSignResultURL,
+            )
+        except TimeoutError as error:
+            raise TimeoutException(
+                "Job result URL signing exceeded its deadline", retry_after=1,
+                original_exception=error,
+            ) from error
 
     except NotFoundException:
         raise
-    except PermissionDeniedException:
+    except (PermissionDeniedException, UnavailableException, TimeoutException):
         raise
     except Exception as exc:
         logger.error(f"Failed to get job result: {exc}")

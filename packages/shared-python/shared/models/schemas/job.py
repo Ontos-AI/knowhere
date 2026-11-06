@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from shared.models.schemas.llm_config import LLMConfig
 from shared.models.schemas.progressive_ingestion import (
@@ -12,12 +12,36 @@ from shared.models.schemas.progressive_ingestion import (
 )
 
 IngestionMode = Literal["full", "progressive"]
+WebhookEventType = Literal[
+    "job.parsed",
+    "job.completed",
+    "job.failed",
+    "job.enrichment.completed",
+    "job.document.directory_ready",
+]
 
 
 class WebhookConfig(BaseModel):
     """Webhook configuration."""
 
     url: str = Field(..., description="Webhook callback URL")
+    events: list[WebhookEventType] | None = Field(
+        default=None, min_length=1, description="Omit for the existing notifications"
+    )
+
+    @field_validator("events", mode="before")
+    @classmethod
+    def validateEvents(cls, value: object) -> object:
+        if not isinstance(value, list):
+            raise ValueError("events must be a nonempty event list when provided")
+        return value
+
+    @field_validator("events")
+    @classmethod
+    def normalizeEvents(
+        cls, value: list[WebhookEventType] | None
+    ) -> list[WebhookEventType] | None:
+        return list(dict.fromkeys(value)) if value is not None else None
 
 
 class ParsingParams(BaseModel):
@@ -138,6 +162,9 @@ class JobResponse(BaseModel):
     """Job-creation response."""
 
     job_id: str = Field(..., description="Job ID")
+    parsing_status: Literal["pending", "running", "completed", "failed"] = "pending"
+    indexing_status: Literal["not_started", "pending", "running", "completed", "failed"] = "not_started"
+    failure_stage: Literal["parsing", "indexing"] | None = None
     namespace: Optional[str] = Field(None, description="Effective namespace")
     document_id: Optional[str] = Field(None, description="Linked document ID")
     status: Literal[
@@ -178,7 +205,7 @@ class JobResultResponse(BaseModel):
     """Job status query response (for GET /jobs/{job_id}/result)"""
 
     job_result_id: Optional[str] = Field(
-        None, description="Immutable completed publication revision, when available"
+        None, description="Parsed publication revision, when available"
     )
     enhancement: Optional[EnhancementProgress] = Field(
         default=None, exclude_if=lambda value: value is None
@@ -194,6 +221,9 @@ class JobResultResponse(BaseModel):
     )
 
     job_id: str = Field(..., description="Job ID")
+    parsing_status: Literal["pending", "running", "completed", "failed"] = "pending"
+    indexing_status: Literal["not_started", "pending", "running", "completed", "failed"] = "not_started"
+    failure_stage: Literal["parsing", "indexing"] | None = None
     namespace: Optional[str] = Field(None, description="Effective retrieval namespace")
     document_id: Optional[str] = Field(None, description="Linked document ID")
     status: Literal[

@@ -18,7 +18,7 @@ class QStashPayloadEnricher:
 
     def enrich(self, db: Any, event: Any) -> dict[str, Any]:
         payload = dict(event.payload)
-        if payload.get("event") not in {"job.completed", "job.enrichment.completed"}:
+        if not self._resolver.supports_payload(payload):
             return payload
 
         try:

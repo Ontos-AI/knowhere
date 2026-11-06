@@ -63,7 +63,7 @@ def test_should_expire_stale_jobs_and_persist_failure_state(
 
     result = stale_job_sweeper.expire_stale_jobs()
 
-    assert result == {"status": "success", "expired": 1, "skipped": 0}
+    assert result == {"status": "success", "expired": 1, "skipped": 0, "indexing": {"expired": 0, "deferred": 0}}
 
     with engine.begin() as connection:
         stale_job_row = (
@@ -133,7 +133,7 @@ def test_should_skip_duplicate_beat_firing_with_the_real_periodic_redis_lock(
     first_result = stale_job_sweeper.expire_stale_jobs()
     second_result = stale_job_sweeper.expire_stale_jobs()
 
-    assert first_result == {"status": "success", "expired": 0, "skipped": 0}
+    assert first_result == {"status": "success", "expired": 0, "skipped": 0, "indexing": {"expired": 0, "deferred": 0}}
     assert second_result == {
         "status": "skipped",
         "reason": "duplicate Beat firing",

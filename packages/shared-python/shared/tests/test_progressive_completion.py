@@ -2,6 +2,7 @@
 
 from unittest.mock import Mock
 
+from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.progressive_ingestion import StoredSnapshot
 from shared.services.jobs.progressive_completion import commit_final_completion
@@ -67,10 +68,13 @@ def test_final_completion_records_identity_and_emits_only_once() -> None:
 
 def test_final_webhook_is_a_success_event() -> None:
     db = Mock()
-    db.execute.return_value.one_or_none.return_value = (
-        "https://callback.example",
-        True,
+    db.scalar.return_value = Job(
+        webhook_url="https://callback.example",
+        webhook_enabled=True,
+        webhook_events=None,
     )
+    db.scalars.return_value.first.return_value = None
+    db.execute.return_value.one_or_none.return_value = None
     SyncJobWebhookOutbox().create_event(
         db, job_id="j", event_type="job.enrichment.completed"
     )

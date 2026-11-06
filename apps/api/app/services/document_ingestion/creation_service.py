@@ -94,6 +94,7 @@ class DocumentIngestionCreationService:
         job_metadata: JobMetadata,
         s3_key: str,
         document_id: str,
+        webhook_events: list[str] | None = None,
     ) -> Job:
         try:
             job = await self._job_repository.create_job(
@@ -104,6 +105,7 @@ class DocumentIngestionCreationService:
                 source_type=source_type,
                 file_path=None,
                 webhook_url=webhook_url,
+                webhook_events=webhook_events,
                 metadata=job_metadata,
                 initial_state=JobStatus.WAITING_FILE.value,
                 s3_key=s3_key,
@@ -168,6 +170,7 @@ class DocumentIngestionCreationService:
             user_id=current_user.user_id,
             source_type="file",
             webhook_url=payload.webhook.url if payload.webhook else None,
+            webhook_events=list(payload.webhook.events) if payload.webhook and payload.webhook.events is not None else None,
             job_metadata=scope.job_metadata,
             s3_key=s3_key,
             document_id=scope.document_id,
@@ -246,6 +249,7 @@ class DocumentIngestionCreationService:
             user_id=current_user.user_id,
             source_type="url",
             webhook_url=payload.webhook.url if payload.webhook else None,
+            webhook_events=list(payload.webhook.events) if payload.webhook and payload.webhook.events is not None else None,
             job_metadata=scope.job_metadata,
             s3_key=s3_key,
             document_id=scope.document_id,

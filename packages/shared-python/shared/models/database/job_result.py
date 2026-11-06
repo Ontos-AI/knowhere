@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from sqlalchemy import CheckConstraint, UniqueConstraint, JSON, DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import BigInteger, CheckConstraint, UniqueConstraint, JSON, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from shared.core.database import Base
@@ -56,6 +56,14 @@ class JobResult(Base):
     )
     result_s3_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     result_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    indexing_input_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    indexing_input_checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    indexing_input_compiler: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    indexing_input_gc_state: Mapped[str] = mapped_column(String(16), nullable=False, default="retained", server_default="retained")
+    indexing_input_next_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    indexing_input_gc_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    indexing_input_gc_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    indexing_input_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False

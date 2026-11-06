@@ -238,6 +238,7 @@ def document_payload(document) -> dict[str, Any]:
         "namespace": document.namespace,
         "status": document.status,
         "current_job_result_id": document.current_job_result_id,
+        "latest_parsed_job_result_id": document.latest_parsed_job_result_id or document.current_job_result_id,
         "source_file_name": document.source_file_name,
         "document_metadata": document.document_metadata or {},
         "created_at": document.created_at.isoformat() if document.created_at else None,
@@ -316,7 +317,7 @@ class DocumentService:
             _, revision = await resolve_demo_revision(db, document_id=document_id, job_result_id=job_result_id)
             job_result_id = revision.id
         else:
-            job_result_id = job_result_id or document.current_job_result_id
+            job_result_id = job_result_id or document.latest_parsed_job_result_id or document.current_job_result_id
         if not job_result_id:
             return {
                 "document_id": document.document_id,
@@ -398,7 +399,7 @@ class DocumentService:
             _, revision = await resolve_demo_revision(db, document_id=document_id, job_result_id=job_result_id)
             job_result_id = revision.id
         else:
-            job_result_id = job_result_id or document.current_job_result_id
+            job_result_id = job_result_id or document.latest_parsed_job_result_id or document.current_job_result_id
         if job_result_id is None:
             return None
         row = await self._repository.get_current_document_chunk(
@@ -595,6 +596,10 @@ class DocumentService:
             return document_payload(document)
 
         previous_namespace = document.namespace
+        from shared.core.config import settings
+        from shared.services.retrieval.lexical.coordination import LexicalCoordination
+        if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch":
+            await db.run_sync(LexicalCoordination.lockControl)
         await db.run_sync(
             lambda sync_db: lock_namespace_generation(
                 sync_db,
@@ -611,13 +616,18 @@ class DocumentService:
                 document_id=document_id,
             )
         )
-        await db.run_sync(
+        generation: int = await db.run_sync(
             lambda sync_db: advance_namespace_generation(
                 sync_db,
                 user_id=user_id,
                 namespace=previous_namespace,
             )
         )
+        eventId: str | None = None
+        if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch":
+            from shared.services.retrieval.lexical.archival import IndexingArchival
+            eventId = await db.run_sync(lambda session: IndexingArchival().finalize(session,
+                userId=user_id, documentId=document_id, namespace=previous_namespace, generation=generation))
         await db.run_sync(
             lambda sync_db: self._graph_service.remove_document_graph(
                 sync_db,
@@ -626,6 +636,10 @@ class DocumentService:
             )
         )
         await db.commit()
+        if eventId is not None:
+            from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
+            import asyncio
+            await asyncio.to_thread(SyncJobWebhookOutbox().enqueue_event_id_after_commit, eventId)
         try:
             await invalidate_retrieval_cache_namespaces(
                 user_id=user_id,

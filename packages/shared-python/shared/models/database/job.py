@@ -47,6 +47,13 @@ class Job(Base):
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="pending"
     )  # PRD Status: pending, waiting-file, running, converting, done, failed
+    parsing_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending")
+    indexing_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_started", server_default="not_started")
+    failure_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    parsing_owner_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    parsing_owner_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    current_indexing_attempt_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    webhook_events: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
     # File Info
     source_type: Mapped[str] = mapped_column(

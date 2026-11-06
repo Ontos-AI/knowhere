@@ -14,6 +14,7 @@ from shared.services.retrieval.execution.route_types import (
     RetrievalRouteContext,
     RetrievalRouteOutcome,
 )
+from shared.services.retrieval.execution.native_failure import NativeFailureState
 from shared.services.retrieval.hydration.evidence_compose import (
     group_evidence_units,
 )
@@ -297,6 +298,7 @@ async def _run_agent_explore_route(
         budget=EpisodeBudget(),
         document_scope=context.document_scope,
     )
+    NativeFailureState.raiseCurrent()
     logger.info(
         "retrieval agent_explore stage=episode seconds={:.3f} pool={} "
         "steps={} tokens={} stop_reason={}".format(

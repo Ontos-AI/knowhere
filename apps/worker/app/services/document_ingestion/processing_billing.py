@@ -18,6 +18,7 @@ from shared.core.exceptions.domain_exceptions import (
 )
 from shared.models.database.job import Job
 from shared.services.billing.work_billing_service import WorkBillingService
+from shared.services.jobs.parsing import ParsingOwnership
 
 
 @dataclass(frozen=True)
@@ -31,9 +32,12 @@ def record_skipped_parse_job_billing(
     *,
     job_id: str,
     workload_estimate: WorkloadEstimate,
+    parsingOwnerToken: str | None = None,
 ) -> ParseJobBillingSnapshot:
     page_count = workload_estimate.page_count
     with get_sync_db_context() as db:
+        if parsingOwnerToken is not None:
+            ParsingOwnership().assertInTransaction(db, job_id, parsingOwnerToken)
         job_result = db.execute(select(Job).where(Job.job_id == job_id).with_for_update())
         job = job_result.scalar_one_or_none()
         if job:
@@ -54,6 +58,7 @@ def charge_parse_job_pages(
     filename: str | None,
     job_user_id: str | None,
     workload_estimate: WorkloadEstimate,
+    parsingOwnerToken: str | None = None,
 ) -> ParseJobBillingSnapshot:
     page_count = workload_estimate.page_count
     if not job_user_id:
@@ -70,6 +75,8 @@ def charge_parse_job_pages(
     billing_credits: float
 
     with get_sync_db_context() as db:
+        if parsingOwnerToken is not None:
+            ParsingOwnership().assertInTransaction(db, job_id, parsingOwnerToken)
         job_result = db.execute(select(Job).where(Job.job_id == job_id).with_for_update())
         job = job_result.scalar_one_or_none()
 

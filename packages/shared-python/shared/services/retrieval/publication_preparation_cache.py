@@ -5,13 +5,13 @@ from __future__ import annotations
 import sys
 import threading
 from collections import Counter, OrderedDict
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from hashlib import sha256
 
-from shared.utils.text_utils import tokenize_for_retrieval
+from shared.utils.text_utils import _iterate_retrieval_segment_steps, _iterate_retrieval_token_steps
 
 _PREPARATION_FORMAT_VERSION = 1
 _MAX_BYTES = 64 * 1024 * 1024
@@ -61,20 +61,35 @@ class PublicationPreparationCache:
 
     @classmethod
     def tokenize(cls, text: str, *, dedupe: bool = False) -> list[str]:
+        return [token for token in cls.iterateTokenSteps(text, dedupe=dedupe) if token is not None]
+
+    @classmethod
+    def iterateTokenSteps(cls, text: str, *, dedupe: bool = False,
+                          validateCjkSpan: Callable[[str], None] | None = None) -> Iterator[str | None]:
         key: _Key | None = cls._build_key(text, operation="tokens", dedupe=dedupe)
         cached: _PreparedValue | None = cls._get(key)
         if cached is not None:
-            return list(cached.tokens)
-        tokens: list[str] = tokenize_for_retrieval(
-            text, stopwords=[], dedupe=dedupe, min_token_length=2
-        )
+            # A previous unbounded caller may have cached a stream that the
+            # bounded indexing compiler must reject before reusing it.
+            if validateCjkSpan is not None:
+                for step in _iterate_retrieval_segment_steps(text):
+                    if step is not None and step[1]:
+                        validateCjkSpan(step[0])
+                    yield None
+            yield from cached.tokens
+            return
+        tokens: list[str] = []
+        for token in _iterate_retrieval_token_steps(text, stopwords=[], dedupe=dedupe,
+            min_token_length=2, validateCjkSpan=validateCjkSpan):
+            if token is not None:
+                tokens.append(token)
+            yield token
         if key is not None:
             immutable_tokens: tuple[str, ...] = tuple(tokens)
             size_bytes: int = sys.getsizeof(immutable_tokens) + sum(
                 sys.getsizeof(item) for item in immutable_tokens
             )
             cls._store(key, _PreparedValue(tokens=immutable_tokens, size_bytes=size_bytes))
-        return tokens
 
     @classmethod
     def count_tokens(cls, text: str) -> Counter[str]:
