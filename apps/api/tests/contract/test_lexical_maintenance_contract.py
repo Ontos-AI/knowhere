@@ -22,7 +22,7 @@ from shared.testing.contract_runtime import (
 _Model = TypeVar("_Model")
 
 
-def requireRow(db: Session, model: type[_Model], identity: str) -> _Model:
+def requireRow(db: Session, model: type[_Model], identity: str | int) -> _Model:
     row: _Model | None = db.get(model, identity)
     assert row is not None
     return row
@@ -135,7 +135,55 @@ def test_pg_copy_repair_remains_available_while_publication_is_gated(publishedIn
     assert LegacyLexicalCopy(sessionFactory=sessionmaker(engine, expire_on_commit=False)).run(buildId)
 
 
-def test_finished_consumers_allow_input_collection_without_touching_canonical_result(publishedInput: tuple[Engine, str, str, str]) -> None:
+def test_completed_pg_copy_keeps_published_input_until_retirement(
+    publishedInput: tuple[Engine, str, str, str],
+) -> None:
+    from shared.core.config.storage import get_cached_storage_adapter
+    from shared.models.database.document import Document
+    from shared.models.database.job import Job
+    from shared.models.database.job_result import JobResult
+    from shared.models.database.lexicalbuild import LexicalBuild
+    from shared.services.retrieval.lexical.input_collector import LexicalInputCollector
+    from shared.services.retrieval.lexical.storage import LexicalInputStorage
+
+    engine, buildId, _, revisionId = publishedInput
+    with Session(engine) as db:
+        result: JobResult = requireRow(db, JobResult, revisionId)
+        assert result.indexing_input_key is not None
+        key: str = result.indexing_input_key
+        build: LexicalBuild = requireRow(db, LexicalBuild, buildId)
+        documentId: str = build.documentId
+        build.legacyCopyState = "completed"
+        # A later admission can change accepted-job state while the old revision serves.
+        requireRow(db, Document, documentId).accepted_job_id = None
+        # The published result has the canonical binding even if the job hint is stale.
+        result.document_id = documentId
+        job: Job = requireRow(db, Job, result.job_id)
+        job.job_metadata = {**(job.job_metadata or {}), "document_id": "stale-document-hint"}
+        db.commit()
+
+    collector = LexicalInputCollector(sessionFactory=sessionmaker(engine, expire_on_commit=False))
+    bucket: str = LexicalInputStorage().bucket
+    adapter = get_cached_storage_adapter()
+    assert not collector.collectAssigned(revisionId)
+    with Session(engine) as db:
+        result = requireRow(db, JobResult, revisionId)
+        assert result.indexing_input_gc_state == "retained"
+        assert result.indexing_input_gc_attempts == 0
+        requireRow(db, Document, documentId).status = "archived"
+        db.commit()
+    assert adapter.exists(key, bucket=bucket)
+
+    assert collector.collectAssigned(revisionId)
+    with Session(engine) as db:
+        result = requireRow(db, JobResult, revisionId)
+        assert result.indexing_input_gc_state == "deleted"
+        assert result.result_s3_key == "results/maintenance.zip"
+    assert not adapter.exists(key, bucket=bucket)
+
+
+def test_pending_copy_preserves_input(publishedInput: tuple[Engine, str, str, str]) -> None:
+    from shared.models.database.document import Document
     from shared.models.database.job_result import JobResult
     from shared.models.database.lexicalbuild import LexicalBuild
     from shared.services.retrieval.lexical.input_collector import LexicalInputCollector
@@ -144,27 +192,9 @@ def test_finished_consumers_allow_input_collection_without_touching_canonical_re
 
     engine, buildId, _, revisionId = publishedInput
     with Session(engine) as db:
-        result: JobResult = requireRow(db, JobResult, revisionId)
-        assert result.indexing_input_key is not None
-        key: str = result.indexing_input_key
-        requireRow(db, LexicalBuild, buildId).legacyCopyState = "completed"
+        build: LexicalBuild = requireRow(db, LexicalBuild, buildId)
+        requireRow(db, Document, build.documentId).status = "archived"
         db.commit()
-    collector = LexicalInputCollector(sessionFactory=sessionmaker(engine, expire_on_commit=False))
-    assert collector.collectAssigned(revisionId)
-    with Session(engine) as db:
-        result = requireRow(db, JobResult, revisionId)
-        assert result.indexing_input_gc_state == "deleted"
-        assert result.result_s3_key == "results/maintenance.zip"
-    assert not get_cached_storage_adapter().exists(key, bucket=LexicalInputStorage().bucket)
-
-
-def test_pending_copy_preserves_input(publishedInput: tuple[Engine, str, str, str]) -> None:
-    from shared.models.database.job_result import JobResult
-    from shared.services.retrieval.lexical.input_collector import LexicalInputCollector
-    from shared.core.config.storage import get_cached_storage_adapter
-    from shared.services.retrieval.lexical.storage import LexicalInputStorage
-
-    engine, _, _, revisionId = publishedInput
     collector = LexicalInputCollector(sessionFactory=sessionmaker(engine, expire_on_commit=False))
     assert not collector.collectAssigned(revisionId)
     with Session(engine) as db:
@@ -176,6 +206,7 @@ def test_pending_copy_preserves_input(publishedInput: tuple[Engine, str, str, st
 
 def test_old_eligible_failed_candidate_keeps_assigned_input(publishedInput: tuple[Engine, str, str, str]) -> None:
     from datetime import datetime
+    from shared.models.database.document import Document
     from shared.models.database.job import Job
     from shared.models.database.job_result import JobResult
     from shared.models.database.lexicalbuild import LexicalBuild
@@ -190,8 +221,10 @@ def test_old_eligible_failed_candidate_keeps_assigned_input(publishedInput: tupl
         job.status = "failed"
         job.indexing_status = "failed"
         job.failure_stage = "indexing"
-        requireRow(db, LexicalBuild, buildId).legacyCopyState = "not_started"
-        requireRow(db, LexicalBuild, buildId).state = "failed"
+        build: LexicalBuild = requireRow(db, LexicalBuild, buildId)
+        build.legacyCopyState = "not_started"
+        build.state = "failed"
+        requireRow(db, Document, build.documentId).current_job_result_id = None
         requireRow(db, IndexingAttempt, str(job.current_indexing_attempt_id)).state = "failed"
         db.commit()
     assert not LexicalInputCollector(sessionFactory=sessionmaker(engine, expire_on_commit=False)).collectAssigned(revisionId)
@@ -200,6 +233,7 @@ def test_old_eligible_failed_candidate_keeps_assigned_input(publishedInput: tupl
 
 
 def test_failed_deletion_is_durable_and_fences_late_assignment(monkeypatch: pytest.MonkeyPatch, publishedInput: tuple[Engine, str, str, str]) -> None:
+    from shared.models.database.document import Document
     from shared.models.database.job_result import JobResult
     from shared.models.database.lexicalbuild import LexicalBuild
     from shared.services.retrieval.lexical.error import LexicalIndexError
@@ -209,7 +243,9 @@ def test_failed_deletion_is_durable_and_fences_late_assignment(monkeypatch: pyte
 
     engine, buildId, _, revisionId = publishedInput
     with Session(engine) as db:
-        requireRow(db, LexicalBuild, buildId).legacyCopyState = "completed"
+        build: LexicalBuild = requireRow(db, LexicalBuild, buildId)
+        build.legacyCopyState = "completed"
+        requireRow(db, Document, build.documentId).status = "archived"
         db.commit()
     adapter = get_cached_storage_adapter()
     deleteObject = adapter.delete_object
@@ -274,6 +310,50 @@ def test_orphan_inventory_keeps_winner_and_live_preparation_then_reclaims(monkey
     assert collector.collectOrphan(orphan)
     assert not adapter.exists(orphan, bucket=bucket)
     assert adapter.exists(winner, bucket=bucket)
+
+
+@pytest.mark.parametrize("controlState", [
+    None, ("postgresql", "serving"), ("postgresql", "gated"), ("opensearch", "gated"),
+])
+def test_worker_maintenance_waits_for_persisted_opensearch_serving(
+    monkeypatch: pytest.MonkeyPatch,
+    publishedInput: tuple[Engine, str, str, str],
+    controlState: tuple[str, str] | None,
+) -> None:
+    from shared.core.config.storage import get_cached_storage_adapter
+    from shared.models.database.document import Document
+    from shared.models.database.job_result import JobResult
+    from shared.models.database.lexicalbuild import LexicalBuild
+    from shared.models.database.lexicalcontrol import LexicalBackendControl
+    from shared.services.retrieval.lexical import maintenance
+    from shared.services.retrieval.lexical.cleanup import LexicalCleanup
+    from shared.services.retrieval.lexical.storage import LexicalInputStorage
+
+    engine, buildId, _, revisionId = publishedInput
+    with Session(engine) as db:
+        build: LexicalBuild = requireRow(db, LexicalBuild, buildId)
+        build.legacyCopyState = "completed"
+        requireRow(db, Document, build.documentId).status = "archived"
+        control: LexicalBackendControl = requireRow(db, LexicalBackendControl, 1)
+        if controlState is None:
+            db.delete(control)
+        else:
+            control.backend, control.mode = controlState
+        db.commit()
+    monkeypatch.setattr(
+        maintenance, "get_sync_session_factory", lambda: sessionmaker(engine, expire_on_commit=False),
+    )
+    monkeypatch.setattr(LexicalCleanup, "closeEmptyNamespaces", lambda self: 0)
+
+    assert maintenance.maintainLexical() == 0
+    with Session(engine) as db:
+        result: JobResult = requireRow(db, JobResult, revisionId)
+        assert result.indexing_input_gc_state == "retained"
+        assert result.indexing_input_gc_attempts == 0
+        assert result.indexing_input_key is not None
+        assert get_cached_storage_adapter().exists(result.indexing_input_key, bucket=LexicalInputStorage().bucket)
+        if controlState is None:
+            assert db.get(LexicalBackendControl, 1) is None
 
 
 def test_maintenance_visits_later_pending_builds_when_old_work_stays_blocked(monkeypatch: pytest.MonkeyPatch, publishedInput: tuple[Engine, str, str, str]) -> None:
@@ -444,6 +524,7 @@ def test_ineligible_failed_candidate_reclaims_only_working_input(publishedInput:
         build.state = "failed"
         build.legacyCopyState = "not_started"
         requireRow(db, IndexingAttempt, str(job.current_indexing_attempt_id)).state = "failed"
+        document.current_job_result_id = None
         if retirement == "archived":
             document.status = "archived"
         elif retirement == "superseded":
