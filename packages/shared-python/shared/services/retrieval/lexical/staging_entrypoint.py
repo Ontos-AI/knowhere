@@ -54,26 +54,29 @@ def attestNative(role: str) -> dict[str, str | bool]:
             "identity": identity,
             "allowedIndex": index,
             "verifiedExistingShard": result["_shards"]["successful"] > 0,
-            "pgSelected": True,
             "passed": True,
         }
 
 
 def main() -> None:
     role: str = sys.argv[1]
+    backend: str = os.environ.get("KNOWHERE_LEXICAL_BACKEND", "")
     if (
         role not in {"api", "worker"}
         or os.environ.get("ENVIRONMENT") != "staging"
-        or os.environ.get("KNOWHERE_LEXICAL_BACKEND") != "postgresql"
+        or backend not in {"postgresql", "opensearch"}
     ):
-        raise SystemExit("OpenSearch TLS bootstrap requires a PostgreSQL staging task")
+        raise SystemExit("OpenSearch TLS bootstrap requires a staging task with a supported lexical backend")
     try:
         directory = Path(mkdtemp(prefix="knowhere-staging-native-"))
         installTlsBundle(directory)
         result: dict[str, str | bool] = attestNative(role)
     except Exception as error:
-        result = {"role": role, "passed": False, "pgSelected": True, "errorType": type(error).__name__}
+        result = {"role": role, "passed": False, "errorType": type(error).__name__}
+    result["pgSelected"] = backend == "postgresql"
     print("KNOWHERE_STAGING_NATIVE=" + json.dumps(result), flush=True)
+    if backend == "opensearch" and result["passed"] is not True:
+        raise SystemExit("Staging OpenSearch TLS attestation failed")
     os.execv("/entrypoint.sh", ["/entrypoint.sh"])
 
 
