@@ -397,7 +397,8 @@ def test_default_document_content_uses_latest_parse_while_retrieval_keeps_old_bu
         asyncio.run(readContent())
         assert asyncio.run(_discoverNative(namespace))[0]["content"] == "工程验收计划"
     finally:
-        assert httpx.delete(f"{endpoint}/{index.indexName}", timeout=15, trust_env=False).status_code in (200, 404)
+        response: httpx.Response = httpx.delete(f"{endpoint}/{index.indexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
         index.close()
         engine.dispose()
 
@@ -461,7 +462,8 @@ def test_separate_gevent_process_completes_initial_indexing_inline(
             assert job is not None and job.status == "done" and job.indexing_status == "completed"
         assert asyncio.run(_discoverNative(namespace))[0]["content"] == "工程验收计划"
     finally:
-        assert httpx.delete(f"{endpoint}/{index.indexName}", timeout=15, trust_env=False).status_code in (200, 404)
+        response: httpx.Response = httpx.delete(f"{endpoint}/{index.indexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
         index.close()
         engine.dispose()
 
@@ -525,7 +527,8 @@ def test_expired_writer_cannot_replace_the_build_published_after_manual_retry(
         assert LexicalCleanup(sessionFactory=factory).collect(expiredBuilds[0])
         assert asyncio.run(_discoverNative(namespace))[0]["content"] == "工程验收计划"
     finally:
-        assert httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False).status_code in (200, 404)
+        response: httpx.Response = httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
         native.close()
         engine.dispose()
 
@@ -568,7 +571,8 @@ def test_blocked_cleanup_does_not_starve_later_rollback_copy_work(
             published = session.get(LexicalBuild, publishedId)
             assert published is not None and published.legacyCopyState == "completed"
     finally:
-        assert httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False).status_code in (200, 404)
+        response: httpx.Response = httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
         native.close()
         engine.dispose()
 
@@ -612,7 +616,8 @@ def test_native_activation_preserves_parser_track_and_document_metadata(
             assert document.parse_track == "page_memory"
             assert document.document_metadata == {"client_version": "contract-test"}
     finally:
-        assert httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False).status_code in (200, 404)
+        response: httpx.Response = httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
         native.close()
         engine.dispose()
 
@@ -741,7 +746,8 @@ def test_demo_native_publication_and_reads_respect_the_runtime_database_role(
         assert LexicalCleanup(sessionFactory=factory).collect(buildId)
     finally:
         reader.close()
-        assert httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False).status_code in (200, 404)
+        response: httpx.Response = httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
         native.close()
         runtimeEngine.dispose()
         engine.dispose()
@@ -1067,7 +1073,8 @@ def classicRuntime(
         assert IndexingWorker(sessionFactory=sessionmaker(engine, expire_on_commit=False)).run(jobId) == "completed"
         yield engine, namespace
     finally:
-        assert httpx.delete(f"{endpoint}/{index.indexName}", timeout=15, trust_env=False).status_code in (200, 404)
+        response: httpx.Response = httpx.delete(f"{endpoint}/{index.indexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
         index.close()
         engine.dispose()
 
@@ -1100,7 +1107,8 @@ def _captureNativeSearchHits(response: httpx.Response, *, hasTokens: bool) -> st
         assert isinstance(source, dict)
         for field in ("pathTokens", "contentTokens"):
             if hasTokens:
-                assert isinstance(source.pop(field), str)
+                tokens: object = source.pop(field)
+                assert isinstance(tokens, str)
             else:
                 assert field not in source
     return json.dumps(hits, sort_keys=True)
@@ -1595,8 +1603,10 @@ def test_activation_reuses_its_locked_namespace_generation(
             assert notification.payload["event"] == "job.completed"
             assert notifications == [notification.id]
     finally:
-        assert httpx.delete(f"{settings.KNOWHERE_OPENSEARCH_URL}/{index.indexName}", timeout=15,
-            trust_env=False).status_code in (200, 404)
+        response: httpx.Response = httpx.delete(
+            f"{settings.KNOWHERE_OPENSEARCH_URL}/{index.indexName}", timeout=15, trust_env=False
+        )
+        assert response.status_code in (200, 404)
         index.close()
         engine.dispose()
 
@@ -1739,8 +1749,10 @@ def test_writer_fails_once_after_lru_closure_and_reopens_only_on_manual_retry(
             attempts = list(database.scalars(select(IndexingAttempt).order_by(IndexingAttempt.attemptNumber)))
             assert [attempt.executionCount for attempt in attempts] == [1, 1]
     finally:
-        assert httpx.delete(f"{settings.KNOWHERE_OPENSEARCH_URL}/{index.indexName}",
-            timeout=10, trust_env=False).status_code in (200, 404)
+        response: httpx.Response = httpx.delete(
+            f"{settings.KNOWHERE_OPENSEARCH_URL}/{index.indexName}", timeout=10, trust_env=False
+        )
+        assert response.status_code in (200, 404)
         index.close()
         engine.dispose()
 
@@ -1793,8 +1805,10 @@ def test_missing_native_index_is_not_recreated_or_returned_as_empty(
     index = OpenSearchLexicalIndex(endpoint=settings.KNOWHERE_OPENSEARCH_URL,
         scope=LexicalScope(ownerId="native-contract-user", namespace=namespace), indexPrefix="knowhere-slice-test")
     try:
-        assert httpx.delete(f"{settings.KNOWHERE_OPENSEARCH_URL}/{index.indexName}",
-            timeout=10, trust_env=False).status_code == 200
+        response: httpx.Response = httpx.delete(
+            f"{settings.KNOWHERE_OPENSEARCH_URL}/{index.indexName}", timeout=10, trust_env=False
+        )
+        assert response.status_code == 200
         with pytest.raises(UnavailableException):
             asyncio.run(_queryClassic(namespace))
         assert httpx.head(f"{settings.KNOWHERE_OPENSEARCH_URL}/{index.indexName}",
@@ -1856,7 +1870,7 @@ def test_document_filtered_search_prefers_distinct_query_terms_to_repetition(
         assert asyncio.run(getFirstChunk(None)) == "coverage-1"
         assert asyncio.run(getFirstChunk(["doc_native_contract"])) == "coverage-0"
     finally:
-        assert httpx.delete(f"{endpoint}/{native.indexName}", timeout=15,
-            trust_env=False).status_code in (200, 404)
+        response: httpx.Response = httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
         native.close()
         engine.dispose()

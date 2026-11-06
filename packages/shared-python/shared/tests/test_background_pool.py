@@ -32,10 +32,18 @@ assert not pool.trySubmit(lambda: None)
 
 def test_graceful_interpreter_exit_drains_native_work_before_runtime_teardown(tmp_path: Path) -> None:
     program: str = """
-from gevent import monkey
-monkey.patch_all()
+import atexit
 from pathlib import Path
 import sys
+
+@atexit.register
+def verifyLateCleanupCanUseGreenlet():
+    from greenlet import getcurrent
+    if getcurrent() is not None:
+        Path(sys.argv[2]).touch()
+
+from gevent import monkey
+monkey.patch_all()
 import gevent
 from shared.services.background import BackgroundWorkPool
 pool = BackgroundWorkPool(name='interpreter-exit-probe', maximumWorkers=1)
@@ -47,12 +55,15 @@ gevent.sleep(0.01)
 pool.close()
 """
     marker: Path = tmp_path / "completed.txt"
+    cleanupMarker: Path = tmp_path / "greenlet-available.txt"
     environment: dict[str, str] = dict(os.environ)
     environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
-    result = subprocess.run([sys.executable, "-X", "faulthandler", "-c", program, str(marker)],
+    result = subprocess.run(
+        [sys.executable, "-X", "faulthandler", "-c", program, str(marker), str(cleanupMarker)],
         env=environment, capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stderr
     assert marker.is_file(), "Interpreter teardown overtook the active native operation"
+    assert cleanupMarker.is_file(), "Greenlet became unavailable during atexit cleanup"
 
 
 def test_gevent_background_thread_releases_its_native_hub() -> None:

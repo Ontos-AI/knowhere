@@ -879,13 +879,18 @@ def test_pg_reference_restores_backend_and_settings_when_query_fails(
     from shared.models.database.lexicalcontrol import LexicalBackendControl
 
     factory, _ = pgReferenceCorpus
-    with pytest.raises(RuntimeError, match="injected reference failure"):
+    injectedFailure: RuntimeError = RuntimeError("injected reference failure")
+    caughtError: RuntimeError | None = None
+    try:
         with _selectPostgresqlReference(monkeypatch, factory):
             assert settings.KNOWHERE_LEXICAL_BACKEND == "postgresql"
             with factory.begin() as db:
                 control = db.get(LexicalBackendControl, 1)
                 assert control is not None and control.backend == "postgresql"
-            raise RuntimeError("injected reference failure")
+            raise injectedFailure
+    except RuntimeError as error:
+        caughtError = error
+    assert caughtError is injectedFailure
     with factory.begin() as db:
         control = db.get(LexicalBackendControl, 1)
         assert control is not None
