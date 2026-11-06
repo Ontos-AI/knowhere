@@ -14,12 +14,13 @@ from shared.services.retrieval.stats.service import compute_importance_score
 from shared.services.retrieval.search.scoring import get_row_path
 
 
-def get_candidate_key(row: dict[str, Any]) -> str:
+def get_candidate_key(row: dict[str, Any]) -> tuple[str, str] | None:
+    document_id = str(row.get("document_id") or "").strip()
     path = get_row_path(row)
     if path:
-        return f"path:{path}"
+        return document_id, f"path:{path}"
     chunk_id = str(row.get("chunk_id") or "").strip()
-    return f"chunk:{chunk_id}" if chunk_id else ""
+    return (document_id, f"chunk:{chunk_id}") if chunk_id else None
 
 
 async def load_chunk_importance_scores(
@@ -120,13 +121,13 @@ def rank_candidates_by_path(
     *,
     importance_scores: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
-    merged: dict[str, dict[str, Any]] = {}
-    insertion_order: dict[str, int] = {}
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    insertion_order: dict[tuple[str, str], int] = {}
     counter = 0
 
     for row in discovery_rows:
         key = get_candidate_key(row)
-        if not key:
+        if key is None:
             continue
         candidate = dict(row)
         candidate["discovery_score"] = float(row.get("discovery_score", 0.0) or 0.0)
@@ -138,7 +139,7 @@ def rank_candidates_by_path(
 
     for row in routed_rows:
         key = get_candidate_key(row)
-        if not key:
+        if key is None:
             continue
         routed_agent_score = float(row.get("agent_score", 0.0) or 0.0)
         if key not in merged:

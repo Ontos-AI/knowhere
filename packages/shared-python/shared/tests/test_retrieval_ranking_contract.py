@@ -13,6 +13,29 @@ os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
 from shared.services.retrieval.search.ranking import rank_candidates_by_path
 
 
+def test_rank_keeps_root_pages_from_different_documents() -> None:
+    rows: list[dict[str, object]] = [
+        {
+            "document_id": "target-pdf",
+            "chunk_id": "target-page",
+            "section_path": "Root",
+            "chunk_type": "page",
+            "discovery_score": 1.0,
+        },
+        {
+            "document_id": "other-pdf",
+            "chunk_id": "other-page",
+            "section_path": "Root",
+            "chunk_type": "page",
+            "discovery_score": 0.2,
+        },
+    ]
+
+    ranked = rank_candidates_by_path(rows, [], top_k=2)
+
+    assert [row["document_id"] for row in ranked] == ["target-pdf", "other-pdf"]
+
+
 @pytest.mark.parametrize(
     "importance_values",
     [
