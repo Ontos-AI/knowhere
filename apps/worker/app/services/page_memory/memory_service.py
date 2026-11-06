@@ -14,7 +14,6 @@ from app.services.document_agent.visual import (
     visual_debug_enabled,
 )
 from app.services.document_parser.profiling.doc_profiler import profile_document
-from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import PARSER_DF_COLUMNS
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.page_memory.normalizer import normalize_to_pdf
@@ -42,7 +41,6 @@ from loguru import logger
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.models.schemas.page_memory_config import PageMemoryConfig, resolve_asset_model
-from app.services.page_memory.body_text_preview import build_body_text_preview
 
 
 @dataclass(frozen=True)
@@ -71,12 +69,7 @@ class _ScopeRunResult:
 
 
 def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
-    """Run the page-memory track.
-
-    Supports two granularity verdicts:
-    - ``whole_doc`` (≤5 pages, no TOC) → single whole-document chunk
-    - ``page`` → leaf section nodes via the full C1-C7 pipeline
-    """
+    """Run the page-memory track via leaf section nodes (C1-C7 pipeline)."""
     full_output_dir = _resolve_output_dir(request)
     page_memory_config = request.page_memory_config
     os.makedirs(full_output_dir, exist_ok=True)
@@ -119,25 +112,14 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                     "description": f"PDF has {page_count} pages, limit is {page_memory_config.max_pages}",
                 }],
             )
-        verdict = "page" if is_progressive else _decide_granularity(profile)
+        verdict = "page"
         trace_summary = {
             "page_count": page_count,
             "verdict": verdict,
             "ingestion_mode": "progressive" if is_progressive else "full",
         }
 
-        if verdict == "whole_doc":
-            parsed_df = _build_whole_doc_dataframe(
-                filename=request.filename,
-                page_count=page_count,
-                verdict=verdict,
-                trace_recorder=trace_recorder,
-                page_texts=coerce_page_text_cache(
-                    getattr(profile, "page_full_text_cache", None)
-                ),
-                body_text_by_page=getattr(profile, "page_body_text_cache", None),
-            )
-        elif is_progressive:
+        if is_progressive:
             page_texts = coerce_page_text_cache(
                 getattr(profile, "page_full_text_cache", None)
             )
@@ -299,22 +281,6 @@ def _build_visual_m0_dataframe(
         embeddings_by_page=embeddings_by_page,
         output_dir=output_dir,
     )
-
-
-def _decide_granularity(profile: Any) -> str:
-    """Decide granularity for a page-memory document.
-
-    Page-based track processes pages individually via VLM — no physical
-    document splitting is needed regardless of page count.  The old
-    ``shard_page`` verdict (>200 pages) was only meaningful when long
-    PDFs were cut into physical sub-documents.
-    """
-    page_count = int(getattr(profile, "page_count", 0) or 0)
-    toc = getattr(profile, "toc", None)
-    has_toc = bool(getattr(toc, "has_toc", False))
-    if page_count <= 5 and not has_toc:
-        return "whole_doc"
-    return "page"
 
 
 def _resolve_hierarchy_model(page_memory_config: PageMemoryConfig) -> str | None:
@@ -913,57 +879,6 @@ def _select_rendered_pages_with_assets(
         if getattr(feature, "has_asset", False)
     }
     return [item for item in rendered if item.page_index in asset_pages]
-
-
-# ── whole_doc builder (PR3, unchanged) ────────────────────────────────
-
-
-def _build_whole_doc_dataframe(
-    *,
-    filename: str,
-    page_count: int,
-    verdict: str,
-    trace_recorder: Any | None = None,
-    page_texts: dict[int, str] | None = None,
-    body_text_by_page: dict[int, str] | None = None,
-) -> pd.DataFrame:
-    pages = list(range(1, page_count + 1)) if page_count > 0 else [1]
-    texts = coerce_page_text_cache(page_texts)
-    raw_text = "\n\n".join(texts.get(page, "") for page in pages).strip()
-    summary = _build_summary(filename=filename, page_count=page_count, raw_text=raw_text)
-    content = f"[SUMMARY]\n{summary}\n\n[RAW]\n{raw_text}".strip()
-    know_id = gen_str_codes(f"wholedoc::{filename}::{content}")
-    row = {
-        "content": content,
-        "path": f"{filename}/Root",
-        "type": "page",
-        "length": len(content),
-        "keywords": "",
-        "summary": summary,
-        "know_id": know_id,
-        "tokens": "",
-        "connectto": "",
-        "addtime": get_str_time(),
-        "page_nums": ",".join(str(page) for page in pages),
-        "extra_metadata": {
-            "body_text_preview": build_body_text_preview(
-                (body_text_by_page or {}).get(page, "") for page in pages
-            ),
-        },
-    }
-    _record_trace_stage(
-        trace_recorder,
-        "whole_doc",
-        page_info=page_scope_info(pages),
-        variables={"summary": summary, "verdict": verdict},
-    )
-    return pd.DataFrame([row], columns=pd.Index(PARSER_DF_COLUMNS))
-
-
-def _build_summary(*, filename: str, page_count: int, raw_text: str) -> str:
-    prefix = f"{filename} whole-document memory ({page_count} pages)"
-    preview = " ".join(raw_text.split())[:500]
-    return f"{prefix}: {preview}" if preview else prefix
 
 
 def _record_trace_stage(
