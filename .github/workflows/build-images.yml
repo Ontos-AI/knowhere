@@ -422,6 +422,7 @@ jobs:
         shell: bash
         env:
           STAGING_SECRETS_ARN: ${{ env.AWS_ECS_STAGING_SECRETS_ARN }}
+          OPENSEARCH_CLIENT_SECURITY_GROUP: ${{ secrets.STAGING_OPENSEARCH_CLIENT_SECURITY_GROUP }}
         run: |
           set -euo pipefail
 
@@ -483,6 +484,13 @@ jobs:
             security_group_count="$(jq '[.services[0].networkConfiguration.awsvpcConfiguration.securityGroups // [] | length] | add' <<<"$service_json")"
             if [ "$network_count" -lt 1 ] || [ "$security_group_count" -lt 1 ]; then
               echo "::error::ECS service ${service} has no usable awsvpc subnet/security-group configuration."
+              exit 1
+            fi
+            if [ -z "$OPENSEARCH_CLIENT_SECURITY_GROUP" ] || ! jq -e \
+              --arg group "$OPENSEARCH_CLIENT_SECURITY_GROUP" \
+              '.services[0].networkConfiguration.awsvpcConfiguration.securityGroups | index($group) != null' \
+              <<<"$service_json" >/dev/null; then
+              echo "::error::ECS service ${service} is missing the staging OpenSearch client security group."
               exit 1
             fi
           done
@@ -550,11 +558,16 @@ jobs:
           API_MEMORY: "1024"
           WORKER_CPU: "2048"
           WORKER_MEMORY: "4096"
+          STAGING_OPENSEARCH_URL: ${{ secrets.STAGING_OPENSEARCH_URL }}
+          STAGING_OPENSEARCH_INDEX_PREFIX: ${{ secrets.STAGING_OPENSEARCH_INDEX_PREFIX }}
+          STAGING_OPENSEARCH_API_TLS_PARAMETER: ${{ secrets.STAGING_OPENSEARCH_API_TLS_PARAMETER }}
+          STAGING_OPENSEARCH_WORKER_TLS_PARAMETER: ${{ secrets.STAGING_OPENSEARCH_WORKER_TLS_PARAMETER }}
         shell: bash
         run: |
           set -euo pipefail
           python3 deploy/ecs/render_task_definitions.py \
             --environment staging \
+            --staging-opensearch \
             --output-dir "$RUNNER_TEMP/ecs-task-definitions"
 
       - name: Register ECS task definitions
