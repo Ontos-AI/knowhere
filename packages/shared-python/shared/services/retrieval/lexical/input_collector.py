@@ -156,6 +156,9 @@ class LexicalInputCollector:
                 result.indexing_input_next_scan_at = now + _SCAN_INTERVAL
                 if knownSize is not None:
                     result.indexing_input_bytes = knownSize
+                # Backend verification and rollback both read the current published input.
+                if document is not None and document.status == "active" and document.current_job_result_id == result.id:
+                    return False
                 if self._hasConsumer(db, result, job, document, includeRetry=True):
                     return False
                 if db.scalar(select(JobResult.id).where(JobResult.indexing_input_key == key,
@@ -228,11 +231,20 @@ class LexicalInputCollector:
         source: Job | None = db.scalar(select(Job).options(noload("*")).where(Job.job_id == result.job_id))
         if source is None:
             return None
-        metadata: dict[str, object] = dict(source.job_metadata or {})
-        storage: CorpusStorage = CorpusStorage.resolve_namespace(str(metadata.get("namespace") or "default"))
+        privateDocumentId: str | None = result.document_id
+        demoDocumentId: str | None = result.demo_document_id
+        if demoDocumentId is not None:
+            storage: CorpusStorage = CorpusStorage("DEMO")
+            documentId: str = demoDocumentId
+        elif privateDocumentId is not None:
+            storage = CorpusStorage("PRIVATE")
+            documentId = privateDocumentId
+        else:
+            metadata: dict[str, object] = dict(source.job_metadata or {})
+            storage = CorpusStorage.resolve_namespace(str(metadata.get("namespace") or "default"))
+            documentId = str(metadata.get("document_id") or "")
         if storage.is_demo:
             authorize_demo_transaction(db, user_id=source.user_id)
-        documentId: str = str(metadata.get("document_id") or result.document_id or result.demo_document_id or "")
         exists: str | None = db.scalar(select(storage.Document.document_id).where(
             storage.Document.document_id == documentId, storage.Document.user_id == storage.resolve_owner(source.user_id)))
         document: Document | DemoDocument | None = db.scalar(select(storage.Document).where(storage.Document.document_id == documentId,
@@ -243,7 +255,9 @@ class LexicalInputCollector:
             .with_for_update(of=Job, skip_locked=True).execution_options(populate_existing=True))
         result = db.scalar(select(JobResult).options(noload("*")).where(JobResult.id == revisionId)
             .with_for_update(of=JobResult, skip_locked=True).execution_options(populate_existing=True))
-        return (result, job, document) if result is not None and job is not None else None
+        if result is None or job is None or (result.document_id, result.demo_document_id) != (privateDocumentId, demoDocumentId):
+            return None
+        return result, job, document
 
     @staticmethod
     def _hasConsumer(db: Session, result: JobResult, job: Job, document: Document | DemoDocument | None, *, includeRetry: bool) -> bool:

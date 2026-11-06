@@ -9,6 +9,7 @@ from shared.core.celery_app import celery_app
 from shared.core.config import settings
 from shared.core.database_sync import get_sync_session_factory
 from shared.models.database.lexicalbuild import LexicalBuild
+from shared.models.database.lexicalcontrol import LexicalBackendControl
 from shared.services.retrieval.lexical.cleanup import LexicalCleanup
 from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
 from shared.services.retrieval.lexical.input_collector import LexicalInputCollector
@@ -21,6 +22,11 @@ def maintainLexical() -> int:
         return 0
     sessions = get_sync_session_factory()
     with sessions.begin() as db:
+        control: LexicalBackendControl | None = db.get(
+            LexicalBackendControl, 1, with_for_update={"read": True},
+        )
+        if control is None or control.backend != "opensearch" or control.mode != "serving":
+            return 0
         now = LexicalCoordination.getDatabaseTime(db)
         rows = list(db.scalars(select(LexicalBuild)
                 .where(or_(LexicalBuild.legacyCopyState == "pending", LexicalBuild.cleanupState == "pending"))
