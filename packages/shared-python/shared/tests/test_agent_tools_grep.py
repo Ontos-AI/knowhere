@@ -22,6 +22,7 @@ from shared.services.retrieval.agent_explore.evidence_pool import EvidencePool
 from shared.services.retrieval.agent_tools.registry import REGISTRY, ToolContext
 from shared.services.retrieval.agent_tools.snippet import build_row, format_row
 from shared.services.retrieval.agent_tools.tools.grep import (
+    _escape_like_literal,
     _term_search,
     _terms_from_args,
     grep,
@@ -245,7 +246,10 @@ async def test_grep_limit_folds_leftover_sections_per_document() -> None:
 
 @pytest.mark.asyncio
 async def test_grep_empty_result_is_blank() -> None:
-    db = _SequencedDb([_EmptyRowsResult()])
+    # The empty-result path also probes the documents table for scanned pages
+    # pending OCR, so the fake must serve one row set for the grep rows and one
+    # for that probe.
+    db = _SequencedDb([_EmptyRowsResult(), _ScalarsResult([])])
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
         user_id="user_grep",
@@ -340,6 +344,26 @@ def test_term_search_ors_literal_terms_in_sql_and_matcher() -> None:
     assert "%foo%" in lowered
     assert "%bar%" in lowered
     assert "~*" not in sql
+
+
+def test_escape_like_literal_escapes_metacharacters() -> None:
+    assert _escape_like_literal("30%") == "30\\%"
+    assert _escape_like_literal("a_b") == "a\\_b"
+    assert _escape_like_literal("path\\x") == "path\\\\x"
+    assert _escape_like_literal("plain") == "plain"
+    assert _escape_like_literal("30% a_b \\x") == "30\\% a\\_b \\\\x"
+
+
+def test_term_search_escapes_like_wildcards_in_terms() -> None:
+    compiled, predicate = _term_search(["30%"])
+    assert compiled.search("30% dose")
+    assert compiled.search("30X") is None
+    sql = _sql(predicate)
+    lowered = sql.lower()
+    # The term is present and an escape clause is attached so its percent sign
+    # matches literally instead of acting as a LIKE wildcard.
+    assert "30" in lowered
+    assert " escape " in lowered
 
 
 class _TableRowsResult:
@@ -474,7 +498,15 @@ async def test_grep_matches_image_description() -> None:
 
 @pytest.mark.asyncio
 async def test_grep_scope_does_not_scan_table_cells() -> None:
-    db = _SequencedDb([_ScalarsResult([_scoped_document("doc_a")]), _EmptyRowsResult()])
+    # resolve_scope (1), grep rows (2), and the enrichment-status probe the
+    # empty-result path runs for scoped calls (3).
+    db = _SequencedDb(
+        [
+            _ScalarsResult([_scoped_document("doc_a")]),
+            _EmptyRowsResult(),
+            _ScalarsResult([("jr_a", {}, {})]),
+        ]
+    )
     ctx = ToolContext(
         db=db,  # type: ignore[arg-type]
         user_id="user_grep",
@@ -484,7 +516,7 @@ async def test_grep_scope_does_not_scan_table_cells() -> None:
     result = await grep(
         ctx, {"pattern": "30 mg", "scope": [{"document_id": "doc_a"}]}
     )
-    assert db.execute_count == 2
+    assert db.execute_count == 3
     assert result.payload["rows"] == []
     assert result.text == ""
     assert "cell=" not in result.text
