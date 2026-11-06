@@ -115,6 +115,9 @@ def configure_staging_opensearch(definition: object, variables: dict[str, str]) 
         raise ValueError("API and worker require distinct staging TLS parameters")
     if variables["RUNTIME_ENVIRONMENT"] != "staging" or not isinstance(definition, dict):
         raise ValueError("OpenSearch TLS bootstrap requires a staging task definition")
+    backend: str = variables.get("STAGING_LEXICAL_BACKEND") or "postgresql"
+    if backend not in {"postgresql", "opensearch"}:
+        raise ValueError("Unsupported staging lexical backend")
     for container in definition["containerDefinitions"]:
         service = container["name"]
         if service not in ("api", "worker"):
@@ -122,7 +125,7 @@ def configure_staging_opensearch(definition: object, variables: dict[str, str]) 
         container["environment"].extend(
             {"name": name, "value": value}
             for name, value in (
-                ("KNOWHERE_LEXICAL_BACKEND", "postgresql"),
+                ("KNOWHERE_LEXICAL_BACKEND", backend),
                 ("KNOWHERE_OPENSEARCH_URL", variables["STAGING_OPENSEARCH_URL"]),
                 ("KNOWHERE_OPENSEARCH_INDEX_PREFIX", variables["STAGING_OPENSEARCH_INDEX_PREFIX"]),
             )
@@ -201,6 +204,7 @@ def main() -> None:
         if arguments.environment != "staging":
             raise ValueError("--staging-opensearch requires --environment staging")
         variables.update({name: os.environ.get(name, "") for name in STAGING_OPENSEARCH_VARIABLES})
+        variables["STAGING_LEXICAL_BACKEND"] = os.environ.get("STAGING_LEXICAL_BACKEND", "")
     template_directory = Path(__file__).parent
     output_suffix = variables["DEPLOYMENT_ENVIRONMENT"]
     render_template(

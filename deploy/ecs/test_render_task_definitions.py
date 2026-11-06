@@ -87,19 +87,19 @@ STAGING_OPENSEARCH: dict[str, str] = {
 
 
 @pytest.mark.parametrize("service", ["api", "worker"])
-def test_staging_opensearch_uses_role_specific_tls_with_postgresql(
-    tmp_path: Path, service: str
+@pytest.mark.parametrize("backend", [None, "opensearch"])
+def test_staging_opensearch_uses_role_specific_tls(
+    tmp_path: Path, service: str, backend: str | None
 ) -> None:
     output_path = tmp_path / f"{service}.json"
-    render_template(
-        TEMPLATE_DIRECTORY / f"task-definition-{service}.staging.json",
-        output_path,
-        {**RENDER_VARIABLES, **STAGING_OPENSEARCH},
-    )
+    variables = {**RENDER_VARIABLES, **STAGING_OPENSEARCH}
+    if backend is not None:
+        variables["STAGING_LEXICAL_BACKEND"] = backend
+    render_template(TEMPLATE_DIRECTORY / f"task-definition-{service}.staging.json", output_path, variables)
     container = json.loads(output_path.read_text())["containerDefinitions"][0]
     environment = {item["name"]: item["value"] for item in container["environment"]}
     secrets = {item["name"]: item["valueFrom"] for item in container["secrets"]}
-    assert environment["KNOWHERE_LEXICAL_BACKEND"] == "postgresql"
+    assert environment["KNOWHERE_LEXICAL_BACKEND"] == (backend or "postgresql")
     assert environment["KNOWHERE_OPENSEARCH_URL"] == STAGING_OPENSEARCH["STAGING_OPENSEARCH_URL"]
     assert environment["KNOWHERE_OPENSEARCH_INDEX_PREFIX"] == STAGING_OPENSEARCH["STAGING_OPENSEARCH_INDEX_PREFIX"]
     assert secrets["KNOWHERE_STAGING_NATIVE_TLS"] == STAGING_OPENSEARCH[
