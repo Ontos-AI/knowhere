@@ -107,15 +107,57 @@ def test_page_preview_respects_owned_pages_and_same_page_sections(
         assert by_path["doc.pdf/Empty"]["metadata"]["body_text_preview"] == ""
 
 
-def test_whole_document_preview_is_body_only_and_bounded() -> None:
-    from app.services.page_memory.memory_service import _build_whole_doc_dataframe
+def test_whole_document_preview_is_body_only_and_bounded(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from app.services.page_memory import memory_service, page_renderer, page_tagger
+    from app.services.page_memory.page_tagger import PageTagResult
+    from shared.models.schemas.page_memory_config import PageMemoryConfig
     from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 
-    dataframe = _build_whole_doc_dataframe(
-        filename="whole.pdf", page_count=2, verdict="whole_doc",
-        page_texts={1: "header\n" + "body " * 100, 2: "footer"},
-        body_text_by_page={1: "body " * 100, 2: ""},
+    page_texts = {1: "header\n" + "body " * 100, 2: "footer"}
+    profile = SimpleNamespace(
+        page_count=2,
+        anatomy=SimpleNamespace(
+            page_count=2, page_features=[], page_labels=[], toc_result=None
+        ),
+        page_full_text_cache=page_texts,
+        page_body_text_cache={1: "body " * 100, 2: ""},
+    )
+
+    def render(ctx, pages, **kwargs):
+        directory = tmp_path / kwargs["folder_name"]
+        directory.mkdir(parents=True, exist_ok=True)
+        output = []
+        for page in pages:
+            path = directory / f"page-{page}.png"
+            Image.new("RGB", (2, 3), color="white").save(path)
+            output.append({"page": page, "png_path": str(path)})
+        return output
+
+    monkeypatch.delenv("IMAGE_MODEL", raising=False)
+    monkeypatch.setattr(page_renderer, "render_pages", render)
+    monkeypatch.setattr(
+        page_tagger,
+        "tag_pages",
+        lambda **kwargs: [
+            PageTagResult(page_index=page.page_index, summary="summary")
+            for page in kwargs["pages"]
+        ],
+    )
+    dataframe = memory_service._build_page_dataframe(
+        pdf_path="unused.pdf",
+        filename="whole.pdf",
+        output_dir=str(tmp_path),
+        profile=profile,
+        verdict="page",
+        page_memory_config=PageMemoryConfig(
+            fine_min_pages=100,
+            scope_concurrency=1,
+            asset_extraction_enabled=False,
+        ),
     )
     chunk = dataframe_to_chunks(dataframe)[0]
+    assert chunk["path"] == "whole.pdf/Root"
     assert chunk["metadata"]["body_text_preview"] == ("body " * 100).strip()[:180]
     assert "header" in chunk["content"] and "footer" in chunk["content"]

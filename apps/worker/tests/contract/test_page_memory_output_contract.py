@@ -13,7 +13,6 @@ os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
-from app.services.page_memory import memory_service
 from app.services.page_memory.page_assets import PageAsset, build_asset_rows
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.storage.zip_chunk_schema import ZipChunkSchemaBuilder
@@ -235,22 +234,140 @@ def test_zip_chunk_schema_preserves_page_memory_node_metadata() -> None:
     assert "section_path" not in metadata
 
 
-def test_page_memory_granularity_routes_supported_page_modes() -> None:
-    assert (
-        memory_service._decide_granularity(  # noqa: SLF001
-            SimpleNamespace(page_count=5, toc=SimpleNamespace(has_toc=False))
-        )
-        == "whole_doc"
+def test_full_ingestion_short_scanned_and_text_pdfs_emit_page_assets(
+    tmp_path, monkeypatch,
+) -> None:
+    from io import BytesIO
+    from pathlib import Path
+    import pymupdf
+    from PIL import Image
+    from app.services.document_ingestion.artifact_refs import (
+        collect_referenced_artifact_refs,
     )
-    assert (
-        memory_service._decide_granularity(  # noqa: SLF001
-            SimpleNamespace(page_count=6, toc=SimpleNamespace(has_toc=False))
+    from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
+    from app.services.page_memory import memory_service as live_memory_service
+    from app.services.page_memory import page_tagger as live_page_tagger
+    from app.services.page_memory.memory_service import PageMemoryInput
+    from app.services.page_memory.page_tagger import PageTagResult
+    from shared.models.schemas.page_memory_config import PageMemoryConfig
+
+    raster_bytes = BytesIO()
+    Image.new("RGB", (120, 80), color="navy").save(raster_bytes, format="PNG")
+    scanned_pdf = tmp_path / "scanned.pdf"
+    with pymupdf.open() as doc:
+        page = doc.new_page(width=600, height=800)
+        page.insert_image(
+            pymupdf.Rect(50, 50, 550, 750), stream=raster_bytes.getvalue()
         )
-        == "page"
+        doc.save(scanned_pdf)
+
+    scanned_profile = SimpleNamespace(
+        page_count=1,
+        is_scanned=True,
+        routing_category=PdfRoutingCategory.SCANNED,
+        toc=SimpleNamespace(has_toc=False),
+        anatomy=SimpleNamespace(
+            page_count=1, page_features=[], page_labels=[], toc_result=None
+        ),
+        page_full_text_cache={1: ""},
+        page_body_text_cache={1: ""},
+        trace_recorder=None,
     )
-    assert (
-        memory_service._decide_granularity(  # noqa: SLF001
-            SimpleNamespace(page_count=201, toc=SimpleNamespace(has_toc=False))
+    monkeypatch.delenv("IMAGE_MODEL", raising=False)
+    monkeypatch.setattr(
+        live_page_tagger,
+        "tag_pages",
+        lambda **kwargs: [
+            PageTagResult(
+                page_index=item.page_index,
+                summary=f"page-{item.page_index} summary",
+            )
+            for item in kwargs["pages"]
+        ],
+    )
+    monkeypatch.setattr(
+        live_memory_service,
+        "profile_document",
+        lambda *_args, **_kwargs: scanned_profile,
+    )
+
+    scanned_out_dir, scanned_df = live_memory_service.run(
+        PageMemoryInput(
+            file_path=str(scanned_pdf),
+            filename="scanned.pdf",
+            output_dir=str(tmp_path / "out_scanned"),
+            page_memory_config=PageMemoryConfig(asset_extraction_enabled=False),
+            ingestion_mode="full",
         )
-        == "page"
     )
+    scanned_chunks = dataframe_to_chunks(scanned_df)
+    assert len(scanned_chunks) == 1
+    scanned_chunk = scanned_chunks[0]
+    assert scanned_chunk["type"] == "page"
+    assert scanned_chunk["path"] == "scanned.pdf/Root"
+    assert scanned_chunk["metadata"]["page_nums"] == [1]
+    assert scanned_chunk["metadata"]["summary"] == "page-1 summary"
+    page_assets = scanned_chunk["metadata"]["page_assets"]
+    assert len(page_assets) == 1
+    assert page_assets[0]["page_num"] == 1
+    assert page_assets[0]["artifact_ref"] == "page_citation_assets/page-1.png"
+    image_file = Path(scanned_out_dir) / page_assets[0]["artifact_ref"]
+    assert image_file.is_file()
+    with Image.open(image_file) as rendered_img:
+        assert rendered_img.width > 0 and rendered_img.height > 0
+    assert collect_referenced_artifact_refs(scanned_chunks) == {
+        "page_citation_assets/page-1.png"
+    }
+
+    text_pdf = tmp_path / "short_text.pdf"
+    with pymupdf.open() as doc:
+        for idx in (1, 2):
+            page = doc.new_page(width=600, height=800)
+            page.insert_text((50, 100), f"Original text on page {idx}.")
+        doc.save(text_pdf)
+
+    text_profile = SimpleNamespace(
+        page_count=2,
+        is_scanned=False,
+        routing_category=PdfRoutingCategory.GENERIC,
+        toc=SimpleNamespace(has_toc=False),
+        anatomy=SimpleNamespace(
+            page_count=2, page_features=[], page_labels=[], toc_result=None
+        ),
+        page_full_text_cache={
+            1: "Original text on page 1.",
+            2: "Original text on page 2.",
+        },
+        page_body_text_cache={
+            1: "Original text on page 1.",
+            2: "Original text on page 2.",
+        },
+        trace_recorder=None,
+    )
+    monkeypatch.setattr(
+        live_memory_service,
+        "profile_document",
+        lambda *_args, **_kwargs: text_profile,
+    )
+
+    text_out_dir, text_df = live_memory_service.run(
+        PageMemoryInput(
+            file_path=str(text_pdf),
+            filename="short_text.pdf",
+            output_dir=str(tmp_path / "out_text"),
+            page_memory_config=PageMemoryConfig(asset_extraction_enabled=False),
+            ingestion_mode="full",
+        )
+    )
+    text_chunks = dataframe_to_chunks(text_df)
+    assert len(text_chunks) == 1
+    text_chunk = text_chunks[0]
+    assert text_chunk["path"] == "short_text.pdf/Root"
+    assert "Original text on page 1." in text_chunk["content"]
+    assert "Original text on page 2." in text_chunk["content"]
+    assert [a["artifact_ref"] for a in text_chunk["metadata"]["page_assets"]] == [
+        "page_citation_assets/page-1.png",
+        "page_citation_assets/page-2.png",
+    ]
+    assert (Path(text_out_dir) / "page_citation_assets" / "page-1.png").is_file()
+    assert (Path(text_out_dir) / "page_citation_assets" / "page-2.png").is_file()
