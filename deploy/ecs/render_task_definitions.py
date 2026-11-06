@@ -40,6 +40,12 @@ REQUIRED_VARIABLES: Final[tuple[str, ...]] = (
 FORBIDDEN_ENVIRONMENT_NAMES: Final[frozenset[str]] = frozenset(
     {"S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"}
 )
+STAGING_OPENSEARCH_VARIABLES: Final[tuple[str, ...]] = (
+    "STAGING_OPENSEARCH_URL",
+    "STAGING_OPENSEARCH_INDEX_PREFIX",
+    "STAGING_OPENSEARCH_API_TLS_PARAMETER",
+    "STAGING_OPENSEARCH_WORKER_TLS_PARAMETER",
+)
 
 
 def replace_placeholders(value: object, variables: dict[str, str]) -> object:
@@ -91,10 +97,51 @@ def validate_rendered_definition(definition: object) -> None:
         raise ValueError(f"Task definition contains forbidden S3 credentials: {sorted(forbidden)}")
 
 
+def configure_staging_opensearch(definition: object, variables: dict[str, str]) -> None:
+    """Attach TLS only to staging containers with a complete set of inputs."""
+    if variables.get("DEPLOYMENT_ENVIRONMENT") != "staging" or not any(
+        name in variables for name in STAGING_OPENSEARCH_VARIABLES
+    ):
+        return
+    missing = [name for name in STAGING_OPENSEARCH_VARIABLES if not variables.get(name)]
+    if missing:
+        raise ValueError(f"Missing staging OpenSearch variables: {', '.join(missing)}")
+    api_parameter = variables["STAGING_OPENSEARCH_API_TLS_PARAMETER"]
+    worker_parameter = variables["STAGING_OPENSEARCH_WORKER_TLS_PARAMETER"]
+    if api_parameter == worker_parameter or not all(
+        re.fullmatch(r"arn:aws:ssm:[a-z0-9-]+:[0-9]{12}:parameter/knowhere/staging/opensearch/[^/]+", parameter)
+        for parameter in (api_parameter, worker_parameter)
+    ):
+        raise ValueError("API and worker require distinct staging TLS parameters")
+    if variables["RUNTIME_ENVIRONMENT"] != "staging" or not isinstance(definition, dict):
+        raise ValueError("OpenSearch TLS bootstrap requires a staging task definition")
+    for container in definition["containerDefinitions"]:
+        service = container["name"]
+        if service not in ("api", "worker"):
+            continue
+        container["environment"].extend(
+            {"name": name, "value": value}
+            for name, value in (
+                ("KNOWHERE_LEXICAL_BACKEND", "postgresql"),
+                ("KNOWHERE_OPENSEARCH_URL", variables["STAGING_OPENSEARCH_URL"]),
+                ("KNOWHERE_OPENSEARCH_INDEX_PREFIX", variables["STAGING_OPENSEARCH_INDEX_PREFIX"]),
+            )
+        )
+        container["secrets"].append({
+            "name": "KNOWHERE_STAGING_NATIVE_TLS",
+            "valueFrom": variables[f"STAGING_OPENSEARCH_{service.upper()}_TLS_PARAMETER"],
+        })
+        container["entryPoint"] = [
+            "/app/venv/bin/python", "-m",
+            "shared.services.retrieval.lexical.staging_entrypoint", service,
+        ]
+
+
 def render_template(template_path: Path, output_path: Path, variables: dict[str, str]) -> None:
     """Render one JSON template to a deployment-only output path."""
     definition = json.loads(template_path.read_text(encoding="utf-8"))
     rendered = replace_placeholders(definition, variables)
+    configure_staging_opensearch(rendered, variables)
     qstash_base_url: str = variables.get("QSTASH_BASE_URL", "")
     if qstash_base_url:
         if not isinstance(rendered, dict):
@@ -118,6 +165,7 @@ def parse_arguments() -> argparse.Namespace:
     """Parse renderer CLI arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--staging-opensearch", action="store_true")
     parser.add_argument(
         "--environment",
         choices=("staging", "production"),
@@ -149,6 +197,10 @@ def main() -> None:
             "DEPLOYMENT_ENVIRONMENT must match the selected environment: "
             f"expected {expected_environment}, got {variables['DEPLOYMENT_ENVIRONMENT']}"
         )
+    if arguments.staging_opensearch:
+        if arguments.environment != "staging":
+            raise ValueError("--staging-opensearch requires --environment staging")
+        variables.update({name: os.environ.get(name, "") for name in STAGING_OPENSEARCH_VARIABLES})
     template_directory = Path(__file__).parent
     output_suffix = variables["DEPLOYMENT_ENVIRONMENT"]
     render_template(

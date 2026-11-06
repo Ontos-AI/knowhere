@@ -14,7 +14,7 @@ from app.services.jobs import (
     list_jobs_for_user,
 )
 from app.services.rate_limit.data_structures import CurrentUser
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db
@@ -85,6 +85,18 @@ async def retry_enrichment(
 ) -> EnhancementRetryResponse:
     from app.services.jobs.enrichment_retry_service import retry_job_enrichment
     return await retry_job_enrichment(db, user_id=current_user.user_id, job_id=job_id)
+
+
+@router.post("/{job_id}/indexing/retry", response_model=JobResultResponse, summary="Retry indexing without parsing or charging again")
+async def retry_indexing(
+    job_id: str,
+    response: Response,
+    current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
+    db: AsyncSession = Depends(get_db),
+) -> JobResultResponse:
+    from app.services.jobs.indexing_retry_service import retryIndexing
+    return await retryIndexing(db, jobId=job_id, userId=current_user.user_id, response=response)
 
 
 @router.post("", response_model=JobResponse, summary="Create a v2 parsing job")

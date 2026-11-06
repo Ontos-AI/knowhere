@@ -1,0 +1,718 @@
+{
+  "$defs": {
+    "_Burst": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "integer"
+        },
+        "end_ms": {
+          "exclusiveMinimum": 0,
+          "maximum": 3600000,
+          "title": "End Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "start_ms",
+        "end_ms"
+      ],
+      "title": "_Burst",
+      "type": "object"
+    },
+    "_Cohort": {
+      "additionalProperties": false,
+      "properties": {
+        "planned_offered": {
+          "minimum": 1,
+          "title": "Planned Offered",
+          "type": "integer"
+        },
+        "minimum_completed_lexical": {
+          "minimum": 1,
+          "title": "Minimum Completed Lexical",
+          "type": "integer"
+        },
+        "preconditioning": {
+          "minLength": 1,
+          "title": "Preconditioning",
+          "type": "string"
+        },
+        "expected_slot_state": {
+          "enum": [
+            "open",
+            "closed_capacity_available",
+            "closed_capacity_wait"
+          ],
+          "title": "Expected Slot State",
+          "type": "string"
+        },
+        "receipt_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Receipt Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "planned_offered",
+        "minimum_completed_lexical",
+        "preconditioning",
+        "expected_slot_state",
+        "receipt_sha256"
+      ],
+      "title": "_Cohort",
+      "type": "object"
+    },
+    "_Counts": {
+      "additionalProperties": false,
+      "properties": {
+        "reads": {
+          "exclusiveMinimum": 0,
+          "title": "Reads",
+          "type": "integer"
+        },
+        "writes": {
+          "exclusiveMinimum": 0,
+          "title": "Writes",
+          "type": "integer"
+        },
+        "measured_reads": {
+          "exclusiveMinimum": 0,
+          "title": "Measured Reads",
+          "type": "integer"
+        },
+        "catchup_reads": {
+          "exclusiveMinimum": 0,
+          "title": "Catchup Reads",
+          "type": "integer"
+        },
+        "measured_writes": {
+          "exclusiveMinimum": 0,
+          "title": "Measured Writes",
+          "type": "integer"
+        },
+        "catchup_writes": {
+          "exclusiveMinimum": 0,
+          "title": "Catchup Writes",
+          "type": "integer"
+        },
+        "rolling_peak_reads_per_second": {
+          "const": 50,
+          "title": "Rolling Peak Reads Per Second",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "reads",
+        "writes",
+        "measured_reads",
+        "catchup_reads",
+        "measured_writes",
+        "catchup_writes",
+        "rolling_peak_reads_per_second"
+      ],
+      "title": "_Counts",
+      "type": "object"
+    },
+    "_Overlap": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "snapshot",
+            "maintenance"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "offset_ms": {
+          "exclusiveMaximum": 3600000,
+          "minimum": 0,
+          "title": "Offset Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "offset_ms"
+      ],
+      "title": "_Overlap",
+      "type": "object"
+    },
+    "_PreparedCase": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "source_revision": {
+          "minLength": 1,
+          "title": "Source Revision",
+          "type": "string"
+        },
+        "source_file_name": {
+          "minLength": 1,
+          "title": "Source File Name",
+          "type": "string"
+        },
+        "unit_count": {
+          "minimum": 0,
+          "title": "Unit Count",
+          "type": "integer"
+        },
+        "compressed_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Compressed Bytes",
+          "type": "integer"
+        },
+        "uncompressed_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Uncompressed Bytes",
+          "type": "integer"
+        },
+        "native_bulk_bytes": {
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "title": "Native Bulk Bytes",
+          "type": "array"
+        },
+        "representative_largest": {
+          "title": "Representative Largest",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "sha256",
+        "source_revision",
+        "source_file_name",
+        "unit_count",
+        "compressed_bytes",
+        "uncompressed_bytes",
+        "native_bulk_bytes",
+        "representative_largest"
+      ],
+      "title": "_PreparedCase",
+      "type": "object"
+    },
+    "_ReadCase": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "namespace": {
+          "minLength": 1,
+          "title": "Namespace",
+          "type": "string"
+        },
+        "cohort": {
+          "enum": [
+            "warm",
+            "cold",
+            "capacity_wait"
+          ],
+          "title": "Cohort",
+          "type": "string"
+        },
+        "namespace_size": {
+          "enum": [
+            "hot",
+            "large",
+            "small"
+          ],
+          "title": "Namespace Size",
+          "type": "string"
+        },
+        "cache_state": {
+          "enum": [
+            "miss",
+            "hit",
+            "small_corpus"
+          ],
+          "title": "Cache State",
+          "type": "string"
+        },
+        "request_path": {
+          "enum": [
+            "/v1/retrieval/query",
+            "/v2/retrieval/query"
+          ],
+          "title": "Request Path",
+          "type": "string"
+        },
+        "payload_path": {
+          "format": "path",
+          "title": "Payload Path",
+          "type": "string"
+        },
+        "payload_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Payload Sha256",
+          "type": "string"
+        },
+        "quality_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quality Path"
+        },
+        "quality_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quality Sha256"
+        },
+        "credential_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Ref"
+        }
+      },
+      "required": [
+        "id",
+        "namespace",
+        "cohort",
+        "namespace_size",
+        "cache_state",
+        "request_path",
+        "payload_path",
+        "payload_sha256"
+      ],
+      "title": "_ReadCase",
+      "type": "object"
+    },
+    "_Runtime": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_inflight": {
+          "minimum": 1,
+          "title": "Maximum Inflight",
+          "type": "integer"
+        },
+        "queue_capacity": {
+          "minimum": 1,
+          "title": "Queue Capacity",
+          "type": "integer"
+        },
+        "request_timeout_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Request Timeout Seconds",
+          "type": "number"
+        },
+        "drain_grace_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Drain Grace Seconds",
+          "type": "number"
+        },
+        "resource_sample_interval_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Resource Sample Interval Seconds",
+          "type": "number"
+        },
+        "maximum_offer_lag_ms": {
+          "minimum": 0,
+          "title": "Maximum Offer Lag Ms",
+          "type": "number"
+        },
+        "maximum_start_lag_ms": {
+          "minimum": 0,
+          "title": "Maximum Start Lag Ms",
+          "type": "number"
+        },
+        "source_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Source Hash",
+          "type": "string"
+        },
+        "configuration_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Configuration Sha256",
+          "type": "string"
+        },
+        "durability_receipt_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Durability Receipt Sha256",
+          "type": "string"
+        },
+        "staging_receipt_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Staging Receipt Sha256",
+          "type": "string"
+        },
+        "worker_queue": {
+          "pattern": "^knowhere-prepared-[a-z0-9][a-z0-9_.-]{0,63}$",
+          "title": "Worker Queue",
+          "type": "string"
+        },
+        "worker_concurrency": {
+          "minimum": 1,
+          "title": "Worker Concurrency",
+          "type": "integer"
+        },
+        "worker_prefetch": {
+          "minimum": 1,
+          "title": "Worker Prefetch",
+          "type": "integer"
+        },
+        "resource_measurement_contract": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Resource Measurement Contract",
+          "type": "object"
+        }
+      },
+      "required": [
+        "maximum_inflight",
+        "queue_capacity",
+        "request_timeout_seconds",
+        "drain_grace_seconds",
+        "resource_sample_interval_seconds",
+        "maximum_offer_lag_ms",
+        "maximum_start_lag_ms",
+        "source_hash",
+        "configuration_sha256",
+        "durability_receipt_sha256",
+        "staging_receipt_sha256",
+        "worker_queue",
+        "worker_concurrency",
+        "worker_prefetch",
+        "resource_measurement_contract"
+      ],
+      "title": "_Runtime",
+      "type": "object"
+    },
+    "_Segment": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "measured",
+            "catchup"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "source_offset_ms": {
+          "minimum": 0,
+          "title": "Source Offset Ms",
+          "type": "integer"
+        },
+        "duration_ms": {
+          "exclusiveMinimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "target_offset_ms": {
+          "minimum": 0,
+          "title": "Target Offset Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "phase",
+        "source_offset_ms",
+        "duration_ms",
+        "target_offset_ms"
+      ],
+      "title": "_Segment",
+      "type": "object"
+    },
+    "_Source": {
+      "additionalProperties": false,
+      "properties": {
+        "start_utc": {
+          "format": "date-time",
+          "title": "Start Utc",
+          "type": "string"
+        },
+        "end_utc": {
+          "format": "date-time",
+          "title": "End Utc",
+          "type": "string"
+        },
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "field_definitions": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "minProperties": 1,
+          "title": "Field Definitions",
+          "type": "object"
+        },
+        "missing_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Fields",
+          "type": "array"
+        },
+        "derivation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Derivation"
+        }
+      },
+      "required": [
+        "start_utc",
+        "end_utc",
+        "path",
+        "sha256",
+        "field_definitions",
+        "missing_fields",
+        "derivation"
+      ],
+      "title": "_Source",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "opensearch-mixed-workload-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "id": {
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "version": {
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    },
+    "provenance": {
+      "enum": [
+        "observed",
+        "reviewed_derived",
+        "automated_test"
+      ],
+      "title": "Provenance",
+      "type": "string"
+    },
+    "reviewer": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reviewer"
+    },
+    "review_receipt_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Review Receipt Sha256"
+    },
+    "seed": {
+      "title": "Seed",
+      "type": "integer"
+    },
+    "measured_seconds": {
+      "const": 3600,
+      "title": "Measured Seconds",
+      "type": "integer"
+    },
+    "catchup_seconds": {
+      "const": 300,
+      "title": "Catchup Seconds",
+      "type": "integer"
+    },
+    "multiplicity": {
+      "const": 10,
+      "title": "Multiplicity",
+      "type": "integer"
+    },
+    "multiplicity_offsets_ms": {
+      "items": {
+        "type": "integer"
+      },
+      "maxItems": 10,
+      "minItems": 10,
+      "title": "Multiplicity Offsets Ms",
+      "type": "array"
+    },
+    "source_intervals": {
+      "additionalProperties": {
+        "$ref": "#/$defs/_Source"
+      },
+      "propertyNames": {
+        "enum": [
+          "reads",
+          "writes"
+        ]
+      },
+      "title": "Source Intervals",
+      "type": "object"
+    },
+    "segments": {
+      "items": {
+        "$ref": "#/$defs/_Segment"
+      },
+      "minItems": 2,
+      "title": "Segments",
+      "type": "array"
+    },
+    "read_cases": {
+      "items": {
+        "$ref": "#/$defs/_ReadCase"
+      },
+      "minItems": 1,
+      "title": "Read Cases",
+      "type": "array"
+    },
+    "prepared_cases": {
+      "items": {
+        "$ref": "#/$defs/_PreparedCase"
+      },
+      "minItems": 1,
+      "title": "Prepared Cases",
+      "type": "array"
+    },
+    "cohorts": {
+      "additionalProperties": {
+        "$ref": "#/$defs/_Cohort"
+      },
+      "propertyNames": {
+        "enum": [
+          "warm",
+          "cold",
+          "capacity_wait"
+        ]
+      },
+      "title": "Cohorts",
+      "type": "object"
+    },
+    "expected_counts": {
+      "$ref": "#/$defs/_Counts"
+    },
+    "bursts": {
+      "items": {
+        "$ref": "#/$defs/_Burst"
+      },
+      "minItems": 1,
+      "title": "Bursts",
+      "type": "array"
+    },
+    "overlap_events": {
+      "items": {
+        "$ref": "#/$defs/_Overlap"
+      },
+      "minItems": 2,
+      "title": "Overlap Events",
+      "type": "array"
+    },
+    "runtime": {
+      "$ref": "#/$defs/_Runtime"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "provenance",
+    "reviewer",
+    "review_receipt_sha256",
+    "seed",
+    "measured_seconds",
+    "catchup_seconds",
+    "multiplicity",
+    "multiplicity_offsets_ms",
+    "source_intervals",
+    "segments",
+    "read_cases",
+    "prepared_cases",
+    "cohorts",
+    "expected_counts",
+    "bursts",
+    "overlap_events",
+    "runtime"
+  ],
+  "title": "_Manifest",
+  "type": "object"
+}

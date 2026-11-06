@@ -1,0 +1,3 @@
+# Synthetic EC2 security group fixture in the OpenSearch commit and the merge from staging.
+8dc20f8d28a38e149a2558cd8d281abfb82156fb:deploy/opensearch/tests/test_operations.py:generic-api-key:31
+b6011cd9b6df9586911b888c159522d45c7951ab:deploy/opensearch/tests/test_operations.py:generic-api-key:31

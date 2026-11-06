@@ -36,6 +36,7 @@ class SyncJobResultWriter:
                     "source_size_bytes",
                     "demo_asset_manifest",
                     "result_raw_prefix",
+                    "parsing_execution_id",
                     "parse_track",
                     "ingestion_mode",
                     "enrichment_status",
@@ -47,6 +48,7 @@ class SyncJobResultWriter:
                 key: metadata[key]
                 for key in (
                     "result_raw_prefix",
+                    "parsing_execution_id",
                     "parse_track",
                     "ingestion_mode",
                     "enrichment_status",

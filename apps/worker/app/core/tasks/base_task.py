@@ -51,12 +51,14 @@ class DocumentIngestionBaseTask(Task):
                 )
 
                 lifecycle_service = get_sync_job_lifecycle_service()
+                parsingOwnerToken: object = getattr(self.request, "parsingOwnerToken", None)
                 lifecycle_service.finalize_job_failure(
                     job_id=job_id,
                     error_message=error_info["message"],
                     error_code=error_info["code"],
                     error_details=error_info.get("details"),
                     should_refund=True,
+                    parsingOwnerToken=parsingOwnerToken if isinstance(parsingOwnerToken, str) else None,
                 )
                 logger.info(
                     f"Job failure finalized: job_id={job_id}, error_code={error_info['code']}"

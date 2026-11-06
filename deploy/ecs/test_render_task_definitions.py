@@ -74,6 +74,71 @@ WORKER_STAGING_ENVIRONMENT: dict[str, str] = {
     "WORKER_CONCURRENCY": "10",
 }
 
+STAGING_OPENSEARCH: dict[str, str] = {
+    "STAGING_OPENSEARCH_URL": "https://opensearch.example.internal:9200",
+    "STAGING_OPENSEARCH_INDEX_PREFIX": "knowhere-staging-lexical-v1",
+    "STAGING_OPENSEARCH_API_TLS_PARAMETER": (
+        "arn:aws:ssm:us-east-1:123456789012:parameter/knowhere/staging/opensearch/api"
+    ),
+    "STAGING_OPENSEARCH_WORKER_TLS_PARAMETER": (
+        "arn:aws:ssm:us-east-1:123456789012:parameter/knowhere/staging/opensearch/worker"
+    ),
+}
+
+
+@pytest.mark.parametrize("service", ["api", "worker"])
+def test_staging_opensearch_uses_role_specific_tls_with_postgresql(
+    tmp_path: Path, service: str
+) -> None:
+    output_path = tmp_path / f"{service}.json"
+    render_template(
+        TEMPLATE_DIRECTORY / f"task-definition-{service}.staging.json",
+        output_path,
+        {**RENDER_VARIABLES, **STAGING_OPENSEARCH},
+    )
+    container = json.loads(output_path.read_text())["containerDefinitions"][0]
+    environment = {item["name"]: item["value"] for item in container["environment"]}
+    secrets = {item["name"]: item["valueFrom"] for item in container["secrets"]}
+    assert environment["KNOWHERE_LEXICAL_BACKEND"] == "postgresql"
+    assert environment["KNOWHERE_OPENSEARCH_URL"] == STAGING_OPENSEARCH["STAGING_OPENSEARCH_URL"]
+    assert environment["KNOWHERE_OPENSEARCH_INDEX_PREFIX"] == STAGING_OPENSEARCH["STAGING_OPENSEARCH_INDEX_PREFIX"]
+    assert secrets["KNOWHERE_STAGING_NATIVE_TLS"] == STAGING_OPENSEARCH[
+        f"STAGING_OPENSEARCH_{service.upper()}_TLS_PARAMETER"
+    ]
+    assert "KNOWHERE_STAGING_NATIVE_TLS" not in environment
+    assert container["entryPoint"] == [
+        "/app/venv/bin/python", "-m", "shared.services.retrieval.lexical.staging_entrypoint", service
+    ]
+
+
+def test_staging_opensearch_rejects_reused_role_credentials(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="distinct staging TLS parameters"):
+        render_template(
+            TEMPLATE_DIRECTORY / "task-definition-api.staging.json",
+            tmp_path / "api.json",
+            {
+                **RENDER_VARIABLES,
+                **STAGING_OPENSEARCH,
+                "STAGING_OPENSEARCH_WORKER_TLS_PARAMETER": STAGING_OPENSEARCH[
+                    "STAGING_OPENSEARCH_API_TLS_PARAMETER"
+                ],
+            },
+        )
+
+
+@pytest.mark.parametrize("service", ["api", "worker"])
+def test_staging_opensearch_inputs_cannot_change_production_rendering(
+    tmp_path: Path, service: str
+) -> None:
+    variables = {**RENDER_VARIABLES, "DEPLOYMENT_ENVIRONMENT": "prod",
+                 "RUNTIME_ENVIRONMENT": "production", "APP_ENV": "production"}
+    template = TEMPLATE_DIRECTORY / f"task-definition-{service}.staging.json"
+    output_path = tmp_path / f"{service}.json"
+    render_template(template, output_path, variables)
+    before = output_path.read_bytes()
+    render_template(template, output_path, {**variables, **STAGING_OPENSEARCH})
+    assert output_path.read_bytes() == before
+
 
 @pytest.mark.parametrize(
     "template_name",

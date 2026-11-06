@@ -70,6 +70,7 @@ def replace_document_revision_content(
     chunks: list[dict[str, Any]],
     section_summaries: dict[str, str] | None = None,
     trace: PublicationTrace | None = None,
+    prepare_index: bool = True,
 ) -> dict[str, Any]:
     """Replace retrieval sections and chunks for one published document revision."""
     _delete_existing_revision_content(db, scope=scope, trace=trace)
@@ -129,19 +130,16 @@ def replace_document_revision_content(
     # The revision cleanup above already removed any derived rows for this
     # immutable job result. Skip the constructor's defensive DELETE pass on
     # the hot publication path; standalone backfills retain the default.
-    replace_document_map_units(
-        db,
-        scope=scope,
-        trace=trace,
-        clear_existing=False,
-    )
-    replace_document_page_embeddings(
-        db,
-        scope=scope,
-        incoming_embeddings_by_page=incoming_embeddings_by_page or None,
-    )
-    manifest_payload = persist_revision_serving_state(db, scope=scope, trace=trace)
-    return manifest_payload
+    if prepare_index:
+        replace_document_map_units(db, scope=scope, trace=trace, clear_existing=False)
+    if prepare_index or incoming_embeddings_by_page:
+        # Visual embeddings are supplied by parsing and stripped from chunk metadata.
+        replace_document_page_embeddings(
+            db,
+            scope=scope,
+            incoming_embeddings_by_page=incoming_embeddings_by_page or None,
+        )
+    return persist_revision_serving_state(db, scope=scope, trace=trace) if prepare_index else {}
 
 
 class DocumentSectionPublisher:

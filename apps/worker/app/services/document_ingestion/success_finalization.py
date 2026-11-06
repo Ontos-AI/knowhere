@@ -40,6 +40,7 @@ from app.services.page_memory.phase_a import (
 )
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
 from shared.services.storage.zip_result_service import ZipResultService
+from shared.services.jobs.parsing import ParsingOwnership
 
 ResultStorageFactory = Callable[[], ResultStorage]
 
@@ -55,6 +56,8 @@ def finalize_parse_success(
     result_storage_factory: ResultStorageFactory = get_result_storage,
 ) -> dict[str, object]:
     """Package, upload, and publish a successful parser result."""
+    if job_context.parsingOwnerToken is not None:
+        ParsingOwnership().assertOwned(job_id, job_context.parsingOwnerToken)
     source_file_name = _resolve_source_file_name(job_context)
     document_top_summary, section_summaries = _enrich_document_navigation(
         artifact=result_package.artifact,
@@ -108,6 +111,7 @@ def finalize_parse_success(
         delivery_mode="url",
         section_summaries=section_summaries,
         document_top_summary=document_top_summary,
+        parsingOwnerToken=job_context.parsingOwnerToken,
     )
     if finalization_response.get("status") != "success":
         logger.error(
@@ -267,6 +271,11 @@ def _upload_result_package(
     result_storage_factory: ResultStorageFactory,
     job_context: ParseJobContext | None = None,
 ) -> str:
+    parsing_owner_token: str | None = getattr(job_context, "parsingOwnerToken", None)
+    storage_identity: str = job_id
+    if parsing_owner_token is not None:
+        ParsingOwnership().assertOwned(job_id, parsing_owner_token)
+        storage_identity = f"{job_id}/parsing/{parsing_owner_token}"
     artifact_refs = collect_referenced_artifact_refs(result_package.chunks)
     add_dir = (
         str(result_package.artifact.add_dir) if result_package.artifact.add_dir else ""
@@ -301,6 +310,7 @@ def _upload_result_package(
     )
     if parse_track == "page_memory" and ingestion_mode == "progressive":
         artifact_refs.update(phase_b_refs)
+    metadata_updates: dict[str, object] = {}
     snapshot_options: dict[str, str] = {}
     if (
         job_context is not None
@@ -320,21 +330,19 @@ def _upload_result_package(
                     for page in (chunk.get("metadata") or {}).get("page_nums", [])
                 }
             )
-        persist_job_metadata_updates(
-            job_id=job_id,
-            job_context=job_context,
-            metadata_updates={
-                "progressive_baseline_snapshot_id": snapshot_id,
-                "progressive_missing_embedding_pages": missing_pages,
-            },
-        )
+        metadata_updates["progressive_baseline_snapshot_id"] = snapshot_id
+        metadata_updates["progressive_missing_embedding_pages"] = missing_pages
+    if parsing_owner_token is not None:
+        metadata_updates["parsing_execution_id"] = parsing_owner_token
+    # Snapshot IDs isolate immutable archives under the public job path.
+    snapshot_storage_identity: str = job_id if snapshot_options else storage_identity
     result_storage: ResultStorage = result_storage_factory()
     with (
         logfire.span("Upload result assets for {job_id}", job_id=job_id),
         stage_timer("worker.result.assets_upload", job_id=job_id),
     ):
         result_bundle = result_storage.upload(
-            job_id=job_id,
+            job_id=snapshot_storage_identity,
             result_dir=add_dir,
             zip_file_path=generated_package.zip_file_path,
             artifact_refs=artifact_refs,
@@ -342,7 +350,7 @@ def _upload_result_package(
         )
     working_raw_prefix: str = result_bundle.raw_prefix
     if snapshot_options:
-        working_raw_prefix = f"results/{job_id}/"
+        working_raw_prefix = f"results/{storage_identity}/"
         working_refs: list[str] = (
             phase_b_refs if parse_track == "page_memory" else chunk_progressive_refs
         )
@@ -365,9 +373,9 @@ def _upload_result_package(
                 "duplicate_page_image_put_count",
                 sum(reference.startswith("page_citation_assets/") for reference in working_refs),
             )
-    metadata_updates: dict[str, object] = {}
-    if job_context is not None and parse_track == "page_memory":
+    if job_context is not None:
         metadata_updates["result_raw_prefix"] = working_raw_prefix
+    if job_context is not None and parse_track == "page_memory":
         if snapshot_options:
             # Worker inputs and published assets retain separate origins.
             metadata_updates["result_serving_raw_prefix"] = result_bundle.raw_prefix
@@ -387,7 +395,6 @@ def _upload_result_package(
         and parse_track == "chunk"
         and ingestion_mode == "progressive"
     ):
-        metadata_updates["result_raw_prefix"] = working_raw_prefix
         if snapshot_options:
             metadata_updates["result_serving_raw_prefix"] = result_bundle.raw_prefix
         metadata_updates["chunk_progressive_artifact_refs"] = list(chunk_progressive_refs)
@@ -397,7 +404,6 @@ def _upload_result_package(
         and job_context.job_metadata.get("corpus_target") == "DEMO"
     ):
         metadata_updates["demo_asset_manifest"] = sorted(result_bundle.raw_files)
-        metadata_updates.setdefault("result_raw_prefix", working_raw_prefix)
     if job_context is not None and metadata_updates:
         persist_job_metadata_updates(
             job_id=job_id,

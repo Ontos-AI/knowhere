@@ -15,6 +15,7 @@ from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
 
 @dataclass(frozen=True)
 class PostCommitEffectPlan:
+    indexing_job_ids: tuple[str, ...] = field(default_factory=tuple)
     retrieval_cache_invalidations: tuple[RetrievalCacheInvalidation, ...] = field(
         default_factory=tuple
     )
@@ -74,13 +75,18 @@ class SyncJobPostCommitEffectRunner:
         self._webhook_outbox = webhook_outbox or SyncJobWebhookOutbox()
 
     def run(self, plan: PostCommitEffectPlan) -> None:
+        for webhook_event_id in plan.webhook_event_ids:
+            self._webhook_outbox.enqueue_event_id_after_commit(webhook_event_id)
         for cache_invalidation in plan.retrieval_cache_invalidations:
             self._publication_finalizer.invalidate_cache_after_commit(
                 cache_invalidation
             )
+        for job_id in plan.indexing_job_ids:
+            from shared.services.retrieval.lexical.worker import IndexingWorker
+            if IndexingWorker().run(job_id, initialOnly=True) != "completed":
+                # The enrichment sweeper only recovers revisions once they are published.
+                return
         for job_result_id in plan.structure_job_result_ids:
             enqueue_page_memory_structure_after_commit(job_result_id)
         for job_result_id in plan.chunk_final_job_result_ids:
             enqueue_chunk_final_after_commit(job_result_id)
-        for webhook_event_id in plan.webhook_event_ids:
-            self._webhook_outbox.enqueue_event_id_after_commit(webhook_event_id)

@@ -6,9 +6,8 @@ import asyncio
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.engine import make_url
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
-from shared.core.state_machine.transition_outcome import JobTransitionOutcome
 from shared.models.database.document import (
     Document,
     DocumentChunk,
@@ -56,23 +55,6 @@ from scripts.publication_benchmark.publication_execution import (  # noqa: E402
     PublicationScope,
     seed_publication_fixture,
 )
-
-
-class _DoneStateMachine:
-    def mark_completed_outcome(
-        self,
-        db: object,
-        job_id: str,
-        result_metadata: object = None,
-        operator_id: object = None,
-    ) -> JobTransitionOutcome:
-        del db, result_metadata, operator_id
-        return JobTransitionOutcome.transitioned(
-            job_id=job_id,
-            from_state="running",
-            to_state="done",
-            attempts=1,
-        )
 
 
 def _scope(label: str) -> PublicationScope:
@@ -129,8 +111,11 @@ def _finalize(
     *,
     job_id: str,
     chunks: list[dict[str, object]],
+    publish: bool = True,
 ) -> JobSuccessFinalization:
-    return SyncJobSuccessFinalizer(state_machine=_DoneStateMachine()).finalize(
+    from shared.services.retrieval.lexical.worker import IndexingWorker
+
+    finalization = SyncJobSuccessFinalizer().finalize(
         session,
         job_id=job_id,
         result_s3_key="results/scope-enrich/result.zip",
@@ -141,6 +126,13 @@ def _finalize(
         delivery_mode="url",
         section_summaries=None,
     )
+    assert finalization.response.should_commit()
+    assert finalization.post_commit_effects.indexing_job_ids == (job_id,)
+    session.commit()
+    if publish:
+        worker = IndexingWorker(sessionFactory=sessionmaker(session.get_bind()))
+        assert worker.run(job_id, initialOnly=True) == "completed"
+    return finalization
 
 
 def _write_scope_rows(session: Session, *, scope: PublicationScope) -> None:
@@ -1018,14 +1010,13 @@ def test_m0_text_publish_enqueues_structure_and_supports_any_stage_explore_and_a
             )
             session.commit()
             finalization = _finalize(
-                session, job_id=scope.job_ref, chunks=m0_chunks
+                session, job_id=scope.job_ref, chunks=m0_chunks, publish=False
             )
-            doc_id = session.execute(
+            assert session.execute(
                 select(Document.document_id).where(
                     Document.current_job_result_id == scope.revision_ref
                 )
-            ).scalar_one()
-            session.commit()
+            ).scalar_one_or_none() is None
 
         assert finalization.post_commit_effects.structure_job_result_ids == (
             scope.revision_ref,
@@ -1039,6 +1030,12 @@ def test_m0_text_publish_enqueues_structure_and_supports_any_stage_explore_and_a
                 None,
             ),
         ]
+        with Session(engine) as session:
+            doc_id = session.execute(
+                select(Document.document_id).where(
+                    Document.current_job_result_id == scope.revision_ref
+                )
+            ).scalar_one()
 
         # Stage M0 (state=text): recall/grep/read work; outline/node_filter/assets/query_table return informative notes.
         async def _verify_m0_tools() -> None:

@@ -2,8 +2,9 @@
 
 import os
 import threading
+from typing import TYPE_CHECKING
 
-import boto3
+import boto3.session
 from botocore.client import BaseClient
 from botocore.config import Config
 from pydantic import BaseModel, Field, model_validator
@@ -12,6 +13,9 @@ from shared.core.exceptions.domain_exceptions import (
     DependencyMissingException,
     SystemSettingMissingException,
 )
+
+if TYPE_CHECKING:
+    from shared.services.storage.storage_adapter import StorageAdapter
 
 # Storage adapters are imported lazily to avoid circular imports.
 # from shared.services.storage.adapters import S3StorageAdapter
@@ -142,7 +146,7 @@ class StorageConfig(BaseModel):
 
         return self
 
-    def get_s3_client(self) -> BaseClient:
+    def get_s3_client(self, *, doesOwnTransport: bool = False) -> BaseClient:
         """Return an S3 client for S3-compatible backends."""
         # Build the client config.
         config_kwargs: dict[str, object] = {}
@@ -183,6 +187,18 @@ class StorageConfig(BaseModel):
         if config:
             client_kwargs["config"] = config
 
+        if doesOwnTransport:
+            # The default boto3 session may also retain credential-provider
+            # HTTP state across native worker hubs, separate from the S3 pool.
+            return boto3.session.Session().client(
+                service_name="s3",
+                aws_access_key_id=self.S3_ACCESS_KEY_ID or None,
+                aws_secret_access_key=self.S3_SECRET_ACCESS_KEY or None,
+                endpoint_url=self.S3_ENDPOINT_URL or None,
+                region_name=self.S3_REGION or None,
+                use_ssl=self.S3_USE_SSL,
+                config=config,
+            )
         return boto3.client(**client_kwargs)
 
     def get_oss_bucket(self):
@@ -205,7 +221,7 @@ class StorageConfig(BaseModel):
         bucket = oss2.Bucket(auth, self.OSS_ENDPOINT, self.S3_BUCKET_NAME)
         return bucket
 
-    def get_storage_adapter(self):
+    def get_storage_adapter(self, *, doesOwnTransport: bool = False) -> "StorageAdapter":
         """
         Return the storage adapter for the configured backend.
 
@@ -233,7 +249,10 @@ class StorageConfig(BaseModel):
             # S3 storage adapter for AWS S3 and MinIO (imported lazily).
             from shared.services.storage.adapters import S3StorageAdapter
 
-            s3_client = self.get_s3_client()
+            s3_client: BaseClient = (
+                self.get_s3_client(doesOwnTransport=True)
+                if doesOwnTransport else self.get_s3_client()
+            )
             return S3StorageAdapter(s3_client, self.S3_BUCKET_NAME)
 
     def get_supported_extensions(self) -> list:

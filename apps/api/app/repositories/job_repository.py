@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Any, Dict, Optional, Sequence
+from uuid import uuid4
 
 from loguru import logger
 from sqlalchemy import and_, desc, select, update
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from shared.core.state_machine.service import AsyncStateMachineService
+from shared.core.exceptions.knowhere_exception import KnowhereException
 from shared.models.database.job import Job
 from shared.models.database.job_state_history import JobStateHistory
 
@@ -32,10 +34,12 @@ class JobRepository:
         metadata: Optional[Dict[str, Any]] = None,
         initial_state: Optional[str] = "pending",
         s3_key: Optional[str] = None,
+        webhook_events: list[str] | None = None,
     ) -> Optional[Job]:
         """Create a Job."""
         try:
             job_kwargs = dict(
+                job_id=job_id or str(uuid4()),
                 user_id=user_id,
                 job_type=job_type,
                 status=initial_state or "pending",
@@ -43,6 +47,7 @@ class JobRepository:
                 file_path=file_path,
                 webhook_url=webhook_url,
                 webhook_enabled=bool(webhook_url),
+                webhook_events=webhook_events,
                 job_metadata=metadata,
                 s3_key=s3_key,
             )
@@ -51,6 +56,28 @@ class JobRepository:
 
             job = Job(**job_kwargs)
 
+            from shared.core.config import settings
+            if job_type == "document_ingestion" and (metadata or {}).get("ingestion_mode") == "progressive":
+                from shared.core.exceptions.domain_exceptions import UnavailableException
+                from shared.services.retrieval.lexical.coordination import LexicalCoordination
+                from shared.services.retrieval.lexical.error import LexicalIndexError
+
+                if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch":
+                    raise UnavailableException(
+                        internal_message="Progressive enrichment cannot republish a native lexical revision",
+                        user_message="Progressive ingestion requires PostgreSQL retrieval.",
+                        retry_after=60,
+                    )
+                try:
+                    await db.run_sync(LexicalCoordination.lockControl)
+                except LexicalIndexError as error:
+                    raise UnavailableException(
+                        internal_message="Progressive admission is paused for the lexical backend transition",
+                        retry_after=60,
+                    ) from error
+            if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch" and job_type == "document_ingestion":
+                from shared.services.retrieval.lexical.admission import IndexingAdmission
+                await db.run_sync(lambda session: IndexingAdmission().bind(session, job=job))
             db.add(job)
             await db.commit()
             # Skip db.refresh() — all fields are already set in-memory.
@@ -61,6 +88,9 @@ class JobRepository:
 
         except IntegrityError as e:
             logger.error(f"Failed to create job: {e}")
+            await db.rollback()
+            raise
+        except KnowhereException:
             await db.rollback()
             raise
         except Exception as e:

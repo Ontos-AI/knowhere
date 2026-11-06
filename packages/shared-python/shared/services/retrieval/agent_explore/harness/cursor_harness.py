@@ -56,7 +56,9 @@ import json
 import os
 import threading
 import time
+from collections.abc import Mapping
 from concurrent.futures import Future
+from contextvars import Context, copy_context
 from typing import Any
 
 from shared.services.ai.retrieval_ledger import record_retrieval_call
@@ -88,7 +90,9 @@ from shared.services.retrieval.agent_explore.shared import (
     wire_safe_tool_name,
 )
 from shared.services.retrieval.agent_explore.types import AgentStep, EpisodeResult
-from shared.services.retrieval.agent_tools import REGISTRY, ToolBudget, ToolResult
+from shared.services.retrieval.agent_tools import REGISTRY, Decision, ReadableAddresses, ToolBudget, ToolResult
+from shared.services.retrieval.execution.native_failure import NativeFailureState
+from shared.services.retrieval.lexical.error import LexicalIndexError
 
 # Grace period for the underlying agent run to actually stop, after a
 # best-effort run.cancel() following a wall_clock timeout, before this
@@ -159,7 +163,10 @@ class CursorHarness:
         loop = asyncio.get_running_loop()
         state = threading.Condition()
         required_failures: list[RequiredQueryEmbeddingException] = []
-        active_recalls: dict[str, Future[ToolResult] | None] = {}
+        failure_state: NativeFailureState = NativeFailureState.current() or NativeFailureState()
+        fatal_signal: asyncio.Event = asyncio.Event()
+        callback_context: Context = copy_context()
+        pending_calls: dict[Future[ToolResult], bool] = {}
         pool = EvidencePool()
         round_of: dict[str, str] = {}
         current_round: dict[str, Any] = {"id": None, "pick_phase": False}
@@ -167,10 +174,24 @@ class CursorHarness:
         steps: list[AgentStep] = []
         stop_reason = "finished"
 
+        def _raise_fatal_failure() -> None:
+            failure_state.raiseIfFailed()
+            with state:
+                if required_failures:
+                    raise required_failures[0]
+
+        def _record_required_failure(error: RequiredQueryEmbeddingException) -> None:
+            with state:
+                required_failures.append(error)
+                state.notify_all()
+            loop.call_soon_threadsafe(fatal_signal.set)
+
         def _on_delta(update: Any) -> None:
             if getattr(update, "type", None) != "tool-call-started":
                 return
             with state:
+                if failure_state.hasFailed or required_failures:
+                    return
                 round_of[update.call_id] = update.model_call_id
                 state.notify_all()
 
@@ -180,11 +201,14 @@ class CursorHarness:
             Returns ``(pick_phase, is_new_round)``. ``pick_phase`` is
             ``None`` when the tag never arrived.
             """
+            _raise_fatal_failure()
             call_id = ctx.tool_call_id
             if not state.wait_for(
-                lambda: call_id in round_of, timeout=budget.remaining_seconds()
+                lambda: call_id in round_of or failure_state.hasFailed or required_failures,
+                timeout=max(0, budget.remaining_seconds()),
             ):
                 return None, False
+            _raise_fatal_failure()
             model_call_id = round_of[call_id]
             if model_call_id != current_round["id"]:
                 pool.begin_round()
@@ -194,6 +218,7 @@ class CursorHarness:
             return current_round["pick_phase"], False
 
         def _append_step(**fields: Any) -> None:
+            _raise_fatal_failure()
             steps.append(AgentStep(step_index=len(steps), **fields))
 
         def _reject(tool_name: str, args: dict[str, Any], message: str) -> None:
@@ -206,12 +231,35 @@ class CursorHarness:
                 round_index=pool.round_index,
             )
 
+        async def _dispatch_bound(
+            tool_name: str,
+            args: dict[str, Any],
+            readable: ReadableAddresses,
+            decided: Mapping[tuple[str, str], Decision],
+            lit_pages_by_chunk: Mapping[tuple[str, str], tuple[int, ...]],
+            lit_pages_by_path: Mapping[tuple[str, str], tuple[int, ...]],
+        ) -> ToolResult:
+            with failure_state.bind():
+                _raise_fatal_failure()
+                return await dispatch_tool_call(
+                    tool_name,
+                    args,
+                    db_factory=db_factory,
+                    user_id=user_id,
+                    namespace=namespace,
+                    document_scope=document_scope,
+                    budget=tool_budget,
+                    query=query,
+                    readable=readable,
+                    decided=decided,
+                    lit_pages_by_chunk=lit_pages_by_chunk,
+                    lit_pages_by_path=lit_pages_by_path,
+                )
+
         def _dispatch_sync(
             tool_name: str, args: dict[str, Any], ctx: Any
         ) -> str | list[dict[str, Any]]:
             with state:
-                if required_failures:
-                    return "error: required retrieval service failed"
                 pick_round, new_round = _enter_round(ctx)
                 round_index = pool.round_index
                 if pick_round is None:
@@ -235,60 +283,55 @@ class CursorHarness:
                         )
                         return observation
                     budget.record_step()
-                readable = pool.readable()
-                decided = pool.decided()
-                if tool_name == "corpus.recall":
-                    active_recalls[ctx.tool_call_id] = None
-
-
-                lit_pages_by_chunk = pool.lit_pages_by_chunk()
-                lit_pages_by_path = pool.lit_pages_by_path()
-            tool_started = time.perf_counter()
-            future = asyncio.run_coroutine_threadsafe(
-                dispatch_tool_call(
-                    tool_name,
-                    args,
-                    db_factory=db_factory,
-                    user_id=user_id,
-                    namespace=namespace,
-                    document_scope=document_scope,
-                    budget=tool_budget,
-                    query=query,
-                    readable=readable,
-                    decided=decided,
-                    lit_pages_by_chunk=lit_pages_by_chunk,
-                    lit_pages_by_path=lit_pages_by_path,
-                ),
-                loop,
-            )
-            if tool_name == "corpus.recall":
-                with state:
-                    if required_failures:
-                        future.cancel()
-                    else:
-                        active_recalls[ctx.tool_call_id] = future
+                tool_started: float = time.perf_counter()
+                is_recall: bool = tool_name == "corpus.recall"
+                # SDK worker threads do not inherit request ContextVars.
+                future: Future[ToolResult] = callback_context.copy().run(
+                    asyncio.run_coroutine_threadsafe,
+                    _dispatch_bound(
+                        tool_name,
+                        args,
+                        pool.readable(),
+                        pool.decided(),
+                        pool.lit_pages_by_chunk(),
+                        pool.lit_pages_by_path(),
+                    ),
+                    loop,
+                )
+                pending_calls[future] = is_recall
             try:
-                tool_result = future.result(timeout=180)
+                tool_result: ToolResult = future.result(timeout=180)
+                _raise_fatal_failure()
             except TimeoutError as exc:
                 future.cancel()
-                if tool_name == "corpus.recall":
-                    with state:
-                        required_failures.append(RequiredQueryEmbeddingException(
-                            internal_message="Required retrieval recall timed out",
-                            provider="retrieval", original_exception=exc,
-                        ))
+                if is_recall:
+                    _record_required_failure(RequiredQueryEmbeddingException(
+                        internal_message="Required retrieval recall timed out",
+                        provider="retrieval",
+                        original_exception=exc,
+                    ))
+                    return "error: retrieval tool timed out"
                 tool_result = ToolResult(text="", error="retrieval tool timed out")
             except RequiredQueryEmbeddingException as exc:
                 # The SDK can turn callback exceptions into tool observations.
                 # Retain the failure outside its loop and reject the episode.
+                _record_required_failure(exc)
+                return "error: required retrieval service failed"
+            except LexicalIndexError as error:
                 with state:
-                    required_failures.append(exc)
-                tool_result = ToolResult(text="", error="required retrieval service failed")
+                    failure_state.record(error)
+                    for pending in pending_calls:
+                        if pending is not future:
+                            pending.cancel()
+                    state.notify_all()
+                loop.call_soon_threadsafe(fatal_signal.set)
+                raise
             except Exception as exc:  # noqa: BLE001 - one broken tool must not kill the episode
+                _raise_fatal_failure()
                 tool_result = ToolResult(text="", error=f"{type(exc).__name__}: {exc}")
             finally:
                 with state:
-                    active_recalls.pop(ctx.tool_call_id, None)
+                    pending_calls.pop(future, None)
             elapsed_ms = int((time.perf_counter() - tool_started) * 1000)
             content = tool_message_content(
                 tool_result,
@@ -296,6 +339,7 @@ class CursorHarness:
                 max_chars=tool_budget.max_chars,
             )
             with state:
+                _raise_fatal_failure()
                 candidates = pool.issue(tool_name, tool_result)
                 tail = _state_tail(pool, budget)
             text = content
@@ -423,30 +467,50 @@ class CursorHarness:
                 run = await agent.send(
                     user_prompt, cursor_sdk.SendOptions(on_delta=_on_delta)
                 )
+                run_task: asyncio.Task[object] = asyncio.create_task(run.wait())
+                fatal_task: asyncio.Task[bool] = asyncio.create_task(fatal_signal.wait())
                 try:
-                    result = await asyncio.wait_for(
-                        run.wait(), timeout=budget.wall_clock_seconds
+                    done, _pending = await asyncio.wait(
+                        {run_task, fatal_task}, timeout=budget.wall_clock_seconds,
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
-                except asyncio.TimeoutError:
-                    stop_reason = "budget_wall_clock"
-                    with state:
-                        if active_recalls:
-                            required_failures.append(RequiredQueryEmbeddingException(
-                                internal_message="Required retrieval recall exceeded the episode deadline",
-                                provider="retrieval",
-                            ))
-                            for pending_call in active_recalls.values():
-                                if pending_call is not None:
-                                    pending_call.cancel()
+                    _raise_fatal_failure()
+                    if run_task in done:
+                        result = run_task.result()
+                    else:
+                        stop_reason = "budget_wall_clock"
+                        with state:
+                            if any(pending_calls.values()):
+                                _record_required_failure(RequiredQueryEmbeddingException(
+                                    internal_message="Required retrieval recall exceeded the episode deadline",
+                                    provider="retrieval",
+                                ))
+                                for pending_call, is_recall in pending_calls.items():
+                                    if is_recall:
+                                        pending_call.cancel()
+                        _raise_fatal_failure()
+                        with contextlib.suppress(Exception):
+                            await asyncio.wait_for(run.cancel(), timeout=10)
+                        with contextlib.suppress(Exception):
+                            result = await asyncio.wait_for(
+                                asyncio.shield(run_task), timeout=_CANCEL_GRACE_SECONDS
+                            )
+                    _raise_fatal_failure()
+                except (LexicalIndexError, RequiredQueryEmbeddingException):
                     with contextlib.suppress(Exception):
                         await asyncio.wait_for(run.cancel(), timeout=10)
-                    with contextlib.suppress(Exception):
-                        result = await asyncio.wait_for(
-                            run.wait(), timeout=_CANCEL_GRACE_SECONDS
-                        )
+                    raise
+                finally:
+                    with state:
+                        for pending in pending_calls:
+                            pending.cancel()
+                        state.notify_all()
+                    fatal_task.cancel()
+                    if not run_task.done():
+                        run_task.cancel()
+                    await asyncio.gather(run_task, fatal_task, return_exceptions=True)
 
-        if required_failures:
-            raise required_failures[0]
+        _raise_fatal_failure()
 
         duration_ms = max(int((time.monotonic() - episode_started) * 1000), 0)
         usage: dict[str, int] | None = None

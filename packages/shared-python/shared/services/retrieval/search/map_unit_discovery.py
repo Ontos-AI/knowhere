@@ -244,6 +244,14 @@ async def map_unit_discovery(
     t0 = time.monotonic()
     if db is None:
         raise ValueError("database session required for map_unit_discovery")
+    from shared.core.config import settings
+    if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch":
+        from shared.services.retrieval.lexical.discovery import discoverOpenSearch
+        return await discoverOpenSearch(db, userId=user_id, namespace=namespace,
+            query=query, topK=top_k, documentScope=document_scope,
+            excludeDocumentIds=exclude_document_ids, excludeSections=exclude_sections,
+            chunkTypes=chunk_types, signalPaths=signal_paths, filterMode=filter_mode,
+            revisionPins=revision_pins, sectionTargets=section_targets)
     query_tokens = tokenize_query_for_ranker(query)
     if not query_tokens:
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
@@ -806,13 +814,15 @@ async def _hydrate_winning_units(
         text(
             corpusStorage.compile_sql("SELECT dc.chunk_id, dc.document_id, dc.section_id, dc.chunk_type, "
             "dc.content, dc.source_chunk_path, dc.file_path, dc.chunk_metadata, "
-            "dc.job_result_id, dc.sort_order, ds.section_path, d.source_file_name, "
+            "dc.job_result_id, dc.sort_order, ds.section_path, "
+            "COALESCE(j.job_metadata ->> 'source_file_name', d.source_file_name) AS source_file_name, "
             "jr.job_id, "
             "jr.document_metadata ->> 'result_raw_prefix' AS result_raw_prefix "
             "FROM document_chunks dc "
             "JOIN documents d ON d.document_id = dc.document_id "
             "LEFT JOIN document_sections ds ON ds.section_id = dc.section_id "
             "LEFT JOIN job_results jr ON jr.id = dc.job_result_id "
+            "LEFT JOIN jobs j ON j.job_id = jr.job_id "
             "WHERE dc.document_id = ANY(:document_ids) "
             "AND dc.job_result_id = ANY(:job_result_ids) "
             "AND dc.section_id = ANY(:section_ids) "

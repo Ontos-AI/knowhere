@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.publication_models import DocumentPublicationScope
+from shared.services.retrieval.lexical.input_budget import LexicalInputBudget
 from shared.services.retrieval.publication_trace_stage import trace_publication_stage
 
 if TYPE_CHECKING:
@@ -41,17 +42,24 @@ def build_revision_serving_payload(
         .join(JobResult, JobResult.id == scope.job_result_id)
         .where(corpusStorage.Document.document_id == scope.document_id)
     ).one()
+    LexicalInputBudget.assertCanPublish(db, storage=corpusStorage,
+        documentId=scope.document_id, revisionId=scope.job_result_id, doesIncludeGraphMetadata=False)
     sections = list(
-        db.scalars(
-            select(corpusStorage.DocumentSection)
+        db.execute(
+            select(corpusStorage.DocumentSection.section_id,
+                corpusStorage.DocumentSection.parent_section_id, corpusStorage.DocumentSection.section_path,
+                corpusStorage.DocumentSection.section_title, corpusStorage.DocumentSection.section_level,
+                corpusStorage.DocumentSection.summary, corpusStorage.DocumentSection.sort_order)
             .where(corpusStorage.DocumentSection.document_id == scope.document_id)
             .where(corpusStorage.DocumentSection.job_result_id == scope.job_result_id)
             .order_by(corpusStorage.DocumentSection.sort_order, corpusStorage.DocumentSection.section_id)
         )
     )
     chunks = list(
-        db.scalars(
-            select(corpusStorage.DocumentChunk)
+        db.execute(
+            select(corpusStorage.DocumentChunk.chunk_id, corpusStorage.DocumentChunk.section_id,
+                corpusStorage.DocumentChunk.chunk_type, corpusStorage.DocumentChunk.sort_order,
+                corpusStorage.DocumentChunk.chunk_metadata["connect_to"].label("connections"))
             .where(corpusStorage.DocumentChunk.document_id == scope.document_id)
             .where(corpusStorage.DocumentChunk.job_result_id == scope.job_result_id)
             .order_by(
@@ -71,11 +79,9 @@ def build_revision_serving_payload(
     }
     remounted_assets: dict[str, list[str]] = {}
     for chunk in chunks:
-        if chunk.chunk_type not in _BODY_CHUNK_TYPES or not isinstance(
-            chunk.chunk_metadata, dict
-        ):
+        if chunk.chunk_type not in _BODY_CHUNK_TYPES:
             continue
-        connections = chunk.chunk_metadata.get("connect_to")
+        connections = chunk.connections
         if not isinstance(connections, list):
             continue
         targets = [
@@ -112,7 +118,7 @@ def build_revision_serving_payload(
                 "section_id": chunk.section_id,
                 "chunk_type": chunk.chunk_type,
                 "sort_order": chunk.sort_order,
-                "connect_to": _connection_target_ids(chunk.chunk_metadata),
+                "connect_to": _connection_target_ids({"connect_to": chunk.connections}),
             }
             for chunk in chunks
         ],

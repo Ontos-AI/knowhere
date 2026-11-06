@@ -62,6 +62,7 @@ from shared.services.retrieval.agent_explore.shared import (
 )
 from shared.services.retrieval.agent_explore.types import AgentStep, EpisodeResult
 from shared.services.retrieval.agent_tools import REGISTRY, ToolBudget, ToolResult
+from shared.services.retrieval.execution.native_failure import NativeFailureState
 
 _PICK_WIRE_NAME = wire_safe_tool_name(PICK_TOOL_NAME)
 
@@ -194,6 +195,7 @@ class OpenAIHarness:
         stop_reason = "finished"
 
         while True:
+            NativeFailureState.raiseCurrent()
             turn_index += 1
             pool.begin_round()
             pick_turn = pool.pick_phase
@@ -233,6 +235,7 @@ class OpenAIHarness:
                 tool_choice=tool_choice,
                 usage_task="retrieval.agent_explore",
             )
+            NativeFailureState.raiseCurrent()
             budget.record_usage(usage)
             if not pick_turn:
                 budget.record_step()
@@ -395,6 +398,7 @@ class OpenAIHarness:
                         lit_pages_by_chunk=pool.lit_pages_by_chunk(),
                         lit_pages_by_path=pool.lit_pages_by_path(),
                     )
+                    NativeFailureState.raiseCurrent()
                     trace_result = tool_result
                 tool_elapsed_ms = int((time.perf_counter() - tool_started) * 1000)
                 content = tool_message_content(
@@ -436,6 +440,7 @@ class OpenAIHarness:
             latest_results = turn_results
             latest_turn = turn_index
 
+        NativeFailureState.raiseCurrent()
         return EpisodeResult(
             pool=list(pool.entries),
             steps=steps,

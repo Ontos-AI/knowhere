@@ -13,7 +13,7 @@ from sqlalchemy import select as sa_select
 
 from shared.core.celery_app import get_celery_app
 from shared.core.config import settings
-from shared.core.database_sync import get_sync_db_context
+from shared.core.database_sync import get_sync_db_context, get_sync_session_factory
 from shared.core.state_machine.service_sync import SyncStateMachineService
 from shared.core.state_machine.states import (
     TERMINAL_STATES,
@@ -21,6 +21,7 @@ from shared.core.state_machine.states import (
 )
 from shared.models.database.job import Job
 from shared.services.redis.periodic_task_lock import periodic_task_lock
+from shared.services.retrieval.lexical.settlement import IndexingSettlement
 
 celery_app = get_celery_app()
 
@@ -50,11 +51,15 @@ def expire_stale_jobs() -> dict:
         if not acquired:
             return {"status": "skipped", "reason": "duplicate Beat firing"}
 
+        # Parsed revisions have their own short execution/admission deadlines.
+        # This branch never restarts indexing and is independent of parser age.
+        indexing: dict[str, int] = IndexingSettlement.sweep(get_sync_session_factory())
+
         waiting_max_age: int = settings.JOB_WAITING_EXPIRE_SECONDS
         processing_max_age: int = settings.JOB_PROCESSING_EXPIRE_SECONDS
 
         if waiting_max_age <= 0 or processing_max_age <= 0:
-            return {"status": "skipped", "reason": "Expiration config <= 0"}
+            return {"status": "success", "reason": "Parser expiration config <= 0", "indexing": indexing}
 
         # Timeouts: 4 hours (default) for processing, 2 hours (default) for waiting
         now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -72,6 +77,7 @@ def expire_stale_jobs() -> dict:
                     sa_select(Job)
                     .where(
                         Job.status.notin_(TERMINAL_STATES),
+                        Job.parsing_status != "completed",
                         or_(
                             and_(
                                 Job.status.in_(
@@ -100,7 +106,7 @@ def expire_stale_jobs() -> dict:
 
                 if not expired_jobs:
                     logger.debug("Stale job sweeper: no expired jobs found")
-                    return {"status": "success", "expired": 0, "skipped": 0}
+                    return {"status": "success", "expired": 0, "skipped": 0, "indexing": indexing}
 
                 for job in expired_jobs:
                     outcome = state_machine.mark_failed_outcome(
@@ -130,6 +136,7 @@ def expire_stale_jobs() -> dict:
                 "status": "success",
                 "expired": expired_count,
                 "skipped": skipped_count,
+                "indexing": indexing,
             }
 
         except Exception as e:
