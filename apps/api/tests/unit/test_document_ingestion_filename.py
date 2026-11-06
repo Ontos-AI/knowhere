@@ -39,6 +39,26 @@ def test_resolve_url_source_file_name_appends_extension_when_missing() -> None:
     assert source_file_name == "uploaded-plan.md"
 
 
+def test_resolve_url_source_file_name_keeps_url_extension_for_other_suffix() -> None:
+    source_file_name = _resolve_url_source_file_name(
+        source_url="https://files.example.test/download?id=42",
+        file_extension=".pdf",
+        file_name="annual-report.docx",
+    )
+
+    assert source_file_name == "annual-report.docx.pdf"
+
+
+def test_resolve_url_source_file_name_accepts_uppercase_matching_extension() -> None:
+    source_file_name = _resolve_url_source_file_name(
+        source_url="https://files.example.test/download?id=42",
+        file_extension=".pdf",
+        file_name="Annual-Report.PDF",
+    )
+
+    assert source_file_name == "Annual-Report.PDF"
+
+
 def test_resolve_source_file_name_prefers_request_file_name_over_url_basename() -> None:
     file_name = _resolve_source_file_name(
         {
