@@ -10,6 +10,7 @@ release, and a gevent greenlet for periodic TTL renewal.
 
 import uuid
 from collections.abc import Callable
+from time import monotonic
 from typing import Optional
 
 import gevent
@@ -85,20 +86,22 @@ class RedisJobLock:
     # Public API
     # ------------------------------------------------------------------
 
-    def acquire(self) -> bool:
-        """Try to acquire the lock. Returns True on success."""
+    def acquire(self, *, waitSeconds: float = 0.0) -> bool:
+        """Acquire the lock, optionally waiting for its current owner to release it."""
+        deadline: float = monotonic() + waitSeconds
         client = self._redis._get_client()
         full_key = self._redis._build_key(self._lock_key)
-        result = client.set(full_key, self._token, nx=True, ex=self._ttl)
-        if result:
-            self._acquired = True
-            self._start_renewal()
-            logger.debug(f"Lock acquired: {self._lock_key}")
-            return True
-        logger.info(
-            f"Lock already held for job {self._job_id}, another worker is processing"
-        )
-        return False
+        while True:
+            if client.set(full_key, self._token, nx=True, ex=self._ttl):
+                self._acquired = True
+                self._start_renewal()
+                logger.debug(f"Lock acquired: {self._lock_key}")
+                return True
+            remaining: float = deadline - monotonic()
+            if remaining <= 0:
+                logger.info(f"Lock already held for job {self._job_id}, another worker is processing")
+                return False
+            gevent.sleep(min(0.25, remaining))
 
     def release(self) -> bool:
         """Release the lock if we still own it. Returns True if deleted."""

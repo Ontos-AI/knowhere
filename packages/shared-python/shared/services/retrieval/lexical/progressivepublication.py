@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, replace
 from datetime import timedelta
+from time import monotonic
 from typing import TypeVar
 from uuid import uuid4
 
@@ -19,6 +20,8 @@ from shared.models.database.job_result import JobResult
 from shared.models.database.lexicalbuild import LexicalBuild
 from shared.models.database.lexicallease import LexicalLease
 from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
+from shared.services.redis.distributed_lock import RedisJobLock
+from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.demo_authorization import authorize_demo_transaction
 from shared.services.retrieval.lexical.compilation_checkpoint import CompilationCheckpoint
@@ -76,17 +79,30 @@ class ProgressivePublication:
     def publish(self, *, scope: DocumentPublicationScope,
                 update: Callable[[Session, DocumentPublicationScope], _Result]) -> _Result:
         """Apply a replayable SQL update after its exact native index is ready."""
-        try:
-            return self._publish(scope, update)
-        except _ProgressiveBuildAdvanced:
-            return self._publish(scope, update)
-
-    def _publish(self, scope: DocumentPublicationScope,
-                 update: Callable[[Session, DocumentPublicationScope], _Result]) -> _Result:
-        scope = replace(scope, row_identity_seed=uuid4())
         storage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
         lexicalScope: LexicalScope = LexicalScope(ownerId=storage.resolve_owner(scope.user_id),
             namespace=scope.namespace, corpusKind="demo" if storage.is_demo else "private")
+        lock = RedisJobLock(SyncRedisServiceFactory.get_service(),
+            f"progressive-publication:{lexicalScope.fingerprint}:{scope.document_id}")
+        queuedAt: float = monotonic()
+        if not lock.acquire(waitSeconds=settings.KNOWHERE_PG_INDEXING_TIMEOUT_SECONDS):
+            raise LexicalIndexError("Timed out waiting to publish progressive content", isRetryable=True)
+        try:
+            logger.bind(progressive_publication_queue_ms=round((monotonic() - queuedAt) * 1000, 2)).info(
+                "Progressive publication slot acquired"
+            )
+            try:
+                return self._publish(scope, update, storage=storage, lexicalScope=lexicalScope)
+            except _ProgressiveBuildAdvanced:
+                # Keep the database generation fence when a Redis lease is lost.
+                return self._publish(scope, update, storage=storage, lexicalScope=lexicalScope)
+        finally:
+            lock.release()
+
+    def _publish(self, scope: DocumentPublicationScope,
+                 update: Callable[[Session, DocumentPublicationScope], _Result], *,
+                 storage: CorpusStorage, lexicalScope: LexicalScope) -> _Result:
+        scope = replace(scope, row_identity_seed=uuid4())
         # One budget covers the native build and the PostgreSQL rollback copy.
         deadline: IndexingDeadline = IndexingDeadline(settings.KNOWHERE_PG_INDEXING_TIMEOUT_SECONDS)
         native: OpenSearchLexicalIndex = OpenSearchLexicalIndex(endpoint=settings.KNOWHERE_OPENSEARCH_URL,

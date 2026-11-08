@@ -675,7 +675,10 @@ class LexicalTransition:
         capturedControl, bindings = self._capture()
         if capturedControl["epoch"] != epoch or capturedControl["mode"] != "gated":
             raise LexicalIndexError("Backend resume requires the exact gated epoch")
-        if target == "opensearch":
+        requiresRollbackCoverage: bool = (
+            target == "opensearch" and capturedControl["backend"] == "postgresql"
+        )
+        if requiresRollbackCoverage:
             with self.sessions.begin() as db:
                 self._authorize(db)
                 self._checkProgressivePublication(db)
@@ -689,9 +692,6 @@ class LexicalTransition:
             raise LexicalIndexError(
                 "Backend resume refused: current-published coverage is incomplete"
             )
-        requiresRollbackCoverage: bool = (
-            target == "opensearch" and capturedControl["backend"] == "postgresql"
-        )
         if (
             requiresRollbackCoverage
             and not self._verifyCoverage("postgresql", bindings, payloads=payloads)[
@@ -714,7 +714,7 @@ class LexicalTransition:
                 raise LexicalIndexError(
                     "Backend activation requires its publication barrier"
                 )
-            if target == "opensearch":
+            if requiresRollbackCoverage:
                 self._checkProgressivePublication(db)
             current: tuple[_Binding, ...] = self._getBindings(db)
             if self._fingerprint(current) != self._fingerprint(bindings):
