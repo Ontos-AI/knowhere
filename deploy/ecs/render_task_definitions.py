@@ -146,7 +146,8 @@ def render_template(template_path: Path, output_path: Path, variables: dict[str,
     rendered = replace_placeholders(definition, variables)
     configure_staging_opensearch(rendered, variables)
     qstash_base_url: str = variables.get("QSTASH_BASE_URL", "")
-    if qstash_base_url:
+    is_staging: bool = variables.get("DEPLOYMENT_ENVIRONMENT") == "staging"
+    if qstash_base_url or is_staging:
         if not isinstance(rendered, dict):
             raise ValueError("Task definition must be an object")
         containers: object = rendered.get("containerDefinitions")
@@ -158,7 +159,10 @@ def render_template(template_path: Path, output_path: Path, variables: dict[str,
             environment: object = container.get("environment")
             if not isinstance(environment, list):
                 raise ValueError("Task container must contain environment entries")
-            environment.append({"name": "QSTASH_BASE_URL", "value": qstash_base_url})
+            if qstash_base_url:
+                environment.append({"name": "QSTASH_BASE_URL", "value": qstash_base_url})
+            if is_staging and container.get("name") == "api":
+                environment.append({"name": "DB_POOL_RECYCLE", "value": "-1"})
     validate_rendered_definition(rendered)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(rendered, indent=2) + "\n", encoding="utf-8")

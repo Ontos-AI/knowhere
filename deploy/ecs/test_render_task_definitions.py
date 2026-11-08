@@ -54,6 +54,7 @@ API_STAGING_ENVIRONMENT: dict[str, str] = {
     **SHARED_STAGING_ENVIRONMENT,
     "DB_MAX_OVERFLOW": "5",
     "DB_POOL_SIZE": "5",
+    "DB_POOL_RECYCLE": "-1",
 }
 
 WORKER_STAGING_ENVIRONMENT: dict[str, str] = {
@@ -138,6 +139,8 @@ def test_staging_opensearch_inputs_cannot_change_production_rendering(
     before = output_path.read_bytes()
     render_template(template, output_path, {**variables, **STAGING_OPENSEARCH})
     assert output_path.read_bytes() == before
+    environment = json.loads(before)["containerDefinitions"][0]["environment"]
+    assert all(item["name"] != "DB_POOL_RECYCLE" for item in environment)
 
 
 @pytest.mark.parametrize(

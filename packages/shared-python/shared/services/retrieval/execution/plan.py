@@ -15,6 +15,7 @@ from shared.models.database.lexicalcontrol import LexicalBackendControl
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.demo_query_scope import validate_demo_query_scope
+from shared.services.retrieval.document_scope import DocumentScope
 
 from shared.models.schemas.llm_config import LLMConfig
 from shared.services.ai.llm_overrides import (
@@ -47,6 +48,10 @@ from shared.services.retrieval.manifest_cache import discard_cached_manifest_pay
 from shared.services.retrieval.required_query_embedding import (
     RequiredQueryEmbeddingException,
 )
+
+
+class _NativeServingGenerationChanged(RuntimeError):
+    """A progressive publication crossed a native retrieval attempt."""
 
 
 async def run_retrieval_query(
@@ -106,7 +111,14 @@ class RetrievalExecutionPlan:
 
         try:
             if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch" and request.query:
-                return await self._execute_native(request)
+                try:
+                    return await self._execute_native(request)
+                except _NativeServingGenerationChanged:
+                    logger.warning("Progressive publication changed native retrieval generation; retrying once")
+                    try:
+                        return await self._execute_native(request)
+                    except _NativeServingGenerationChanged:
+                        raise self._serving_generation_conflict() from None
             if request.query:
                 self._postgresqlEpoch = await self._capture_postgresql_epoch(request)
             return await self._execute_with_overrides(request)
@@ -174,6 +186,25 @@ class RetrievalExecutionPlan:
                     await reader.closeAsync()
             except Exception as error:
                 logger.warning("Lexical read close failed: error_type={}", type(error).__name__)
+
+    @staticmethod
+    def _serving_generation_conflict() -> ConflictException:
+        return ConflictException(
+            user_message="Document search changed during retrieval. Please retry.",
+            reason="ABORTED",
+            resource="Namespace",
+        )
+
+    @staticmethod
+    async def _is_serving_read_stable(
+        request: RetrievalQuery, pins: RetrievalRevisionPins,
+        native_read: PublishedLexicalRead | None, scope: DocumentScope,
+    ) -> bool:
+        if native_read is not None:
+            return await native_read.isProgressivePublicationStable(request.db, scope)
+        return await is_revision_generation_stable(
+            request.db, user_id=request.user_id, namespace=request.namespace, pins=pins, strict=True,
+        )
 
     async def _execute_with_overrides(self, request: RetrievalQuery) -> dict[str, Any]:
         # TODO(intent-step): Insert Intent Understanding step here.
@@ -308,31 +339,20 @@ class RetrievalExecutionPlan:
             except (RequiredQueryEmbeddingException, LexicalIndexError):
                 raise
             except Exception:
-                if native_read is not None or await is_revision_generation_stable(
-                    request.db,
-                    user_id=request.user_id,
-                    namespace=request.namespace,
-                    pins=revision_pins,
-                    strict=True,
+                if await self._is_serving_read_stable(
+                    request, revision_pins, native_read, route_context.document_scope,
                 ):
                     raise
             else:
-                # The native reader binds published builds to its captured
-                # generation, which also scopes any result cached below.
-                if native_read is not None or await is_revision_generation_stable(
-                    request.db,
-                    user_id=request.user_id,
-                    namespace=request.namespace,
-                    pins=revision_pins,
-                    strict=True,
+                if await self._is_serving_read_stable(
+                    request, revision_pins, native_read, route_context.document_scope,
                 ):
                     break
+            if native_read is not None:
+                # Retry with a fresh native read, cache key, and SQL session.
+                raise _NativeServingGenerationChanged
             if attempt == 1:
-                raise ConflictException(
-                    user_message="Document search changed during retrieval. Please retry.",
-                    reason="ABORTED",
-                    resource="Namespace",
-                )
+                raise self._serving_generation_conflict()
             # Agent tools intentionally use short-lived sessions across LLM waits.
             # Validate the whole episode instead of retaining a long DB snapshot.
             await request.db.rollback()

@@ -75,8 +75,7 @@ class LegacyLexicalCopy:
             # nor the old build row is locked during COPY, so new publication
             # can retire that build immediately. Repair also works while the
             # primary backend's publication gate is closed for rollback.
-            lockIdentity: int = int.from_bytes(sha256(f"legacy-copy:{revisionId}".encode()).digest()[:8], "big", signed=True)
-            if not db.scalar(select(func.pg_try_advisory_xact_lock(lockIdentity))):
+            if not db.scalar(select(func.pg_try_advisory_xact_lock(self.getRevisionLockIdentity(revisionId)))):
                 return False
             build = db.scalars(select(LexicalBuild).where(LexicalBuild.id == buildId)).one()
             if build.legacyCopyState != "pending":
@@ -100,6 +99,10 @@ class LegacyLexicalCopy:
             if build.legacyCopyState == "pending":
                 build.legacyCopyState = "completed"
         return True
+
+    @staticmethod
+    def getRevisionLockIdentity(revisionId: str) -> int:
+        return int.from_bytes(sha256(f"legacy-copy:{revisionId}".encode()).digest()[:8], "big", signed=True)
 
     @staticmethod
     def _isRequired(db: Session, build: LexicalBuild, storage: CorpusStorage) -> bool:

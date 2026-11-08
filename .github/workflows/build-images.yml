@@ -589,17 +589,6 @@ jobs:
             echo "worker_task_definition_arn=${worker_task_definition_arn}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Update API ECS service on on-demand Fargate
-        if: steps.deployment.outputs.deploy_api == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          aws ecs update-service \
-            --cluster "${AWS_ECS_STAGING_CLUSTER_NAME}" \
-            --service "${AWS_ECS_STAGING_API_SERVICE_NAME}" \
-            --task-definition "${{ steps.task-definitions.outputs.api_task_definition_arn }}" \
-            --capacity-provider-strategy capacityProvider=FARGATE,weight=1
-
       - name: Update worker ECS service on Fargate Spot
         if: steps.deployment.outputs.deploy_worker == 'true'
         shell: bash
@@ -611,6 +600,36 @@ jobs:
             --task-definition "${{ steps.task-definitions.outputs.worker_task_definition_arn }}" \
             --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=1
 
+      - name: Wait for worker ECS service to stabilize
+        if: steps.deployment.outputs.deploy_worker == 'true'
+        shell: bash
+        env:
+          EXPECTED_WORKER_TASK_DEFINITION: ${{ steps.task-definitions.outputs.worker_task_definition_arn }}
+        run: |
+          set -euo pipefail
+          aws ecs wait services-stable \
+            --cluster "${AWS_ECS_STAGING_CLUSTER_NAME}" \
+            --services "${AWS_ECS_STAGING_WORKER_SERVICE_NAME}"
+          active_task_definition="$(aws ecs describe-services \
+            --cluster "${AWS_ECS_STAGING_CLUSTER_NAME}" \
+            --services "${AWS_ECS_STAGING_WORKER_SERVICE_NAME}" \
+            --query 'services[0].taskDefinition' --output text)"
+          if [ "$active_task_definition" != "$EXPECTED_WORKER_TASK_DEFINITION" ]; then
+            echo "::error::Staging worker stabilized on $active_task_definition. Expected $EXPECTED_WORKER_TASK_DEFINITION."
+            exit 1
+          fi
+
+      - name: Update API ECS service on on-demand Fargate
+        if: steps.deployment.outputs.deploy_api == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "${AWS_ECS_STAGING_CLUSTER_NAME}" \
+            --service "${AWS_ECS_STAGING_API_SERVICE_NAME}" \
+            --task-definition "${{ steps.task-definitions.outputs.api_task_definition_arn }}" \
+            --capacity-provider-strategy capacityProvider=FARGATE,weight=1
+
       - name: Wait for API ECS service to stabilize
         if: steps.deployment.outputs.deploy_api == 'true'
         shell: bash
@@ -619,15 +638,6 @@ jobs:
           aws ecs wait services-stable \
             --cluster "${AWS_ECS_STAGING_CLUSTER_NAME}" \
             --services "${AWS_ECS_STAGING_API_SERVICE_NAME}"
-
-      - name: Wait for worker ECS service to stabilize
-        if: steps.deployment.outputs.deploy_worker == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          aws ecs wait services-stable \
-            --cluster "${AWS_ECS_STAGING_CLUSTER_NAME}" \
-            --services "${AWS_ECS_STAGING_WORKER_SERVICE_NAME}"
 
       - name: Summarize ECS deployment
         shell: bash

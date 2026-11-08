@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
@@ -13,7 +14,7 @@ from uuid import uuid4
 import pandas as pd
 from loguru import logger
 from sqlalchemy import select
-from sqlalchemy.orm import noload
+from sqlalchemy.orm import Session, noload
 
 from app.services.connect_builder.summary_builder import (
     build_section_summary_lookup,
@@ -64,7 +65,7 @@ from shared.services.ai.token_tracking import (
     init_token_tracker,
 )
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
-from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
+from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox, WebhookOutboxEvent
 from shared.services.jobs.progressive_completion import commit_final_completion
 from shared.services.jobs.progressive_ingestion import (
     read_progressive_state,
@@ -75,6 +76,7 @@ from shared.services.retrieval.cache_service import (
 )
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.graph.service import DocumentGraphService
+from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
 from shared.services.retrieval.publication_content import (
     deduplicate_chunks_by_source_path,
     replace_document_revision_content,
@@ -154,13 +156,17 @@ def execute_chunk_final_enrichment(
             if add_dir and target.source_file_name
             else ""
         )
-        _publish_final_revision(
+        publish_final = partial(
+            _publish_final_revision,
             job_result_id=job_result_id,
             target=target,
             chunks=chunks,
             section_summaries=section_summaries,
             document_top_summary=document_top_summary,
         )
+        is_native: bool = settings.KNOWHERE_LEXICAL_BACKEND == "opensearch"
+        if not is_native:
+            publish_final()
         snapshot, zip_size = _upload_final_package(
             job_result_id=job_result_id,
             target=target,
@@ -169,13 +175,16 @@ def execute_chunk_final_enrichment(
             workspace_dir=workspace_dir,
             storage=storage,
         )
-        _commit_final_snapshot(
-            job_result_id=job_result_id,
-            target=target,
-            snapshot=snapshot,
-            zip_size=zip_size,
-            claim_token=claim_token,
-        )
+        if is_native:
+            publish_final(complete=partial(
+                _complete_final_snapshot, target=target, snapshot=snapshot,
+                zip_size=zip_size, claim_token=claim_token,
+            ))
+        else:
+            _commit_final_snapshot(
+                job_result_id=job_result_id, target=target, snapshot=snapshot,
+                zip_size=zip_size, claim_token=claim_token,
+            )
         return {
             "status": "success",
             "job_result_id": job_result_id,
@@ -459,6 +468,7 @@ def _publish_final_revision(
     chunks: list[dict[str, Any]],
     section_summaries: dict[str, str],
     document_top_summary: str | None = None,
+    complete: Callable[[Session, JobResult], WebhookOutboxEvent | None] | None = None,
 ) -> None:
     publication_scope = DocumentPublicationScope(
         user_id=target.user_id,
@@ -467,7 +477,7 @@ def _publish_final_revision(
         job_result_id=job_result_id,
         source_file_name=target.source_file_name,
     )
-    with get_sync_db_context() as db:
+    def publish(db: Session, scope: DocumentPublicationScope) -> WebhookOutboxEvent | None:
         document = db.execute(
             select(Document)
             .where(Document.document_id == target.document_id)
@@ -488,13 +498,13 @@ def _publish_final_revision(
             raise ValueError("Final publish lost the claimed revision")
         manifest_payload = replace_document_revision_content(
             db,
-            scope=publication_scope,
+            scope=scope,
             chunks=deduplicate_chunks_by_source_path(chunks),
             section_summaries=section_summaries,
         )
         RetrievalPublicationService().update_namespace_snapshot(
             db,
-            scope=publication_scope,
+            scope=scope,
             manifest_payload=manifest_payload,
         )
         DocumentGraphService().publish_document_graph(
@@ -505,10 +515,16 @@ def _publish_final_revision(
             job_result_id=job_result_id,
             top_summary=document_top_summary,
         )
+        return complete(db, job_result) if complete is not None else None
+
+    event = ProgressivePublication.publishForServingBackend(
+        scope=publication_scope, update=publish, openDatabase=get_sync_db_context,
+    )
     bump_retrieval_namespace_cache_version_sync(
         user_id=target.user_id,
         namespace=target.namespace,
     )
+    SyncJobWebhookOutbox().enqueue_after_commit(event)
 
 
 def _upload_final_package(
@@ -583,39 +599,54 @@ def _commit_final_snapshot(
             or document.current_job_result_id != job_result_id
         ):
             raise ValueError("Final commit lost the claimed revision")
-        current = read_progressive_state(result.document_metadata)
-        if current is None:
-            raise ValueError("Final enhancement requires a committed baseline")
-        stages: dict[str, EnhancementStage] = dict(current.stages)
-        stage: EnhancementStage = {**stages.get("finalization", {})}
-        if (
-            stage.get("claim_generation") != claim_token
-            or stage.get("status") != "running"
-            or current.enhancement.status == "failed"
-        ):
-            raise ValueError("Finalization claim is no longer valid")
-        stage["status"] = "complete"
-        stages["finalization"] = stage
-        current.stages = stages
-        result.document_metadata = write_progressive_state(
-            result.document_metadata,
-            current,
+        event = _complete_final_snapshot(
+            db, result, target=target, snapshot=snapshot, zip_size=zip_size, claim_token=claim_token,
         )
-        event = commit_final_completion(
-            db,
-            job_id=target.job_id,
-            job_result=result,
-            snapshot=snapshot,
-        )
-        result.result_size = zip_size
-        job = db.execute(
-            select(Job).where(Job.job_id == target.job_id).with_for_update()
-        ).scalar_one()
-        job.job_metadata = {
-            **dict(job.job_metadata or {}),
-            "enrichment_status": "complete",
-        }
     SyncJobWebhookOutbox().enqueue_after_commit(event)
+
+
+def _complete_final_snapshot(
+    db: Session,
+    result: JobResult,
+    *,
+    target: _ChunkFinalTarget,
+    snapshot: StoredSnapshot,
+    zip_size: int,
+    claim_token: str,
+) -> WebhookOutboxEvent | None:
+    current = read_progressive_state(result.document_metadata)
+    if current is None:
+        raise ValueError("Final enhancement requires a committed baseline")
+    stages: dict[str, EnhancementStage] = dict(current.stages)
+    stage: EnhancementStage = {**stages.get("finalization", {})}
+    if (
+        stage.get("claim_generation") != claim_token
+        or stage.get("status") != "running"
+        or current.enhancement.status == "failed"
+    ):
+        raise ValueError("Finalization claim is no longer valid")
+    stage["status"] = "complete"
+    stages["finalization"] = stage
+    current.stages = stages
+    result.document_metadata = write_progressive_state(
+        result.document_metadata,
+        current,
+    )
+    event = commit_final_completion(
+        db,
+        job_id=target.job_id,
+        job_result=result,
+        snapshot=snapshot,
+    )
+    result.result_size = zip_size
+    job = db.execute(
+        select(Job).where(Job.job_id == target.job_id).with_for_update()
+    ).scalar_one()
+    job.job_metadata = {
+        **dict(job.job_metadata or {}),
+        "enrichment_status": "complete",
+    }
+    return event
 
 
 def _build_section_summaries(
