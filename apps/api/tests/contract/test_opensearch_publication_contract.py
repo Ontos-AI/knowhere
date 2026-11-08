@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 import json
 import os
 from datetime import timedelta
 from pathlib import Path
 import subprocess
 import sys
+from threading import Event, get_ident
 from uuid import uuid4
 from typing import ParamSpec, TypeVar
 
 import httpx
 import pytest
-from sqlalchemy import create_engine, func, select, update
+from sqlalchemy import create_engine, event, func, select, update
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session
 
@@ -197,7 +199,7 @@ def test_background_indexing_activates_the_visible_native_build(
         engine.dispose()
 
 
-@pytest.mark.parametrize("outcome", ["success", "failure", "interrupted", "concurrent"])
+@pytest.mark.parametrize("outcome", ["success", "failure", "interrupted", "concurrent", "abort"])
 def test_progressive_scope_replacement_updates_the_published_native_build(
     monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess, outcome: str,
 ) -> None:
@@ -284,15 +286,35 @@ def test_progressive_scope_replacement_updates_the_published_native_build(
         class InterruptedWrite(BaseException):
             """Leave durable writer state as a terminated worker would."""
 
+        peer_started = Event()
+        peer_writing = Event()
+        peer_checked_out = Event()
+        peer_thread: int | None = None
+        peer: Future[None] | None = None
+
+        def record_checkout(*_: object) -> None:
+            if get_ident() == peer_thread:
+                peer_checked_out.set()
+
+        def publish_peer() -> None:
+            nonlocal peer_thread
+            peer_thread = get_ident()
+            peer_started.set()
+            publisher = ProgressivePublication(sessionFactory=sessionmaker(engine, expire_on_commit=False))
+            publisher.publish(scope=scope, update=replace_peer_scope)
+
         def observe_write(index: OpenSearchLexicalIndex, *, buildId: str, units: tuple[LexicalUnit, ...],
                           beforeBatch: Callable[[], None] | None = None) -> None:
+            nonlocal peer
+            if candidate_ids:
+                peer_writing.set()
             original_write(index, buildId=buildId, units=units, beforeBatch=beforeBatch)
             candidate_ids.append(buildId)
             previous_build_id: str = baseline_build_id
             previous_text: set[str] = baseline_text
-            if outcome == "concurrent" and len(candidate_ids) == 3:
-                previous_build_id = candidate_ids[1]
-                previous_text = {"quartzbaseline", "willowenrichment", "maplecontinuity"}
+            if outcome == "concurrent" and len(candidate_ids) == 2:
+                previous_build_id = candidate_ids[0]
+                previous_text = staged_text
             with Session(engine) as session:
                 current = session.get(Document, document_id)
                 assert current is not None and current.current_indexing_build_id == previous_build_id
@@ -303,18 +325,26 @@ def test_progressive_scope_replacement_updates_the_published_native_build(
             if outcome == "interrupted":
                 raise InterruptedWrite
             if outcome == "concurrent" and len(candidate_ids) == 1:
-                writer.publish(scope=scope, update=replace_peer_scope)
+                peer = executor.submit(publish_peer)
+                assert peer_started.wait(5)
+                assert not peer_writing.wait(2), "The second writer reached OpenSearch before the first published"
+                assert not peer_checked_out.is_set(), "A queued publication checked out a database connection"
 
         monkeypatch.setattr(OpenSearchLexicalIndex, "writeBuild", observe_write)
-        if outcome == "failure":
-            with pytest.raises(LexicalIndexError, match="Injected native failure"):
+        event.listen(engine.pool, "checkout", record_checkout)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            if outcome == "failure":
+                with pytest.raises(LexicalIndexError, match="Injected native failure"):
+                    writer.publish(scope=scope, update=replace_scope)
+            elif outcome == "interrupted":
+                with pytest.raises(InterruptedWrite):
+                    writer.publish(scope=scope, update=replace_scope)
+            else:
                 writer.publish(scope=scope, update=replace_scope)
-        elif outcome == "interrupted":
-            with pytest.raises(InterruptedWrite):
-                writer.publish(scope=scope, update=replace_scope)
-        else:
-            writer.publish(scope=scope, update=replace_scope)
-        assert len(candidate_ids) == (3 if outcome == "concurrent" else 1)
+        if outcome == "concurrent":
+            assert peer is not None
+            peer.result()
+        assert len(candidate_ids) == (2 if outcome == "concurrent" else 1)
         if outcome == "interrupted":
             cleanup = LexicalCleanup(sessionFactory=sessionmaker(engine, expire_on_commit=False))
             assert not cleanup.collect(candidate_ids[0])
@@ -342,8 +372,8 @@ def test_progressive_scope_replacement_updates_the_published_native_build(
                 assert active_build_id == candidate_ids[-1]
                 if outcome == "concurrent":
                     staged_text = {"orchidenrichment", "willowenrichment", "maplecontinuity"}
-                    superseded = session.get(LexicalBuild, candidate_ids[0])
-                    assert superseded is not None and superseded.state == "failed"
+                    first = session.get(LexicalBuild, candidate_ids[0])
+                    assert first is not None and first.state == "retired"
                 assert content == staged_text
                 assert "orchidenrichment" in set(session.scalars(select(DocumentMapUnitToken.token)))
                 result = session.get(JobResult, revision_id)
@@ -362,7 +392,25 @@ def test_progressive_scope_replacement_updates_the_published_native_build(
         with Session(engine) as session:
             epoch: int = session.scalars(select(LexicalBackendControl.epoch)).one()
         operator = LexicalTransition(sessionFactory=sessionmaker(engine, expire_on_commit=False))
+        if outcome == "abort":
+            with Session(engine) as session, session.begin():
+                result = session.get(JobResult, revision_id)
+                assert result is not None
+                result.document_metadata = {
+                    **(result.document_metadata or {}),
+                    "progressive": {"stages": {"finalization": {"status": "pending"}}},
+                }
         operator.run("gate", targetBackend="postgresql", execute=True, expectedEpoch=epoch)
+        if outcome == "abort":
+            operator.run("abort", targetBackend="opensearch", execute=True, expectedEpoch=epoch + 1)
+            with Session(engine) as session:
+                control = session.get(LexicalBackendControl, 1)
+                document = session.get(Document, document_id)
+                assert control is not None and (control.backend, control.mode) == ("opensearch", "serving")
+                assert document is not None and document.current_indexing_build_id == active_build_id
+            evidence = asyncio.run(_discoverNative(namespace, query="orchidenrichment"))
+            assert evidence and evidence[0]["content"] == "orchidenrichment"
+            return
         operator.run("settle", targetBackend="postgresql", execute=True, expectedEpoch=epoch + 1)
         operator.run("resume", targetBackend="postgresql", execute=True, expectedEpoch=epoch + 1)
         with monkeypatch.context() as rollback:
