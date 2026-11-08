@@ -8,6 +8,7 @@ from shared.services.retrieval.lexical.unit import LexicalUnit
 
 _CONTENT_COVERAGE_BONUS: float = 1.5
 _MAXIMUM_COVERAGE_TERMS: int = 16
+_MAXIMUM_TERMS_PER_FILTER: int = 65_536
 
 
 class _StoredUnit(LexicalUnit):
@@ -38,10 +39,19 @@ class NativeSearchPlan:
     @staticmethod
     def buildPayload(channel: str, *, buildIds: tuple[str, ...], queryTokens: tuple[str, ...],
                      limit: int, unitIds: tuple[str, ...] | None,
-                     preferContentCoverage: bool = False) -> dict[str, object]:
+                     preferContentCoverage: bool = False,
+                     sectionIds: tuple[str, ...] | None = None) -> dict[str, object]:
         filters: list[dict[str, object]] = [{"terms": {"buildId": list(buildIds)}}]
         if unitIds is not None:
             filters.append({"terms": {"unitId": list(unitIds)}})
+        if sectionIds is not None:
+            if len(sectionIds) <= _MAXIMUM_TERMS_PER_FILTER:
+                filters.append({"terms": {"sectionId": list(sectionIds)}})
+            else:
+                filters.append({"bool": {"minimum_should_match": 1, "should": [
+                    {"terms": {"sectionId": list(sectionIds[offset:offset + _MAXIMUM_TERMS_PER_FILTER])}}
+                    for offset in range(0, len(sectionIds), _MAXIMUM_TERMS_PER_FILTER)
+                ]}})
         query: dict[str, object] = {
             "filter": filters,
             "must": [{"match": {channel: {"query": " ".join(queryTokens), "operator": "or"}}}],

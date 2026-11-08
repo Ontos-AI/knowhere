@@ -10,14 +10,18 @@ unscored fold.
 
 from __future__ import annotations
 
-from shared.services.retrieval.corpus_storage import CorpusStorage
-
+import asyncio
 from dataclasses import dataclass
 from hashlib import sha256
 
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.lexical.asyncread import AsyncPublishedLexicalRead
+from shared.services.retrieval.lexical.error import LexicalIndexError
+from shared.services.retrieval.lexical.hit import LexicalHit
+from shared.services.retrieval.lexical.reader import PublishedLexicalRead
 from shared.services.retrieval.scoring.knowhere_hybrid import (
     MAP_UNIT_INDEX_FORMAT_VERSION,
     PersistedScoreCorpus,
@@ -31,6 +35,42 @@ from shared.services.retrieval.scoring.persisted_score_load import (
 )
 
 _SCORE_CHANNELS = ("path", "content")
+_NATIVE_SCORE_WINDOW: int = 10_000
+
+
+async def _load_native_section_scores(
+    reader: PublishedLexicalRead,
+    *,
+    revision_by_document: dict[str, str],
+    section_ids: list[str],
+    query_tokens: tuple[str, ...],
+) -> dict[str, float]:
+    if any(
+        reader.pins.get(document_id) != revision or document_id not in reader.builds
+        for document_id, revision in revision_by_document.items()
+    ):
+        raise LexicalIndexError("Map revisions differ from the captured native read")
+
+    build_ids: tuple[str, ...] = tuple(reader.builds[document_id] for document_id in revision_by_document)
+    sections: set[str] = set(section_ids)
+    # The window bounds how many scores are returned. Every scoped section can match.
+    limit: int = min(len(sections), _NATIVE_SCORE_WINDOW)
+    section_filter: tuple[str, ...] = tuple(sorted(sections))
+    hits: tuple[LexicalHit, ...]
+    if isinstance(reader, AsyncPublishedLexicalRead):
+        hits = await reader.searchAsync(buildIds=build_ids, sectionIds=section_filter,
+                                        queryTokens=query_tokens, limit=limit)
+    else:
+        hits = await asyncio.to_thread(reader.search, buildIds=build_ids, sectionIds=section_filter,
+                                       queryTokens=query_tokens, limit=limit)
+
+    scores: dict[str, float] = {}
+    for hit in hits:
+        section_id: str = hit.unit.sectionId
+        if section_id not in sections:
+            raise LexicalIndexError("Native map hit escaped its section scope")
+        scores[section_id] = max(scores.get(section_id, 0.0), hit.score)
+    return scores
 
 
 async def load_leaf_unit_scores(
@@ -40,12 +80,12 @@ async def load_leaf_unit_scores(
     section_ids: list[str],
     query: str,
 ) -> dict[str, float] | None:
-    """BM25 path+content score, pooled onto ``section_id``, for one ``query``.
+    """Score the rendered sections using the request's lexical backend.
 
     Scoped to exactly the ``section_ids`` the caller already rendered (an
     outline/node_filter result), not a document/signal-path predicate — the
     map tools already know their own scope, so this skips rebuilding it in
-    SQL. Mirrors ``search.map_unit_discovery``'s scoring formula (same stats
+    SQL. The PG path mirrors ``search.map_unit_discovery``'s scoring formula (same stats
     builder, same channel-sum via ``score_persisted_corpus_many``) but reads
     the persisted map-unit index directly through the ORM instead of the
     discovery module's hand-rolled ``text()`` CTEs, since lighting's scope is
@@ -53,14 +93,21 @@ async def load_leaf_unit_scores(
 
     Returns ``None`` when the map cannot be scored at all: the query has no
     rankable token, no rendered section has a map unit on its current
-    revision, or some     revision lacks a compatible map-unit index; callers fail the call
+    revision, or a revision lacks a compatible PG map-unit index; callers fail the call
     instead of folding unscored. A section that simply has no unit of its
     own is absent from the mapping and scores ``0.0``.
     """
-    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(next(iter(revision_by_document), ''))
     query_tokens = tokenize_query_for_ranker(query)
     if not query_tokens or not section_ids or not revision_by_document:
         return None
+    reader: PublishedLexicalRead | None = PublishedLexicalRead.current()
+    if reader is not None:
+        return await _load_native_section_scores(
+            reader, revision_by_document=revision_by_document, section_ids=section_ids,
+            query_tokens=tuple(query_tokens),
+        )
+
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(next(iter(revision_by_document)))
     token_hashes = [sha256(token.encode("utf-8")).hexdigest() for token in query_tokens]
 
     unit_rows = (

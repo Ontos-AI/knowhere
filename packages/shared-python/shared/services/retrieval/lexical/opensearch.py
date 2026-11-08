@@ -287,15 +287,16 @@ class OpenSearchLexicalIndex:
         queryTokens: tuple[str, ...],
         limit: int,
         unitIds: tuple[str, ...] | None = None,
+        sectionIds: tuple[str, ...] | None = None,
     ) -> tuple[LexicalHit, ...]:
-        if not buildIds or not queryTokens or limit <= 0 or unitIds == ():
+        if not buildIds or not queryTokens or limit <= 0 or unitIds == () or sectionIds == ():
             return ()
         def queryChannel(channel: str) -> object:
             StageObserver.add("path_channel_calls" if channel == "pathTokens" else "content_channel_calls")
             return self._request("POST",
                 f"/{self.indexName}/_search?allow_partial_search_results=false&ignore_unavailable=false",
                 payload=NativeSearchPlan.buildPayload(channel, buildIds=buildIds,
-                    queryTokens=queryTokens, limit=limit, unitIds=unitIds))
+                    queryTokens=queryTokens, limit=limit, unitIds=unitIds, sectionIds=sectionIds))
 
         bodies: tuple[object, object] = self._runtime.queryChannels(queryChannel)
         return NativeSearchPlan.fuseChannels(bodies, buildIds=buildIds, limit=limit)

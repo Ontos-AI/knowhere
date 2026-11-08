@@ -12,6 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 from threading import Event, get_ident
+from types import SimpleNamespace
 from uuid import uuid4
 from typing import ParamSpec, TypeVar
 
@@ -111,6 +112,118 @@ def _getNativeEndpoint() -> str:
     if not endpoint:
         pytest.skip("Set KNOWHERE_TEST_OPENSEARCH_URL to an owned isolated native node")
     return endpoint
+
+
+@pytest.mark.parametrize("map_tool", ["outline", "node_filter"])
+def test_agentic_retrieval_folds_native_maps_without_pg_tokens(
+    monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess, map_tool: str,
+) -> None:
+    endpoint: str = _getNativeEndpoint()
+    query: str = "ceruleanevidence"
+    document_id: str = "doc_native_contract"
+    user_id: str = "native-contract-user"
+    expected_chunk: str = "map-evidence"
+    chunks: list[dict[str, object]] = [
+        {"chunk_id": f"map-noise-{position}", "type": "text", "content": f"Routine maintenance note {position}",
+         "path": f"report.pdf/Field Guide/Section {position:02d}", "metadata": {}}
+        for position in range(24)
+    ]
+    chunks.extend([
+        {"chunk_id": expected_chunk, "type": "text", "content": f"The test marker is {query}",
+         "path": "report.pdf/Field Guide/Final Evidence", "metadata": {}},
+        {"chunk_id": "outside-scope", "type": "text", "content": query,
+         "path": "report.pdf/Outside Scope", "metadata": {}},
+    ])
+    engine, job_id, namespace = _prepareParsedJob(monkeypatch, postgresql_proc, preparedChunks=chunks)
+
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+    from shared.models.database.document import DocumentChunk, DocumentMapUnitToken, DocumentSection
+    from shared.services.retrieval.agent_explore.harness import openai_harness
+    from shared.services.retrieval.agent_tools import map_render
+    from shared.services.retrieval.app_service import run_retrieval_query
+    from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
+    from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.lexical.worker import IndexingWorker
+    from shared.services.retrieval.stats.recorder import drain_retrieval_hit_stats_updates
+
+    monkeypatch.setenv("AGENT_EXPLORE_HARNESS", "openai")
+    monkeypatch.setattr(map_render, "MAP_TOOL_CHAR_BUDGET", 560)
+    monkeypatch.setattr(LegacyCopyDispatch, "submit", staticmethod(lambda _build_id: False))
+    native = OpenSearchLexicalIndex(endpoint=endpoint, scope=LexicalScope(ownerId=user_id, namespace=namespace),
+                                    indexPrefix="knowhere-slice-test")
+
+    class ScriptedModel:
+        def __init__(self, target_path: str) -> None:
+            parent: str = target_path.rsplit(" / ", 1)[0]
+            args: dict[str, object] = {"scope": [{"document_id": document_id, "section_path": parent}]}
+            if map_tool == "node_filter":
+                args["predicates"] = [{"field": "path", "terms": [parent + "$"], "match": "regex"}]
+            self.turns: list[tuple[str, dict[str, object]]] = [(f"corpus_{map_tool}", args)]
+            if map_tool == "outline":
+                self.turns.append(("corpus_pick", {"pick": ["O1"]}))
+            self.turns.extend([
+                ("corpus_read", {"refs": [{"document_id": document_id, "section_path": target_path}]}),
+                ("corpus_pick", {"pick": ["R1.1"]}),
+                ("finish", {}),
+            ])
+            self.target_path: str = target_path
+            self.folded_map: str | None = None
+
+        def chat_completion_raw_with_usage(
+            self, *, messages: list[dict[str, str]], **_kwargs: object,
+        ) -> tuple[SimpleNamespace, dict[str, int]]:
+            name, args = self.turns.pop(0)
+            if self.folded_map is None and name != f"corpus_{map_tool}":
+                self.folded_map = messages[-1]["content"]
+                assert "nodes hidden" in self.folded_map, self.folded_map
+                assert self.target_path in self.folded_map, self.folded_map
+            call = SimpleNamespace(function=SimpleNamespace(name=name, arguments=json.dumps(args)))
+            message = SimpleNamespace(tool_calls=[call], content="")
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)]), {"total_tokens": 1}
+
+    async def retrieve() -> dict[str, object]:
+        async_engine = create_async_engine(get_contract_database_url())
+        try:
+            async with AsyncSession(async_engine) as db:
+                return await run_retrieval_query(db=db, user_id=user_id, namespace=namespace, query=query, top_k=1,
+                                                 use_agentic=True, exclude_document_ids=[], exclude_sections=[])
+        finally:
+            await drain_retrieval_hit_stats_updates()
+            await async_engine.dispose()
+
+    try:
+        assert IndexingWorker(sessionFactory=sessionmaker(engine, expire_on_commit=False)).run(job_id) == "completed"
+        with Session(engine) as session:
+            assert session.scalar(select(func.count()).select_from(DocumentMapUnitToken)) == 0
+            target_path: str = session.scalars(select(DocumentSection.section_path).join(
+                DocumentChunk, DocumentChunk.section_id == DocumentSection.section_id,
+            ).where(DocumentChunk.chunk_id == expected_chunk)).one()
+        model = ScriptedModel(target_path)
+        monkeypatch.setattr(openai_harness, "_resolve_client_and_model", lambda: (model, "scripted"))
+        pg_token_reads: list[str] = []
+
+        def record_pg_token_read(_conn: object, _cursor: object, statement: str, *_args: object) -> None:
+            if statement.lstrip().upper().startswith("SELECT") and "document_map_unit_tokens" in statement:
+                pg_token_reads.append(statement)
+
+        event.listen(Engine, "before_cursor_execute", record_pg_token_read)
+        try:
+            response = asyncio.run(retrieve())
+        finally:
+            event.remove(Engine, "before_cursor_execute", record_pg_token_read)
+        assert not pg_token_reads
+        assert response["router_used"] == "agent_explore"
+        assert model.folded_map is not None
+        results = response["results"]
+        assert isinstance(results, list)
+        assert [row["chunk_id"] for row in results] == [expected_chunk]
+    finally:
+        response = httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
+        native.close()
+        engine.dispose()
 
 
 def _prepareParsedJob(

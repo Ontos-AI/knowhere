@@ -1,5 +1,6 @@
 """Run lock-free published reads on the API's existing async pools."""
 
+from functools import partial
 import time
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
@@ -31,9 +32,10 @@ class AsyncPublishedLexicalRead(PublishedLexicalRead):
         self.assertAlive()
 
     async def searchAsync(self, *, buildIds: tuple[str, ...], queryTokens: tuple[str, ...],
-                          limit: int, unitIds: tuple[str, ...] | None = None) -> tuple[LexicalHit, ...]:
+                          limit: int, unitIds: tuple[str, ...] | None = None,
+                          sectionIds: tuple[str, ...] | None = None) -> tuple[LexicalHit, ...]:
         self.assertAlive()
-        if not buildIds or not queryTokens or unitIds == ():
+        if not buildIds or not queryTokens or unitIds == () or sectionIds == ():
             return ()
         observationStart: float = time.perf_counter()
         StageObserver.add("lexical_executions")
@@ -43,8 +45,10 @@ class AsyncPublishedLexicalRead(PublishedLexicalRead):
             self._asyncNative = AsyncOpenSearchLexicalIndex(endpoint=settings.KNOWHERE_OPENSEARCH_URL,
                 scope=self.scope, indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX,
                 preferContentCoverage=self.preferContentCoverage)
+        search = (self._asyncNative.search if sectionIds is None
+                  else partial(self._asyncNative.search, sectionIds=sectionIds))
         try:
-            hits: tuple[LexicalHit, ...] = await self._asyncNative.search(buildIds=buildIds,
+            hits: tuple[LexicalHit, ...] = await search(buildIds=buildIds,
                 queryTokens=queryTokens, limit=limit, unitIds=unitIds)
         except LexicalIndexError as error:
             if not error.isIndexClosed:
@@ -52,8 +56,7 @@ class AsyncPublishedLexicalRead(PublishedLexicalRead):
             isCold = True
             indexUuid, epoch = await self._asyncCoordination.ensureIndex(scope=self.scope, native=self._asyncNative)
             self._validateRecovery(indexUuid, epoch)
-            hits = await self._asyncNative.search(buildIds=buildIds,
-                queryTokens=queryTokens, limit=limit, unitIds=unitIds)
+            hits = await search(buildIds=buildIds, queryTokens=queryTokens, limit=limit, unitIds=unitIds)
         self._validateHits(hits)
         elapsed: float = (time.perf_counter() - observationStart) * 1000
         StageObserver.add("lexical_ms", elapsed)
