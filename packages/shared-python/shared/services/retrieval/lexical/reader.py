@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import partial
 from types import MappingProxyType
 import time
 
@@ -144,9 +145,10 @@ class PublishedLexicalRead:
             raise LexicalIndexError("Retrieval read session is not active", isRetryable=True)
 
     def search(self, *, buildIds: tuple[str, ...], queryTokens: tuple[str, ...],
-               limit: int, unitIds: tuple[str, ...] | None = None) -> tuple[LexicalHit, ...]:
+               limit: int, unitIds: tuple[str, ...] | None = None,
+               sectionIds: tuple[str, ...] | None = None) -> tuple[LexicalHit, ...]:
         self.assertAlive()
-        if not buildIds or not queryTokens or unitIds == ():
+        if not buildIds or not queryTokens or unitIds == () or sectionIds == ():
             return ()
         observationStart: float = time.perf_counter()
         StageObserver.add("lexical_executions")
@@ -155,8 +157,10 @@ class PublishedLexicalRead:
         if self._native is None:
             self._native = OpenSearchLexicalIndex(endpoint=settings.KNOWHERE_OPENSEARCH_URL,
                 scope=self.scope, indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX)
+        search = (self._native.search if sectionIds is None
+                  else partial(self._native.search, sectionIds=sectionIds))
         try:
-            hits: tuple[LexicalHit, ...] = self._native.search(buildIds=buildIds,
+            hits: tuple[LexicalHit, ...] = search(buildIds=buildIds,
                 queryTokens=queryTokens, limit=limit, unitIds=unitIds)
         except LexicalIndexError as error:
             if not error.isIndexClosed:
@@ -164,8 +168,7 @@ class PublishedLexicalRead:
             isCold = True
             indexUuid, epoch = self.coordination.ensureIndex(scope=self.scope, native=self._native)
             self._validateRecovery(indexUuid, epoch)
-            hits = self._native.search(buildIds=buildIds, queryTokens=queryTokens,
-                limit=limit, unitIds=unitIds)
+            hits = search(buildIds=buildIds, queryTokens=queryTokens, limit=limit, unitIds=unitIds)
         self._validateHits(hits)
         elapsed: float = (time.perf_counter() - observationStart) * 1000
         StageObserver.add("lexical_ms", elapsed)
