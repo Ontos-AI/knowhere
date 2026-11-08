@@ -342,7 +342,8 @@ def test_progressive_scope_replacement_updates_the_published_native_build(
                 assert active_build_id == candidate_ids[-1]
                 if outcome == "concurrent":
                     staged_text = {"orchidenrichment", "willowenrichment", "maplecontinuity"}
-                    assert session.get(LexicalBuild, candidate_ids[0]).state == "failed"
+                    superseded = session.get(LexicalBuild, candidate_ids[0])
+                    assert superseded is not None and superseded.state == "failed"
                 assert content == staged_text
                 assert "orchidenrichment" in set(session.scalars(select(DocumentMapUnitToken.token)))
                 result = session.get(JobResult, revision_id)
@@ -1527,17 +1528,17 @@ def test_progressive_native_read_retries_once_when_publication_crosses_retrieval
         return outcome
 
     monkeypatch.setattr(plan, "run_retrieval_route", publish_after_retrieval)
-    if publication_count == 0:
-        response = asyncio.run(_queryClassic(namespace))
-        assert response["results"][0]["content"] == "工程验收计划"
-        assert len(read_generations) == 1
-        return
     if publication_count == 2:
         with pytest.raises(ConflictException):
             asyncio.run(_queryClassic(namespace))
     else:
         response = asyncio.run(_queryClassic(namespace))
-        assert response["results"][0]["content"] == revised_content
+        results: object = response["results"]
+        assert isinstance(results, list) and results
+        assert results[0]["content"] == ("工程验收计划" if publication_count == 0 else revised_content)
+    if publication_count == 0:
+        assert len(read_generations) == 1
+        return
     assert len(read_generations) == 2
     assert read_generations[0] is not None and read_generations[1] == read_generations[0] + 1
 
