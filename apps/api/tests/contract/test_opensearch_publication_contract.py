@@ -15,7 +15,7 @@ from typing import ParamSpec, TypeVar
 
 import httpx
 import pytest
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, select, update
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session
 
@@ -194,6 +194,185 @@ def test_background_indexing_activates_the_visible_native_build(
         response = httpx.delete(f"{endpoint}/{index.indexName}", timeout=15, trust_env=False)
         assert response.status_code in (200, 404)
         index.close()
+        engine.dispose()
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure", "interrupted", "concurrent"])
+def test_progressive_scope_replacement_updates_the_published_native_build(
+    monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess, outcome: str,
+) -> None:
+    endpoint = _getNativeEndpoint()
+    other_scope: dict[str, object] = {
+        "chunk_id": "other-scope", "type": "text", "content": "cedarcontinuity",
+        "path": "report.pdf/Other", "metadata": {"scope_id": "p2-2"},
+    }
+    engine, job_id, namespace = _prepareParsedJob(
+        monkeypatch, postgresql_proc, preparedChunks=[
+            {"chunk_id": "baseline-scope", "type": "text", "content": "quartzbaseline",
+             "path": "report.pdf/Original", "metadata": {"scope_id": "p1-1"}},
+            other_scope,
+            {"chunk_id": "third-scope", "type": "text", "content": "maplecontinuity",
+             "path": "report.pdf/Third", "metadata": {"scope_id": "p3-3"}},
+        ],
+    )
+    from sqlalchemy.orm import sessionmaker
+    from shared.core.config import settings
+    from shared.models.database.document import Document, DocumentChunk, DocumentMapUnitToken
+    from shared.models.database.job_result import JobResult
+    from shared.models.database.lexicalbuild import LexicalBuild
+    from shared.models.database.lexicalcontrol import LexicalBackendControl
+    from shared.models.database.lexicallease import LexicalLease
+    from shared.services.retrieval.lexical.cleanup import LexicalCleanup
+    from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
+    from shared.services.retrieval.lexical.error import LexicalIndexError
+    from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
+    from shared.services.retrieval.lexical.storage import LexicalInputStorage
+    from shared.services.retrieval.lexical.transition import LexicalTransition, _Binding
+    from shared.services.retrieval.lexical.unit import LexicalUnit
+    from shared.services.retrieval.lexical.worker import IndexingWorker
+    from shared.services.retrieval.publication_models import DocumentPublicationScope
+    from shared.services.retrieval.publication_scope_content import replace_document_scope_content
+    from shared.services.retrieval.scoring.knowhere_hybrid import tokenize_query_for_ranker
+
+    document_id = "doc_native_contract"
+    user_id = "native-contract-user"
+    native = OpenSearchLexicalIndex(endpoint=endpoint, scope=LexicalScope(ownerId=user_id, namespace=namespace),
+        indexPrefix="knowhere-slice-test")
+    monkeypatch.setattr(LegacyCopyDispatch, "submit", staticmethod(lambda identity: False))
+
+    def matches(build_id: str, query: str) -> bool:
+        return bool(native.search(buildIds=(build_id,),
+                                  queryTokens=tuple(tokenize_query_for_ranker(query)), limit=10))
+
+    try:
+        worker = IndexingWorker(sessionFactory=sessionmaker(engine, expire_on_commit=False))
+        assert worker.run(job_id) == "completed"
+        with Session(engine) as session:
+            document = session.get(Document, document_id)
+            assert document is not None and document.current_job_result_id is not None
+            assert document.current_indexing_build_id is not None
+            baseline_build_id = document.current_indexing_build_id
+            revision_id = document.current_job_result_id
+        assert matches(baseline_build_id, "quartzbaseline")
+        assert matches(baseline_build_id, "cedarcontinuity")
+        assert not matches(baseline_build_id, "orchidenrichment")
+
+        scope = DocumentPublicationScope(user_id=user_id, namespace=namespace,
+            document_id=document_id, job_result_id=revision_id, source_file_name="report.pdf")
+        writer = ProgressivePublication(sessionFactory=sessionmaker(engine, expire_on_commit=False))
+
+        def replace_scope(session: Session, publication_scope: DocumentPublicationScope) -> None:
+            replace_document_scope_content(
+                session, scope=publication_scope,
+                scope_id="p1-1",
+                chunks=[{"chunk_id": "refined-scope", "type": "text", "content": "orchidenrichment",
+                         "path": "report.pdf/Refined", "metadata": {"scope_id": "p1-1"}}],
+            )
+
+        original_write = OpenSearchLexicalIndex.writeBuild
+        candidate_ids: list[str] = []
+        baseline_text: set[str] = {"quartzbaseline", "cedarcontinuity", "maplecontinuity"}
+        staged_text: set[str] = {"orchidenrichment", "cedarcontinuity", "maplecontinuity"}
+
+        def replace_peer_scope(session: Session, publication_scope: DocumentPublicationScope) -> None:
+            replace_document_scope_content(session, scope=publication_scope, scope_id="p2-2",
+                chunks=[{"chunk_id": "refined-peer", "type": "text", "content": "willowenrichment",
+                    "path": "report.pdf/Other", "metadata": {}}])
+
+        class InterruptedWrite(BaseException):
+            """Leave durable writer state as a terminated worker would."""
+
+        def observe_write(index: OpenSearchLexicalIndex, *, buildId: str, units: tuple[LexicalUnit, ...],
+                          beforeBatch: Callable[[], None] | None = None) -> None:
+            original_write(index, buildId=buildId, units=units, beforeBatch=beforeBatch)
+            candidate_ids.append(buildId)
+            previous_build_id: str = baseline_build_id
+            previous_text: set[str] = baseline_text
+            if outcome == "concurrent" and len(candidate_ids) == 3:
+                previous_build_id = candidate_ids[1]
+                previous_text = {"quartzbaseline", "willowenrichment", "maplecontinuity"}
+            with Session(engine) as session:
+                current = session.get(Document, document_id)
+                assert current is not None and current.current_indexing_build_id == previous_build_id
+                assert set(session.scalars(select(DocumentChunk.content))) == previous_text
+            assert matches(baseline_build_id, "quartzbaseline")
+            if outcome == "failure":
+                raise LexicalIndexError("Injected native failure after candidate write")
+            if outcome == "interrupted":
+                raise InterruptedWrite
+            if outcome == "concurrent" and len(candidate_ids) == 1:
+                writer.publish(scope=scope, update=replace_peer_scope)
+
+        monkeypatch.setattr(OpenSearchLexicalIndex, "writeBuild", observe_write)
+        if outcome == "failure":
+            with pytest.raises(LexicalIndexError, match="Injected native failure"):
+                writer.publish(scope=scope, update=replace_scope)
+        elif outcome == "interrupted":
+            with pytest.raises(InterruptedWrite):
+                writer.publish(scope=scope, update=replace_scope)
+        else:
+            writer.publish(scope=scope, update=replace_scope)
+        assert len(candidate_ids) == (3 if outcome == "concurrent" else 1)
+        if outcome == "interrupted":
+            cleanup = LexicalCleanup(sessionFactory=sessionmaker(engine, expire_on_commit=False))
+            assert not cleanup.collect(candidate_ids[0])
+            assert matches(candidate_ids[0], "orchidenrichment")
+            with Session(engine) as session, session.begin():
+                session.execute(update(LexicalLease).where(LexicalLease.buildId == candidate_ids[0])
+                    .values(expiresAt=func.now() - timedelta(seconds=1)))
+            assert not cleanup.collect(candidate_ids[0])
+            assert not matches(candidate_ids[0], "orchidenrichment")
+
+        with Session(engine) as session:
+            document = session.get(Document, document_id)
+            assert document is not None and document.current_job_result_id == revision_id
+            content = set(session.scalars(select(DocumentChunk.content).where(
+                DocumentChunk.document_id == document_id, DocumentChunk.job_result_id == revision_id,
+            )))
+            active_build_id = document.current_indexing_build_id
+            assert active_build_id is not None
+            if outcome in ("failure", "interrupted"):
+                assert active_build_id == baseline_build_id
+                assert content == baseline_text
+                candidate = session.get(LexicalBuild, candidate_ids[0])
+                assert candidate is not None and candidate.state == "failed" and candidate.cleanupState == "pending"
+            else:
+                assert active_build_id == candidate_ids[-1]
+                if outcome == "concurrent":
+                    staged_text = {"orchidenrichment", "willowenrichment", "maplecontinuity"}
+                    superseded = session.get(LexicalBuild, candidate_ids[0])
+                    assert superseded is not None and superseded.state == "failed"
+                assert content == staged_text
+                assert "orchidenrichment" in set(session.scalars(select(DocumentMapUnitToken.token)))
+                result = session.get(JobResult, revision_id)
+                assert result is not None and result.indexing_input_key and result.indexing_input_checksum
+                payload = LexicalInputStorage().load(key=result.indexing_input_key, checksum=result.indexing_input_checksum)
+                binding = _Binding("private", user_id, namespace, document_id, revision_id, job_id,
+                    result.indexing_input_key, result.indexing_input_checksum, result.indexing_input_compiler, active_build_id)
+                assert LexicalTransition._verifyPostgresql(session, binding, payload)["unitCount"] == len(payload.units)
+        if outcome in ("failure", "interrupted"):
+            assert matches(active_build_id, "quartzbaseline")
+            assert not matches(active_build_id, "orchidenrichment")
+            return
+        assert matches(active_build_id, "orchidenrichment"), "The newly published scope is absent from OpenSearch"
+        assert matches(active_build_id, "willowenrichment" if outcome == "concurrent" else "cedarcontinuity")
+        assert not matches(active_build_id, "quartzbaseline")
+        with Session(engine) as session:
+            epoch: int = session.scalars(select(LexicalBackendControl.epoch)).one()
+        operator = LexicalTransition(sessionFactory=sessionmaker(engine, expire_on_commit=False))
+        operator.run("gate", targetBackend="postgresql", execute=True, expectedEpoch=epoch)
+        operator.run("settle", targetBackend="postgresql", execute=True, expectedEpoch=epoch + 1)
+        operator.run("resume", targetBackend="postgresql", execute=True, expectedEpoch=epoch + 1)
+        with monkeypatch.context() as rollback:
+            rollback.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "postgresql")
+            pg_result = asyncio.run(_discoverNative(namespace, query="orchidenrichment"))
+            assert pg_result and pg_result[0]["content"] == "orchidenrichment"
+            assert not asyncio.run(_discoverNative(namespace, query="quartzbaseline"))
+    finally:
+        httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False)
+        native.close()
         engine.dispose()
 
 
@@ -774,7 +953,7 @@ def test_empty_demo_read_needs_no_write_authorization(
         engine.dispose()
 
 
-async def _discoverNative(namespace: str) -> list[dict[str, object]]:
+async def _discoverNative(namespace: str, *, query: str = "工程验收计划") -> list[dict[str, object]]:
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
     from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
     engine = create_async_engine(get_contract_database_url())
@@ -782,7 +961,7 @@ async def _discoverNative(namespace: str) -> list[dict[str, object]]:
         async with AsyncSession(engine) as session:
             result = await map_unit_discovery(session,
                 user_id="native-contract-user", namespace=namespace,
-                query="工程验收计划", top_k=20, exclude_document_ids=[], exclude_sections=[],
+                query=query, top_k=20, exclude_document_ids=[], exclude_sections=[],
                 publish_index_readiness=False)
             return result.payload["fused_rows"]
     finally:
@@ -1295,6 +1474,73 @@ def test_classic_read_hydrates_its_hit_revision_after_replacement_and_cleanup(
     assert results[0]["source"]["job_result_id"] == oldRevision
     assert results[0]["source"]["source_file_name"] == "report.pdf"
     assert cleanup.collect(oldBuild)
+
+
+@pytest.mark.parametrize("publication_count", [0, 1, 2])
+def test_progressive_native_read_retries_once_when_publication_crosses_retrieval(
+    classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch, publication_count: int,
+) -> None:
+    from shared.core.exceptions.domain_exceptions import ConflictException
+    from shared.models.database.document import Document
+    from shared.models.database.job_result import JobResult
+    from shared.services.retrieval.execution import plan
+    from shared.services.retrieval.execution.route_types import RetrievalRouteContext, RetrievalRouteOutcome
+    from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
+    from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
+    from shared.services.retrieval.lexical.worker import IndexingWorker
+    from shared.services.retrieval.publication_models import DocumentPublicationScope
+    from shared.services.retrieval.publication_scope_content import replace_document_scope_content
+    from sqlalchemy.orm import sessionmaker
+
+    engine, namespace = classicRuntime
+    with Session(engine) as database, database.begin():
+        document = database.scalars(select(Document)).one()
+        revision = database.get(JobResult, document.current_job_result_id)
+        assert revision is not None
+        revision.document_metadata = {**(revision.document_metadata or {}), "ingestion_mode": "progressive"}
+        scope = DocumentPublicationScope(user_id=document.user_id, namespace=namespace,
+            document_id=document.document_id, job_result_id=revision.id, source_file_name="report.pdf")
+
+    original = plan.run_retrieval_route
+    read_generations: list[int | None] = []
+    revised_content: str = "工程验收计划 细化内容"
+    sessions = sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(LegacyCopyDispatch, "submit", staticmethod(lambda identity: False))
+
+    def publish_refinement(db: Session, staged_scope: DocumentPublicationScope) -> None:
+        replace_document_scope_content(db, scope=staged_scope, scope_id="*", chunks=[
+            {"chunk_id": "refined-first", "type": "text", "content": revised_content,
+                "path": "report.pdf/工程验收", "metadata": {}},
+            {"chunk_id": "classic-second", "type": "text", "content": "项目质量管理程序",
+                "path": "report.pdf/质量管理", "metadata": {}},
+        ])
+
+    async def publish_after_retrieval(context: RetrievalRouteContext) -> RetrievalRouteOutcome:
+        outcome = await original(context)
+        pins = context.revision_pins
+        assert pins is not None
+        read_generations.append(pins.generation)
+        if publication_count == 0 and len(read_generations) == 1:
+            replacement_id = _stageReplacement(engine, namespace)
+            assert IndexingWorker(sessionFactory=sessions).run(replacement_id) == "completed"
+        elif len(read_generations) <= publication_count:
+            ProgressivePublication(sessionFactory=sessions).publish(scope=scope, update=publish_refinement)
+        return outcome
+
+    monkeypatch.setattr(plan, "run_retrieval_route", publish_after_retrieval)
+    if publication_count == 2:
+        with pytest.raises(ConflictException):
+            asyncio.run(_queryClassic(namespace))
+    else:
+        response = asyncio.run(_queryClassic(namespace))
+        results: object = response["results"]
+        assert isinstance(results, list) and results
+        assert results[0]["content"] == ("工程验收计划" if publication_count == 0 else revised_content)
+    if publication_count == 0:
+        assert len(read_generations) == 1
+        return
+    assert len(read_generations) == 2
+    assert read_generations[0] is not None and read_generations[1] == read_generations[0] + 1
 
 
 def test_classic_read_reopens_a_closed_index_through_normal_admission(

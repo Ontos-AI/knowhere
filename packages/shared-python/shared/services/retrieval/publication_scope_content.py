@@ -332,7 +332,7 @@ def _reuse_existing_revision_source_paths(
             )
 
     if remapped_ids:
-        for chunk in retained_chunks:
+        for index, chunk in enumerate(retained_chunks):
             metadata = _get_chunk_metadata(chunk)
             connections = metadata.get("connect_to")
             if not isinstance(connections, list) or not connections:
@@ -345,7 +345,10 @@ def _reuse_existing_revision_source_paths(
                 target = str(item.get("target") or "").strip()
                 mapped = remapped_ids.get(target)
                 rewritten.append({**item, "target": mapped} if mapped else item)
-            metadata["connect_to"] = merge_connections(rewritten)
+            retained_chunks[index] = {
+                **chunk,
+                "metadata": {**metadata, "connect_to": merge_connections(rewritten)},
+            }
 
     for row in existing_by_path.values():
         extra_edges = incoming_edges_by_existing_id.get(str(row.chunk_id or ""))

@@ -13,18 +13,20 @@ from shared.testing.contract_runtime import get_contract_database_url
 
 
 @pytest.mark.asyncio
-async def test_native_admission_rejects_progressive_publication(
+@pytest.mark.parametrize("file_name", ["report.pdf", "report.md"])
+async def test_native_admission_accepts_progressive_publication(
     monkeypatch: pytest.MonkeyPatch,
     developer_api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    file_name: str,
 ) -> None:
     monkeypatch.setenv("KNOWHERE_LEXICAL_BACKEND", "opensearch")
     monkeypatch.setenv("KNOWHERE_OPENSEARCH_URL", "http://127.0.0.1:1")
     async with developer_api_client_factory() as client:
         response = await client.post("/api/v2/jobs", json={
-            "source_type": "file", "file_name": "report.md", "ingestion_mode": "progressive",
+            "source_type": "file", "file_name": file_name, "ingestion_mode": "progressive",
         })
-        assert response.status_code == 503, response.text
-        assert "Progressive ingestion" in response.json()["error"]["message"]
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "waiting-file"
 
 
 @pytest.mark.asyncio

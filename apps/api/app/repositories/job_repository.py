@@ -62,12 +62,6 @@ class JobRepository:
                 from shared.services.retrieval.lexical.coordination import LexicalCoordination
                 from shared.services.retrieval.lexical.error import LexicalIndexError
 
-                if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch":
-                    raise UnavailableException(
-                        internal_message="Progressive enrichment cannot republish a native lexical revision",
-                        user_message="Progressive ingestion requires PostgreSQL retrieval.",
-                        retry_after=60,
-                    )
                 try:
                     await db.run_sync(LexicalCoordination.lockControl)
                 except LexicalIndexError as error:

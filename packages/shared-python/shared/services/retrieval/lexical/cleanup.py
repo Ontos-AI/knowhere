@@ -100,10 +100,21 @@ class LexicalCleanup:
                 storage.Document.user_id == scope.ownerId).with_for_update())
             build: LexicalBuild = db.scalars(select(LexicalBuild).where(
                 LexicalBuild.id == buildId).with_for_update()).one()
+            now = LexicalCoordination.getDatabaseTime(db)
+            if build.state == "writing" and build.cleanupState == "pending":
+                # Progressive candidates schedule cleanup at admission, before remote writes.
+                writer = db.scalar(select(LexicalLease).where(
+                    LexicalLease.buildId == build.id, LexicalLease.ownerToken == build.ownerToken,
+                    LexicalLease.kind == "index_use",
+                ).with_for_update())
+                if writer is None or writer.expiresAt > now:
+                    return False
+                build.state = "failed"
+                if writer.state == "active":
+                    writer.state = "uncertain"
             if build.state not in ("retired", "failed") or (
                 document is not None and document.current_indexing_build_id == buildId):
                 return False
-            now = LexicalCoordination.getDatabaseTime(db)
             if registry.state != "open" or registry.indexUuid is None:
                 return False
             indexUuid: str = registry.indexUuid

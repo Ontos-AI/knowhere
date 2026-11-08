@@ -95,6 +95,7 @@ from shared.services.jobs.lifecycle.webhook_outbox import (
 )
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.publication_models import DocumentPublicationScope
+from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
 from shared.services.storage.zip_result_service import ZipResultService
 from shared.utils.utc_now import utc_now_naive
@@ -833,8 +834,10 @@ def _publish_coarse_structure_and_write_scopes(
     )
 
     outbox: SyncJobWebhookOutbox = SyncJobWebhookOutbox()
-    directory_event: WebhookOutboxEvent | None = None
-    with get_sync_db_context() as db:
+
+    def publish(
+        db: Session, scope: DocumentPublicationScope,
+    ) -> tuple[bool, WebhookOutboxEvent | None]:
         document = db.execute(
             select(Document)
             .where(Document.document_id == target.document_id)
@@ -847,7 +850,7 @@ def _publish_coarse_structure_and_write_scopes(
             or document.namespace != target.namespace
             or document.user_id != target.user_id
         ):
-            return False
+            return False, None
         job_result = db.execute(
             select(JobResult)
             .options(noload("*"))
@@ -861,9 +864,9 @@ def _publish_coarse_structure_and_write_scopes(
             or (job_result.document_metadata or {}).get("structure_claim_generation")
             != target.claim_generation
         ):
-            return False
+            return False, None
         if (job_result.document_metadata or {}).get("initial_directory") is not None:
-            return True
+            return True, None
         state = read_progressive_state(job_result.document_metadata)
         if state is not None:
             stage: EnhancementStage = state.stages.get("structure", {})
@@ -872,10 +875,10 @@ def _publish_coarse_structure_and_write_scopes(
                 or stage.get("claim_generation") != target.claim_generation
                 or state.enhancement.status == "failed"
             ):
-                return False
+                return False, None
         scope_publisher(
             db,
-            scope=publication_scope,
+            scope=scope,
             scope_id="*",
             chunks=chunks,
             section_summaries=section_summaries,
@@ -899,7 +902,7 @@ def _publish_coarse_structure_and_write_scopes(
                 **(stages.get("vector_repair") or {}),
             }
             remaining_pages = load_missing_document_page_embedding_pages(
-                db, scope=publication_scope
+                db, scope=scope
             )
             vector_repair_stage["pending_pages"] = remaining_pages
             if not remaining_pages:
@@ -922,7 +925,7 @@ def _publish_coarse_structure_and_write_scopes(
             "page_memory_phase_b_artifacts": dict(phase_b_artifacts or {}),
         }
         directory = capture_initial_directory(
-            db, scope=publication_scope, job_id=target.job_id
+            db, scope=scope, job_id=target.job_id
         )
         event_id: str = str(
             uuid5(
@@ -942,7 +945,7 @@ def _publish_coarse_structure_and_write_scopes(
             **dict(job_result.document_metadata or {}),
             "initial_directory": directory.model_dump(mode="json"),
         }
-        directory_event = outbox.create_event(
+        directory_event: WebhookOutboxEvent | None = outbox.create_event(
             db,
             job_id=target.job_id,
             event_type="job.document.directory_ready",
@@ -953,9 +956,13 @@ def _publish_coarse_structure_and_write_scopes(
                 "completed_at": directory.directory_committed_at,
             },
         )
+        return True, directory_event
 
+    published, directory_event = ProgressivePublication.publishForServingBackend(
+        scope=publication_scope, update=publish, openDatabase=get_sync_db_context,
+    )
     outbox.enqueue_after_commit(directory_event)
-    return True
+    return published
 
 
 def _generate_and_persist_page_embeddings(
@@ -1264,7 +1271,8 @@ def _publish_and_mark_refined(
         target=target,
         job_result_id=job_result_id,
     )
-    with get_sync_db_context() as db:
+
+    def publish(db: Session, scope: DocumentPublicationScope) -> bool | None:
         document = db.execute(
             select(Document)
             .where(Document.document_id == target.document_id)
@@ -1306,7 +1314,7 @@ def _publish_and_mark_refined(
 
         scope_publisher(
             db,
-            scope=publication_scope,
+            scope=scope,
             scope_id=scope_id,
             chunks=output.chunks,
             section_summaries=output.section_summaries,
@@ -1330,6 +1338,10 @@ def _publish_and_mark_refined(
             ).scalar_one()
         )
         return remaining == 0
+
+    return ProgressivePublication.publishForServingBackend(
+        scope=publication_scope, update=publish, openDatabase=get_sync_db_context,
+    )
 
 
 def _finalize_all_scopes_refined(

@@ -9,14 +9,17 @@ from types import MappingProxyType
 import time
 
 from sqlalchemy import and_, func, literal, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, sessionmaker
 
 from shared.core.config import settings
 from shared.core.database_sync import get_sync_session_factory
+from shared.models.database.job_result import JobResult
 from shared.models.database.lexicalbuild import LexicalBuild
 from shared.models.database.lexicalcontrol import LexicalBackendControl
 from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.document_scope import DocumentScope
 from shared.services.retrieval.execution.revision_pins import RetrievalRevisionPins
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
 from shared.services.retrieval.lexical.error import LexicalIndexError
@@ -42,6 +45,7 @@ class PublishedLexicalRead:
         self.builds: Mapping[str, str] = MappingProxyType({})
         self.epoch: int = 0
         self.isClassic: bool = isClassic
+        self.progressiveRevisions: Mapping[str, str] = MappingProxyType({})
         self._indexUuid: str | None = None
         self._native: OpenSearchLexicalIndex | None = None
         self._hasStarted: bool = False
@@ -79,10 +83,11 @@ class PublishedLexicalRead:
         # empty scope without initializing coordination rows from the read path.
         with self.sessions.begin() as db:
             rows: Sequence[tuple[LexicalBackendControl | None, int, str | None, str | None,
-                                 str | None, str | None, LexicalBuild | None]] = db.execute(select(
+                                 str | None, str | None, LexicalBuild | None, bool]] = db.execute(select(
                 LexicalBackendControl, func.coalesce(generation, 0),
                 LexicalNamespaceIndex.indexName, LexicalNamespaceIndex.indexUuid,
                 storage.Document.document_id, storage.Document.current_job_result_id, LexicalBuild,
+                func.coalesce(JobResult.document_metadata["ingestion_mode"].as_string() == "progressive", False),
             ).select_from(select(literal(1)).subquery()).outerjoin(LexicalBackendControl,
                 LexicalBackendControl.id == 1).outerjoin(LexicalNamespaceIndex,
                 LexicalNamespaceIndex.id == self.scope.fingerprint).outerjoin(storage.Document, and_(
@@ -91,8 +96,9 @@ class PublishedLexicalRead:
                 storage.Document.status == "active",
                 storage.Document.current_job_result_id.is_not(None),
             )).outerjoin(LexicalBuild, LexicalBuild.id == storage.Document.current_indexing_build_id)
+                .outerjoin(JobResult.__table__, JobResult.id == storage.Document.current_job_result_id)
                 .order_by(storage.Document.document_id)).tuples().all()
-            control, capturedGeneration, indexName, self._indexUuid, _, _, _ = rows[0]
+            control, capturedGeneration, indexName, self._indexUuid, _, _, _, _ = rows[0]
             if control is None and any(row[4] is not None for row in rows):
                 raise LexicalIndexError("Lexical backend has not been initialized", isRetryable=True)
             if control is not None and (control.backend != settings.KNOWHERE_LEXICAL_BACKEND or control.mode != "serving"):
@@ -100,8 +106,9 @@ class PublishedLexicalRead:
             self.epoch = control.epoch if control is not None else 0
             revisions: dict[str, str] = {}
             builds: dict[str, str] = {}
+            progressiveRevisions: dict[str, str] = {}
             expectedName: str = f"{settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX}-{self.scope.fingerprint[:48]}"
-            for _, _, _, _, documentId, revisionId, build in rows:
+            for _, _, _, _, documentId, revisionId, build, hasProgressiveContent in rows:
                 if documentId is None:
                     continue
                 if (build is None or build.state != "published" or build.documentId != documentId
@@ -111,9 +118,26 @@ class PublishedLexicalRead:
                     raise LexicalIndexError("Published revision has no matching native index")
                 revisions[documentId] = build.revisionId
                 builds[documentId] = build.id
+                if hasProgressiveContent:
+                    progressiveRevisions[documentId] = build.revisionId
             self.pins = RetrievalRevisionPins(revisions, generation=capturedGeneration)
             self.builds = MappingProxyType(builds)
+            self.progressiveRevisions = MappingProxyType(progressiveRevisions)
         self._hasStarted = True
+
+    async def isProgressivePublicationStable(self, db: AsyncSession, scope: DocumentScope) -> bool:
+        """Detect a new build of the same captured content, including retired builds."""
+        revisions: tuple[str, ...] = tuple(
+            revision for identity, revision in self.progressiveRevisions.items() if scope.allows(identity)
+        )
+        if not revisions:
+            return True
+        changedBuild: str | None = await db.scalar(select(LexicalBuild.id).where(
+            LexicalBuild.namespaceIndexId == self.scope.fingerprint,
+            LexicalBuild.revisionId.in_(revisions),
+            LexicalBuild.activationGeneration > (self.pins.generation or 0),
+        ).limit(1))
+        return changedBuild is None
 
     def assertAlive(self) -> None:
         if not self._hasStarted or self._isFinished:

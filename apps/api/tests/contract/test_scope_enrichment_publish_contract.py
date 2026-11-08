@@ -1799,42 +1799,44 @@ def test_replace_document_scope_content_reuses_and_transfers_shared_boundary_ass
             session.commit()
 
             # Overlapping scope p126-131 re-extracts the same boundary asset with a slightly different bbox/chunk_id.
+            overlapping_chunks = [
+                {
+                    "chunk_id": "asset-from-b-diff-bbox",
+                    "type": "image",
+                    "content": f"Fig 12\n[{shared_path}]",
+                    "path": shared_path,
+                    "metadata": {
+                        "file_path": shared_path,
+                        "page_nums": [126],
+                        "connect_to": [
+                            {"target": "node-b", "relation": "embedded_by"}
+                        ],
+                    },
+                },
+                {
+                    "chunk_id": "node-b",
+                    "type": "page",
+                    "content": "sec b refined",
+                    "path": f"{scope.source_file_name}/Ch1/SecB",
+                    "metadata": {
+                        "page_nums": [126, 131],
+                        "connect_to": [
+                            {
+                                "target": "asset-from-b-diff-bbox",
+                                "relation": "embeds",
+                                "ref": f"[{shared_path}]",
+                            }
+                        ],
+                    },
+                },
+            ]
             replace_scope_content(
                 session,
                 scope=pub_scope,
                 scope_id="p126-131",
-                chunks=[
-                    {
-                        "chunk_id": "asset-from-b-diff-bbox",
-                        "type": "image",
-                        "content": f"Fig 12\n[{shared_path}]",
-                        "path": shared_path,
-                        "metadata": {
-                            "file_path": shared_path,
-                            "page_nums": [126],
-                            "connect_to": [
-                                {"target": "node-b", "relation": "embedded_by"}
-                            ],
-                        },
-                    },
-                    {
-                        "chunk_id": "node-b",
-                        "type": "page",
-                        "content": "sec b refined",
-                        "path": f"{scope.source_file_name}/Ch1/SecB",
-                        "metadata": {
-                            "page_nums": [126, 131],
-                            "connect_to": [
-                                {
-                                    "target": "asset-from-b-diff-bbox",
-                                    "relation": "embeds",
-                                    "ref": f"[{shared_path}]",
-                                }
-                            ],
-                        },
-                    },
-                ],
+                chunks=overlapping_chunks,
             )
+            assert overlapping_chunks[1]["metadata"]["connect_to"][0]["target"] == "asset-from-b-diff-bbox"
             session.commit()
 
             asset_rows = list(

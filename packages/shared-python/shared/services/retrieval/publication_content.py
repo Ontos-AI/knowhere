@@ -4,7 +4,7 @@ from shared.services.retrieval.corpus_storage import CorpusStorage
 
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
-from uuid import uuid4
+from uuid import uuid4, uuid5
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -219,7 +219,7 @@ class DocumentSectionPublisher:
                 continue
 
             ancestor_section = corpusStorage.DocumentSection(
-                section_id=f"sec_{uuid4().hex[:12]}",
+                section_id=_make_row_identity("sec", self._scope, ancestor_path),
                 user_id=self._scope.user_id,
                 namespace=self._scope.namespace,
                 document_id=self._scope.document_id,
@@ -282,6 +282,12 @@ def _delete_existing_revision_content(
         )
 
 
+def _make_row_identity(prefix: str, scope: DocumentPublicationScope, identity: str) -> str:
+    seed = scope.row_identity_seed
+    value = uuid4() if seed is None else uuid5(seed, f"{prefix}:{identity}")
+    return f"{prefix}_{value.hex[:12]}"
+
+
 def _build_document_chunk(
     *,
     chunk: dict[str, Any],
@@ -297,8 +303,8 @@ def _build_document_chunk(
     section_title = section.section_title
     path_text = f"{scope.source_file_name or ''} {section_path}".strip()
     return corpusStorage.DocumentChunk(
-        id=f"dchk_{uuid4().hex[:12]}",
-        chunk_id=str(chunk.get("chunk_id") or f"chunk_{uuid4().hex[:12]}"),
+        id=_make_row_identity("dchk", scope, str(fallback_sort_order)),
+        chunk_id=str(chunk.get("chunk_id") or _make_row_identity("chunk", scope, str(fallback_sort_order))),
         user_id=scope.user_id,
         namespace=scope.namespace,
         document_id=scope.document_id,
