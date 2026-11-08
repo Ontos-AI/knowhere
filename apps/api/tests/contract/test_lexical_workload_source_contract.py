@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import gzip
 from hashlib import sha256
@@ -286,6 +287,17 @@ def test_observer_measures_actual_async_postgresql_pool_wait(
 
     async def campaign() -> None:
         engine = create_async_engine(get_contract_database_url(), pool_size=1, max_overflow=0)
+        checkout_started = asyncio.Event()
+        measure = StageObserver.measure
+
+        @contextmanager
+        def measure_and_signal(name: str, *, intervalName: str | None = None) -> Iterator[None]:
+            with measure(name, intervalName=intervalName):
+                if name == "pg_pool_wait_ms" and StageObserver.hasEvent():
+                    checkout_started.set()
+                yield
+
+        monkeypatch.setattr(StageObserver, "measure", staticmethod(measure_and_signal))
 
         async def query() -> None:
             with StageObserver.bindRequest("actual-campaign:pg-pool"):
@@ -295,6 +307,7 @@ def test_observer_measures_actual_async_postgresql_pool_wait(
         try:
             async with engine.connect():
                 task = asyncio.create_task(query())
+                await asyncio.wait_for(checkout_started.wait(), timeout=5)
                 await asyncio.sleep(0.06)
                 assert not task.done()
             await task
