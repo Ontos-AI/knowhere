@@ -154,6 +154,72 @@ def _stub_classification(
     monkeypatch.setattr(coordinator_module.CoarseProfiler, "classify", classify)
 
 
+@pytest.mark.parametrize("visual_retrieval", [True, False])
+def test_progressive_baseline_recovers_corrupt_native_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    visual_retrieval: bool,
+) -> None:
+    from app.services.document_agent.tools import ocr_pages
+    from app.services.page_memory.phase_a import PHASE_B_FULL_TEXT_REL
+
+    source = tmp_path / "corrupt-text.pdf"
+    with pymupdf.open() as document:
+        healthy_page = document.new_page()
+        healthy_page.insert_text((40, 100), "Keep the native text.")
+        for _ in range(2):
+            page = document.new_page()
+            page.insert_text((40, 100), "Placeholder", fontname="cour")
+            document.update_stream(
+                page.get_contents()[0], b"BT /cour 20 Tf 40 700 Td <010101010101> Tj ET"
+            )
+        font_xref = page.get_fonts()[0][0]
+        glyph_xref = document.get_new_xref()
+        document.update_object(glyph_xref, "<<>>")
+        document.update_stream(glyph_xref, b"600 0 d0 50 50 500 600 re f")
+        document.update_object(
+            font_xref,
+            "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 600 700] "
+            "/FontMatrix [0.001 0 0 0.001 0 0] "
+            f"/CharProcs << /custom {glyph_xref} 0 R >> "
+            "/Encoding << /Type /Encoding /Differences [1 /custom] >> "
+            "/FirstChar 1 /LastChar 1 /Widths [600] >>",
+        )
+        document.save(source)
+
+    with pymupdf.open(source) as document:
+        assert document[1].get_text().strip() == "\x01" * 6
+
+    _stub_classification(monkeypatch, _make_classification())
+    monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", visual_retrieval)
+
+    def recognize_pages(paths: dict[int, str], **_options: object) -> dict[int, str]:
+        assert set(paths) == {2, 3}
+        assert all(Path(path).is_file() for path in paths.values())
+        return {2: "Recover the printed text."}
+
+    monkeypatch.setattr(ocr_pages, "ocr_rendered_pages", recognize_pages)
+    output_dir, dataframe = memory_service.run(
+        PageMemoryInput(
+            file_path=str(source),
+            filename=source.name,
+            output_dir=str(tmp_path / "output"),
+            ingestion_mode="progressive",
+        )
+    )
+
+    chunks = dataframe_to_chunks(dataframe)
+    expected_text = ["Keep the native text.", "Recover the printed text.", ""]
+    assert [chunk["content"] for chunk in chunks] == expected_text
+    assert bool(chunks[2]["metadata"].get("page_assets")) is visual_retrieval
+    assert chunks[1]["metadata"]["body_text_preview"] == expected_text[1]
+    root = Path(output_dir)
+    cache = json.loads((root / PHASE_B_FULL_TEXT_REL).read_text())
+    assert list(cache.values()) == expected_text
+    blackboard = json.loads((root / PHASE_B_BLACKBOARD_REL).read_text())
+    assert list(page_content_map(blackboard["page_full_text_bands"]).values()) == expected_text
+
+
 def test_native_progressive_baseline_keeps_text_source_and_eager_images_without_asset_probe(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

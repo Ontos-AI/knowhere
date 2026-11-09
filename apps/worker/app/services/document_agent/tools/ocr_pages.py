@@ -429,23 +429,31 @@ def ocr_rendered_pages(
     image_path_by_page: Mapping[int, str],
     *,
     timeout: int = OCR_TIMEOUT_SECONDS,
+    total_timeout: int | None = None,
 ) -> dict[int, str]:
     """Run RapidOCR on already-rendered page images and return ``{page: text}``.
 
     Per-page failures log a warning and skip the failing page so callers keep
     M0 text for that page without aborting sibling pages in the scope.
+    A total timeout bounds the whole batch, including time waiting for the runner.
     """
     extracted: dict[int, str] = {}
+    deadline = time.monotonic() + total_timeout if total_timeout is not None else None
     for raw_page in sorted(image_path_by_page):
         page = int(raw_page)
         image_path = str(image_path_by_page.get(raw_page) or "").strip()
         if page <= 0 or not image_path:
             continue
+        page_timeout = timeout
+        if deadline is not None:
+            page_timeout = min(timeout, int(deadline - time.monotonic()))
+            if page_timeout <= 0:
+                break
         try:
             result = _OCR_RUNNER.run_page(
                 page,
                 image_path,
-                timeout=timeout,
+                timeout=page_timeout,
             )
             lines = list(result.get("lines") or [])
             bands: PageTextBands = build_page_text_bands(
