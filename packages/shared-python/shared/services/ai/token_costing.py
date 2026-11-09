@@ -57,6 +57,30 @@ DEFAULT_TOKEN_PRICING_TABLE: dict[str, dict[str, Any]] = {
         ),
         "effective_date": "2026-08-17",
     },
+    "google/gemini-embedding-2": {
+        "currency": "USD",
+        "unit": "per_1m_tokens",
+        "input_per_1m": 0.20,
+        "image_per_1m": 0.45,
+        "source": (
+            "Gemini Embedding 2 list rates: text $0.20 / 1M tokens, "
+            "image $0.45 / 1M tokens"
+        ),
+        "effective_date": "2026-11-09",
+    },
+    "google/gemini-embedding-2-image": {
+        "currency": "USD",
+        "unit": "per_1m_tokens",
+        "input_per_1m": 0.45,
+        "source": (
+            "Gemini Embedding 2 image list rate $0.45 / 1M tokens; "
+            "recorded separately from text embeddings"
+        ),
+        "effective_date": "2026-11-09",
+    },
+    "gemini-embedding-2": {
+        "alias_of": "google/gemini-embedding-2",
+    },
 }
 
 

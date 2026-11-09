@@ -206,3 +206,38 @@ def test_embed_images_skips_page_after_retries_and_keeps_document(
     assert vectors[1] is not None
     assert len(vectors[1]) == DEFAULT_EMBEDDING_DIM
     assert calls["n"] == _MAX_EMBEDDING_RETRIES + 1
+
+
+def test_text_embedding_records_usage_under_model_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: list[str | None] = []
+
+    def capture(usage, *, model=None, task=None, duration_ms=0):
+        del usage, task, duration_ms
+        recorded.append(model)
+
+    _patch_gateway(monkeypatch, lambda *_args, **_kwargs: _ok_response())
+    monkeypatch.setattr(multimodal_client, "record_provider_usage", capture)
+    _call_gateway_embedding(text="query", seed_bytes=b"query")
+    assert recorded == [DEFAULT_EMBEDDING_MODEL]
+
+
+def test_image_embedding_records_usage_under_image_price_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: list[str | None] = []
+
+    def capture(usage, *, model=None, task=None, duration_ms=0):
+        del usage, task, duration_ms
+        recorded.append(model)
+
+    _patch_gateway(monkeypatch, lambda *_args, **_kwargs: _ok_response())
+    monkeypatch.setattr(multimodal_client, "record_provider_usage", capture)
+    _call_gateway_embedding(
+        image_mime="image/png",
+        image_bytes=b"\x89PNG",
+        seed_bytes=b"png",
+    )
+    assert recorded == [f"{DEFAULT_EMBEDDING_MODEL}-image"]
+
