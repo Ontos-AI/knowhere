@@ -312,11 +312,13 @@ def test_background_indexing_activates_the_visible_native_build(
         engine.dispose()
 
 
-@pytest.mark.parametrize("outcome", ["success", "failure", "interrupted", "concurrent", "abort"])
+@pytest.mark.parametrize("outcome", ["success", "failure", "interrupted", "concurrent", "abort", "deferred"])
 def test_progressive_scope_replacement_updates_the_published_native_build(
     monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess, outcome: str,
 ) -> None:
     endpoint = _getNativeEndpoint()
+    if outcome == "deferred":
+        monkeypatch.setenv("KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND", "true")
     other_scope: dict[str, object] = {
         "chunk_id": "other-scope", "type": "text", "content": "cedarcontinuity",
         "path": "report.pdf/Other", "metadata": {"scope_id": "p2-2"},
@@ -332,7 +334,7 @@ def test_progressive_scope_replacement_updates_the_published_native_build(
     )
     from sqlalchemy.orm import sessionmaker
     from shared.core.config import settings
-    from shared.models.database.document import Document, DocumentChunk, DocumentMapUnitToken
+    from shared.models.database.document import Document, DocumentChunk, DocumentMapUnit, DocumentMapUnitToken
     from shared.models.database.job_result import JobResult
     from shared.models.database.lexicalbuild import LexicalBuild
     from shared.models.database.lexicalcontrol import LexicalBackendControl
@@ -355,7 +357,13 @@ def test_progressive_scope_replacement_updates_the_published_native_build(
     user_id = "native-contract-user"
     native = OpenSearchLexicalIndex(endpoint=endpoint, scope=LexicalScope(ownerId=user_id, namespace=namespace),
         indexPrefix="knowhere-slice-test")
-    monkeypatch.setattr(LegacyCopyDispatch, "submit", staticmethod(lambda identity: False))
+    submitted_copies: list[str] = []
+
+    def record_copy_submission(identity: str) -> bool:
+        submitted_copies.append(identity)
+        return False
+
+    monkeypatch.setattr(LegacyCopyDispatch, "submit", staticmethod(record_copy_submission))
 
     def matches(build_id: str, query: str) -> bool:
         return bool(native.search(buildIds=(build_id,),
@@ -370,6 +378,11 @@ def test_progressive_scope_replacement_updates_the_published_native_build(
             assert document.current_indexing_build_id is not None
             baseline_build_id = document.current_indexing_build_id
             revision_id = document.current_job_result_id
+            if outcome == "deferred":
+                build = session.get(LexicalBuild, baseline_build_id)
+                assert build is not None and build.legacyCopyState == "skipped"
+                assert not submitted_copies
+                assert session.scalar(select(func.count()).select_from(DocumentMapUnitToken)) == 0
         assert matches(baseline_build_id, "quartzbaseline")
         assert matches(baseline_build_id, "cedarcontinuity")
         assert not matches(baseline_build_id, "orchidenrichment")
@@ -488,13 +501,24 @@ def test_progressive_scope_replacement_updates_the_published_native_build(
                     first = session.get(LexicalBuild, candidate_ids[0])
                     assert first is not None and first.state == "retired"
                 assert content == staged_text
-                assert "orchidenrichment" in set(session.scalars(select(DocumentMapUnitToken.token)))
+                tokens = set(session.scalars(select(DocumentMapUnitToken.token)))
+                if outcome == "deferred":
+                    build = session.get(LexicalBuild, active_build_id)
+                    assert build is not None and build.legacyCopyState == "skipped"
+                    assert not tokens
+                else:
+                    assert "orchidenrichment" in tokens
                 result = session.get(JobResult, revision_id)
                 assert result is not None and result.indexing_input_key and result.indexing_input_checksum
                 payload = LexicalInputStorage().load(key=result.indexing_input_key, checksum=result.indexing_input_checksum)
                 binding = _Binding("private", user_id, namespace, document_id, revision_id, job_id,
                     result.indexing_input_key, result.indexing_input_checksum, result.indexing_input_compiler, active_build_id)
-                assert LexicalTransition._verifyPostgresql(session, binding, payload)["unitCount"] == len(payload.units)
+                if outcome == "deferred":
+                    assert set(session.execute(select(DocumentMapUnit.unit_id, DocumentMapUnit.section_id)).tuples()) == {
+                        (unit.unitId, unit.sectionId) for unit in payload.units
+                    }
+                else:
+                    assert LexicalTransition._verifyPostgresql(session, binding, payload)["unitCount"] == len(payload.units)
         if outcome in ("failure", "interrupted"):
             assert matches(active_build_id, "quartzbaseline")
             assert not matches(active_build_id, "orchidenrichment")
@@ -525,6 +549,10 @@ def test_progressive_scope_replacement_updates_the_published_native_build(
             assert evidence and evidence[0]["content"] == "orchidenrichment"
             return
         operator.run("settle", targetBackend="postgresql", execute=True, expectedEpoch=epoch + 1)
+        if outcome == "deferred":
+            with monkeypatch.context() as offline:
+                offline.setattr(settings, "KNOWHERE_OPENSEARCH_URL", "http://127.0.0.1:1")
+                operator.run("backfill", targetBackend="postgresql", execute=True, expectedEpoch=epoch + 1)
         operator.run("resume", targetBackend="postgresql", execute=True, expectedEpoch=epoch + 1)
         with monkeypatch.context() as rollback:
             rollback.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "postgresql")

@@ -6,7 +6,7 @@ from hashlib import sha256
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from shared.core.config import app_config
+from shared.core.config import app_config, settings
 from shared.core.database_sync import get_sync_session_factory
 from shared.models.database.job_result import JobResult
 from shared.models.database.job import Job
@@ -29,11 +29,18 @@ class LegacyLexicalCopy:
 
     def run(self, buildId: str) -> bool:
         with self.sessions.begin() as db:
-            build: LexicalBuild = db.scalars(select(LexicalBuild).where(LexicalBuild.id == buildId)).one()
+            buildQuery = select(LexicalBuild).where(LexicalBuild.id == buildId)
+            deferCopy: bool = settings.KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND
+            if deferCopy:
+                buildQuery = buildQuery.with_for_update(of=LexicalBuild)
+            build: LexicalBuild = db.scalars(buildQuery).one()
             if build.legacyCopyState in ("completed", "skipped"):
                 return True
             if build.legacyCopyState != "pending":
                 return False
+            if deferCopy:
+                build.legacyCopyState = "skipped"
+                return True
             registry: LexicalNamespaceIndex = db.scalars(select(LexicalNamespaceIndex).where(
                 LexicalNamespaceIndex.id == build.namespaceIndexId)).one()
             storage: CorpusStorage = CorpusStorage.resolve_namespace(registry.namespace)

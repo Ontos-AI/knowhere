@@ -130,7 +130,7 @@ def replace_document_revision_content(
     # The revision cleanup above already removed any derived rows for this
     # immutable job result. Skip the constructor's defensive DELETE pass on
     # the hot publication path; standalone backfills retain the default.
-    if prepare_index:
+    if prepare_index and scope.prepare_pg_tokens:
         replace_document_map_units(db, scope=scope, trace=trace, clear_existing=False)
     if prepare_index or incoming_embeddings_by_page:
         # Visual embeddings are supplied by parsing and stripped from chunk metadata.
@@ -256,18 +256,19 @@ def _delete_existing_revision_content(
     trace: PublicationTrace | None = None,
 ) -> None:
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
-    with trace_publication_stage(trace, "statistics_persist"):
-        db.execute(
-            delete(corpusStorage.DocumentMapUnitIndex)
-            .where(corpusStorage.DocumentMapUnitIndex.document_id == scope.document_id)
-            .where(corpusStorage.DocumentMapUnitIndex.job_result_id == scope.job_result_id)
-        )
-    with trace_publication_stage(trace, "map_units_persist"):
-        db.execute(
-            delete(corpusStorage.DocumentMapUnit)
-            .where(corpusStorage.DocumentMapUnit.document_id == scope.document_id)
-            .where(corpusStorage.DocumentMapUnit.job_result_id == scope.job_result_id)
-        )
+    if scope.prepare_pg_tokens:
+        with trace_publication_stage(trace, "statistics_persist"):
+            db.execute(
+                delete(corpusStorage.DocumentMapUnitIndex)
+                .where(corpusStorage.DocumentMapUnitIndex.document_id == scope.document_id)
+                .where(corpusStorage.DocumentMapUnitIndex.job_result_id == scope.job_result_id)
+            )
+        with trace_publication_stage(trace, "map_units_persist"):
+            db.execute(
+                delete(corpusStorage.DocumentMapUnit)
+                .where(corpusStorage.DocumentMapUnit.document_id == scope.document_id)
+                .where(corpusStorage.DocumentMapUnit.job_result_id == scope.job_result_id)
+            )
     with trace_publication_stage(trace, "chunks_persist"):
         db.execute(
             delete(corpusStorage.DocumentChunk)

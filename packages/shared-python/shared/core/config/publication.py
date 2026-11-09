@@ -12,6 +12,10 @@ class PublicationConfig(BaseSettings):
     """Explicit backend rollout gate and publication support settings."""
 
     KNOWHERE_LEXICAL_BACKEND: str = Field(default="postgresql", pattern="^(postgresql|opensearch)$")
+    KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND: bool = Field(
+        default=False,
+        description="Build PostgreSQL scoring terms only during a backend transition from OpenSearch.",
+    )
     KNOWHERE_OPENSEARCH_URL: str = Field(default="http://127.0.0.1:9200")
     KNOWHERE_OPENSEARCH_CA_FILE: str | None = None
     KNOWHERE_OPENSEARCH_CLIENT_CERT_FILE: str | None = None
