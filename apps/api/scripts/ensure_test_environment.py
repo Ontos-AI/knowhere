@@ -52,7 +52,7 @@ def _get_postgresql_install_hint() -> str:
         "Run `uv run python apps/api/scripts/ensure_test_environment.py --install`, "
         "or install PostgreSQL server binaries, contrib extensions, and pgvector. "
         "Ubuntu: sudo apt-get update && sudo apt-get install -y "
-        "postgresql postgresql-contrib, then install "
+        "postgresql, then install "
         "postgresql-<same-major>-pgvector from PGDG without upgrading "
         "the PostgreSQL metapackage. macOS: brew install postgresql@16 pgvector "
         "and add its bin directory to PATH. If needed, set "
@@ -203,10 +203,8 @@ def get_install_commands() -> tuple[InstallCommand, ...]:
                 command=_with_privilege(("apt-get", "update")),
             ),
             InstallCommand(
-                description="Install PostgreSQL server binaries and contrib extensions",
-                command=_with_privilege(
-                    ("apt-get", "install", "-y", "postgresql", "postgresql-contrib")
-                ),
+                description="Install PostgreSQL server binaries",
+                command=_with_privilege(("apt-get", "install", "-y", "postgresql")),
             ),
             InstallCommand(
                 description=(
@@ -220,7 +218,7 @@ def get_install_commands() -> tuple[InstallCommand, ...]:
                             "set -euo pipefail; "
                             "major=$(pg_config --version | awk '{print $2}' | cut -d. -f1); "
                             "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y; "
-                            'apt-mark hold postgresql postgresql-contrib "postgresql-${major}"; '
+                            'apt-mark hold postgresql "postgresql-${major}"; '
                             'apt-get install -y --no-upgrade "postgresql-${major}-pgvector"'
                         ),
                     )
