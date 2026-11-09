@@ -155,7 +155,8 @@ jobs:
 
           echo "local_image=${image_name}:${image_tag}" >> "$GITHUB_OUTPUT"
 
-          if [ "${{ steps.context.outputs.should_push }}" = "true" ] && \
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] && \
+             [ "${{ steps.context.outputs.should_push }}" = "true" ] && \
              [ -n "${{ env.ACR_REGISTRY }}" ] && \
              [ -n "${{ env.ACR_NAMESPACE }}" ] && \
              [ -n "${{ secrets.ALIYUN_ACR_USERNAME }}" ] && \
