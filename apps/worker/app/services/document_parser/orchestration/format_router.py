@@ -17,8 +17,7 @@ class DocumentFormat(str, Enum):
     PDF = "pdf"
     DOC = "doc"
     DOCX = "docx"
-    XLS = "xls"
-    XLSX = "xlsx"
+    SPREADSHEET = "spreadsheet"
     PPTX = "pptx"
     MARKDOWN = "markdown"
     JSON = "json"
@@ -38,6 +37,13 @@ IMAGE_SOURCE_EXTENSIONS: tuple[str, ...] = (
     ".heif",
 )
 
+TABLE_SOURCE_EXTENSIONS: tuple[str, ...] = (
+    ".xlsx",
+    ".xls",
+    ".csv",
+    ".tsv",
+)
+
 SUPPORTED_FILE_TYPES: tuple[str, ...] = (
     ".txt",
     ".fragment",
@@ -45,8 +51,7 @@ SUPPORTED_FILE_TYPES: tuple[str, ...] = (
     ".pdf",
     ".doc",
     ".docx",
-    ".xls",
-    ".xlsx",
+    *TABLE_SOURCE_EXTENSIONS,
     ".pptx",
     ".md",
     ".html",
@@ -69,10 +74,8 @@ def resolve_document_format(file_path: str) -> DocumentFormat:
         return DocumentFormat.DOC
     if extension == ".docx":
         return DocumentFormat.DOCX
-    if extension == ".xls":
-        return DocumentFormat.XLS
-    if extension == ".xlsx":
-        return DocumentFormat.XLSX
+    if extension in TABLE_SOURCE_EXTENSIONS:
+        return DocumentFormat.SPREADSHEET
     if extension == ".pptx":
         return DocumentFormat.PPTX
     if extension == ".md":
@@ -101,8 +104,9 @@ def get_document_parse_adapter(document_format: DocumentFormat) -> DocumentParse
         DocumentFormat.PDF: format_adapters.PdfParseAdapter(document_format),
         DocumentFormat.DOC: format_adapters.DocParseAdapter(document_format),
         DocumentFormat.DOCX: format_adapters.DocxParseAdapter(document_format),
-        DocumentFormat.XLS: format_adapters.XlsParseAdapter(document_format),
-        DocumentFormat.XLSX: format_adapters.XlsxParseAdapter(document_format),
+        DocumentFormat.SPREADSHEET: format_adapters.SpreadsheetParseAdapter(
+            document_format
+        ),
         DocumentFormat.PPTX: format_adapters.PptxParseAdapter(document_format),
         DocumentFormat.MARKDOWN: format_adapters.MarkdownParseAdapter(document_format),
         DocumentFormat.HTML: format_adapters.HtmlParseAdapter(document_format),
