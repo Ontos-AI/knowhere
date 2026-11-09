@@ -70,6 +70,9 @@ from shared.services.retrieval.agent_explore.config import (
     PICK_TOOL_NAME,
     PICK_TOOL_SCHEMA,
 )
+from shared.services.retrieval.agent_explore.cursor_retrieval_exception import (
+    CursorRetrievalException,
+)
 from shared.services.retrieval.agent_explore.dispatch import DbFactory, dispatch_tool_call
 from shared.services.retrieval.agent_explore.evidence_pool import (
     EvidencePool,
@@ -447,6 +450,22 @@ class CursorHarness:
 
         if required_failures:
             raise required_failures[0]
+
+        if result is not None:
+            status = result.status
+            if status == "error" or (
+                status == "cancelled" and stop_reason != "budget_wall_clock"
+            ):
+                failure = CursorRetrievalException(
+                    model=self._model,
+                    status=status,
+                    provider_message=getattr(result, "error_message", None),
+                    provider_code=getattr(result, "error_code", None),
+                    run_id=result.id,
+                    request_id=getattr(result, "request_id", None)
+                    or getattr(run, "request_id", None),
+                )
+                raise failure
 
         duration_ms = max(int((time.monotonic() - episode_started) * 1000), 0)
         usage: dict[str, int] | None = None

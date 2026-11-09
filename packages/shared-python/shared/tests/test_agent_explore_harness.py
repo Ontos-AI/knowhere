@@ -657,6 +657,7 @@ def _fake_cursor_sdk(
         total_tokens = 77
 
     class _Result:
+        status = "finished"
         usage = _Usage()
 
     class _Run:
