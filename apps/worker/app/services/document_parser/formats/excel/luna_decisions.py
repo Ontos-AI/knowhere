@@ -140,17 +140,16 @@ def _merge_answers(
         f"merge::{direction}": {
             "type": "choice",
             "instructions": (
-                f"Are the center table and the {direction} neighbor the same "
-                "spreadsheet table split by an empty row or column? "
-                "Pick merge if they are one table. Pick separate if they are independent."
+                "Center:\n"
+                f"{center_grid}\n"
+                f"Neighbor ({direction}):\n"
+                f"{neighbor_grids[direction]}\n"
+                "Pick merge if they are the same spreadsheet table split by an empty "
+                "row or column. Pick separate if they are independent."
             ),
             "criteria": {
-                _CHOICE_MERGE: (
-                    f"The {direction} neighbor and the center are the same table; combine them."
-                ),
-                _CHOICE_SEPARATE: (
-                    f"The {direction} neighbor is an independent table or detached fragment."
-                ),
+                _CHOICE_MERGE: "They are the same table; combine them.",
+                _CHOICE_SEPARATE: "They are independent tables or a detached fragment.",
             },
         }
         for direction in directions

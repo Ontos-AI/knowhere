@@ -24,9 +24,11 @@ from app.services.document_parser.formats.excel.workbook_grid import (  # noqa: 
 class _RecordingJudge:
     def __init__(self) -> None:
         self.states: list[object] = []
+        self.questions: list[object] = []
 
-    def choose(self, *, state, required_ids, **kwargs):
+    def choose(self, *, state, questions, required_ids, **kwargs):
         self.states.append(state)
+        self.questions.append(questions)
         return {question_id: "separate" for question_id in required_ids}
 
 
@@ -64,6 +66,11 @@ def test_large_center_preview_omits_interior_rows_and_cols(tmp_path: Path) -> No
     assert "R1C1" in center
     assert "R12C12" in center
     assert "R6C6" not in center
+    assert judge.questions
+    right = str(judge.questions[0]["merge::right"]["instructions"])
+    assert "R1C1" in right
+    assert "Side" in right
+    assert "A1:" not in right
 
 
 def test_one_column_strip_is_never_a_merge_center(tmp_path: Path) -> None:
