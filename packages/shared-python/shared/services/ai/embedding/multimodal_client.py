@@ -172,11 +172,14 @@ def _call_gateway_embedding(
 ) -> list[float]:
     resolved_model = resolve_embedding_model(model)
     expected_dim = _resolve_embedding_dim()
+    usage_model = (
+        f"{resolved_model}-image" if image_bytes is not None else resolved_model
+    )
 
     if _should_mock_embeddings():
         record_provider_usage(
             {"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1},
-            model=resolved_model,
+            model=usage_model,
             task=usage_task,
             duration_ms=0,
         )
@@ -253,7 +256,7 @@ def _call_gateway_embedding(
             usage = _extract_embedding_usage(payload)
             record_provider_usage(
                 usage,
-                model=resolved_model,
+                model=usage_model,
                 task=usage_task,
                 duration_ms=duration_ms,
             )

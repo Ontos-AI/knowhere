@@ -5,7 +5,7 @@ Calculates page counts for billing based on:
 - PDF: Physical page count from metadata
 - PPTX: Slide count
 - Text-based (DOC, DOCX, TXT, MD, JSON): Word-based estimation using count_cn_en
-- Spreadsheet-based (XLS, XLSX): Row-based estimation
+- Spreadsheet-based (XLS, XLSX): Visible non-empty cells, 1000 cells per page
 """
 
 import math
@@ -21,7 +21,7 @@ from shared.core.logging import logger
 from shared.utils.text_utils import count_cn_en
 
 WORDS_PER_PAGE = 500
-ROWS_PER_PAGE = 50
+CELLS_PER_PAGE = 1000
 
 
 @dataclass(frozen=True)
@@ -60,7 +60,7 @@ class PageEstimator:
         if suffix == ".xls":
             return cls._estimate_with_fallback("xls_conversion", cls._count_xls, file_path)
         if suffix == ".xlsx":
-            return cls._estimate_with_fallback("xlsx_rows", cls._count_xlsx, file_path)
+            return cls._estimate_with_fallback("xlsx_cells", cls._count_xlsx, file_path)
         if suffix in [".txt", ".md", ".json", ".fragment"]:
             return cls._estimate_with_fallback("text_words", cls._count_text, file_path)
         if suffix in IMAGE_SOURCE_EXTENSIONS:
@@ -149,17 +149,31 @@ class PageEstimator:
 
     @classmethod
     def _count_xlsx(cls, file_path: str) -> int:
-        """Estimate pages for XLSX using row count."""
-        import pandas as pd
+        """Estimate pages from visible non-empty cells, matching parse's hidden-sheet skip."""
+        import openpyxl
 
-        workbook = pd.ExcelFile(file_path)
-        total_rows = 0
-
-        for sheet_name in workbook.sheet_names:
-            dataframe = pd.read_excel(workbook, sheet_name=sheet_name)
-            total_rows += len(dataframe)
-
-        return math.ceil(total_rows / ROWS_PER_PAGE)
+        workbook = openpyxl.load_workbook(file_path, data_only=True)
+        try:
+            non_empty_cells = 0
+            for sheet_name in workbook.sheetnames:
+                worksheet = workbook[sheet_name]
+                if worksheet.sheet_state != "visible":
+                    continue
+                if worksheet.max_row is None or worksheet.max_row == 0:
+                    continue
+                for row in worksheet.iter_rows(
+                    min_row=1,
+                    max_row=worksheet.max_row,
+                    max_col=worksheet.max_column or 1,
+                    values_only=True,
+                ):
+                    for value in row:
+                        if value is None:
+                            continue
+                        non_empty_cells += 1
+            return math.ceil(non_empty_cells / CELLS_PER_PAGE)
+        finally:
+            workbook.close()
 
     @classmethod
     def _count_xls(cls, file_path: str) -> int:
