@@ -16,6 +16,9 @@ from shared.services.ai.llm_overrides import (
     reset_llm_overrides_async,
     set_llm_overrides_async,
 )
+from shared.services.retrieval.agent_explore.cursor_retrieval_exception import (
+    CursorRetrievalException,
+)
 from shared.services.retrieval.cache_service import (
     get_cached_retrieval_query_result,
     set_cached_retrieval_query_result,
@@ -207,7 +210,7 @@ class RetrievalExecutionPlan:
                             ),
                         )
                     )
-            except RequiredQueryEmbeddingException:
+            except (CursorRetrievalException, RequiredQueryEmbeddingException):
                 raise
             except Exception:
                 if await is_revision_generation_stable(

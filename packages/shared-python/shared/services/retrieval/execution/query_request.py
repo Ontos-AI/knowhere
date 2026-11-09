@@ -84,6 +84,9 @@ class RetrievalQuery:
     def build_cache_extra(self) -> dict[str, Any]:
         text_model: str | None = None
         vision_model: str | None = None
+        harness: str = (
+            resolve_harness_name() if self.use_agentic is not False else "classic"
+        )
         if self.llm_config is not None:
             text_provider = self.llm_config.text_effective()
             vision_provider = self.llm_config.vision_effective()
@@ -103,8 +106,9 @@ class RetrievalQuery:
             "agent_explore_model": self.agent_explore_model,
             "llm_text_model": text_model,
             "llm_vision_model": vision_model,
+            # Legacy Cursor cache entries may contain provider failures.
             "harness": (
-                resolve_harness_name() if self.use_agentic is not False else "classic"
+                "cursor_sdk:terminal_status_v1" if harness == "cursor_sdk" else harness
             ),
         }
 

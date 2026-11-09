@@ -35,7 +35,7 @@ dependencies = [
 # dependency. This extra is only for worker debug/eval scripts.
 [project.optional-dependencies]
 cursor-harness = [
-    "cursor-sdk>=1.0.31",
+    "cursor-sdk>=1.0.39",
 ]
 
 [dependency-groups]
