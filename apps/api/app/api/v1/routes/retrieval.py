@@ -7,6 +7,7 @@ from typing import Any, Literal
 from app.api.dependencies.current_user import with_current_user
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends
+from logfire import span
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -235,9 +236,10 @@ async def query_retrieval(
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await execute_retrieval_query(
-        payload,
-        current_user,
-        db,
-        llm_config=None,
-    )
+    with span("staging.retrieval.route_execution"):
+        return await execute_retrieval_query(
+            payload,
+            current_user,
+            db,
+            llm_config=None,
+        )

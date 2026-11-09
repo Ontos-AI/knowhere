@@ -9,6 +9,7 @@ from app.services.rate_limit.job_admission_route_policy_service import (
     JobAdmissionRoutePolicyService,
 )
 from app.services.rate_limit.tier_service import TierService
+from logfire import span
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,7 +36,8 @@ class JobAdmissionService:
         user_id: str,
         db: AsyncSession,
     ) -> CurrentUser:
-        user_tier = await TierService.get_tier(user_id, session=db)
+        with span("staging.retrieval.user_tier"):
+            user_tier = await TierService.get_tier(user_id, session=db)
         self._route_policy_service.enforce_guest_api_key_scope(
             route_context=route_context,
             user_tier=user_tier,
@@ -48,11 +50,12 @@ class JobAdmissionService:
                 return current_user
 
             try:
-                await self._route_policy_service.enforce_user_system_limit(
-                    route_context=route_context,
-                    config=config,
-                    user_id=user_id,
-                )
+                with span("staging.retrieval.user_rate_limit"):
+                    await self._route_policy_service.enforce_user_system_limit(
+                        route_context=route_context,
+                        config=config,
+                        user_id=user_id,
+                    )
             except RateLimitException:
                 raise
             except Exception as exc:

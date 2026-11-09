@@ -1,5 +1,7 @@
 """FastAPI authentication dependency adapters."""
 
+from logfire import span
+
 from app.services.auth.current_user_authentication_service import (
     get_current_user_authentication_service,
 )
@@ -23,10 +25,11 @@ async def get_current_user_id(
     db: AsyncSession = Depends(get_db),
 ) -> str:
     """Authenticate the caller and return the current user ID."""
-    identity = await get_current_user_authentication_service().authenticate_authorization_header_with_identity(
-        db,
-        authorization,
-    )
+    with span("staging.retrieval.authentication"):
+        identity = await get_current_user_authentication_service().authenticate_authorization_header_with_identity(
+            db,
+            authorization,
+        )
     request.state.user_id = identity.user_id
     request.state.permission = identity.permission
     request.state.auth_source = identity.source
