@@ -16,6 +16,8 @@ class PositionPayload(TypedDict):
 RELATION_EMBEDS: Final = "embeds"
 RELATION_EMBEDDED_BY: Final = "embedded_by"
 RELATION_RELATED: Final = "related"
+RELATION_DERIVES: Final = "derives"
+RELATION_DERIVED_FROM: Final = "derived_from"
 # Reserved for future producers; no code path emits these yet.
 RELATION_CROSS_DOC_ENTITY: Final = "cross_doc_entity"
 RELATION_INTRA_DOC_REF: Final = "intra_doc_ref"
@@ -23,7 +25,9 @@ RELATION_INTRA_DOC_REF: Final = "intra_doc_ref"
 # Relations whose targets are expanded when hydrating or deduplicating a
 # body chunk's connected assets. Reverse and future relations are excluded so
 # they stay purely additive for existing consumers.
-FORWARD_RELATIONS: Final = frozenset({RELATION_EMBEDS, RELATION_RELATED})
+FORWARD_RELATIONS: Final = frozenset(
+    {RELATION_EMBEDS, RELATION_RELATED, RELATION_DERIVES}
+)
 
 _ASSET_CHUNK_TYPES: Final = frozenset({"image", "table"})
 
