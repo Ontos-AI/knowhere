@@ -166,12 +166,13 @@ def replace_document_scope_content(
             insert_chunks_with_copy(db, chunk_rows)
         _normalize_revision_sort_orders(db, scope=scope)
 
-    replace_document_map_units(
-        db,
-        scope=scope,
-        trace=trace,
-        clear_existing=True,
-    )
+    if scope.prepare_pg_tokens:
+        replace_document_map_units(
+            db,
+            scope=scope,
+            trace=trace,
+            clear_existing=True,
+        )
     if incoming_embeddings_by_page:
         upsert_document_page_embeddings(
             db, scope=scope, incoming_embeddings_by_page=incoming_embeddings_by_page

@@ -36,6 +36,7 @@ from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
 from shared.services.retrieval.lexical.preparation import LexicalPreparation
 from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.lexical.storage import LexicalInputStorage
+from shared.services.retrieval.lexical.unit_metadata import persist_unit_metadata
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.scoring.knowhere_provider import SectionRow, UnitRow
 from shared.services.retrieval.serving_generation import lock_namespace_generation
@@ -102,8 +103,9 @@ class ProgressivePublication:
     def _publish(self, scope: DocumentPublicationScope,
                  update: Callable[[Session, DocumentPublicationScope], _Result], *,
                  storage: CorpusStorage, lexicalScope: LexicalScope) -> _Result:
-        scope = replace(scope, row_identity_seed=uuid4())
-        # One budget covers the native build and the PostgreSQL rollback copy.
+        scope = replace(scope, row_identity_seed=uuid4(),
+            prepare_pg_tokens=not settings.KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND)
+        # One budget covers the native build and publication of its source.
         deadline: IndexingDeadline = IndexingDeadline(settings.KNOWHERE_PG_INDEXING_TIMEOUT_SECONDS)
         native: OpenSearchLexicalIndex = OpenSearchLexicalIndex(endpoint=settings.KNOWHERE_OPENSEARCH_URL,
             scope=lexicalScope, indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX,
@@ -168,6 +170,9 @@ class ProgressivePublication:
                 outcome = update(db, scope)
                 if generation.generation == generationBefore or self._readSource(db, scope, storage) != candidate.source:
                     raise LexicalIndexError("Progressive content changed after index preparation", isRetryable=True)
+                if not scope.prepare_pg_tokens:
+                    persist_unit_metadata(db, storage=storage, document_id=scope.document_id,
+                        revision_id=scope.job_result_id, payload=payload, replace_existing=True)
                 LexicalInputRetention.assertRetained(db, result, key=key)
                 result.indexing_input_key = key
                 result.indexing_input_checksum = checksum
@@ -183,7 +188,7 @@ class ProgressivePublication:
                 build.unitCount = len(payload.units)
                 build.activationGeneration = generation.generation
                 build.cleanupState = "not_started"
-                build.legacyCopyState = "completed"
+                build.legacyCopyState = "completed" if scope.prepare_pg_tokens else "skipped"
                 build.nextMaintenanceAt = None
                 lease.state = "released"
             return outcome

@@ -6,14 +6,11 @@ from dataclasses import dataclass
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from hashlib import sha256
-import json
 from typing import Literal
 from uuid import uuid4
 
 from loguru import logger
 from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from shared.core.config import settings
@@ -43,9 +40,9 @@ from shared.services.retrieval.lexical.preparation import LexicalPreparation
 from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.lexical.settlement import IndexingSettlement
 from shared.services.retrieval.lexical.storage import LexicalInputStorage
+from shared.services.retrieval.lexical.unit_metadata import persist_unit_metadata
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.publication_service import RetrievalPublicationService
-from shared.services.retrieval.scoring.knowhere_hybrid import MAP_UNIT_INDEX_FORMAT_VERSION
 from shared.services.retrieval.scoring.knowhere_provider import SectionRow, UnitRow
 from shared.services.retrieval.serving_generation import lock_namespace_generation
 from shared.services.retrieval.serving_manifest import persist_revision_serving_state
@@ -462,25 +459,8 @@ class IndexingWorker:
     def _persistUnitMetadata(self, db: Session, claim: _Claim, payload: LexicalInput) -> None:
         context: _Context = claim.context
         storage: CorpusStorage = CorpusStorage.resolve_namespace(context.scope.namespace)
-        rows: list[dict[str, object]] = []
-        for unit in payload.units:
-            identity: str = sha256(json.dumps([context.revisionId, unit.unitId]).encode()).hexdigest()
-            rows.append({"id": f"dmu_{identity}", "document_id": context.documentId,
-                "job_result_id": context.revisionId, "unit_id": unit.unitId, "section_id": unit.sectionId,
-                "unit_kind": "self_only" if unit.unitId.endswith("__self") else "leaf",
-                "path_token_count": len(unit.pathTokens.split()), "content_token_count": len(unit.contentTokens.split()),
-                "has_image": unit.hasImage, "has_table": unit.hasTable, "sort_order": unit.sortOrder})
-        for offset in range(0, len(rows), 1000):
-            db.execute(insert(storage.DocumentMapUnit).values(rows[offset:offset + 1000]).on_conflict_do_nothing())
-        db.execute(insert(storage.DocumentMapUnitIndex).values(
-            id=f"dmui_{uuid4().hex}", document_id=context.documentId, job_result_id=context.revisionId,
-            format_version=MAP_UNIT_INDEX_FORMAT_VERSION, unit_count=len(payload.units), token_count=0,
-            average_idf_path=0, average_idf_content=0,
-            path_document_count=sum(bool(unit.pathTokens) for unit in payload.units),
-            content_document_count=sum(bool(unit.contentTokens) for unit in payload.units),
-            path_total_length=sum(len(unit.pathTokens.split()) for unit in payload.units),
-            content_total_length=sum(len(unit.contentTokens.split()) for unit in payload.units),
-        ).on_conflict_do_nothing(index_elements=["document_id", "job_result_id"]))
+        persist_unit_metadata(db, storage=storage, document_id=context.documentId,
+            revision_id=context.revisionId, payload=payload)
         job: Job = db.scalars(select(Job).where(Job.job_id == context.jobId)).one()
         persist_revision_serving_state(db, scope=DocumentPublicationScope(
             user_id=context.scope.ownerId, namespace=context.scope.namespace, document_id=context.documentId,
@@ -488,6 +468,7 @@ class IndexingWorker:
 
     def _activate(self, claim: _Claim) -> Literal["completed"]:
         eventId: str | None = None
+        deferCopy: bool = settings.KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND
         with self._transaction() as db:
             locked: _LockedClaim = self._lockClaim(db, claim)
             context: _Context = claim.context
@@ -518,7 +499,7 @@ class IndexingWorker:
                     old.cleanupState = "pending"
             locked.build.state = "published"
             locked.build.activationGeneration = generation.generation
-            locked.build.legacyCopyState = "pending"
+            locked.build.legacyCopyState = "skipped" if deferCopy else "pending"
             locked.attempt.state = "succeeded"
             locked.attempt.finishedAt = locked.now
             locked.attempt.claimExpiresAt = None
@@ -530,11 +511,12 @@ class IndexingWorker:
             event = SyncJobWebhookOutbox().create_event(db, job_id=context.jobId, event_type="job.completed")
             eventId = event.event_id if event else None
         SyncJobWebhookOutbox().enqueue_event_id_after_commit(eventId)
-        try:
-            from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
-            LegacyCopyDispatch.submit(claim.buildId)
-        except Exception as error:
-            logger.error("PG rollback copy submission deferred: build_id={}, error_type={}", claim.buildId, type(error).__name__)
+        if not deferCopy:
+            try:
+                from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
+                LegacyCopyDispatch.submit(claim.buildId)
+            except Exception as error:
+                logger.error("PG rollback copy submission deferred: build_id={}, error_type={}", claim.buildId, type(error).__name__)
         return "completed"
 
     def _recordFailure(self, context: _Context, claim: _Claim | None, error: Exception,

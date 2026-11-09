@@ -29,3 +29,4 @@ class DocumentPublicationScope:
     job_result_id: str
     source_file_name: str | None
     row_identity_seed: UUID | None = None
+    prepare_pg_tokens: bool = True
