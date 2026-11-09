@@ -127,3 +127,41 @@ async def test_hybrid_requests_query_embedding_during_lexical_discovery(
 
     assert result.payload["fused_rows"] == [{"chunk_id": "lexical-hit"}]
     assert db.execute.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_hybrid_reuses_one_query_vector_across_coarse_sections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.search.map_unit_discovery import DiscoveryResult
+
+    db = Mock()
+    db.execute = AsyncMock(return_value=Mock())
+    db.execute.return_value.scalar.return_value = True
+    embed = Mock(return_value=[0.25, 0.5])
+    lexical_rows: list[dict[str, object]] = [
+        {"document_id": "d", "chunk_id": f"p{page}", "section_path": str(page),
+         "chunk_type": "page", "chunk_metadata": {"enrichment_state": "coarse"}}
+        for page in range(1, 5)
+    ]
+
+    async def rank_pages(*args: object, **kwargs: object) -> DiscoveryResult:
+        targets = kwargs.get("section_targets")
+        page = int(targets[0][1]) if isinstance(targets, list) else 5
+        return DiscoveryResult(status="discovery_done", payload={"fused_rows": [
+            {"document_id": "d", "chunk_id": f"p{page}", "matched_page_nums": [page]}
+        ]})
+
+    monkeypatch.setattr(visual_discovery.settings, "VISUAL_RETRIEVAL_ENABLED", True)
+    monkeypatch.setattr(visual_discovery, "embed_query", embed)
+    monkeypatch.setattr(visual_discovery, "_search_visual_pages", rank_pages)
+    monkeypatch.setattr(visual_discovery, "map_unit_discovery", AsyncMock(return_value=DiscoveryResult(
+        status="discovery_done", payload={"fused_rows": lexical_rows},
+    )))
+
+    result = await visual_discovery.hybrid_discovery(db, user_id="u", namespace="n", query="q", top_k=5)
+
+    assert {row["chunk_id"]: row.get("matched_page_nums") for row in result.payload["fused_rows"]} == {
+        f"p{page}": [page] for page in range(1, 6)
+    }
+    assert embed.call_count == 1

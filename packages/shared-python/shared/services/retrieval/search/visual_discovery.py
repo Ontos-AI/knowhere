@@ -511,6 +511,7 @@ async def light_unrefined_section_pages(
     rows: list[dict[str, Any]],
     document_scope: DocumentScope = DocumentScope(),
     revision_pins: Mapping[str, str] | None = None,
+    query_vector: list[float] | None = None,
 ) -> None:
     """Populate ``matched_page_nums`` on unrefined page rows via section-scoped visual discovery."""
     if (
@@ -544,17 +545,37 @@ async def light_unrefined_section_pages(
     if not pending or not targets:
         return
 
+    scope = await _prepare_visual_scope(
+        db,
+        user_id=user_id,
+        namespace=namespace,
+        query=query,
+        top_k=DEFAULT_TOP_K,
+        exclude_document_ids=None,
+        document_scope=document_scope,
+        chunk_types=None,
+        revision_pins=revision_pins,
+    )
+    if scope is None:
+        return
+    if query_vector is None:
+        query_vector = await _request_query_embedding(scope.query)
+
     pages_by_chunk: dict[tuple[str, str], list[int]] = {}
     for document_id, section_path in targets:
-        discovery = await visual_page_discovery(
+        discovery = await _search_visual_pages(
             db,
-            user_id=user_id,
-            namespace=namespace,
-            query=query,
+            scope=scope,
+            query_vector=query_vector,
             top_k=DEFAULT_TOP_K,
-            document_scope=document_scope,
+            exclude_document_ids=None,
+            exclude_sections=None,
+            chunk_types=None,
+            signal_paths=None,
+            filter_mode="delete",
             revision_pins=revision_pins,
             section_targets=[(document_id, section_path)],
+            started_at=time.monotonic(),
         )
         for vis_row in discovery.payload.get("fused_rows") or []:
             if not isinstance(vis_row, dict):
@@ -643,10 +664,11 @@ async def hybrid_discovery(
     if visual_scope is None or embedding_task is None:
         return lexical_result
 
+    query_vector = await embedding_task
     visual_result = await _search_visual_pages(
         db,
         scope=visual_scope,
-        query_vector=await embedding_task,
+        query_vector=query_vector,
         top_k=top_k,
         exclude_document_ids=exclude_doc_list,
         exclude_sections=exclude_sec_list,
@@ -708,6 +730,7 @@ async def hybrid_discovery(
             rows=fused_rows,
             document_scope=document_scope,
             revision_pins=revision_pins,
+            query_vector=query_vector,
         )
         normalize_row_scores(
             fused_rows,
