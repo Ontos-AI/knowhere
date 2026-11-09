@@ -251,6 +251,7 @@ def df2html(
     na_rep: str = "—",
     escape: bool = False,
     row_header_cols: int = 0,
+    header: bool = True,
 ) -> str:
     """Convert a DataFrame to an HTML table."""
     class_str = (
@@ -267,6 +268,7 @@ def df2html(
     if row_header_cols <= 0:
         table_html = tb_df.to_html(
             index=index,
+            header=header,
             na_rep=na_rep,
             classes=classes,
             escape=escape,

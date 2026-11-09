@@ -41,7 +41,8 @@ from shared.services.retrieval.settings import QUERY_TABLE_NAME
     description=(
         "Run one read-only SELECT against a table chunk's grid. "
         "Use after read says the table is too large. Table name is t; "
-        "columns are row_header plus the table's column headers. "
+        "columns are row_header plus the flattened column names, "
+        "or col_0, col_1, ... when the table has no column header. "
         "Requires document_id and chunk_id."
     ),
     json_schema={
@@ -158,8 +159,9 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if not grid:
         return ToolResult(text="", error=f"table HTML not available for {chunk_id}")
 
-    columns = sql_columns(grid)
-    data_rows = grid_sql_rows(grid)
+    chunk_metadata = chunk.chunk_metadata if isinstance(chunk.chunk_metadata, dict) else None
+    columns = sql_columns(grid, chunk_metadata)
+    data_rows = grid_sql_rows(grid, chunk_metadata)
     quoted = ", ".join(f'"{name}" TEXT' for name in columns)
     connection = sqlite3.connect(":memory:")
     try:

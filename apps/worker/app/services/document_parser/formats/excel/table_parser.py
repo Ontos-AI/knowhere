@@ -17,7 +17,6 @@ from app.services.document_parser.tables.table_asset_writer import (
     write_table_asset,
 )
 from app.services.document_parser.tables.table_frame_parser import (
-    parse_headers,
     parse_tb_contents,
     parse_tb_keywords,
     postprocess_tb,
@@ -77,7 +76,7 @@ def parse_xlsx(
 
 def parse_excel_workbook(request: ExcelWorkbookParseRequest) -> pd.DataFrame:
     time_stamp = get_str_time()
-    sheets_dict, precision_mode_active = _load_excel_sheets(request)
+    sheets_dict = _load_excel_sheets(request)
     parsed_rows: list[ParsedRow] = []
     table_seq = 0
 
@@ -86,7 +85,6 @@ def parse_excel_workbook(request: ExcelWorkbookParseRequest) -> pd.DataFrame:
             request=request,
             sheet_name=sheet_name,
             sheet_frame=sheet_frame,
-            precision_mode_active=precision_mode_active,
             time_stamp=time_stamp,
             table_index=table_seq + 1,
         )
@@ -108,28 +106,25 @@ def _normalise_llm_parameters(
 
 def _load_excel_sheets(
     request: ExcelWorkbookParseRequest,
-) -> tuple[dict[str, pd.DataFrame], bool]:
+) -> dict[str, pd.DataFrame]:
     table_data = load_file_bytes(request.file_path, file_url=request.baseurl)
     table_stream = io.BytesIO(table_data)
 
     os.makedirs(os.path.join(request.output_dir, "tables"), exist_ok=True)
 
     if not request.use_precision_mode:
-        return pd.read_excel(table_stream, sheet_name=None), False
+        return pd.read_excel(table_stream, sheet_name=None)
 
     logger.info("Using precision mode for Excel header detection")
     try:
-        return (
-            parse_excel_structure(
-                table_stream,
-                include_hidden_sheets=request.include_hidden_sheets,
-            ),
-            True,
+        return parse_excel_structure(
+            table_stream,
+            include_hidden_sheets=request.include_hidden_sheets,
         )
     except Exception as exc:
         logger.warning(f"Precision mode failed, falling back to legacy mode: {exc}")
         table_stream.seek(0)
-        return pd.read_excel(table_stream, sheet_name=None), False
+        return pd.read_excel(table_stream, sheet_name=None)
 
 
 def _iter_unique_sheets(
@@ -154,7 +149,6 @@ def _parse_excel_sheet(
     request: ExcelWorkbookParseRequest,
     sheet_name: str,
     sheet_frame: pd.DataFrame,
-    precision_mode_active: bool,
     time_stamp: str,
     table_index: int,
 ) -> list[ParsedRow]:
@@ -166,13 +160,12 @@ def _parse_excel_sheet(
         if len(table_frame) == 0 or table_frame.empty or table_frame.isna().all().all():
             return parsed_rows
 
-        if not precision_mode_active:
-            table_frame = parse_headers(table_frame, paras=request.base_llm_paras)
-
         table_frame = _drop_source_row_columns(table_frame)
-        row_header_cols = int(table_frame.attrs.get("row_header_cols", 0))
+        row_header_cols = int(sheet_attrs.get("row_header_cols") or 0)
         logical_sheet_name = _sheet_name_from_attrs(sheet_attrs, fallback=sheet_name)
         subtable_title = _subtable_title_from_attrs(sheet_attrs)
+        header_row_count = sheet_attrs.get("header_row_count")
+        include_header = True if header_row_count is None else header_row_count != 0
 
         _table_paths, table_html = parse_tb_contents(
             table_frame,
@@ -180,6 +173,7 @@ def _parse_excel_sheet(
             file_name=request.file_name,
             sheet_name=logical_sheet_name,
             row_header_cols=row_header_cols,
+            include_header=include_header,
         )
 
         parsed_rows.append(
@@ -191,6 +185,9 @@ def _parse_excel_sheet(
                 table_html=table_html,
                 time_stamp=time_stamp,
                 table_index=table_index,
+                extra_metadata=_excel_table_extra_metadata(
+                    sheet_attrs, sheet_name=logical_sheet_name
+                ),
             )
         )
         return parsed_rows
@@ -227,6 +224,7 @@ def _write_excel_table_asset(
     table_html: str,
     time_stamp: str,
     table_index: int,
+    extra_metadata: dict[str, object] | None = None,
 ) -> ParsedRow:
     title, keywords, summary, entities = _summarize_excel_table(
         table_frame=table_frame,
@@ -271,8 +269,24 @@ def _write_excel_table_asset(
             asset_path=f"tables/{table_name}",
             entities=entities,
             asset_title=title or "",
+            extra_metadata=extra_metadata,
         )
     )
+
+
+def _excel_table_extra_metadata(
+    attrs: dict[str, Any], *, sheet_name: str
+) -> dict[str, object] | None:
+    if "header_row_count" not in attrs:
+        return None
+    column_headers = attrs.get("column_headers") or ()
+    return {
+        "header_row_count": int(attrs["header_row_count"]),
+        "row_header_col_count": int(attrs.get("row_header_col_count") or 0),
+        "column_headers": [str(name) for name in column_headers],
+        "sheet_name": sheet_name,
+        "excel_range": str(attrs.get("excel_range") or ""),
+    }
 
 
 def _sheet_name_from_attrs(attrs: dict[str, Any], *, fallback: str) -> str:

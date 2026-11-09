@@ -1,125 +1,15 @@
 # pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportOptionalOperand=false, reportOptionalSubscript=false, reportReturnType=false, reportOperatorIssue=false, reportIndexIssue=false, reportAssignmentType=false, reportGeneralTypeIssues=false
 from __future__ import annotations
 
-import os
-import uuid
 from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
 from app.services.document_parser.tables.dataframe_html_renderer import df2html
-from app.services.document_parser.support.identifiers import gen_str_codes
 from app.services.document_parser.support.path_helpers import flatten_dic2paths
 from loguru import logger
 
-from shared.services.ai.prompt_service import build_prompt
-from shared.services.ai.response_process_service import eval_response
-from shared.services.ai.llm_overrides import get_text_client
 from shared.utils.text_utils import remove_duplicates_orderkept
-
-
-def parse_headers(
-    table_frame: pd.DataFrame,
-    paras: dict[str, object] | None = None,
-    header_window: int = 5,
-    smart_headers: bool = True,
-) -> pd.DataFrame:
-    llm_parameters = paras or {"summary_table": False}
-
-    def parse_headers_nonsmart(candidate_frame: pd.DataFrame) -> list[int]:
-        non_na_row = candidate_frame[candidate_frame.notna().any(axis=1)].head(1)
-        header_id = non_na_row.index[-1] if not non_na_row.empty else None
-        return list(range(header_id + 1))
-
-    if not pd.isna(table_frame.columns).all():
-        table_frame.loc[-1] = table_frame.columns
-        table_frame.index = table_frame.index + 1
-        table_frame = table_frame.sort_index()
-        table_frame.columns = [np.nan] * table_frame.shape[1]
-
-    if llm_parameters["summary_table"] and smart_headers:
-        try:
-            table_sample = table_frame.head(header_window)
-            table_sample_html = df2html(table_sample)
-            prompt, _temperature, _top_p, _max_tokens = build_prompt(
-                task="detect-table-headers",
-                texts=table_sample_html,
-                query="",
-                paras=llm_parameters,
-            )
-
-            messages = [
-                {"role": "system", "content": "You are a helpful assistant"},
-                {"role": "user", "content": prompt},
-            ]
-
-            context_task_id = gen_str_codes((str(uuid.uuid4()) + table_sample_html))
-
-            if os.getenv("LOCAL_DEBUG", "0") != "1":
-                from shared.services.redis.redis_sync_service import (
-                    SyncRedisServiceFactory,
-                )
-
-                redis_service = SyncRedisServiceFactory.get_service()
-                redis_service.set(
-                    f"task:{context_task_id}:status",
-                    "processing",
-                    ttl=7200,
-                )
-
-            client, _ = get_text_client()
-            header_response = client.chat_completion(
-                messages=messages,
-                timeout=60,
-                usage_task="parser.table_detect_headers",
-            )
-            parsed_response = eval_response(header_response)
-            if isinstance(parsed_response, dict):
-                answer = parsed_response.get("answer", [])
-            else:
-                answer = parsed_response if isinstance(parsed_response, list) else []
-
-            if not answer or len(answer) == 0:
-                logger.warning(
-                    "AI returned empty list, cannot identify headers, falling back to traditional mode..."
-                )
-                header_rows = parse_headers_nonsmart(table_frame)
-            else:
-                try:
-                    header_id = answer[-1]
-                    header_rows = list(range(header_id + 1))
-                except Exception as exc:
-                    logger.warning(
-                        f"Failed to parse header row number: {exc}, falling back to traditional mode..."
-                    )
-                    header_rows = parse_headers_nonsmart(table_frame)
-
-        except Exception as exc:
-            logger.warning(
-                f"Smart header parsing failed: {exc}, falling back to traditional mode..."
-            )
-            header_rows = parse_headers_nonsmart(table_frame)
-    else:
-        header_rows = parse_headers_nonsmart(table_frame)
-
-    if len(header_rows) == 0 or (all(header is None for header in header_rows)):
-        logger.warning("No valid headers detected, fallback to using row 0 as header")
-        new_header = table_frame.iloc[0].ffill().bfill().tolist()
-        table_frame.columns = new_header
-        return table_frame.iloc[1:].reset_index(drop=True)
-
-    if len(header_rows) > 1:
-        header_levels = []
-        for header_index in range(0, len(header_rows)):
-            header_level = table_frame.iloc[header_index].ffill().bfill().tolist()
-            header_levels.append(header_level)
-        new_header = pd.MultiIndex.from_arrays(np.array(header_levels))
-    else:
-        new_header = table_frame.iloc[header_rows[-1]].ffill().bfill().tolist()
-
-    table_frame.columns = new_header
-    table_frame = table_frame.iloc[(header_rows[-1]) + 1 :]
-    return table_frame.reset_index(drop=True)
 
 
 def parse_tb_keywords(table_frame: pd.DataFrame, kw_spit: str = ">>>") -> str:
@@ -169,12 +59,17 @@ def parse_tb_contents(
     file_name: str = "",
     sheet_name: str = "",
     row_header_cols: int = 0,
+    include_header: bool = True,
 ) -> tuple[list[str], str]:
     if parent_dic is None:
         parent_dic = {}
 
     rendered_frame = table_frame.fillna("").infer_objects(copy=False)
-    table_html = df2html(rendered_frame, row_header_cols=row_header_cols)
+    table_html = df2html(
+        rendered_frame,
+        row_header_cols=row_header_cols,
+        header=include_header,
+    )
 
     table_tree = tb_columns_to_tree(table_frame, parent_dic, file_name, sheet_name)
     table_paths = flatten_dic2paths(table_tree)

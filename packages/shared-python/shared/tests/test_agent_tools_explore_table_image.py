@@ -359,6 +359,46 @@ async def test_query_table_select_returns_html_rows(
 
 
 @pytest.mark.asyncio
+async def test_query_table_uses_flattened_column_headers(
+    explore_ctx: ToolContext,
+) -> None:
+    session = explore_ctx.db._session
+    chunk = session.get(DocumentChunk, "row_small")
+    assert chunk is not None
+    chunk.content = (
+        "<table>"
+        "<thead>"
+        '<tr><th colspan="2">2024</th></tr>'
+        "<tr><th>Q1</th><th>Q2</th></tr>"
+        "</thead>"
+        "<tbody>"
+        '<tr><th scope="row">North</th><td>10</td><td>20</td></tr>'
+        "</tbody>"
+        "</table>"
+    )
+    chunk.chunk_metadata = {
+        "summary": "dose table summary",
+        "header_row_count": 2,
+        "row_header_col_count": 1,
+        "column_headers": ["Item", "2024-->Q1", "2024-->Q2"],
+    }
+    session.commit()
+    result = await query_table(
+        explore_ctx,
+        {
+            "document_id": DOC_ID,
+            "chunk_id": CHUNK_SMALL,
+            "sql": "SELECT row_header, c_2024___Q1 FROM t",
+        },
+    )
+    assert result.error is None
+    assert "North" in result.text
+    assert "10" in result.text
+    assert result.payload["columns"][0] == "row_header"
+    assert "c_2024___Q1" in result.payload["columns"]
+
+
+@pytest.mark.asyncio
 async def test_query_table_reads_partial_fine_artifact_and_then_final_snapshot(
     explore_ctx: ToolContext,
     monkeypatch: pytest.MonkeyPatch,

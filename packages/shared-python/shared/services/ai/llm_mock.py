@@ -1,9 +1,13 @@
 """Helpers for deterministic mock responses from OpenAI-compatible LLM calls."""
 
+import json
+import re
 from typing import Any, Dict, List
 
 from loguru import logger
 from openai.types.chat import ChatCompletionMessageParam
+
+_ROW_LINE_RE = re.compile(r"^Row \d+ ", re.MULTILINE)
 
 
 def build_mock_chat_completion_response(
@@ -18,6 +22,8 @@ def build_mock_chat_completion_response(
         model_name,
         task_name,
     )
+    if task_name == "detect-spreadsheet-headers":
+        return _mock_spreadsheet_headers(prompt_text)
     return _build_mock_response(task_name)
 
 
@@ -81,10 +87,11 @@ def _detect_mock_task(prompt_text: str) -> str:
     ):
         return "detect-toc-range"
     if (
-        "row numbers where headers are located" in normalized_prompt
-        and '"answer"' in normalized_prompt
+        '"header_row_count"' in normalized_prompt
+        and '"row_header_col_count"' in normalized_prompt
+        and '"data_end_row"' in normalized_prompt
     ):
-        return "detect-table-headers"
+        return "detect-spreadsheet-headers"
     if '"answer"' in normalized_prompt and '"text" or "image"' in normalized_prompt:
         return "judge-image-type"
     if (
@@ -129,7 +136,6 @@ def _build_mock_response(task_name: str) -> str:
         # Document parsing / ingestion tasks
         "fragment-title": "Mock Fragment Title",
         "detect-toc-range": '{"toc_start": null, "toc_end": null, "confidence": "low"}',
-        "detect-table-headers": '{"answer": [0]}',
         "judge-image-type": '{"answer": "image"}',
         "summary-full": (
             '{"title": "Mock Title", "summary": "Mock summary", '
@@ -151,3 +157,15 @@ def _build_mock_response(task_name: str) -> str:
         "default": "Mock LLM response",
     }
     return response_by_task.get(task_name, response_by_task["default"])
+
+
+def _mock_spreadsheet_headers(prompt_text: str) -> str:
+    n_rows = len(_ROW_LINE_RE.findall(prompt_text))
+    last_row = max(n_rows - 1, 0)
+    return json.dumps(
+        {
+            "header_row_count": 1,
+            "row_header_col_count": 0,
+            "data_end_row": last_row,
+        }
+    )

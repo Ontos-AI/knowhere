@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 
@@ -21,6 +22,7 @@ class TableAssetInput:
     asset_path: str | None = None
     entities: str = ""
     asset_title: str = ""
+    extra_metadata: dict[str, object] | None = None
 
 
 def write_table_asset(table_input: TableAssetInput) -> ParsedRow:
@@ -35,6 +37,9 @@ def write_table_asset(table_input: TableAssetInput) -> ParsedRow:
     row_type = "table"
     if table_input.asset_path:
         row_type = f"table\n{build_chunk_ref(table_input.asset_path)}"
+    extra_metadata = ""
+    if table_input.extra_metadata:
+        extra_metadata = json.dumps(table_input.extra_metadata, ensure_ascii=False)
     return ParsedRow(
         content=row_content,
         path=table_input.path or f"tables/{table_filename}",
@@ -48,6 +53,7 @@ def write_table_asset(table_input: TableAssetInput) -> ParsedRow:
         length=len(row_content),
         entities=table_input.entities,
         asset_title=table_input.asset_title,
+        extra_metadata=extra_metadata,
     )
 
 
