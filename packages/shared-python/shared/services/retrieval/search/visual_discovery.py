@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
@@ -154,52 +155,52 @@ def _copy_matched_page_nums(target: dict[str, Any], source: Mapping[str, Any]) -
         target["matched_page_nums"] = pages
 
 
-async def visual_page_discovery(
-    db: AsyncSession | None,
+@dataclass(frozen=True)
+class _VisualPageScope:
+    query: str
+    storage: CorpusStorage
+    documents: DocumentScope
+    document_clause: str
+    revision_clause: str
+    parameters: dict[str, Any]
+
+
+async def _prepare_visual_scope(
+    db: AsyncSession,
     *,
     user_id: str,
     namespace: str,
     query: str,
     top_k: int,
-    exclude_document_ids: list[str] | None = None,
-    exclude_sections: list[dict[str, str]] | None = None,
-    document_scope: DocumentScope = DocumentScope(),
-    chunk_types: set[str] | None = None,
-    signal_paths: list[str] | None = None,
-    filter_mode: str = "delete",
-    revision_pins: Mapping[str, str] | None = None,
-    section_targets: list[tuple[str, str | None]] | None = None,
-) -> DiscoveryResult:
-    """Rank persisted page embeddings via pgvector cosine similarity."""
-    if db is None:
-        raise ValueError("database session required for visual_page_discovery")
+    exclude_document_ids: list[str] | None,
+    document_scope: DocumentScope,
+    chunk_types: set[str] | None,
+    revision_pins: Mapping[str, str] | None,
+) -> _VisualPageScope | None:
     if not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)):
-        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+        return None
     normalized_query = str(query or "").strip()
     if not normalized_query or top_k <= 0:
-        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+        return None
     if revision_pins is not None and not revision_pins:
-        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+        return None
 
     if (
         chunk_types is not None
         and "page" not in chunk_types
         and not chunk_types.issubset(ASSET_CHUNK_TYPES)
     ):
-        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+        return None
 
-    t0 = time.monotonic()
-    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
-    exclude_doc_list = list(exclude_document_ids or [])
-    exclude_sec_list = list(exclude_sections or [])
+    corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
 
     revision_join, revision_clause, revision_params = _build_visual_revision_scope(
         revision_pins
     )
-    scoped_docs = document_scope.excluding(exclude_doc_list)
+    scoped_docs = document_scope.excluding(exclude_document_ids or [])
     document_scope_clause, document_scope_params = scoped_docs.sql()
     params: dict[str, Any] = {
-        "user_id": corpusStorage.resolve_owner(user_id),
+        "user_id": corpus_storage.resolve_owner(user_id),
         "namespace": namespace,
         **revision_params,
         **document_scope_params,
@@ -221,14 +222,25 @@ async def visual_page_discovery(
     """
     has_embeddings = bool(
         (
-            await db.execute(text(corpusStorage.compile_sql(exists_sql)), params)
+            await db.execute(text(corpus_storage.compile_sql(exists_sql)), params)
         ).scalar()
     )
     if not has_embeddings:
-        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+        return None
 
+    return _VisualPageScope(
+        query=normalized_query,
+        storage=corpus_storage,
+        documents=scoped_docs,
+        document_clause=document_scope_clause,
+        revision_clause=revision_clause,
+        parameters=params,
+    )
+
+
+async def _request_query_embedding(normalized_query: str) -> list[float]:
     try:
-        query_vector = await asyncio.to_thread(
+        return await asyncio.to_thread(
             embed_query, normalized_query, usage_task="retrieval.query_embed",
         )
     except Exception as exc:
@@ -236,6 +248,76 @@ async def visual_page_discovery(
             internal_message="Required retrieval query embedding failed",
             provider="query_embedding", original_exception=exc,
         ) from exc
+
+
+async def visual_page_discovery(
+    db: AsyncSession | None,
+    *,
+    user_id: str,
+    namespace: str,
+    query: str,
+    top_k: int,
+    exclude_document_ids: list[str] | None = None,
+    exclude_sections: list[dict[str, str]] | None = None,
+    document_scope: DocumentScope = DocumentScope(),
+    chunk_types: set[str] | None = None,
+    signal_paths: list[str] | None = None,
+    filter_mode: str = "delete",
+    revision_pins: Mapping[str, str] | None = None,
+    section_targets: list[tuple[str, str | None]] | None = None,
+) -> DiscoveryResult:
+    """Rank persisted page embeddings via pgvector cosine similarity."""
+    if db is None:
+        raise ValueError("database session required for visual_page_discovery")
+    started_at: float = time.monotonic()
+    scope = await _prepare_visual_scope(
+        db,
+        user_id=user_id,
+        namespace=namespace,
+        query=query,
+        top_k=top_k,
+        exclude_document_ids=exclude_document_ids,
+        document_scope=document_scope,
+        chunk_types=chunk_types,
+        revision_pins=revision_pins,
+    )
+    if scope is None:
+        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+
+    query_vector = await _request_query_embedding(scope.query)
+    return await _search_visual_pages(
+        db,
+        scope=scope,
+        query_vector=query_vector,
+        top_k=top_k,
+        exclude_document_ids=exclude_document_ids,
+        exclude_sections=exclude_sections,
+        chunk_types=chunk_types,
+        signal_paths=signal_paths,
+        filter_mode=filter_mode,
+        revision_pins=revision_pins,
+        section_targets=section_targets,
+        started_at=started_at,
+    )
+
+
+async def _search_visual_pages(
+    db: AsyncSession,
+    *,
+    scope: _VisualPageScope,
+    query_vector: list[float],
+    top_k: int,
+    exclude_document_ids: list[str] | None,
+    exclude_sections: list[dict[str, str]] | None,
+    chunk_types: set[str] | None,
+    signal_paths: list[str] | None,
+    filter_mode: str,
+    revision_pins: Mapping[str, str] | None,
+    section_targets: list[tuple[str, str | None]] | None,
+    started_at: float,
+) -> DiscoveryResult:
+    exclude_doc_list = list(exclude_document_ids or [])
+    exclude_sec_list = list(exclude_sections or [])
     vector_literal = HalfVector(query_vector).to_text()
 
     signal_clause, signal_params = _build_signal_clause(
@@ -248,7 +330,7 @@ async def visual_page_discovery(
         exclude_sec_list
     )
     query_params: dict[str, Any] = {
-        **params,
+        **scope.parameters,
         **signal_params,
         **section_params,
         **exclude_params,
@@ -284,8 +366,8 @@ async def visual_page_discovery(
             WHERE d.user_id = :user_id
                 AND d.namespace = :namespace
                 AND d.status = 'active'
-                { "AND d.current_job_result_id = dc.job_result_id" if revision_pins is None else revision_clause.replace("dpe.", "dc.") }
-                {document_scope_clause}
+                { "AND d.current_job_result_id = dc.job_result_id" if revision_pins is None else scope.revision_clause.replace("dpe.", "dc.") }
+                {scope.document_clause}
                 {signal_clause}
                 {section_clause}
                 {exclude_clause}
@@ -358,7 +440,7 @@ async def visual_page_discovery(
                  sc.chunk_id ASC
     """
     result = await db.execute(
-        text(corpusStorage.compile_sql(search_sql)), query_params
+        text(scope.storage.compile_sql(search_sql)), query_params
     )
 
     primaries = _aggregate_visual_page_hits(result.all())
@@ -369,7 +451,7 @@ async def visual_page_discovery(
             rows=primaries,
             exclude_document_ids=exclude_doc_list,
             exclude_sections=exclude_sec_list,
-            document_scope=scoped_docs,
+            document_scope=scope.documents,
             revision_pins=revision_pins,
         )
         connected_by_id = {
@@ -407,7 +489,7 @@ async def visual_page_discovery(
             target_field="discovery_score",
             default=0.5,
         )
-    latency = int((time.monotonic() - t0) * 1000)
+    latency = int((time.monotonic() - started_at) * 1000)
     logger.info(
         "  search.visual_page_discovery: {} fused rows, {}ms",
         len(fused_rows),
@@ -511,42 +593,69 @@ async def hybrid_discovery(
     section_targets: list[tuple[str, str | None]] | None = None,
 ) -> DiscoveryResult:
     """Fuse persisted lexical map-unit BM25 discovery with visual page discovery via RRF."""
+    if db is None:
+        raise ValueError("database session required for hybrid_discovery")
+
+    started_at: float = time.monotonic()
     exclude_doc_list = list(exclude_document_ids or [])
     exclude_sec_list = list(exclude_sections or [])
-
-    lexical_result = await map_unit_discovery(
+    visual_scope = await _prepare_visual_scope(
         db,
         user_id=user_id,
         namespace=namespace,
         query=query,
         top_k=top_k,
         exclude_document_ids=exclude_doc_list,
-        exclude_sections=exclude_sec_list,
         document_scope=document_scope,
         chunk_types=chunk_types,
-        signal_paths=signal_paths,
-        filter_mode=filter_mode,
         revision_pins=revision_pins,
-        publish_index_readiness=publish_index_readiness,
-        section_targets=section_targets,
     )
-    if not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)):
+    # Overlap only the provider call. Both database reads use this session
+    # sequentially and stay within the same permission and revision scope.
+    embedding_task = (
+        asyncio.create_task(_request_query_embedding(visual_scope.query))
+        if visual_scope is not None
+        else None
+    )
+    try:
+        lexical_result = await map_unit_discovery(
+            db,
+            user_id=user_id,
+            namespace=namespace,
+            query=query,
+            top_k=top_k,
+            exclude_document_ids=exclude_doc_list,
+            exclude_sections=exclude_sec_list,
+            document_scope=document_scope,
+            chunk_types=chunk_types,
+            signal_paths=signal_paths,
+            filter_mode=filter_mode,
+            revision_pins=revision_pins,
+            publish_index_readiness=publish_index_readiness,
+            section_targets=section_targets,
+        )
+    except BaseException:
+        if embedding_task is not None:
+            embedding_task.cancel()
+            await asyncio.gather(embedding_task, return_exceptions=True)
+        raise
+
+    if visual_scope is None or embedding_task is None:
         return lexical_result
 
-    visual_result = await visual_page_discovery(
+    visual_result = await _search_visual_pages(
         db,
-        user_id=user_id,
-        namespace=namespace,
-        query=query,
+        scope=visual_scope,
+        query_vector=await embedding_task,
         top_k=top_k,
         exclude_document_ids=exclude_doc_list,
         exclude_sections=exclude_sec_list,
-        document_scope=document_scope,
         chunk_types=chunk_types,
         signal_paths=signal_paths,
         filter_mode=filter_mode,
         revision_pins=revision_pins,
         section_targets=section_targets,
+        started_at=started_at,
     )
 
     lexical_rows = list(lexical_result.payload.get("fused_rows") or [])
@@ -610,6 +719,5 @@ async def hybrid_discovery(
     return DiscoveryResult(
         status="discovery_done",
         payload={"fused_rows": fused_rows},
-        latency_ms=int(lexical_result.latency_ms or 0)
-        + int(visual_result.latency_ms or 0),
+        latency_ms=int((time.monotonic() - started_at) * 1000),
     )

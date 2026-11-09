@@ -1,5 +1,6 @@
 """Required visual retrieval failures cannot become successful partial answers."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock
 
@@ -85,6 +86,44 @@ async def test_hybrid_does_not_return_lexical_hits_after_required_visual_failure
     monkeypatch.setattr(visual_discovery, "map_unit_discovery", AsyncMock(return_value=DiscoveryResult(
         status="discovery_done", payload={"fused_rows": [{"chunk_id": "lexical-hit"}]},
     )))
-    monkeypatch.setattr(visual_discovery, "visual_page_discovery", AsyncMock(side_effect=RequiredQueryEmbeddingException(internal_message="provider unavailable")))
+    db = Mock()
+    db.execute = AsyncMock()
+    db.execute.return_value = Mock()
+    db.execute.return_value.scalar.return_value = True
+    monkeypatch.setattr(visual_discovery, "embed_query", Mock(side_effect=RuntimeError("provider unavailable")))
+
     with pytest.raises(RequiredQueryEmbeddingException):
-        await visual_discovery.hybrid_discovery(Mock(), user_id="u", namespace="n", query="q", top_k=1)
+        await visual_discovery.hybrid_discovery(db, user_id="u", namespace="n", query="q", top_k=1)
+
+
+@pytest.mark.asyncio
+async def test_hybrid_requests_query_embedding_during_lexical_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.search.map_unit_discovery import DiscoveryResult
+
+    db = Mock()
+    db.execute = AsyncMock()
+    db.execute.return_value = Mock()
+    db.execute.return_value.scalar.return_value = True
+    db.execute.return_value.all.return_value = []
+    loop = asyncio.get_running_loop()
+    embedding_started = asyncio.Event()
+
+    def embed(*args: object, **kwargs: object) -> list[float]:
+        loop.call_soon_threadsafe(embedding_started.set)
+        return [0.25, 0.5]
+
+    async def discover_lexically(*args: object, **kwargs: object) -> DiscoveryResult:
+        await asyncio.wait_for(embedding_started.wait(), timeout=2)
+        assert db.execute.await_count == 1
+        return DiscoveryResult(status="discovery_done", payload={"fused_rows": [{"chunk_id": "lexical-hit"}]})
+
+    monkeypatch.setattr(visual_discovery.settings, "VISUAL_RETRIEVAL_ENABLED", True)
+    monkeypatch.setattr(visual_discovery, "embed_query", embed)
+    monkeypatch.setattr(visual_discovery, "map_unit_discovery", discover_lexically)
+
+    result = await visual_discovery.hybrid_discovery(db, user_id="u", namespace="n", query="q", top_k=1)
+
+    assert result.payload["fused_rows"] == [{"chunk_id": "lexical-hit"}]
+    assert db.execute.await_count == 2
