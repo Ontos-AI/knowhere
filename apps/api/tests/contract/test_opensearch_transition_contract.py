@@ -210,27 +210,22 @@ def test_transition_rejects_stale_epoch_before_any_mutation(
         service.run("gate", targetBackend="opensearch", execute=True, expectedEpoch=99)
 
 
-def test_native_resume_waits_for_incomplete_progressive_publication(
+def test_native_resume_waits_for_active_progressive_publication(
     transitionRuntime: Engine,
 ) -> None:
-    from shared.models.database.document import Document
     from shared.models.database.job import Job
-    from shared.models.database.job_result import JobResult
     from shared.services.retrieval.lexical.error import LexicalIndexError
     from shared.services.retrieval.lexical.transition import LexicalTransition
 
-    jobId, documentId, revisionId = createParsed(transitionRuntime)
+    jobId, _, _ = createParsed(transitionRuntime)
     with Session(transitionRuntime) as db:
-        _require(db.get(Document, documentId)).current_job_result_id = revisionId
-        _require(db.get(Job, jobId)).status = "done"
-        _require(db.get(JobResult, revisionId)).document_metadata = {
-            "progressive": {"stages": {"finalization": {"status": "pending"}}}
-        }
+        job = _require(db.get(Job, jobId))
+        job.job_metadata = {**(job.job_metadata or {}), "ingestion_mode": "progressive"}
         db.commit()
 
     service = LexicalTransition(sessionFactory=sessionmaker(transitionRuntime))
     service.run("gate", targetBackend="opensearch", execute=True, expectedEpoch=1)
-    with pytest.raises(LexicalIndexError, match="progressive publication"):
+    with pytest.raises(LexicalIndexError, match="active progressive publication"):
         service.run("resume", targetBackend="opensearch", execute=True, expectedEpoch=2)
 
 
@@ -261,12 +256,16 @@ def publishPostgresql(engine: Engine, jobId: str) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "hasPendingEnrichment", [False, True], ids=["full", "pending-enrichment"]
+)
 def test_pg_serving_shadow_backfill_only_activates_after_gated_live_verification(
-    transitionRuntime: Engine, monkeypatch: pytest.MonkeyPatch
+    transitionRuntime: Engine, monkeypatch: pytest.MonkeyPatch, hasPendingEnrichment: bool
 ) -> None:
     from shared.core.config import settings
     from shared.models.database.document import Document
     from shared.models.database.job import Job
+    from shared.models.database.job_result import JobResult
     from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
     from shared.services.retrieval.lexical.coordination import LexicalCoordination
     from shared.services.retrieval.lexical.transition import LexicalTransition
@@ -274,6 +273,14 @@ def test_pg_serving_shadow_backfill_only_activates_after_gated_live_verification
 
     jobId, documentId, revisionId = createParsed(transitionRuntime)
     publishPostgresql(transitionRuntime, jobId)
+    if hasPendingEnrichment:
+        with Session(transitionRuntime) as db:
+            result = _require(db.get(JobResult, revisionId))
+            result.document_metadata = {
+                **(result.document_metadata or {}),
+                "progressive": {"stages": {"finalization": {"status": "pending"}}},
+            }
+            db.commit()
     sessions = sessionmaker(transitionRuntime, expire_on_commit=False)
     service = LexicalTransition(sessionFactory=sessions)
     builds = {}

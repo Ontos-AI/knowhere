@@ -647,7 +647,7 @@ class LexicalTransition:
         }
 
     @staticmethod
-    def _checkProgressivePublication(db: Session) -> None:
+    def _checkActiveProgressiveJobs(db: Session) -> None:
         if db.scalar(
             select(Job.job_id).where(
                 Job.job_type == "document_ingestion",
@@ -656,20 +656,6 @@ class LexicalTransition:
             ).limit(1)
         ):
             raise LexicalIndexError("Wait for active progressive publication jobs before native activation")
-        progress = JobResult.document_metadata["progressive"]
-        finalStatus = progress["stages"]["finalization"]["status"].as_string()
-        for kind in ("PRIVATE", "DEMO"):
-            storage = CorpusStorage(cast(Literal["PRIVATE", "DEMO"], kind))
-            if db.scalar(
-                select(storage.Document.document_id)
-                .join(JobResult, JobResult.id == storage.Document.current_job_result_id)
-                .where(
-                    storage.Document.status == "active",
-                    progress.as_string().is_not(None),
-                    finalStatus.is_distinct_from("complete"),
-                ).limit(1)
-            ):
-                raise LexicalIndexError("Finish progressive publication before native activation")
 
     def _resume(self, target: _Backend, epoch: int) -> dict[str, object]:
         capturedControl, bindings = self._capture()
@@ -681,7 +667,7 @@ class LexicalTransition:
         if requiresRollbackCoverage:
             with self.sessions.begin() as db:
                 self._authorize(db)
-                self._checkProgressivePublication(db)
+                self._checkActiveProgressiveJobs(db)
         payloads: dict[str, LexicalInput] = {
             binding.revisionId: self._loadInput(binding) for binding in bindings
         }
@@ -715,7 +701,7 @@ class LexicalTransition:
                     "Backend activation requires its publication barrier"
                 )
             if requiresRollbackCoverage:
-                self._checkProgressivePublication(db)
+                self._checkActiveProgressiveJobs(db)
             current: tuple[_Binding, ...] = self._getBindings(db)
             if self._fingerprint(current) != self._fingerprint(bindings):
                 raise LexicalIndexError(
