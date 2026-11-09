@@ -252,13 +252,7 @@ jobs:
     name: Run staging Neon database migration
     runs-on: ubuntu-latest
     needs: build-and-publish
-    if: >-
-      ${{ (github.ref == 'refs/heads/staging' ||
-      github.event_name == 'workflow_dispatch') &&
-      (github.event_name != 'workflow_dispatch' ||
-      github.event.inputs.service == '' ||
-      github.event.inputs.service == 'all' ||
-      github.event.inputs.service == 'api') }}
+    if: ${{ false }}
     permissions:
       contents: read
 
@@ -375,11 +369,7 @@ jobs:
     name: Deploy staging services to ECS
     runs-on: ubuntu-latest
     needs: [build-and-publish, migrate-ecs-staging]
-    if: >-
-      ${{ always() && needs.build-and-publish.result == 'success' &&
-      (needs['migrate-ecs-staging'].result == 'success' || needs['migrate-ecs-staging'].result == 'skipped') &&
-      ((github.ref == 'refs/heads/staging' && github.event_name == 'push') ||
-      github.event_name == 'workflow_dispatch') }}
+    if: ${{ false }}
     permissions:
       contents: read
 
