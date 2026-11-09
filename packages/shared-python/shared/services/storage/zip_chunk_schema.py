@@ -120,7 +120,19 @@ class ZipChunkSchemaBuilder:
                     content=str(content),
                     existing_metadata=existing_metadata,
                     resource_target_map=resource_target_map,
+                    owner_chunk_id=chunk_id,
                 )
+                for key in (
+                    "header_row_count",
+                    "row_header_col_count",
+                    "column_headers",
+                    "sheet_name",
+                    "excel_range",
+                    "caption",
+                    "satellites",
+                ):
+                    if key in existing_metadata:
+                        metadata[key] = existing_metadata[key]
             elif chunk_type == "page":
                 metadata["keywords"] = existing_metadata.get("keywords") or []
                 metadata["connect_to"] = existing_metadata.get("connect_to") or []
@@ -172,15 +184,20 @@ def _build_embed_connect_to(
     content: str,
     existing_metadata: dict[str, Any],
     resource_target_map: dict[str, str],
+    owner_chunk_id: str | None = None,
 ) -> list[Any]:
     relationship_refs = parse_relationship_refs(
         chunk.get("type_raw") or chunk_type_str,
         content,
     )
-    embed_connections = convert_refs_to_embed_connections(
-        relationship_refs,
-        resource_target_map,
-    )
+    embed_connections = [
+        item
+        for item in convert_refs_to_embed_connections(
+            relationship_refs,
+            resource_target_map,
+        )
+        if not owner_chunk_id or item.get("target") != owner_chunk_id
+    ]
     related_connections = normalize_connect_to_targets(
         existing_metadata.get("connect_to")
         or chunk.get("connect_to")

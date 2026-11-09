@@ -4,14 +4,11 @@ from dataclasses import dataclass
 from typing import Mapping
 
 import openpyxl
-from openpyxl.styles.colors import Color
 from openpyxl.utils import column_index_from_string
 from openpyxl.utils.cell import range_boundaries
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 
 from shared.core.exceptions.domain_exceptions import TableParsingException
-
-_WHITE_FILL_RGB = frozenset({"00000000", "FFFFFFFF", "00FFFFFF", "FFFFFF"})
 
 
 @dataclass(frozen=True)
@@ -28,9 +25,6 @@ class GridCell:
     col: int
     value: object
     formula: str | None
-    number_format: str | None
-    bold: bool
-    fill: str | None
     merge_origin: tuple[int, int] | None
     rowspan: int
     colspan: int
@@ -66,7 +60,6 @@ class SheetGrid:
     cells: dict[tuple[int, int], GridCell]
     merged_ranges: list[tuple[int, int, int, int]]
     excel_tables: list[ExcelTableDef]
-    print_area: str | None
     hidden_columns: frozenset[int]
 
 
@@ -137,9 +130,6 @@ def expand_visual_grid(
                     col=col,
                     value=None,
                     formula=None,
-                    number_format=None,
-                    bold=False,
-                    fill=None,
                     merge_origin=merge_origin,
                     rowspan=rowspan,
                     colspan=colspan,
@@ -150,9 +140,6 @@ def expand_visual_grid(
                 col=col,
                 value=origin.value,
                 formula=origin.formula,
-                number_format=origin.number_format,
-                bold=origin.bold,
-                fill=origin.fill,
                 merge_origin=merge_origin,
                 rowspan=rowspan,
                 colspan=colspan,
@@ -245,17 +232,11 @@ def _sheet_from_pair(*, name: str, formula_sheet, value_sheet) -> SheetGrid:
                 merge_origin = (min_row, min_col)
         cached = None if value_cell is None else value_cell.value
         formula = _formula_string(formula_cell)
-        number_format = formula_cell.number_format or (
-            None if value_cell is None else value_cell.number_format
-        )
         cell = GridCell(
             row=row,
             col=col,
             value=cached,
             formula=formula,
-            number_format=number_format if number_format not in {None, "General"} else None,
-            bold=_is_bold(formula_cell),
-            fill=_non_white_fill(formula_cell),
             merge_origin=merge_origin,
             rowspan=rowspan,
             colspan=colspan,
@@ -281,7 +262,6 @@ def _sheet_from_pair(*, name: str, formula_sheet, value_sheet) -> SheetGrid:
         cells=cells,
         merged_ranges=merged_ranges,
         excel_tables=_excel_tables(formula_sheet, sheet_name=name),
-        print_area=_print_area(formula_sheet),
         hidden_columns=_hidden_columns(formula_sheet),
     )
 
@@ -299,9 +279,7 @@ def _covering_merge(
 def _keep_cell(cell: GridCell, *, origin_cell: bool) -> bool:
     if cell.value is not None or cell.formula is not None:
         return True
-    if origin_cell and (cell.rowspan > 1 or cell.colspan > 1):
-        return True
-    return bool(cell.bold or cell.fill)
+    return bool(origin_cell and (cell.rowspan > 1 or cell.colspan > 1))
 
 
 def _formula_string(cell) -> str | None:
@@ -323,31 +301,6 @@ def _formula_string(cell) -> str | None:
         if getattr(cell, "data_type", None) == "f" and text:
             return f"={text}"
     return None
-
-
-def _is_bold(cell) -> bool:
-    font = getattr(cell, "font", None)
-    return bool(font is not None and font.bold)
-
-
-def _non_white_fill(cell) -> str | None:
-    fill = getattr(cell, "fill", None)
-    if fill is None or fill.fill_type in {None, "none"}:
-        return None
-    color = getattr(fill, "fgColor", None)
-    rgb = _color_rgb(color)
-    if rgb is None or rgb in _WHITE_FILL_RGB:
-        return None
-    return rgb
-
-
-def _color_rgb(color: Color | None) -> str | None:
-    if color is None:
-        return None
-    rgb = getattr(color, "rgb", None)
-    if rgb is None:
-        return None
-    return str(rgb).upper()
 
 
 def _hidden_columns(worksheet) -> frozenset[int]:
@@ -373,7 +326,12 @@ def _excel_tables(worksheet, *, sheet_name: str) -> list[ExcelTableDef]:
         if not ref:
             continue
         min_col, min_row, max_col, max_row = range_boundaries(ref)
-        if None in (min_col, min_row, max_col, max_row):
+        if (
+            min_col is None
+            or min_row is None
+            or max_col is None
+            or max_row is None
+        ):
             continue
         columns = tuple(
             str(column.name).strip()
@@ -394,15 +352,6 @@ def _excel_tables(worksheet, *, sheet_name: str) -> list[ExcelTableDef]:
             )
         )
     return [table for table in tables if table.name]
-
-
-def _print_area(worksheet) -> str | None:
-    print_area = getattr(worksheet, "print_area", None)
-    if not print_area:
-        return None
-    if isinstance(print_area, str):
-        return print_area
-    return str(print_area)
 
 
 def _defined_names(workbook) -> list[DefinedNameDef]:

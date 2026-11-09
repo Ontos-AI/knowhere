@@ -78,12 +78,27 @@ def evaluate_sheet_blocks(
     while remaining:
         remaining.sort(key=lambda item: (item.region.min_row, item.region.min_col))
         center = remaining.pop(0)
+        rejected: set[Region] = set()
         while True:
-            neighbors = _four_neighbors(center, remaining)
+            neighbors = _four_neighbors(
+                center,
+                remaining,
+                obstacles=[*remaining, *finalized],
+                rejected=rejected,
+            )
             if not neighbors:
                 break
             answers = _merge_answers(sheet, center, neighbors, resolved_judge)
-            merged = _apply_merges(center, neighbors, remaining, answers)
+            for direction, choice in answers.items():
+                if choice == _CHOICE_SEPARATE and direction in neighbors:
+                    rejected.add(neighbors[direction].region)
+            merged = _apply_merges(
+                center,
+                neighbors,
+                remaining,
+                finalized,
+                answers,
+            )
             if merged is None:
                 break
             center = merged
@@ -105,16 +120,35 @@ def _merge_answers(
         direction: _fallback_merge_choice(sheet, center, direction, neighbors[direction])
         for direction in directions
     }
+    center_preview = _block_preview(sheet, center.region)
+    neighbor_previews = {
+        direction: _block_preview(sheet, neighbors[direction].region)
+        for direction in directions
+    }
     questions = {
         f"merge::{direction}": {
             "type": "choice",
             "instructions": (
-                "Decide whether this neighbor and the center belong to the "
-                "same spreadsheet table."
+                f"Compare center block {center_preview['range']} "
+                f"({center_preview['row_count']}x{center_preview['col_count']}) "
+                f"with {direction} neighbor {neighbor_previews[direction]['range']} "
+                f"({neighbor_previews[direction]['row_count']}x{neighbor_previews[direction]['col_count']}):\n"
+                f"Center {center_preview['range']}:\n{center_preview['grid']}\n"
+                f"Neighbor ({direction}) {neighbor_previews[direction]['range']}:\n"
+                f"{neighbor_previews[direction]['grid']}\n"
+                "Pick merge ONLY if they belong to the exact same spreadsheet table "
+                "split by an empty row or column. Pick separate if the neighbor is an "
+                "independent table, side block, or detached fragment."
             ),
             "criteria": {
-                _CHOICE_MERGE: "Same table; combine them.",
-                _CHOICE_SEPARATE: "Independent table or detached fragment.",
+                _CHOICE_MERGE: (
+                    f"Neighbor ({direction}) {neighbor_previews[direction]['range']} "
+                    f"and center {center_preview['range']} belong to the same table; combine them."
+                ),
+                _CHOICE_SEPARATE: (
+                    f"Neighbor ({direction}) {neighbor_previews[direction]['range']} "
+                    "is an independent table or detached fragment."
+                ),
             },
         }
         for direction in directions
@@ -125,11 +159,8 @@ def _merge_answers(
     }
     state = {
         "sheet": sheet.name,
-        "center": _block_preview(sheet, center.region),
-        **{
-            direction: _block_preview(sheet, neighbors[direction].region)
-            for direction in directions
-        },
+        "center": center_preview,
+        **neighbor_previews,
     }
     chosen = judge.choose(
         state=state,
@@ -153,6 +184,7 @@ def _apply_merges(
     center: _OpenBlock,
     neighbors: Mapping[str, _OpenBlock],
     remaining: list[_OpenBlock],
+    finalized: Sequence[_OpenBlock],
     answers: Mapping[str, str],
 ) -> _OpenBlock | None:
     grown = center
@@ -166,7 +198,7 @@ def _apply_merges(
         union = bounding_region([grown.region, candidate.region])
         others = [
             item.region
-            for item in remaining
+            for item in [*remaining, *finalized]
             if item is not candidate
         ]
         if any(regions_overlap(union, other) for other in others):
@@ -183,13 +215,20 @@ def _apply_merges(
 
 
 def _four_neighbors(
-    center: _OpenBlock, remaining: Sequence[_OpenBlock]
+    center: _OpenBlock,
+    remaining: Sequence[_OpenBlock],
+    *,
+    obstacles: Sequence[_OpenBlock] | None = None,
+    rejected: set[Region] | None = None,
 ) -> dict[str, _OpenBlock]:
+    all_obstacles = obstacles if obstacles is not None else remaining
     neighbors: dict[str, _OpenBlock] = {}
     for direction in _CLOCKWISE_DIRS:
         best: _OpenBlock | None = None
         best_distance: int | None = None
         for candidate in remaining:
+            if rejected is not None and candidate.region in rejected:
+                continue
             if center.locked and candidate.locked:
                 continue
             distance = _direction_distance(center.region, candidate.region, direction)
@@ -200,7 +239,7 @@ def _four_neighbors(
             union = bounding_region([center.region, candidate.region])
             swallows = any(
                 other is not candidate and regions_overlap(union, other.region)
-                for other in remaining
+                for other in all_obstacles
             )
             if swallows:
                 continue
@@ -268,13 +307,26 @@ def _assign_roles(
             for item in blocks
         ]
 
+    previews = [
+        _block_preview(sheet, item.region) | {"index": index, "locked": item.locked}
+        for index, item in enumerate(blocks)
+    ]
     questions = {
         f"role::{index}": {
             "type": "choice",
-            "instructions": "Classify this independent region after merge decisions.",
+            "instructions": (
+                f"Classify region index={index} range={previews[index]['range']} "
+                f"({previews[index]['row_count']} rows x {previews[index]['col_count']} cols):\n"
+                f"{previews[index]['grid']}\n"
+                "Pick table if it is a complete multi-row, multi-column data table; "
+                "pick fragment if it is a detached small region (single cell, 1-row total/title, or small side note/KPI)."
+            ),
             "criteria": {
-                _ROLE_TABLE: "A complete data table.",
-                _ROLE_FRAGMENT: "A detached small region.",
+                _ROLE_TABLE: f"Region {previews[index]['range']} is a complete data table.",
+                _ROLE_FRAGMENT: (
+                    f"Region {previews[index]['range']} is a detached small region "
+                    "(totals cell/row, title, or side KPI/scratch block)."
+                ),
             },
         }
         for index in unlocked_indexes
@@ -285,10 +337,7 @@ def _assign_roles(
     }
     state = {
         "sheet": sheet.name,
-        "regions": [
-            _block_preview(sheet, item.region) | {"index": index, "locked": item.locked}
-            for index, item in enumerate(blocks)
-        ],
+        "regions": previews,
     }
     chosen = judge.choose(
         state=state,

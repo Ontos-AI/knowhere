@@ -78,20 +78,30 @@ def resolve_formula_satellites_and_edges(
         table_key(sheet_name, item.region): _Attachment()
         for sheet_name, item in tables
     }
+    owned_regions: dict[str, list[Region]] = {
+        table_key(sheet_name, item.region): [item.region]
+        for sheet_name, item in tables
+    }
     absorbed: set[tuple[str, Region]] = set()
     nodes_by_cell = {(node.sheet, node.row, node.col): node for node in graph}
 
-    for sheet_name, fragment in fragments:
-        sheet = sheets.get(sheet_name)
-        if sheet is None:
-            continue
-        hosts = _formula_hosts(
-            fragment.region,
-            sheet_name=sheet_name,
-            tables=tables,
-            nodes_by_cell=nodes_by_cell,
-        )
-        if hosts:
+    while True:
+        progressed = False
+        for sheet_name, fragment in fragments:
+            if (sheet_name, fragment.region) in absorbed:
+                continue
+            sheet = sheets.get(sheet_name)
+            if sheet is None:
+                continue
+            hosts = _formula_hosts(
+                fragment.region,
+                sheet_name=sheet_name,
+                tables=tables,
+                owned_regions=owned_regions,
+                nodes_by_cell=nodes_by_cell,
+            )
+            if not hosts:
+                continue
             text = _format_satellite(sheet, fragment.region)
             for host_sheet, host in hosts:
                 key = table_key(host_sheet, host.region)
@@ -102,7 +112,18 @@ def resolve_formula_satellites_and_edges(
                     )
                 elif text:
                     attachment.satellites.append(text)
+                if sheet_name == host_sheet and len(hosts) == 1:
+                    owned_regions[key].append(fragment.region)
             absorbed.add((sheet_name, fragment.region))
+            progressed = True
+        if not progressed:
+            break
+
+    for sheet_name, fragment in fragments:
+        if (sheet_name, fragment.region) in absorbed:
+            continue
+        sheet = sheets.get(sheet_name)
+        if sheet is None:
             continue
         host = _title_host_below(sheet, fragment, tables)
         if host is None:
@@ -142,7 +163,7 @@ def resolve_formula_satellites_and_edges(
         )
 
     planned.sort(key=lambda item: (item.sheet_name, item.region.min_row, item.region.min_col))
-    links = _table_formula_links(tables, nodes_by_cell)
+    links = _table_formula_links(tables, owned_regions, nodes_by_cell)
     return WorkbookTablePlan(tables=tuple(planned), links=tuple(links))
 
 
@@ -158,6 +179,7 @@ def _formula_hosts(
     *,
     sheet_name: str,
     tables: Sequence[tuple[str, ClassifiedRegion]],
+    owned_regions: Mapping[str, Sequence[Region]],
     nodes_by_cell: Mapping[tuple[str, int, int], FormulaNode],
 ) -> list[tuple[str, ClassifiedRegion]]:
     hosts: list[tuple[str, ClassifiedRegion]] = []
@@ -169,9 +191,11 @@ def _formula_hosts(
                 continue
             for ref in node.refs:
                 for table_sheet, table in tables:
-                    if not _ref_hits_table(ref, table_sheet, table.region):
-                        continue
                     key = table_key(table_sheet, table.region)
+                    if not _ref_hits_any_region(
+                        ref, table_sheet, owned_regions.get(key, (table.region,))
+                    ):
+                        continue
                     if key in seen:
                         continue
                     seen.add(key)
@@ -218,36 +242,51 @@ def _is_aligned_totals(
 
 def _table_formula_links(
     tables: Sequence[tuple[str, ClassifiedRegion]],
+    owned_regions: Mapping[str, Sequence[Region]],
     nodes_by_cell: Mapping[tuple[str, int, int], FormulaNode],
 ) -> list[TableFormulaLink]:
     links: list[TableFormulaLink] = []
     seen: set[tuple[str, str, str]] = set()
     for source_sheet, source in tables:
         source_id = table_key(source_sheet, source.region)
-        for row in range(source.region.min_row, source.region.max_row + 1):
-            for col in range(source.region.min_col, source.region.max_col + 1):
-                node = nodes_by_cell.get((source_sheet, row, col))
-                if node is None or node.unresolved:
-                    continue
-                for ref in node.refs:
-                    for target_sheet, target in tables:
-                        if source_sheet == target_sheet and source.region == target.region:
-                            continue
-                        if not _ref_hits_table(ref, target_sheet, target.region):
-                            continue
-                        target_id = table_key(target_sheet, target.region)
-                        key = (source_id, target_id, node.formula)
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        links.append(
-                            TableFormulaLink(
-                                source_key=source_id,
-                                target_key=target_id,
-                                formula=node.formula,
+        for source_region in owned_regions.get(source_id, (source.region,)):
+            for row in range(source_region.min_row, source_region.max_row + 1):
+                for col in range(source_region.min_col, source_region.max_col + 1):
+                    node = nodes_by_cell.get((source_sheet, row, col))
+                    if node is None or node.unresolved:
+                        continue
+                    for ref in node.refs:
+                        for target_sheet, target in tables:
+                            if (
+                                source_sheet == target_sheet
+                                and source.region == target.region
+                            ):
+                                continue
+                            target_id = table_key(target_sheet, target.region)
+                            if not _ref_hits_any_region(
+                                ref,
+                                target_sheet,
+                                owned_regions.get(target_id, (target.region,)),
+                            ):
+                                continue
+                            key = (source_id, target_id, node.formula)
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            links.append(
+                                TableFormulaLink(
+                                    source_key=source_id,
+                                    target_key=target_id,
+                                    formula=node.formula,
+                                )
                             )
-                        )
     return links
+
+
+def _ref_hits_any_region(
+    ref: CellRange, sheet_name: str, regions: Sequence[Region]
+) -> bool:
+    return any(_ref_hits_table(ref, sheet_name, region) for region in regions)
 
 
 def _ref_hits_table(ref: CellRange, sheet_name: str, region: Region) -> bool:

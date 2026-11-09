@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from app.services.document_parser.formats.excel.formula_graph import parse_formula_refs
 from app.services.document_parser.formats.excel.workbook_grid import (
@@ -12,6 +13,11 @@ from app.services.document_parser.formats.excel.workbook_grid import (
     merge_at,
     sheet_display_value,
 )
+
+if TYPE_CHECKING:
+    from app.services.document_parser.formats.excel.luna_decisions import (
+        SpreadsheetRegionJudge,
+    )
 
 
 @dataclass(frozen=True)
@@ -25,7 +31,7 @@ def split_sheet_regions(
     sheet: SheetGrid,
     *,
     defined_names: Sequence[DefinedNameDef] = (),
-    judge: object | None = None,
+    judge: SpreadsheetRegionJudge | None = None,
 ) -> list[ClassifiedRegion]:
     """Split one sheet into atomic empty-row/col blocks, then Luna-classify them."""
     if sheet.max_row == 0 or sheet.max_col == 0:

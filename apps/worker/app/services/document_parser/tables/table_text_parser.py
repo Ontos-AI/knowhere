@@ -6,7 +6,6 @@ import re
 import unicodedata
 
 import pandas as pd
-from bs4 import BeautifulSoup, Tag
 
 from app.services.common.file_utils import MAX_ASSET_FILE_NAME_CHARS
 
@@ -101,26 +100,6 @@ def df2md(table_frame: pd.DataFrame, *, index: bool = False, na_rep: str = "—"
         data_lines.append("| " + " | ".join(cells) + " |")
 
     return "\n".join([header_line, separator_line, *data_lines])
-
-
-def clean_html_tb(html: str) -> str:
-    soup = BeautifulSoup(html, "html.parser")
-    for row in soup.find_all("tr"):
-        if not isinstance(row, Tag):
-            continue
-        seen: set[bytes] = set()
-        unique_cells: list[Tag] = []
-        for cell in row.find_all("td", recursive=False):
-            if not isinstance(cell, Tag):
-                continue
-            content = cell.encode_contents()
-            if content not in seen:
-                seen.add(content)
-                unique_cells.append(cell)
-        row.clear()
-        for cell in unique_cells:
-            row.append(cell)
-    return str(soup.prettify())
 
 
 def extract_tables_by_forms(table_text: str, form: str) -> str | None:

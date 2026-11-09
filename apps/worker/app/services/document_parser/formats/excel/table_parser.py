@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -33,7 +32,6 @@ from shared.services.chunks.chunk_connections import (
     RELATION_DERIVES,
 )
 from shared.services.chunks.path_segments import join_document_path
-from app.services.common.file_loading import load_file_bytes
 from app.services.document_parser.assets.asset_file_names import (
     ASSET_KIND_TABLE,
     build_asset_file_stem,
@@ -47,7 +45,6 @@ class ExcelWorkbookParseRequest:
     file_path: str
     file_name: str
     output_dir: str
-    baseurl: str
     base_llm_paras: dict[str, Any]
     relative_root: str | None
     include_hidden_sheets: bool
@@ -57,7 +54,6 @@ def parse_xlsx(
     file_path: str,
     file_name: str,
     output_dir: str,
-    baseurl: str,
     base_llm_paras: dict[str, Any] | None = None,
     relative_root: str | None = None,
     include_hidden_sheets: bool = False,
@@ -66,7 +62,6 @@ def parse_xlsx(
         file_path=file_path,
         file_name=file_name,
         output_dir=output_dir,
-        baseurl=baseurl,
         base_llm_paras=_normalise_llm_parameters(base_llm_paras),
         relative_root=relative_root,
         include_hidden_sheets=include_hidden_sheets,
@@ -78,7 +73,7 @@ def parse_excel_workbook(request: ExcelWorkbookParseRequest) -> pd.DataFrame:
     time_stamp = get_str_time()
     os.makedirs(os.path.join(request.output_dir, "tables"), exist_ok=True)
     logger.info("Parsing spreadsheet grid, Luna regions, and formula satellites")
-    workbook = load_workbook_grid(_local_xlsx_path(request))
+    workbook = load_workbook_grid(request.file_path)
     structure = parse_excel_structure(
         workbook,
         include_hidden_sheets=request.include_hidden_sheets,
@@ -93,17 +88,6 @@ def _normalise_llm_parameters(
     llm_parameters.setdefault("summary_table", False)
     llm_parameters.setdefault("stopwords", [])
     return llm_parameters
-
-
-def _local_xlsx_path(request: ExcelWorkbookParseRequest) -> str:
-    source = Path(request.file_path)
-    if source.is_file():
-        return str(source)
-    table_data = load_file_bytes(request.file_path, file_url=request.baseurl)
-    destination = Path(request.output_dir) / ".work" / "source.xlsx"
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(table_data)
-    return str(destination)
 
 
 def _emit_tables(
