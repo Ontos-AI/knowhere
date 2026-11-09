@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 
-from sqlalchemy import create_engine, select
-from sqlalchemy.engine import make_url
+import pytest
+from sqlalchemy import create_engine, event, select, text
+from sqlalchemy.engine import Connection, ExecutionContext, make_url
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from shared.models.database.document import (
@@ -970,6 +972,124 @@ def test_chunk_progressive_baseline_records_text_without_enqueueing_final(
         assert finalization.post_commit_effects.chunk_final_job_result_ids == ()
         assert state is not None
         assert state.stages["finalization"]["status"] == "pending"
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("needs_finalization", [False, True])
+def test_chunk_final_read_claim_locks_only_pending_revisions(
+    monkeypatch: pytest.MonkeyPatch,
+    postgresql_proc: PostgreSQLProcess,
+    needs_finalization: bool,
+) -> None:
+    from shared.models.database.job_result import JobResult
+    from shared.services.jobs.lifecycle import scope_enrichments
+    from shared.services.jobs.progressive_ingestion import read_progressive_state
+
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    database_url = make_url(get_contract_database_url())
+    engine = create_engine(database_url.set(drivername="postgresql+psycopg2"))
+    scope = _scope("claim-pending" if needs_finalization else "claim-full")
+    sent: list[str] = []
+
+    def enqueue_finalization(revision_id: str) -> bool:
+        sent.append(revision_id)
+        return True
+
+    monkeypatch.setattr(
+        scope_enrichments, "enqueue_chunk_final_after_commit", enqueue_finalization
+    )
+    try:
+        with Session(engine) as session:
+            seed_publication_fixture(session, scope=scope)
+            _set_job_progressive(
+                session,
+                job_id=scope.job_ref,
+                ingestion_mode="progressive" if needs_finalization else "full",
+                enrichment_status="text" if needs_finalization else "",
+                parse_track="chunk",
+            )
+            session.commit()
+            _finalize(
+                session,
+                job_id=scope.job_ref,
+                chunks=[
+                    {
+                        "chunk_id": "text",
+                        "type": "text",
+                        "content": "Published text.",
+                        "path": f"{scope.source_file_name}/Intro",
+                        "metadata": {},
+                    },
+                ],
+            )
+
+        async def read_concurrently() -> None:
+            async_engine = create_async_engine(database_url)
+            sessions = async_sessionmaker(async_engine)
+            both_claims_started = asyncio.Event()
+            lock_attempts = 0
+
+            @event.listens_for(async_engine.sync_engine, "before_cursor_execute")
+            def observe_claim(
+                connection: Connection,
+                cursor: object,
+                statement: str,
+                parameters: object,
+                context: ExecutionContext,
+                executemany: bool,
+            ) -> None:
+                nonlocal lock_attempts
+                if "FOR UPDATE OF job_results" in statement:
+                    lock_attempts += 1
+                    if lock_attempts == 2:
+                        both_claims_started.set()
+
+            async def read() -> None:
+                async with sessions() as session:
+                    await scope_enrichments.promote_scopes_on_read(
+                        session,
+                        [
+                            {
+                                "job_result_id": scope.revision_ref,
+                                "content": "Published text.",
+                            }
+                        ],
+                    )
+                    assert await session.scalar(text("SELECT 1")) == 1
+
+            try:
+                async with sessions() as blocker:
+                    await blocker.execute(
+                        select(JobResult.id)
+                        .where(JobResult.id == scope.revision_ref)
+                        .with_for_update()
+                    )
+                    if needs_finalization:
+                        reads = asyncio.gather(read(), read())
+                        try:
+                            await asyncio.wait_for(
+                                both_claims_started.wait(), timeout=5
+                            )
+                        finally:
+                            await blocker.rollback()
+                            await reads
+                    else:
+                        await asyncio.wait_for(read(), timeout=1)
+                assert lock_attempts == (2 if needs_finalization else 0)
+            finally:
+                await async_engine.dispose()
+
+        asyncio.run(read_concurrently())
+        assert sent == ([scope.revision_ref] if needs_finalization else [])
+        if needs_finalization:
+            with Session(engine) as session:
+                result = session.get(JobResult, scope.revision_ref)
+                assert result is not None
+                state = read_progressive_state(result.document_metadata)
+                assert state is not None
+                assert state.stages["finalization"]["status"] == "running"
     finally:
         engine.dispose()
 
