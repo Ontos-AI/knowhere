@@ -255,6 +255,24 @@ def _on_demand_retryable_scope_filter(now: datetime) -> ColumnElement[bool]:
     )
 
 
+def _get_pending_chunk_final_state(
+    document_metadata: dict[str, Any] | None,
+    job_metadata: dict[str, Any] | None,
+) -> ProgressiveIngestionState | None:
+    metadata = job_metadata if isinstance(job_metadata, dict) else {}
+    if JobMetadataHelper.get_parse_track(metadata) != "chunk":
+        return None
+    if _revision_enrichment_status(document_metadata, metadata) != "text":
+        return None
+    state = read_progressive_state(document_metadata)
+    if state is None or state.enhancement.status in {"complete", "failed"}:
+        return None
+    stage = state.stages.get("finalization", {})
+    if str(stage.get("status") or "pending").strip().lower() != "pending":
+        return None
+    return state
+
+
 async def _enqueue_chunk_final_on_returned_rows(
     db: Any,
     rows: list[dict[str, Any]],
@@ -275,32 +293,39 @@ async def _enqueue_chunk_final_on_returned_rows(
 
     claimed: list[str] = []
     try:
+        snapshots = await db.execute(
+            select(JobResult.id, JobResult.document_metadata, Job.job_metadata)
+            .join(Job, Job.job_id == JobResult.job_id)
+            .where(JobResult.id.in_(revision_ids))
+        )
+        eligible_ids: list[str] = [
+            revision_id
+            for revision_id, document_metadata, job_metadata in snapshots
+            if _get_pending_chunk_final_state(document_metadata, job_metadata)
+            is not None
+        ]
+        if not eligible_ids:
+            return []
+
         loaded = (
             await db.execute(
                 select(JobResult, Job)
                 .join(Job, Job.job_id == JobResult.job_id)
-                .where(JobResult.id.in_(revision_ids))
+                .where(JobResult.id.in_(eligible_ids))
+                .order_by(JobResult.id)
                 .with_for_update(of=JobResult)
+                .execution_options(populate_existing=True)
             )
         ).all()
         for job_result, job in loaded:
-            job_metadata = job.job_metadata if isinstance(job.job_metadata, dict) else {}
-            if JobMetadataHelper.get_parse_track(job_metadata) != "chunk":
-                continue
-            if (
-                _revision_enrichment_status(
-                    job_result.document_metadata, job_metadata
-                )
-                != "text"
-            ):
-                continue
-            state = read_progressive_state(job_result.document_metadata)
-            if state is None or state.enhancement.status in {"complete", "failed"}:
+            # A concurrent reader may have claimed Final after the unlocked read.
+            state = _get_pending_chunk_final_state(
+                job_result.document_metadata, job.job_metadata
+            )
+            if state is None:
                 continue
             stages: dict[str, EnhancementStage] = dict(state.stages)
             stage: EnhancementStage = {**stages.get("finalization", {})}
-            if str(stage.get("status") or "pending").strip().lower() != "pending":
-                continue
             stages["finalization"] = {**stage, "status": "running"}
             state.stages = stages
             job_result.document_metadata = write_progressive_state(
