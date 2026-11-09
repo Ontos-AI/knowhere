@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import io
 from typing import List, Optional, Tuple, Union
 from typing import cast
 
-import openpyxl
 import pandas as pd
 from openpyxl.utils import get_column_letter
 from pandas._typing import Axes
@@ -16,76 +14,69 @@ from app.services.document_parser.formats.excel.header_detect import (
     build_region_visual,
     detect_headers,
 )
+from app.services.document_parser.formats.excel.region_split import (
+    classify_sheet_row,
+    seed_title_for_region,
+    split_sheet_regions,
+)
+from app.services.document_parser.formats.excel.workbook_grid import (
+    Region,
+    SheetGrid,
+    WorkbookGrid,
+    sheet_display_value,
+)
 from shared.core.exceptions.domain_exceptions import TableParsingException
 
 
 def parse_excel_structure(
-    file_source: Union[str, io.BytesIO],
+    workbook: WorkbookGrid,
     sheet_name: Optional[str] = None,
     split_subtables: bool = True,
     include_hidden_sheets: bool = False,
     header_detector: SpreadsheetHeaderDetector | None = None,
 ) -> dict[str, pd.DataFrame]:
     try:
-        if isinstance(file_source, str):
-            workbook = openpyxl.load_workbook(file_source, data_only=True)
-        else:
-            file_source.seek(0)
-            workbook = openpyxl.load_workbook(file_source, data_only=True)
-
         results: dict[str, pd.DataFrame] = {}
-        sheets_to_parse = [sheet_name] if sheet_name else workbook.sheetnames
+        sheets = workbook.sheet_by_name()
+        sheets_to_parse = [sheet_name] if sheet_name else [sheet.name for sheet in workbook.sheets]
 
         for selected_sheet_name in sheets_to_parse:
-            if selected_sheet_name not in workbook.sheetnames:
+            sheet = sheets.get(selected_sheet_name)
+            if sheet is None:
                 logger.warning(
                     f"Sheet '{selected_sheet_name}' not found in workbook, skipping"
                 )
                 continue
 
-            worksheet = workbook[selected_sheet_name]
-
-            if not include_hidden_sheets and worksheet.sheet_state != "visible":
+            if not include_hidden_sheets and sheet.hidden:
                 logger.info(
-                    f"Sheet '{selected_sheet_name}' is hidden "
-                    f"(state={worksheet.sheet_state}), skipping"
+                    f"Sheet '{selected_sheet_name}' is hidden, skipping"
                 )
                 continue
 
-            if worksheet.max_row is None or worksheet.max_row == 0:
+            if sheet.max_row == 0 or sheet.max_col == 0:
                 logger.debug(f"Sheet '{selected_sheet_name}' is empty, skipping")
                 continue
 
-            merged_ranges = list(worksheet.merged_cells.ranges)
             logger.debug(
-                f"Sheet '{selected_sheet_name}': found {len(merged_ranges)} merged cell ranges"
+                f"Sheet '{selected_sheet_name}': found {len(sheet.merged_ranges)} merged cell ranges"
             )
 
             if split_subtables:
-                subtable_regions = _split_sheet_recursive(
-                    worksheet,
-                    (1, worksheet.max_row),
-                    (1, worksheet.max_column or 1),
-                    merged_ranges,
+                regions = split_sheet_regions(
+                    sheet, defined_names=workbook.defined_names
                 )
-                before_count = len(subtable_regions)
-                subtable_regions = _merge_small_subtables(worksheet, subtable_regions)
-                if len(subtable_regions) != before_count:
-                    logger.info(
-                        f"Sheet '{selected_sheet_name}': merged {before_count} subtables → "
-                        f"{len(subtable_regions)} "
-                        f"(absorbed {before_count - len(subtable_regions)} small fragments)"
-                    )
                 logger.debug(
-                    f"Sheet '{selected_sheet_name}': {len(subtable_regions)} subtables after merge"
+                    f"Sheet '{selected_sheet_name}': {len(regions)} subtables after split"
                 )
 
-                for index, (row_range, col_range) in enumerate(subtable_regions):
+                for index, region in enumerate(regions):
+                    row_range = (region.min_row, region.max_row)
+                    col_range = (region.min_col, region.max_col)
                     result = _parse_subtable(
-                        worksheet,
+                        sheet,
                         row_range,
                         col_range,
-                        merged_ranges,
                         header_detector=header_detector,
                     )
                     dataframe = result["df"]
@@ -95,7 +86,10 @@ def parse_excel_structure(
                         result=result,
                         sheet_name=selected_sheet_name,
                         subtable_index=index + 1,
-                        subtable_count=len(subtable_regions),
+                        subtable_count=len(regions),
+                        seed_title=seed_title_for_region(
+                            sheet, region, workbook.defined_names
+                        ),
                     )
                     key = selected_sheet_name if index == 0 else f"{selected_sheet_name}_{index + 1}"
                     logger.debug(
@@ -105,13 +99,12 @@ def parse_excel_structure(
                     )
                     results[key] = dataframe
             else:
-                row_range = (1, worksheet.max_row)
-                col_range = (1, worksheet.max_column or 1)
+                row_range = (1, sheet.max_row)
+                col_range = (1, sheet.max_col or 1)
                 result = _parse_subtable(
-                    worksheet,
+                    sheet,
                     row_range,
                     col_range,
-                    merged_ranges,
                     header_detector=header_detector,
                 )
                 dataframe = result["df"]
@@ -122,6 +115,7 @@ def parse_excel_structure(
                     sheet_name=selected_sheet_name,
                     subtable_index=1,
                     subtable_count=1,
+                    seed_title="",
                 )
                 logger.debug(
                     f"Sheet '{selected_sheet_name}': "
@@ -130,7 +124,6 @@ def parse_excel_structure(
                 )
                 results[selected_sheet_name] = dataframe
 
-        workbook.close()
         return results
     except Exception as exc:
         logger.error(f"Error parsing Excel with precision mode: {exc}")
@@ -149,6 +142,7 @@ def _apply_subtable_attrs(
     sheet_name: str,
     subtable_index: int,
     subtable_count: int,
+    seed_title: str,
 ) -> None:
     spec = result["header_spec"]
     dataframe.attrs["header_row_count"] = spec.header_row_count
@@ -158,26 +152,19 @@ def _apply_subtable_attrs(
     dataframe.attrs["caption"] = spec.caption
     dataframe.attrs["excel_range"] = result["excel_range"]
     dataframe.attrs["sheet_name"] = sheet_name
-    dataframe.attrs["subtable_title"] = (
-        f"子表 {subtable_index}" if subtable_count > 1 else ""
-    )
-
-
-def _get_merged_cell_value(ws, row: int, col: int, merged_ranges: list):
-    for merged_range in merged_ranges:
-        if (
-            merged_range.min_row <= row <= merged_range.max_row
-            and merged_range.min_col <= col <= merged_range.max_col
-        ):
-            return ws.cell(merged_range.min_row, merged_range.min_col).value
-    return ws.cell(row, col).value
+    if subtable_count <= 1:
+        subtable_title = ""
+    elif seed_title:
+        subtable_title = seed_title
+    else:
+        subtable_title = f"子表 {subtable_index}"
+    dataframe.attrs["subtable_title"] = subtable_title
 
 
 def _build_column_multiindex(
-    ws,
+    sheet: SheetGrid,
     header_rows: List[int],
     col_range: Tuple[int, int],
-    merged_ranges: list,
 ) -> Union[pd.Index, pd.MultiIndex]:
     col_start, col_end = col_range
     levels = []
@@ -185,7 +172,7 @@ def _build_column_multiindex(
     for row in header_rows:
         row_values = []
         for col in range(col_start, col_end + 1):
-            value = _get_merged_cell_value(ws, row, col, merged_ranges)
+            value = sheet_display_value(sheet, row, col)
             row_values.append(str(value).strip() if value is not None else "")
         levels.append(row_values)
 
@@ -195,10 +182,9 @@ def _build_column_multiindex(
 
 
 def _build_row_multiindex(
-    ws,
+    sheet: SheetGrid,
     header_cols: List[int],
     row_range: Tuple[int, int],
-    merged_ranges: list,
 ) -> Union[pd.Index, pd.MultiIndex]:
     row_start, row_end = row_range
     levels = []
@@ -206,7 +192,7 @@ def _build_row_multiindex(
     for col in header_cols:
         col_values = []
         for row in range(row_start, row_end + 1):
-            value = _get_merged_cell_value(ws, row, col, merged_ranges)
+            value = sheet_display_value(sheet, row, col)
             col_values.append(str(value).strip() if value is not None else "")
         levels.append(col_values)
 
@@ -216,56 +202,24 @@ def _build_row_multiindex(
 
 
 def _strip_leading_caption_and_blank_rows(
-    ws,
+    sheet: SheetGrid,
     row_range: Tuple[int, int],
     col_range: Tuple[int, int],
-    merged_ranges: list,
 ) -> tuple[Tuple[int, int], str | None]:
     """Strip leading full-width/single-cell title rows and blank rows so ``row_start`` lands on the actual header."""
     row_start, row_end = row_range
     col_start, col_end = col_range
-    region_width = col_end - col_start + 1
     caption_parts: list[str] = []
 
     while row_start < row_end:
-        non_empty_origins: dict[tuple[int, int], tuple[str, int, int]] = {}
-        has_unmerged_multi = False
-        for col in range(col_start, col_end + 1):
-            merge = None
-            for mr in merged_ranges:
-                if mr.min_row <= row_start <= mr.max_row and mr.min_col <= col <= mr.max_col:
-                    merge = mr
-                    break
-            if merge is not None:
-                val = ws.cell(merge.min_row, merge.min_col).value
-                text = str(val).strip() if val is not None else ""
-                if text:
-                    origin = (merge.min_row, merge.min_col)
-                    non_empty_origins[origin] = (
-                        text,
-                        merge.max_row - merge.min_row + 1,
-                        merge.max_col - merge.min_col + 1,
-                    )
-            else:
-                val = ws.cell(row_start, col).value
-                text = str(val).strip() if val is not None else ""
-                if text:
-                    non_empty_origins[(row_start, col)] = (text, 1, 1)
-                    if len(non_empty_origins) > 1:
-                        has_unmerged_multi = True
-                        break
-
-        if not non_empty_origins:
+        kind, text = classify_sheet_row(sheet, row_start, col_start, col_end)
+        if kind == "blank":
             row_start += 1
             continue
-
-        if not has_unmerged_multi and len(non_empty_origins) == 1 and region_width >= 2:
-            only_text, rowspan, _colspan = next(iter(non_empty_origins.values()))
-            if rowspan == 1 and len(caption_parts) < 2:
-                caption_parts.append(only_text)
-                row_start += 1
-                continue
-
+        if kind == "caption" and text and len(caption_parts) < 2:
+            caption_parts.append(text)
+            row_start += 1
+            continue
         break
 
     caption = " / ".join(caption_parts) if caption_parts else None
@@ -273,17 +227,19 @@ def _strip_leading_caption_and_blank_rows(
 
 
 def _parse_subtable(
-    ws,
+    sheet: SheetGrid,
     row_range: Tuple[int, int],
     col_range: Tuple[int, int],
-    merged_ranges: list,
     header_detector: SpreadsheetHeaderDetector | None = None,
 ) -> dict:
     (row_start, row_end), caption = _strip_leading_caption_and_blank_rows(
-        ws, row_range, col_range, merged_ranges
+        sheet, row_range, col_range
     )
     col_start, col_end = col_range
-    visual = build_region_visual(ws, (row_start, row_end), col_range, merged_ranges)
+    visual = build_region_visual(
+        sheet,
+        Region(min_row=row_start, min_col=col_start, max_row=row_end, max_col=col_end),
+    )
     spec = detect_headers(
         TableRegion(visual=visual),
         llm=header_detector,
@@ -299,7 +255,7 @@ def _parse_subtable(
         all_columns = None
     else:
         data_row_start = row_start + spec.header_row_count
-        all_columns = _build_column_multiindex(ws, header_rows, col_range, merged_ranges)
+        all_columns = _build_column_multiindex(sheet, header_rows, col_range)
 
     row_header_column_tuples: list[tuple[str, ...]] = []
     if all_columns is not None and spec.row_header_col_count > 0:
@@ -319,10 +275,9 @@ def _parse_subtable(
     else:
         data_col_start = col_start + spec.row_header_col_count
         row_index = _build_row_multiindex(
-            ws,
+            sheet,
             header_cols,
             (data_row_start, effective_row_end),
-            merged_ranges,
         )
 
     data = []
@@ -330,8 +285,7 @@ def _parse_subtable(
         for row in range(data_row_start, effective_row_end + 1):
             row_data = []
             for col in range(data_col_start, col_end + 1):
-                value = _get_merged_cell_value(ws, row, col, merged_ranges)
-                row_data.append(value)
+                row_data.append(sheet_display_value(sheet, row, col))
             data.append(row_data)
 
     columns = all_columns
@@ -350,312 +304,3 @@ def _parse_subtable(
         "row_header_column_tuples": tuple(row_header_column_tuples),
         "excel_range": excel_range,
     }
-
-
-def _find_effective_range(
-    ws,
-    row_range: Tuple[int, int],
-    col_range: Tuple[int, int],
-) -> Tuple[Tuple[int, int], Tuple[int, int]]:
-    row_start, row_end = row_range
-    col_start, col_end = col_range
-
-    effective_row_start = None
-    effective_row_end = None
-    effective_col_start = None
-    effective_col_end = None
-
-    for row in range(row_start, row_end + 1):
-        for col in range(col_start, col_end + 1):
-            if ws.cell(row, col).value is not None:
-                if effective_row_start is None:
-                    effective_row_start = row
-                effective_row_end = row
-                if effective_col_start is None or col < effective_col_start:
-                    effective_col_start = col
-                if effective_col_end is None or col > effective_col_end:
-                    effective_col_end = col
-
-    if effective_row_start is None:
-        return ((row_start, row_start), (col_start, col_start))
-
-    if (
-        effective_row_end is None
-        or effective_col_start is None
-        or effective_col_end is None
-    ):
-        return ((row_start, row_start), (col_start, col_start))
-
-    return (
-        (effective_row_start, effective_row_end),
-        (effective_col_start, effective_col_end),
-    )
-
-
-def _is_true_separator_row(
-    ws,
-    row: int,
-    effective_col_range: Tuple[int, int],
-    merged_ranges: list | None = None,
-) -> bool:
-    col_start, col_end = effective_col_range
-    merged_ranges = merged_ranges or []
-
-    for col in range(col_start, col_end + 1):
-        if ws.cell(row, col).value is not None:
-            return False
-        for merged_range in merged_ranges:
-            if (
-                merged_range.min_row <= row <= merged_range.max_row
-                and merged_range.min_col <= col <= merged_range.max_col
-            ):
-                return False
-    return True
-
-
-def _is_true_separator_col(
-    ws,
-    col: int,
-    effective_row_range: Tuple[int, int],
-    merged_ranges: list | None = None,
-) -> bool:
-    col_letter = get_column_letter(col)
-    for dim in ws.column_dimensions.values():
-        if dim.hidden:
-            if dim.min is not None and dim.max is not None:
-                if dim.min <= col <= dim.max:
-                    return False
-            elif dim.index == col_letter:
-                return False
-
-    row_start, row_end = effective_row_range
-    merged_ranges = merged_ranges or []
-
-    for row in range(row_start, row_end + 1):
-        if ws.cell(row, col).value is not None:
-            return False
-        for merged_range in merged_ranges:
-            if (
-                merged_range.min_row <= row <= merged_range.max_row
-                and merged_range.min_col <= col <= merged_range.max_col
-            ):
-                return False
-    return True
-
-
-def _find_separator_groups(items: List[int]) -> List[List[int]]:
-    if not items:
-        return []
-
-    groups = []
-    current_group = [items[0]]
-
-    for index in range(1, len(items)):
-        if items[index] == items[index - 1] + 1:
-            current_group.append(items[index])
-        else:
-            groups.append(current_group)
-            current_group = [items[index]]
-
-    groups.append(current_group)
-    return groups
-
-
-def _split_sheet_recursive(
-    ws,
-    row_range: Tuple[int, int],
-    col_range: Tuple[int, int],
-    merged_ranges: list | None = None,
-    min_rows: int = 2,
-    min_cols: int = 2,
-) -> List[Tuple[Tuple[int, int], Tuple[int, int]]]:
-    merged_ranges = merged_ranges or []
-
-    (effective_row_start, effective_row_end), (
-        effective_col_start,
-        effective_col_end,
-    ) = _find_effective_range(ws, row_range, col_range)
-
-    if (
-        effective_row_end - effective_row_start + 1 < min_rows
-        or effective_col_end - effective_col_start + 1 < min_cols
-    ):
-        if effective_row_start is not None:
-            return [
-                (
-                    (effective_row_start, effective_row_end),
-                    (effective_col_start, effective_col_end),
-                )
-            ]
-        return []
-
-    separator_rows = []
-    for row in range(effective_row_start + 1, effective_row_end):
-        if _is_true_separator_row(
-            ws, row, (effective_col_start, effective_col_end), merged_ranges
-        ):
-            separator_rows.append(row)
-
-    separator_cols = []
-    for col in range(effective_col_start + 1, effective_col_end):
-        if _is_true_separator_col(
-            ws, col, (effective_row_start, effective_row_end), merged_ranges
-        ):
-            separator_cols.append(col)
-
-    row_groups = _find_separator_groups(separator_rows)
-    col_groups = _find_separator_groups(separator_cols)
-
-    should_split_rows = len(row_groups) > 0 and (
-        len(col_groups) == 0 or len(row_groups) <= len(col_groups)
-    )
-    should_split_cols = len(col_groups) > 0 and not should_split_rows
-
-    if should_split_rows:
-        subtables = []
-        previous_end = effective_row_start
-        for group in row_groups:
-            if group[0] > previous_end:
-                sub_result = _split_sheet_recursive(
-                    ws,
-                    (previous_end, group[0] - 1),
-                    (effective_col_start, effective_col_end),
-                    merged_ranges,
-                    min_rows,
-                    min_cols,
-                )
-                subtables.extend(sub_result)
-            previous_end = group[-1] + 1
-        if previous_end <= effective_row_end:
-            sub_result = _split_sheet_recursive(
-                ws,
-                (previous_end, effective_row_end),
-                (effective_col_start, effective_col_end),
-                merged_ranges,
-                min_rows,
-                min_cols,
-            )
-            subtables.extend(sub_result)
-        return subtables
-
-    if should_split_cols:
-        subtables = []
-        previous_end = effective_col_start
-        for group in col_groups:
-            if group[0] > previous_end:
-                sub_result = _split_sheet_recursive(
-                    ws,
-                    (effective_row_start, effective_row_end),
-                    (previous_end, group[0] - 1),
-                    merged_ranges,
-                    min_rows,
-                    min_cols,
-                )
-                subtables.extend(sub_result)
-            previous_end = group[-1] + 1
-        if previous_end <= effective_col_end:
-            sub_result = _split_sheet_recursive(
-                ws,
-                (effective_row_start, effective_row_end),
-                (previous_end, effective_col_end),
-                merged_ranges,
-                min_rows,
-                min_cols,
-            )
-            subtables.extend(sub_result)
-        return subtables
-
-    return [((effective_row_start, effective_row_end), (effective_col_start, effective_col_end))]
-
-
-def _count_non_empty_cells(
-    ws,
-    row_range: Tuple[int, int],
-    col_range: Tuple[int, int],
-) -> int:
-    count = 0
-    for row in range(row_range[0], row_range[1] + 1):
-        for col in range(col_range[0], col_range[1] + 1):
-            if ws.cell(row, col).value is not None:
-                count += 1
-    return count
-
-
-def _merge_small_subtables(
-    ws,
-    subtables: List[Tuple[Tuple[int, int], Tuple[int, int]]],
-    min_cells: int = 4,
-) -> List[Tuple[Tuple[int, int], Tuple[int, int]]]:
-    if len(subtables) <= 1:
-        return subtables
-
-    items = []
-    for row_range, col_range in subtables:
-        count = _count_non_empty_cells(ws, row_range, col_range)
-        items.append({"rr": row_range, "cr": col_range, "cells": count})
-
-    changed = True
-    while changed and len(items) > 1:
-        changed = False
-
-        min_index = None
-        for index, item in enumerate(items):
-            if item["cells"] < min_cells:
-                if min_index is None or item["cells"] < items[min_index]["cells"]:
-                    min_index = index
-
-        if min_index is None:
-            break
-
-        source = items[min_index]
-        best_index = None
-        best_distance = float("inf")
-        for index, target in enumerate(items):
-            if index == min_index:
-                continue
-            row_gap = max(
-                0,
-                target["rr"][0] - source["rr"][1] - 1,
-                source["rr"][0] - target["rr"][1] - 1,
-            )
-            col_gap = max(
-                0,
-                target["cr"][0] - source["cr"][1] - 1,
-                source["cr"][0] - target["cr"][1] - 1,
-            )
-            distance = row_gap + col_gap
-            if distance < best_distance or (
-                best_index is not None
-                and distance == best_distance
-                and target["cells"] > items[best_index]["cells"]
-            ):
-                best_distance = distance
-                best_index = index
-
-        if best_index is None:
-            break
-
-        target = items[best_index]
-        merged_row_range = (
-            min(source["rr"][0], target["rr"][0]),
-            max(source["rr"][1], target["rr"][1]),
-        )
-        merged_col_range = (
-            min(source["cr"][0], target["cr"][0]),
-            max(source["cr"][1], target["cr"][1]),
-        )
-        items[best_index] = {
-            "rr": merged_row_range,
-            "cr": merged_col_range,
-            "cells": source["cells"] + target["cells"],
-        }
-
-        logger.debug(
-            f"Merged small fragment (rows={source['rr']}, cols={source['cr']}, "
-            f"cells={source['cells']}) into neighbor (rows={target['rr']}, cols={target['cr']})"
-        )
-
-        del items[min_index]
-        changed = True
-
-    return [(item["rr"], item["cr"]) for item in items]

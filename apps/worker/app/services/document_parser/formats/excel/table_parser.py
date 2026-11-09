@@ -4,11 +4,13 @@ from __future__ import annotations
 import io
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from app.services.document_parser.tables.dataframe_helpers import process_dup_paths_df
 from app.services.document_parser.formats.excel.structure_parser import parse_excel_structure
+from app.services.document_parser.formats.excel.workbook_grid import load_workbook_grid
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import ParsedRow, ParsedRowsBuilder
 from app.services.document_parser.support.path_helpers import remove_spaces
@@ -104,24 +106,36 @@ def _normalise_llm_parameters(
 def _load_excel_sheets(
     request: ExcelWorkbookParseRequest,
 ) -> dict[str, pd.DataFrame]:
-    table_data = load_file_bytes(request.file_path, file_url=request.baseurl)
-    table_stream = io.BytesIO(table_data)
-
     os.makedirs(os.path.join(request.output_dir, "tables"), exist_ok=True)
 
     if not request.use_precision_mode:
-        return pd.read_excel(table_stream, sheet_name=None)
+        table_data = load_file_bytes(request.file_path, file_url=request.baseurl)
+        return pd.read_excel(io.BytesIO(table_data), sheet_name=None)
 
     logger.info("Using precision mode for Excel header detection")
     try:
-        return parse_excel_structure(
-            table_stream,
-            include_hidden_sheets=request.include_hidden_sheets,
-        )
+        workbook_path = _local_xlsx_path(request)
+        workbook = load_workbook_grid(workbook_path)
     except Exception as exc:
-        logger.warning(f"Precision mode failed, falling back to legacy mode: {exc}")
-        table_stream.seek(0)
-        return pd.read_excel(table_stream, sheet_name=None)
+        logger.warning(f"Workbook grid load failed, falling back to pandas: {exc}")
+        table_data = load_file_bytes(request.file_path, file_url=request.baseurl)
+        return pd.read_excel(io.BytesIO(table_data), sheet_name=None)
+
+    return parse_excel_structure(
+        workbook,
+        include_hidden_sheets=request.include_hidden_sheets,
+    )
+
+
+def _local_xlsx_path(request: ExcelWorkbookParseRequest) -> str:
+    source = Path(request.file_path)
+    if source.is_file():
+        return str(source)
+    table_data = load_file_bytes(request.file_path, file_url=request.baseurl)
+    destination = Path(request.output_dir) / ".work" / "source.xlsx"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(table_data)
+    return str(destination)
 
 
 def _iter_unique_sheets(

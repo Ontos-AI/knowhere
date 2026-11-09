@@ -6,6 +6,12 @@ from typing import Protocol, Sequence
 
 from loguru import logger
 
+from app.services.document_parser.formats.excel.workbook_grid import (
+    Region,
+    SheetGrid,
+    display_value,
+    expand_visual_grid,
+)
 from shared.services.ai.llm_overrides import get_text_client
 from shared.services.ai.response_process_service import eval_response
 
@@ -49,47 +55,45 @@ class SpreadsheetHeaderDetector(Protocol):
 
 
 def build_region_visual(
-    ws,
-    row_range: tuple[int, int],
-    col_range: tuple[int, int],
-    merged_ranges: list,
+    sheet: SheetGrid,
+    region: Region,
 ) -> tuple[tuple[VisualCell | None, ...], ...]:
-    """Build a visual grid for one geometric region from worksheet + merges."""
-    row_start, row_end = row_range
-    col_start, col_end = col_range
-    if row_end < row_start or col_end < col_start:
+    """Build a visual grid for one geometric region from the sheet grid."""
+    expanded = expand_visual_grid(sheet, region)
+    if not expanded:
         return ()
-
-    n_rows = row_end - row_start + 1
-    n_cols = col_end - col_start + 1
-    grid: list[list[VisualCell | None]] = [
-        [None] * n_cols for _ in range(n_rows)
-    ]
-    for row in range(row_start, row_end + 1):
-        for col in range(col_start, col_end + 1):
-            rel_row = row - row_start
-            rel_col = col - col_start
-            merge = _containing_merge(row, col, merged_ranges)
-            if merge is not None:
-                origin_row = merge.min_row
-                origin_col = merge.min_col
-                cell = VisualCell(
-                    text=_visual_cell_text(ws.cell(origin_row, origin_col).value),
-                    rowspan=merge.max_row - merge.min_row + 1,
-                    colspan=merge.max_col - merge.min_col + 1,
-                    origin_row=origin_row - row_start,
-                    origin_col=origin_col - col_start,
+    visual: list[list[VisualCell | None]] = []
+    for rel_row, row_cells in enumerate(expanded):
+        visual_row: list[VisualCell | None] = []
+        for rel_col, cell in enumerate(row_cells):
+            if cell is None:
+                visual_row.append(
+                    VisualCell(
+                        text="",
+                        rowspan=1,
+                        colspan=1,
+                        origin_row=rel_row,
+                        origin_col=rel_col,
+                    )
                 )
+                continue
+            if cell.merge_origin is None:
+                origin_row = rel_row
+                origin_col = rel_col
             else:
-                cell = VisualCell(
-                    text=_visual_cell_text(ws.cell(row, col).value),
-                    rowspan=1,
-                    colspan=1,
-                    origin_row=rel_row,
-                    origin_col=rel_col,
+                origin_row = cell.merge_origin[0] - region.min_row
+                origin_col = cell.merge_origin[1] - region.min_col
+            visual_row.append(
+                VisualCell(
+                    text=_visual_cell_text(display_value(cell)),
+                    rowspan=cell.rowspan,
+                    colspan=cell.colspan,
+                    origin_row=origin_row,
+                    origin_col=origin_col,
                 )
-            grid[rel_row][rel_col] = cell
-    return tuple(tuple(row) for row in grid)
+            )
+        visual.append(visual_row)
+    return tuple(tuple(row) for row in visual)
 
 
 def render_region_rows_text(
@@ -236,16 +240,6 @@ class TextClientSpreadsheetHeaderDetector:
             )
             return None
         return _parse_header_triple(parsed)
-
-
-def _containing_merge(row: int, col: int, merged_ranges: list):
-    for merged_range in merged_ranges:
-        if (
-            merged_range.min_row <= row <= merged_range.max_row
-            and merged_range.min_col <= col <= merged_range.max_col
-        ):
-            return merged_range
-    return None
 
 
 def _visual_cell_text(value: object) -> str:

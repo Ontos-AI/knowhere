@@ -493,3 +493,86 @@ def test_xlsx_leading_title_row_and_hidden_empty_columns_keep_headers_aligned(
     ]
     assert grid_sql_rows(grid, chunks[0]["metadata"]) == [["1", "2.5", "100"]]
 
+
+def test_xlsx_uncached_formula_cells_do_not_split_table(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    import openpyxl
+
+    del worker_contract_environment
+    workbook_path = tmp_path / "formulas.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Totals"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["A3"] = "East"
+    sheet["B3"] = 11
+    sheet["B4"] = "=B2"
+    sheet["A5"] = "South"
+    sheet["B5"] = 20
+    sheet["A6"] = "West"
+    sheet["B6"] = 21
+    workbook.save(workbook_path)
+
+    parse_output = _parse_xlsx(
+        workbook_path, tmp_path / "parser-output", "formulas.xlsx"
+    )
+    parsed_df = parse_output.parsed_df
+    assert parsed_df is not None
+    assert len(parsed_df) == 1
+    metadata = _extra_metadata(parsed_df)
+    assert metadata["excel_range"] == "A1:B6"
+    assert parsed_df["path"].tolist() == ["formulas.xlsx/Totals"]
+
+    table_html = (
+        Path(parse_output.output_dir) / parsed_df["content"].iloc[0]
+    ).read_text(encoding="utf-8")
+    assert "North" in table_html
+    assert "South" in table_html
+    assert "=B2" in table_html
+
+
+def test_xlsx_empty_row_keeps_two_tables(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    import openpyxl
+
+    del worker_contract_environment
+    workbook_path = tmp_path / "two-tables.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Split"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["A3"] = "East"
+    sheet["B3"] = 11
+    sheet["A5"] = "Name"
+    sheet["B5"] = "Amount"
+    sheet["A6"] = "South"
+    sheet["B6"] = 20
+    sheet["A7"] = "West"
+    sheet["B7"] = 21
+    workbook.save(workbook_path)
+
+    parse_output = _parse_xlsx(
+        workbook_path, tmp_path / "parser-output", "two-tables.xlsx"
+    )
+    parsed_df = parse_output.parsed_df
+    assert parsed_df is not None
+    assert len(parsed_df) == 2
+    html_text = "\n".join(
+        (Path(parse_output.output_dir) / path).read_text(encoding="utf-8")
+        for path in parsed_df["content"].tolist()
+    )
+    assert "North" in html_text
+    assert "South" in html_text
+    ranges = {_extra_metadata(parsed_df.iloc[[index]])["excel_range"] for index in range(2)}
+    assert ranges == {"A1:B3", "A5:B7"}
+
