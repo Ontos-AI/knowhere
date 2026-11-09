@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.api.dependencies.current_user import with_current_user
 from app.api.v1.routes.retrieval import (
     RetrievalQueryRequest,
@@ -9,14 +11,28 @@ from app.api.v1.routes.retrieval import (
     execute_retrieval_query,
 )
 from app.services.rate_limit.data_structures import CurrentUser
-from fastapi import APIRouter, Depends
-from pydantic import Field
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.database import get_db
+from shared.core.database import get_db, get_db_context
 from shared.models.schemas.llm_config import LLMConfig
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
+from shared.services.retrieval.agent_tools import REGISTRY, ToolContext
 
 router = APIRouter(tags=["Retrieval"])
+
+KNOWHERE_NAMESPACE_HEADER = "x-knowhere-namespace"
+INVOKE_CORPUS_TOOLS = frozenset(
+    {
+        "corpus.recall",
+        "corpus.grep",
+        "corpus.outline",
+        "corpus.read",
+        "corpus.query_table",
+        "corpus.assets",
+    }
+)
 
 
 class RetrievalQueryRequestV2(RetrievalQueryRequest):
@@ -45,4 +61,44 @@ async def query_retrieval(
         current_user,
         db,
         llm_config=payload.llm_config,
+    )
+
+
+class RetrievalToolInvokeRequest(BaseModel):
+    tool: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class RetrievalToolInvokeResponse(BaseModel):
+    text: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    refs: list[dict[str, Any]] = Field(default_factory=list)
+    error: str | None = None
+
+
+@router.post("/tools/invoke", response_model=RetrievalToolInvokeResponse)
+async def invoke_retrieval_tool(
+    payload: RetrievalToolInvokeRequest,
+    request: Request,
+    current_user: CurrentUser = Depends(with_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if payload.tool not in INVOKE_CORPUS_TOOLS:
+        raise HTTPException(status_code=400, detail="tool is not supported")
+    namespace = normalize_retrieval_namespace(request.headers.get(KNOWHERE_NAMESPACE_HEADER))
+    result = await REGISTRY.dispatch(
+        payload.tool,
+        ToolContext(
+            db=db,
+            user_id=current_user.user_id,
+            namespace=namespace,
+            db_factory=get_db_context,
+        ),
+        payload.arguments,
+    )
+    return RetrievalToolInvokeResponse(
+        text=result.text,
+        payload=result.payload,
+        refs=result.refs,
+        error=result.error,
     )
