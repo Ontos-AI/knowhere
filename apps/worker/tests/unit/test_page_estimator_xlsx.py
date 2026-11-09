@@ -69,6 +69,25 @@ def test_two_visible_sheets_sum_cells_not_sheet_count(tmp_path: Path) -> None:
     assert estimate.page_count == 2
 
 
+def test_csv_cells_bill_as_xlsx_cells(tmp_path: Path) -> None:
+    lines = ["left,right"] + [f"{index},x" for index in range(CELLS_PER_PAGE)]
+    source = tmp_path / "cells.csv"
+    source.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    estimate = PageEstimator.estimate_workload(str(source))
+    assert estimate.used_fallback is False
+    assert estimate.method == "xlsx_cells"
+    assert estimate.page_count == 3
+
+
+def test_tsv_cells_are_not_unknown_file_type(tmp_path: Path) -> None:
+    source = tmp_path / "budget.tsv"
+    source.write_text("Region\tValue\nNorth\t10\n", encoding="utf-8")
+    estimate = PageEstimator.estimate_workload(str(source))
+    assert estimate.used_fallback is False
+    assert estimate.method == "xlsx_cells"
+    assert estimate.page_count == 1
+
+
 def test_hidden_sheet_cells_are_not_billed(tmp_path: Path) -> None:
     workbook = Workbook()
     workbook.active["A1"] = "visible"

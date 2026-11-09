@@ -5,7 +5,7 @@ Calculates page counts for billing based on:
 - PDF: Physical page count from metadata
 - PPTX: Slide count
 - Text-based (DOC, DOCX, TXT, MD, JSON): Word-based estimation using count_cn_en
-- Spreadsheet-based (XLS, XLSX): Visible non-empty cells, 1000 cells per page
+- Spreadsheet-based (XLS, XLSX, CSV, TSV): Visible non-empty cells, 1000 cells per page
 """
 
 import math
@@ -16,6 +16,7 @@ from pathlib import Path
 
 from app.services.document_parser.orchestration.format_router import (
     IMAGE_SOURCE_EXTENSIONS,
+    TABLE_SOURCE_EXTENSIONS,
 )
 from shared.core.logging import logger
 from shared.utils.text_utils import count_cn_en
@@ -57,10 +58,12 @@ class PageEstimator:
             return cls._estimate_with_fallback("doc_conversion", cls._count_doc, file_path)
         if suffix == ".docx":
             return cls._estimate_with_fallback("docx_words", cls._count_docx, file_path)
-        if suffix == ".xls":
-            return cls._estimate_with_fallback("xls_conversion", cls._count_xls, file_path)
-        if suffix == ".xlsx":
-            return cls._estimate_with_fallback("xlsx_cells", cls._count_xlsx, file_path)
+        if suffix in TABLE_SOURCE_EXTENSIONS:
+            method = "xls_conversion" if suffix == ".xls" else "xlsx_cells"
+            estimator = (
+                cls._count_xlsx if suffix == ".xlsx" else cls._count_spreadsheet
+            )
+            return cls._estimate_with_fallback(method, estimator, file_path)
         if suffix in [".txt", ".md", ".json", ".fragment"]:
             return cls._estimate_with_fallback("text_words", cls._count_text, file_path)
         if suffix in IMAGE_SOURCE_EXTENSIONS:
@@ -176,13 +179,20 @@ class PageEstimator:
             workbook.close()
 
     @classmethod
-    def _count_xls(cls, file_path: str) -> int:
-        """Estimate pages for XLS by converting it to XLSX first."""
-        from app.services.document_parser.conversion.legacy_converter import xls_to_xlsx
+    def _count_spreadsheet(cls, file_path: str) -> int:
+        """Normalize csv/tsv/xls to xlsx, then count visible non-empty cells."""
+        from app.services.document_parser.formats.excel.normalize import (
+            normalize_table_source,
+        )
 
-        with tempfile.TemporaryDirectory(prefix="page-estimator-xls-") as temp_dir:
-            converted_path, _ = xls_to_xlsx(file_path, temp_dir)
-            return cls._count_xlsx(converted_path)
+        source_path = Path(file_path)
+        with tempfile.TemporaryDirectory(prefix="page-estimator-spreadsheet-") as temp_dir:
+            work_xlsx = normalize_table_source(
+                file_path,
+                source_path.name,
+                temp_dir,
+            )
+            return cls._count_xlsx(work_xlsx)
 
     @classmethod
     def _count_text(cls, file_path: str) -> int:

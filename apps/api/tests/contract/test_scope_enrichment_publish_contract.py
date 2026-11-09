@@ -111,13 +111,14 @@ def _set_job_progressive(
     job_id: str,
     ingestion_mode: str = "progressive",
     enrichment_status: str = "coarse",
+    parse_track: str = "page_memory",
 ) -> None:
     from shared.models.database.job import Job
 
     job = session.execute(select(Job).where(Job.job_id == job_id)).scalar_one()
     job.job_metadata = {
         **dict(job.job_metadata or {}),
-        "parse_track": "page_memory",
+        "parse_track": parse_track,
         "ingestion_mode": ingestion_mode,
         "enrichment_status": enrichment_status,
     }
@@ -928,6 +929,55 @@ def test_full_mode_does_not_write_scope_rows_or_enqueue_tasks(
                 .all()
             )
             assert rows == []
+    finally:
+        engine.dispose()
+
+
+def test_chunk_progressive_baseline_records_text_without_enqueueing_final(
+    monkeypatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    from shared.models.database.job_result import JobResult
+    from shared.services.jobs.progressive_ingestion import read_progressive_state
+
+    database_url = make_url(get_contract_database_url()).set(
+        drivername="postgresql+psycopg2"
+    )
+    engine = create_engine(database_url)
+    scope = _scope("chunk-baseline")
+    chunks = [
+        {
+            "chunk_id": "chunk-text-1",
+            "type": "text",
+            "content": "Visible baseline sentence.",
+            "path": f"{scope.source_file_name}/Intro",
+            "metadata": {},
+        }
+    ]
+    try:
+        with Session(engine) as session:
+            seed_publication_fixture(session, scope=scope)
+            _set_job_progressive(
+                session,
+                job_id=scope.job_ref,
+                ingestion_mode="progressive",
+                enrichment_status="text",
+                parse_track="chunk",
+            )
+            session.commit()
+            finalization = _finalize(session, job_id=scope.job_ref, chunks=chunks)
+            session.commit()
+            result = session.execute(
+                select(JobResult).where(JobResult.job_id == scope.job_ref)
+            ).scalar_one()
+            state = read_progressive_state(result.document_metadata)
+
+        assert finalization.post_commit_effects.structure_job_result_ids == ()
+        assert finalization.post_commit_effects.chunk_final_job_result_ids == ()
+        assert state is not None
+        assert state.stages["finalization"]["status"] == "pending"
     finally:
         engine.dispose()
 

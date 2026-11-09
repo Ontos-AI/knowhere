@@ -141,11 +141,9 @@ class SyncJobSuccessFinalizer:
         should_enqueue_structure = bool(
             is_progressive_text and parse_track == "page_memory"
         )
-        should_enqueue_chunk_final = bool(
-            is_progressive_text and parse_track == "chunk"
-        )
+        should_enqueue_chunk_final = False
         baseline_snapshot: StoredSnapshot | None = None
-        if should_enqueue_structure or should_enqueue_chunk_final:
+        if is_progressive_text:
             snapshot_id = str(job_metadata.get("progressive_baseline_snapshot_id") or f"baseline_{checksum}")
             baseline_snapshot = StoredSnapshot(
                 snapshot_id=snapshot_id, stage="baseline", job_id=job_id,

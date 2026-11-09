@@ -24,7 +24,10 @@ from shared.models.schemas.progressive_ingestion import (
     EnhancementStage,
     ProgressiveIngestionState,
 )
-from shared.services.jobs.progressive_ingestion import read_progressive_state
+from shared.services.jobs.progressive_ingestion import (
+    read_progressive_state,
+    write_progressive_state,
+)
 from shared.services.retrieval.hydration.row_utils import (
     extract_matched_page_nums,
     extract_page_nums,
@@ -208,10 +211,25 @@ def _row_returned_coarse_pages(row: dict[str, Any]) -> bool:
         return False
     if not (extract_matched_page_nums(row) or extract_page_nums(row)):
         return False
+    return _row_returned_revision_content(row)
+
+
+def _row_returned_revision_content(row: dict[str, Any]) -> bool:
+    if not str(row.get("job_result_id") or "").strip():
+        return False
     if str(row.get("content") or "").strip():
         return True
     composed = row.get("composed")
     return isinstance(composed, list) and any(composed)
+
+
+def _revision_enrichment_status(doc_meta: object, job_meta: object) -> str:
+    raw_status = None
+    if isinstance(doc_meta, dict):
+        raw_status = doc_meta.get("enrichment_status")
+    if not raw_status and isinstance(job_meta, dict):
+        raw_status = job_meta.get("enrichment_status")
+    return str(raw_status or "").strip().lower()
 
 
 def _on_demand_retryable_scope_filter(now: datetime) -> ColumnElement[bool]:
@@ -237,11 +255,115 @@ def _on_demand_retryable_scope_filter(now: datetime) -> ColumnElement[bool]:
     )
 
 
+async def _enqueue_chunk_final_on_returned_rows(
+    db: Any,
+    rows: list[dict[str, Any]],
+) -> list[str]:
+    """Queue chunk-track Final once for revisions whose rows this read actually returned."""
+    revision_ids: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not _row_returned_revision_content(row):
+            continue
+        job_result_id = str(row.get("job_result_id") or "").strip()
+        if not job_result_id or job_result_id in seen:
+            continue
+        seen.add(job_result_id)
+        revision_ids.append(job_result_id)
+    if not revision_ids:
+        return []
+
+    claimed: list[str] = []
+    try:
+        loaded = (
+            await db.execute(
+                select(JobResult, Job)
+                .join(Job, Job.job_id == JobResult.job_id)
+                .where(JobResult.id.in_(revision_ids))
+                .with_for_update(of=JobResult)
+            )
+        ).all()
+        for job_result, job in loaded:
+            job_metadata = job.job_metadata if isinstance(job.job_metadata, dict) else {}
+            if JobMetadataHelper.get_parse_track(job_metadata) != "chunk":
+                continue
+            if (
+                _revision_enrichment_status(
+                    job_result.document_metadata, job_metadata
+                )
+                != "text"
+            ):
+                continue
+            state = read_progressive_state(job_result.document_metadata)
+            if state is None or state.enhancement.status in {"complete", "failed"}:
+                continue
+            stages: dict[str, EnhancementStage] = dict(state.stages)
+            stage: EnhancementStage = {**stages.get("finalization", {})}
+            if str(stage.get("status") or "pending").strip().lower() != "pending":
+                continue
+            stages["finalization"] = {**stage, "status": "running"}
+            state.stages = stages
+            job_result.document_metadata = write_progressive_state(
+                job_result.document_metadata, state
+            )
+            claimed.append(str(job_result.id))
+        if claimed:
+            await db.commit()
+    except Exception as exc:
+        logger.warning(f"Failed to claim chunk-final enqueue on read (ignored): {exc}")
+        return []
+
+    if not claimed:
+        return []
+
+    sent: list[str] = []
+    try:
+        for job_result_id in claimed:
+            if enqueue_chunk_final_after_commit(job_result_id):
+                sent.append(job_result_id)
+    except Exception as exc:
+        logger.warning(
+            f"Failed to enqueue chunk-final on read (reverting unsent to pending): {exc}"
+        )
+    unsent = [job_result_id for job_result_id in claimed if job_result_id not in sent]
+    if not unsent:
+        return sent
+    try:
+        for job_result_id in unsent:
+            result = await db.execute(
+                select(JobResult)
+                .where(JobResult.id == job_result_id)
+                .with_for_update(of=JobResult)
+            )
+            job_result = result.scalar_one_or_none()
+            if job_result is None:
+                continue
+            state = read_progressive_state(job_result.document_metadata)
+            if state is None:
+                continue
+            stages = dict(state.stages)
+            stage = {**stages.get("finalization", {})}
+            if stage.get("status") != "running" or stage.get("claimed_at"):
+                continue
+            stages["finalization"] = {**stage, "status": "pending"}
+            state.stages = stages
+            job_result.document_metadata = write_progressive_state(
+                job_result.document_metadata, state
+            )
+        await db.commit()
+    except Exception as revert_exc:
+        logger.warning(
+            f"Failed to revert unsent chunk-final enqueue to pending: {revert_exc}"
+        )
+    return sent
+
+
 async def promote_scopes_on_read(
     db: Any,
     rows: list[dict[str, Any]],
 ) -> list[tuple[str, str]]:
-    """Queue Fine for coarse page scopes whose pages a READ actually returned."""
+    """Queue Fine for returned coarse pages, and chunk-track Final once per revision."""
+    await _enqueue_chunk_final_on_returned_rows(db, rows)
     targets: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for row in rows:
@@ -334,7 +456,10 @@ def _should_skip_chunk_final_recovery(*, doc_meta: object, now: datetime) -> boo
         return True
     if state.enhancement.status in {"failed", "complete"}:
         return True
-    return not _can_recover_stage(state.stages.get("finalization", {}), now=now)
+    finalization = state.stages.get("finalization", {})
+    if str(finalization.get("status") or "pending").strip().lower() == "pending":
+        return True
+    return not _can_recover_stage(finalization, now=now)
 
 
 def _should_skip_structure_recovery(

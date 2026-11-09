@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import NoReturn
 
-from app.services.document_parser.orchestration.format_router import DocumentFormat
 from app.services.document_parser.orchestration.office_container_inspection import (
     CONTENT_TYPES_MEMBER,
     inspect_office_container,
@@ -33,21 +33,18 @@ class _OfficeContainerRequirement:
         )
 
 
-_OFFICE_CONTAINER_REQUIREMENTS: dict[
-    DocumentFormat,
-    _OfficeContainerRequirement,
-] = {
-    DocumentFormat.DOCX: _OfficeContainerRequirement(
+_OFFICE_CONTAINER_REQUIREMENTS: dict[str, _OfficeContainerRequirement] = {
+    ".docx": _OfficeContainerRequirement(
         extension=".docx",
         document_label="Word document",
         required_member="word/document.xml",
     ),
-    DocumentFormat.XLSX: _OfficeContainerRequirement(
+    ".xlsx": _OfficeContainerRequirement(
         extension=".xlsx",
         document_label="Excel workbook",
         required_member="xl/workbook.xml",
     ),
-    DocumentFormat.PPTX: _OfficeContainerRequirement(
+    ".pptx": _OfficeContainerRequirement(
         extension=".pptx",
         document_label="PowerPoint presentation",
         required_member="ppt/presentation.xml",
@@ -55,12 +52,15 @@ _OFFICE_CONTAINER_REQUIREMENTS: dict[
 }
 
 
-def validate_office_container(
-    file_path: str,
-    document_format: DocumentFormat,
-) -> None:
-    """Validate OOXML containers before dispatching to archive-based parsers."""
-    requirement = _OFFICE_CONTAINER_REQUIREMENTS.get(document_format)
+def validate_office_container(file_path: str) -> None:
+    """Validate OOXML containers before dispatching to archive-based parsers.
+
+    Validation is keyed by the source file extension so spreadsheet sources that
+    share one parse format (csv/xls/xlsx) are not treated as xlsx ZIP packages.
+    """
+    requirement = _OFFICE_CONTAINER_REQUIREMENTS.get(
+        os.path.splitext(file_path)[1].lower()
+    )
     if requirement is None:
         return
 
