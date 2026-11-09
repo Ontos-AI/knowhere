@@ -23,8 +23,8 @@ RENDER_VARIABLES: dict[str, str] = {
     "RUNTIME_ENVIRONMENT": "staging",
     "APP_ENV": "staging",
     "DB_SSL_MODE": "require",
-    "API_DB_POOL_SIZE": "5",
-    "API_DB_MAX_OVERFLOW": "5",
+    "API_DB_POOL_SIZE": "15",
+    "API_DB_MAX_OVERFLOW": "0",
     "WORKER_DB_SYNC_POOL_SIZE": "2",
     "WORKER_DB_SYNC_MAX_OVERFLOW": "2",
     "S3_BUCKET_NAME": "knowhere-storage-staging",
@@ -52,9 +52,10 @@ SHARED_STAGING_ENVIRONMENT: dict[str, str] = {
 
 API_STAGING_ENVIRONMENT: dict[str, str] = {
     **SHARED_STAGING_ENVIRONMENT,
-    "DB_MAX_OVERFLOW": "5",
-    "DB_POOL_SIZE": "5",
+    "DB_MAX_OVERFLOW": "0",
+    "DB_POOL_SIZE": "15",
     "DB_POOL_RECYCLE": "-1",
+    "DB_POOL_PREWARM_SIZE": "15",
 }
 
 WORKER_STAGING_ENVIRONMENT: dict[str, str] = {
@@ -140,7 +141,7 @@ def test_staging_opensearch_inputs_cannot_change_production_rendering(
     render_template(template, output_path, {**variables, **STAGING_OPENSEARCH})
     assert output_path.read_bytes() == before
     environment = json.loads(before)["containerDefinitions"][0]["environment"]
-    assert all(item["name"] != "DB_POOL_RECYCLE" for item in environment)
+    assert all(item["name"] not in {"DB_POOL_RECYCLE", "DB_POOL_PREWARM_SIZE"} for item in environment)
 
 
 @pytest.mark.parametrize(
@@ -237,6 +238,9 @@ def test_staging_templates_preserve_expected_staging_configuration(
     environment_values: dict[str, str] = {
         item["name"]: item["value"] for item in environment
     }
+
+    if container_name == "worker":
+        assert "DB_POOL_PREWARM_SIZE" not in environment_values
 
     for name, value in expected_environment.items():
         assert environment_values[name] == value
