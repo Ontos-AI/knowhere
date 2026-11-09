@@ -10,11 +10,13 @@ import gzip
 from hashlib import sha256
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
+import httpx
 import pytest
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import Engine, make_url
@@ -318,8 +320,10 @@ def test_observer_measures_actual_async_postgresql_pool_wait(
     assert row["id"] == "pg-pool" and row["pg_pool_wait_ms"] >= 40 and row["pg_transaction_ms"] > 0
 
 
+@pytest.mark.parametrize("isMatchingArrival", [False, True])
 def test_prepared_task_requires_exact_durable_arrival_binding_and_keeps_result(
     workloadRuntime: tuple[Engine, dict[str, object]], monkeypatch: pytest.MonkeyPatch,
+    isMatchingArrival: bool,
 ) -> None:
     engine, configuration = workloadRuntime
     _admit(_getAdapter(engine, configuration))
@@ -333,8 +337,47 @@ def test_prepared_task_requires_exact_durable_arrival_binding_and_keeps_result(
     task = getattr(module, "completePreparedTask")
     assert task.ignore_result is False
     case = cast(dict[str, dict[str, object]], configuration["cases"])["retained-one"]
-    request: dict[str, object] = {"campaign_id": "actual-campaign", "event_id": "wrong-event", "source_hash": "a" * 64,
+    request: dict[str, object] = {"campaign_id": "actual-campaign",
+        "event_id": "arrival-one" if isMatchingArrival else "wrong-event", "source_hash": "a" * 64,
         "job_id": "actual-new-job", "owner_id": "workload-owner", "prepared_path": case["prepared_path"],
         "sha256": case["sha256"], "compressed_bytes": case["compressed_bytes"], "uncompressed_bytes": case["uncompressed_bytes"]}
-    with pytest.raises(ValueError, match="exact owned arrival"):
-        task.run(request)
+    if not isMatchingArrival:
+        with pytest.raises(ValueError, match="exact owned arrival"):
+            task.run(request)
+        return
+
+    endpoint: str | None = os.environ.get("KNOWHERE_TEST_OPENSEARCH_URL")
+    if endpoint is None:
+        pytest.skip("Set KNOWHERE_TEST_OPENSEARCH_URL to an owned isolated native node")
+    from shared.core.config import settings
+    from shared.models.database.indexing import IndexingAttempt
+    from shared.models.database.job import Job
+    from shared.models.database.lexicalcontrol import LexicalBackendControl
+    from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
+    from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.scope import LexicalScope
+
+    prefix: str = "knowhere-prepared-contract"
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_URL", endpoint)
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_INDEX_PREFIX", prefix)
+    monkeypatch.setattr(LegacyCopyDispatch, "submit", staticmethod(lambda _build_id: False))
+    with Session(engine) as db, db.begin():
+        control: LexicalBackendControl | None = db.get(LexicalBackendControl, 1)
+        assert control is not None
+        control.clusterUuid = httpx.get(endpoint, timeout=10, trust_env=False).raise_for_status().json()["cluster_uuid"]
+    native = OpenSearchLexicalIndex(endpoint=endpoint,
+        scope=LexicalScope(ownerId="workload-owner", namespace="workload"), indexPrefix=prefix)
+    try:
+        receipt: dict[str, object] = task.run(request)
+        assert receipt["status"] == "success" and receipt["charge_unchanged"] is True
+        with Session(engine) as db:
+            job: Job | None = db.get(Job, "actual-new-job")
+            assert job is not None and job.status == "done"
+            attempt: IndexingAttempt | None = db.get(IndexingAttempt, job.current_indexing_attempt_id)
+            assert attempt is not None and attempt.state == "succeeded"
+            assert receipt["parsed_handoff_at_utc"] == attempt.createdAt.astimezone(timezone.utc).isoformat()
+            assert receipt["search_ready_at_utc"] == job.updated_at.replace(tzinfo=timezone.utc).isoformat()
+    finally:
+        response: httpx.Response = httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
+        native.close()

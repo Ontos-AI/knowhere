@@ -61,6 +61,8 @@ def _completePrepared(value: dict[str, object]) -> dict[str, object]:
     request: _Request = _Request.model_validate(value)
     from shared.core.config import settings
     from shared.core.database_sync import get_sync_db_context
+    from shared.core.state_machine.service_sync import SyncStateMachineService
+    from shared.core.state_machine.states import JobStatus
     from shared.models.database.indexing import IndexingAttempt
     from shared.models.database.job import Job
     from shared.models.database.lexicalbuild import LexicalBuild
@@ -83,6 +85,25 @@ def _completePrepared(value: dict[str, object]) -> dict[str, object]:
             raise ValueError("Prepared completion requires the exact owned arrival and preseeded staging charge")
         originalCharge: tuple[str, int] = (job.billing_status, int(job.credits_charged or 0))
 
+    ownership: ParsingOwnership = ParsingOwnership()
+
+    def claim(jobId: str, ownerToken: str) -> bool:
+        if not ownership.claim(jobId, ownerToken):
+            return False
+        try:
+            with get_sync_db_context() as database:
+                job: Job = ownership.assertInTransaction(database, jobId, ownerToken)
+                if job.status == JobStatus.RUNNING.value:
+                    return True
+                if job.status != JobStatus.PENDING.value or not SyncStateMachineService().transition_outcome(
+                    database, jobId, JobStatus.RUNNING.value, "start_processing",
+                ).succeeded:
+                    raise ValueError("Prepared arrival could not enter the running state")
+        except Exception:
+            ownership.release(jobId, ownerToken)
+            raise
+        return True
+
     def observe() -> dict[str, object]:
         with get_sync_db_context() as database:
             actual: Job | None = database.get(Job, request.job_id)
@@ -91,6 +112,10 @@ def _completePrepared(value: dict[str, object]) -> dict[str, object]:
             build: LexicalBuild | None = database.get(LexicalBuild, attempt.currentBuildId) if attempt and attempt.currentBuildId else None
             chargeUnchanged: bool = (actual.billing_status, int(actual.credits_charged or 0)) == originalCharge
             operation: float | None = (attempt.finishedAt - attempt.startedAt).total_seconds() * 1000 if attempt and attempt.startedAt and attempt.finishedAt else None
+            # The initial indexing intent is saved in the same transaction as the parse handoff.
+            handoffAt: datetime | None = attempt.createdAt if attempt and attempt.origin == "initial" else None
+            # Job timestamps are stored as naive UTC. Read completion after the publication transaction commits.
+            readyAt: datetime | None = actual.updated_at.replace(tzinfo=timezone.utc) if actual.status == "done" and attempt and attempt.state == "succeeded" else None
             return {"job_state": actual.status, "parsing_status": actual.parsing_status,
                 "indexing_status": actual.indexing_status, "failure_stage": actual.failure_stage,
                 "attempt_id": attempt.id if attempt else None, "attempt_origin": attempt.origin if attempt else None,
@@ -99,8 +124,8 @@ def _completePrepared(value: dict[str, object]) -> dict[str, object]:
                 "indexing_started_at_utc": attempt.startedAt.astimezone(timezone.utc).isoformat() if attempt and attempt.startedAt else None,
                 "indexing_finished_at_utc": attempt.finishedAt.astimezone(timezone.utc).isoformat() if attempt and attempt.finishedAt else None,
                 "charge_unchanged": chargeUnchanged, "observed_at_utc": datetime.now(timezone.utc).isoformat(),
-                "parsed_handoff_at_utc": actual.parsed_at.isoformat() if actual.parsed_at else None,
-                "search_ready_at_utc": actual.completed_at.isoformat() if actual.status == "done" and actual.completed_at else None}
+                "parsed_handoff_at_utc": handoffAt.astimezone(timezone.utc).isoformat() if handoffAt else None,
+                "search_ready_at_utc": readyAt.isoformat() if readyAt else None}
 
     def finalize(options: dict[str, object]) -> dict[str, object]:
         return cast(dict[str, object], SyncJobLifecycleService().finalize_job_success(
@@ -115,7 +140,7 @@ def _completePrepared(value: dict[str, object]) -> dict[str, object]:
     support: ModuleType = _loadSupport()
     result: dict[str, object] = support.WorkloadSupport.completePrepared(jobId=request.job_id,
         path=request.prepared_path, expectedSha256=request.sha256, compressedBytes=request.compressed_bytes,
-        uncompressedBytes=request.uncompressed_bytes, claim=ParsingOwnership().claim, finalize=finalize, observe=observe)
+        uncompressedBytes=request.uncompressed_bytes, claim=claim, finalize=finalize, observe=observe)
     if result.get("charge_unchanged") is not True or int(str(result.get("execution_count", 0))) > 1:
         result["status"] = "failed"
         result["boundary_contract_failed"] = True
