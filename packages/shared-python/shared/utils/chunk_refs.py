@@ -91,7 +91,13 @@ def has_chunk_ref(content: str) -> bool:
 
 def is_chunk_ref(text: str) -> bool:
     """Return whether the whole string is a chunk reference."""
-    return bool(text and CHUNK_REF_RE.fullmatch(str(text).strip()))
+    if not text:
+        return False
+    normalized = str(text).strip()
+    return (
+        len(CHUNK_REF_RE.findall(normalized)) == 1
+        and CHUNK_REF_RE.fullmatch(normalized) is not None
+    )
 
 
 def strip_chunk_refs(content: str, *, remove_labels: bool = False) -> str:
