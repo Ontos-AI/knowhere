@@ -1,26 +1,19 @@
 # pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportOptionalOperand=false, reportOptionalSubscript=false, reportReturnType=false, reportOperatorIssue=false, reportIndexIssue=false, reportAssignmentType=false, reportGeneralTypeIssues=false
 from __future__ import annotations
 
-from collections import OrderedDict
-
 import numpy as np
 import pandas as pd
 from app.services.document_parser.tables.dataframe_html_renderer import df2html
-from app.services.document_parser.support.path_helpers import flatten_dic2paths
 from loguru import logger
 
 from shared.utils.text_utils import remove_duplicates_orderkept
 
 
-def parse_tb_keywords(table_frame: pd.DataFrame, kw_spit: str = ">>>") -> str:
+def parse_tb_keywords(table_frame: pd.DataFrame) -> str:
     def parse_single_level(columns: list[object], keywords: list[str]) -> list[str]:
-        column_texts = [str(column) for column in columns]
-        for column_text in column_texts:
-            if kw_spit in column_text:
-                keyword = column_text.split(">>>")[0]
-            else:
-                keyword = column_text
-            if keyword not in keywords:
+        for column in columns:
+            column_text = str(column)
+            if column_text not in keywords:
                 keywords.append(column_text)
         return list({keyword.strip() for keyword in keywords})
 
@@ -55,94 +48,21 @@ def parse_tb_keywords(table_frame: pd.DataFrame, kw_spit: str = ">>>") -> str:
 
 def parse_tb_contents(
     table_frame: pd.DataFrame,
-    parent_dic: dict[str, object] | None = None,
-    file_name: str = "",
-    sheet_name: str = "",
     row_header_cols: int = 0,
     include_header: bool = True,
-) -> tuple[list[str], str]:
-    if parent_dic is None:
-        parent_dic = {}
-
-    rendered_frame = table_frame.fillna("").infer_objects(copy=False)
-    table_html = df2html(
+) -> str:
+    rendered_frame = table_frame.astype(object).where(table_frame.notna(), "")
+    return df2html(
         rendered_frame,
         row_header_cols=row_header_cols,
         header=include_header,
     )
 
-    table_tree = tb_columns_to_tree(table_frame, parent_dic, file_name, sheet_name)
-    table_paths = flatten_dic2paths(table_tree)
-    return table_paths, table_html
-
-
-def tb_columns_to_tree(
-    table_frame: pd.DataFrame,
-    parent_dic: dict[str, object],
-    file_name: str,
-    sheet_name: str,
-) -> dict[str, object]:
-    if isinstance(table_frame.columns, pd.MultiIndex):
-        columns = pd.DataFrame(table_frame.columns.tolist())
-        for level in range(columns.shape[1]):
-            columns[level] = process_duplicate_cols(columns[level])
-
-        new_columns = pd.MultiIndex.from_frame(columns)
-        tree_structure = multiindex_to_tree(new_columns)
-    else:
-        new_columns = process_duplicate_cols(table_frame.columns)
-        tree_structure = {column: {} for column in new_columns}
-
-    table_frame.columns = new_columns
-    if (not file_name == "") and (not sheet_name == ""):
-        parent_dic[file_name][sheet_name] = tree_structure
-    elif not sheet_name == "":
-        parent_dic[sheet_name] = tree_structure
-    elif not file_name == "":
-        parent_dic[file_name] = tree_structure
-    else:
-        parent_dic = tree_structure
-    return parent_dic
-
-
-def multiindex_to_tree(multiindex: pd.MultiIndex) -> dict[object, object]:
-    def tree() -> OrderedDict[object, object]:
-        return OrderedDict()
-
-    root = tree()
-    for keys in multiindex:
-        current_level = root
-        for key in keys:
-            if key not in current_level:
-                current_level[key] = tree()
-            current_level = current_level[key]
-
-    def convert_to_dict(value: object) -> object:
-        if isinstance(value, OrderedDict):
-            return {key: convert_to_dict(child) for key, child in value.items()}
-        return value
-
-    return dict(convert_to_dict(root))
-
 
 def postprocess_tb(table_frame: pd.DataFrame, drop: bool = False) -> pd.DataFrame:
     if drop:
         was_range_index = isinstance(table_frame.index, pd.RangeIndex)
-
-        source_row_columns = [
-            column
-            for column in table_frame.columns
-            if (isinstance(column, tuple) and column[0] == "_src_row")
-            or column == "_src_row"
-        ]
-        if source_row_columns:
-            data_columns = [
-                column for column in table_frame.columns if column not in source_row_columns
-            ]
-            mask = table_frame[data_columns].isna().all(axis=1)
-            table_frame = table_frame[~mask]
-        else:
-            table_frame = table_frame.dropna(how="all")
+        table_frame = table_frame.dropna(how="all")
 
         if was_range_index:
             table_frame = table_frame.reset_index(drop=True)
@@ -177,6 +97,17 @@ def postprocess_tb(table_frame: pd.DataFrame, drop: bool = False) -> pd.DataFram
                 if index not in cols_to_drop
             ]
             table_frame = table_frame.iloc[:, cols_to_keep]
+            column_headers = table_frame.attrs.get("column_headers")
+            row_header_cols = int(table_frame.attrs.get("row_header_col_count") or 0)
+            if isinstance(column_headers, (list, tuple)) and len(column_headers) >= row_header_cols:
+                kept_set = set(cols_to_keep)
+                head_prefix = list(column_headers[:row_header_cols])
+                head_rest = [
+                    header
+                    for idx, header in enumerate(column_headers[row_header_cols:])
+                    if idx in kept_set
+                ]
+                table_frame.attrs["column_headers"] = tuple(head_prefix + head_rest)
 
         logger.debug(f"Dropped {len(cols_to_drop)} empty columns")
 
@@ -187,7 +118,7 @@ def postprocess_tb(table_frame: pd.DataFrame, drop: bool = False) -> pd.DataFram
 
             def make_padded(name: object) -> object:
                 if was_multiindex:
-                    return (name,) + ("",) * (column_level_count - 1)
+                    return tuple([name] * column_level_count)
                 return name
 
             if isinstance(table_frame.index, pd.MultiIndex):
@@ -209,22 +140,43 @@ def postprocess_tb(table_frame: pd.DataFrame, drop: bool = False) -> pd.DataFram
                 if padded in existing_column_set:
                     table_frame.index.name = None
 
+            row_header_tuples: list[tuple[str, ...]] = list(
+                table_frame.attrs.get("row_header_column_tuples") or []
+            )
+            index_level_count = (
+                table_frame.index.nlevels
+                if isinstance(table_frame.index, pd.MultiIndex)
+                else 1
+            )
             table_frame = table_frame.reset_index()
 
             if was_multiindex:
                 new_columns = []
-                for column in table_frame.columns:
-                    if isinstance(column, str) and (
+                for col_idx, column in enumerate(table_frame.columns):
+                    if col_idx < index_level_count and col_idx < len(row_header_tuples):
+                        padded_tuple = tuple(
+                            list(row_header_tuples[col_idx])[:column_level_count]
+                            + [""] * max(0, column_level_count - len(row_header_tuples[col_idx]))
+                        )
+                        new_columns.append(padded_tuple)
+                    elif isinstance(column, str) and (
                         column.startswith("level_") or column == "index"
                     ):
                         new_columns.append(tuple([""] * column_level_count))
+                    elif isinstance(column, tuple) and len(column) == column_level_count:
+                        if all(c == "" for c in column[1:]) and column[0] != "":
+                            new_columns.append(tuple([column[0]] * column_level_count))
+                        else:
+                            new_columns.append(column)
                     else:
                         new_columns.append(column)
                 table_frame.columns = pd.MultiIndex.from_tuples(new_columns)
             else:
                 new_columns = []
-                for column in table_frame.columns:
-                    if isinstance(column, str) and (
+                for col_idx, column in enumerate(table_frame.columns):
+                    if col_idx < index_level_count and col_idx < len(row_header_tuples) and row_header_tuples[col_idx]:
+                        new_columns.append(row_header_tuples[col_idx][-1])
+                    elif isinstance(column, str) and (
                         column.startswith("level_") or column == "index"
                     ):
                         new_columns.append("")
@@ -271,37 +223,3 @@ def postprocess_tb(table_frame: pd.DataFrame, drop: bool = False) -> pd.DataFram
         lambda value: value.replace("\n", "") if isinstance(value, str) else value
     )
 
-
-def process_duplicate_cols(columns: object) -> list[object]:
-    column_counts: dict[object, int] = {}
-    new_columns: list[object] = []
-    for column in columns:
-        if column in column_counts:
-            new_columns.append(f"{column}>>>{column_counts[column]}")
-            column_counts[column] += 1
-        else:
-            new_columns.append(column)
-            column_counts[column] = 1
-    return new_columns
-
-
-def format_tb_scope(table_frame: pd.DataFrame, num: int) -> str:
-    if len(table_frame) > int(num * 3 + 1):
-        head_frame = table_frame.head(num)
-        tail_frame = table_frame.tail(num)
-        middle_frame = table_frame.iloc[num : len(table_frame) - num]
-
-        if len(middle_frame) >= num:
-            mid_sample_frame = middle_frame.sample(n=num, random_state=42)
-        else:
-            mid_sample_frame = middle_frame
-        scope_frame = pd.concat(
-            objs=[head_frame, mid_sample_frame, tail_frame],
-            ignore_index=True,
-        )
-    else:
-        scope_frame = table_frame
-    scope_frame = scope_frame.map(
-        lambda value: str(value).strip() if pd.notnull(value) else value
-    )
-    return df2html(scope_frame)

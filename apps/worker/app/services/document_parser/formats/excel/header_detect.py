@@ -169,6 +169,7 @@ def detect_headers(
     region: TableRegion,
     *,
     llm: SpreadsheetHeaderDetector | None = None,
+    caption: str | None = None,
 ) -> HeaderSpec:
     visual = region.visual
     n_rows = len(visual)
@@ -179,7 +180,7 @@ def detect_headers(
             header_row_count=0,
             row_header_col_count=0,
             column_headers=(),
-            caption=None,
+            caption=caption,
             data_end_row=0,
         )
 
@@ -203,7 +204,7 @@ def detect_headers(
         header_row_count=header_row_count,
         row_header_col_count=row_header_col_count,
         column_headers=column_headers,
-        caption=None,
+        caption=caption,
         data_end_row=data_end_row,
     )
 

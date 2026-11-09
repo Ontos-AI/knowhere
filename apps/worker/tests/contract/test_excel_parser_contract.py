@@ -423,3 +423,72 @@ def test_xlsx_header_row_count_zero_still_emits_table(
         ["Alice", "90"],
         ["Bob", "80"],
     ]
+
+
+def test_xlsx_leading_title_row_and_hidden_empty_columns_keep_headers_aligned(
+    worker_contract_environment: None,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    import openpyxl
+
+    from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
+    from shared.services.retrieval.hydration.table_grid import (
+        grid_sql_rows,
+        html_to_grid,
+        sql_columns,
+    )
+
+    del worker_contract_environment
+    monkeypatch.setattr(
+        _HEADER_DETECT,
+        lambda self, rows_text, rowspan_hint: (
+            2,
+            1,
+            _last_row_from_rows_text(rows_text),
+        ),
+    )
+    workbook_path = tmp_path / "boq.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "清单"
+    sheet.merge_cells("A1:E1")
+    sheet["A1"] = "分部分项工程量清单"
+    # Row 2 is blank; real 2-row header starts on Row 3.
+    sheet.merge_cells("A3:A4")
+    sheet["A3"] = "序号"
+    sheet["B3"] = "金额（元）"
+    sheet["B4"] = "综合单价"
+    sheet.column_dimensions["C"].hidden = True
+    sheet.column_dimensions["D"].hidden = True
+    sheet["E4"] = "合价"
+    sheet["A5"] = 1
+    sheet["B5"] = 2.5
+    sheet["E5"] = 100.0
+    workbook.save(workbook_path)
+
+    parse_output = _parse_xlsx(
+        workbook_path, tmp_path / "parser-output", "boq.xlsx"
+    )
+    parsed_df = parse_output.parsed_df
+    assert parsed_df is not None
+    assert len(parsed_df) == 1
+    metadata = _extra_metadata(parsed_df)
+    assert metadata["caption"] == "分部分项工程量清单"
+    assert metadata["header_row_count"] == 2
+    assert metadata["row_header_col_count"] == 1
+    assert metadata["column_headers"] == ["序号", "金额（元）-->综合单价", "合价"]
+    assert metadata["excel_range"] == "A3:E5"
+
+    table_html = (
+        Path(parse_output.output_dir) / parsed_df["content"].iloc[0]
+    ).read_text(encoding="utf-8")
+    chunks = dataframe_to_chunks(parsed_df)
+    grid = html_to_grid(table_html)
+    assert sql_columns(grid, chunks[0]["metadata"]) == [
+        "row_header",
+        "金额_元____综合单价",
+        "合价",
+    ]
+    assert grid_sql_rows(grid, chunks[0]["metadata"]) == [["1", "2.5", "100"]]
+

@@ -79,3 +79,18 @@ def test_render_explore_table_large_preview_uses_flattened_headers() -> None:
     assert "Year-->Q1" in text
     assert "Year-->Q2" in text
     assert "H0" not in text
+
+
+def test_sql_columns_preserves_cjk_headers() -> None:
+    grid = html_to_grid(FLAT_HTML)
+    metadata = {
+        "header_row_count": 2,
+        "row_header_col_count": 1,
+        "column_headers": ["序号", "金额（元）-->综合单价", "工程量"],
+    }
+    assert sql_columns(grid, metadata) == [
+        "row_header",
+        "金额_元____综合单价",
+        "工程量",
+    ]
+

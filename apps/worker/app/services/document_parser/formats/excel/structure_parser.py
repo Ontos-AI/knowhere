@@ -147,19 +147,20 @@ def _apply_subtable_attrs(
     subtable_count: int,
 ) -> None:
     spec = result["header_spec"]
-    dataframe.attrs["row_header_cols"] = spec.row_header_col_count
     dataframe.attrs["header_row_count"] = spec.header_row_count
     dataframe.attrs["row_header_col_count"] = spec.row_header_col_count
     dataframe.attrs["column_headers"] = spec.column_headers
+    dataframe.attrs["row_header_column_tuples"] = result.get("row_header_column_tuples", ())
+    dataframe.attrs["caption"] = spec.caption or result.get("caption")
     dataframe.attrs["excel_range"] = result["excel_range"]
     dataframe.attrs["sheet_name"] = sheet_name
     dataframe.attrs["subtable_index"] = subtable_index
     dataframe.attrs["subtable_count"] = subtable_count
     dataframe.attrs["subtable_title"] = (
-        f"子表 {subtable_index}" if subtable_count > 1 else ""
+        spec.caption
+        or result.get("caption")
+        or (f"子表 {subtable_index}" if subtable_count > 1 else "")
     )
-    dataframe.attrs["subtable_row_range"] = result["row_range"]
-    dataframe.attrs["subtable_col_range"] = result["col_range"]
 
 
 def _get_merged_cell_value(ws, row: int, col: int, merged_ranges: list):
@@ -185,17 +186,8 @@ def _build_column_multiindex(
         row_values = []
         for col in range(col_start, col_end + 1):
             value = _get_merged_cell_value(ws, row, col, merged_ranges)
-            row_values.append(str(value).strip() if value else "")
+            row_values.append(str(value).strip() if value is not None else "")
         levels.append(row_values)
-
-    for index, level in enumerate(levels):
-        filled = []
-        last = ""
-        for value in level:
-            if value:
-                last = value
-            filled.append(last if last else value)
-        levels[index] = filled
 
     if len(levels) == 1:
         return pd.Index(levels[0])
@@ -217,7 +209,7 @@ def _build_row_multiindex(
         col_values = []
         for row in range(row_start, row_end + 1):
             value = _get_merged_cell_value(ws, row, col, merged_ranges)
-            col_values.append(str(value).strip() if value else "")
+            col_values.append(str(value).strip() if value is not None else "")
         levels.append(col_values)
 
         if header_rows:
@@ -227,20 +219,68 @@ def _build_row_multiindex(
         else:
             names.append(None)
 
-    for index, level in enumerate(levels):
-        filled = []
-        last = ""
-        for value in level:
-            if value:
-                last = value
-            filled.append(last if last else value)
-        levels[index] = filled
-
     if len(levels) == 1:
         row_index = pd.Index(levels[0])
         row_index.name = names[0] if names else None
         return row_index
     return pd.MultiIndex.from_arrays(levels, names=names)
+
+
+def _strip_leading_caption_and_blank_rows(
+    ws,
+    row_range: Tuple[int, int],
+    col_range: Tuple[int, int],
+    merged_ranges: list,
+) -> tuple[Tuple[int, int], str | None]:
+    """Strip leading full-width/single-cell title rows and blank rows so ``row_start`` lands on the actual header."""
+    row_start, row_end = row_range
+    col_start, col_end = col_range
+    region_width = col_end - col_start + 1
+    caption_parts: list[str] = []
+
+    while row_start < row_end:
+        non_empty_origins: dict[tuple[int, int], tuple[str, int, int]] = {}
+        has_unmerged_multi = False
+        for col in range(col_start, col_end + 1):
+            merge = None
+            for mr in merged_ranges:
+                if mr.min_row <= row_start <= mr.max_row and mr.min_col <= col <= mr.max_col:
+                    merge = mr
+                    break
+            if merge is not None:
+                val = ws.cell(merge.min_row, merge.min_col).value
+                text = str(val).strip() if val is not None else ""
+                if text:
+                    origin = (merge.min_row, merge.min_col)
+                    non_empty_origins[origin] = (
+                        text,
+                        merge.max_row - merge.min_row + 1,
+                        merge.max_col - merge.min_col + 1,
+                    )
+            else:
+                val = ws.cell(row_start, col).value
+                text = str(val).strip() if val is not None else ""
+                if text:
+                    non_empty_origins[(row_start, col)] = (text, 1, 1)
+                    if len(non_empty_origins) > 1:
+                        has_unmerged_multi = True
+                        break
+
+        if not non_empty_origins:
+            row_start += 1
+            continue
+
+        if not has_unmerged_multi and len(non_empty_origins) == 1 and region_width >= 2:
+            only_text, rowspan, _colspan = next(iter(non_empty_origins.values()))
+            if rowspan == 1 and len(caption_parts) < 2:
+                caption_parts.append(only_text)
+                row_start += 1
+                continue
+
+        break
+
+    caption = " / ".join(caption_parts) if caption_parts else None
+    return (row_start, row_end), caption
 
 
 def _parse_subtable(
@@ -250,20 +290,36 @@ def _parse_subtable(
     merged_ranges: list,
     header_detector: SpreadsheetHeaderDetector | None = None,
 ) -> dict:
-    row_start, row_end = row_range
+    (row_start, row_end), caption = _strip_leading_caption_and_blank_rows(
+        ws, row_range, col_range, merged_ranges
+    )
     col_start, col_end = col_range
-    visual = build_region_visual(ws, row_range, col_range, merged_ranges)
-    spec = detect_headers(TableRegion(visual=visual), llm=header_detector)
+    visual = build_region_visual(ws, (row_start, row_end), col_range, merged_ranges)
+    spec = detect_headers(
+        TableRegion(visual=visual),
+        llm=header_detector,
+        caption=caption,
+    )
     effective_row_end = row_start + spec.data_end_row
     header_rows = list(range(row_start, row_start + spec.header_row_count))
     header_cols = list(range(col_start, col_start + spec.row_header_col_count))
 
+    all_columns: Union[pd.Index, pd.MultiIndex, None]
     if spec.header_row_count == 0:
         data_row_start = row_start
-        columns = None
+        all_columns = None
     else:
         data_row_start = row_start + spec.header_row_count
-        columns = _build_column_multiindex(ws, header_rows, col_range, merged_ranges)
+        all_columns = _build_column_multiindex(ws, header_rows, col_range, merged_ranges)
+
+    row_header_column_tuples: list[tuple[str, ...]] = []
+    if all_columns is not None and spec.row_header_col_count > 0:
+        for col_idx in range(min(spec.row_header_col_count, len(all_columns))):
+            col_entry = all_columns[col_idx]
+            if isinstance(col_entry, tuple):
+                row_header_column_tuples.append(tuple(str(part) for part in col_entry))
+            else:
+                row_header_column_tuples.append((str(col_entry),))
 
     if spec.row_header_col_count == 0:
         data_col_start = col_start
@@ -290,19 +346,11 @@ def _parse_subtable(
                 row_data.append(value)
             data.append(row_data)
 
+    columns = all_columns
     if columns is not None and spec.row_header_col_count:
         columns = cast(Axes, columns[spec.row_header_col_count :])
 
     dataframe = pd.DataFrame(data, columns=columns, index=row_index)
-
-    excel_row_numbers = list(range(data_row_start, effective_row_end + 1))
-    if data_row_start <= effective_row_end:
-        if isinstance(dataframe.columns, pd.MultiIndex):
-            level_count = dataframe.columns.nlevels
-            src_row_key = tuple(["_src_row"] + [""] * (level_count - 1))
-            dataframe[src_row_key] = excel_row_numbers
-        else:
-            dataframe["_src_row"] = excel_row_numbers
 
     excel_range = (
         f"{get_column_letter(col_start)}{row_start}:"
@@ -313,6 +361,8 @@ def _parse_subtable(
         "header_rows": header_rows,
         "header_cols": header_cols,
         "header_spec": spec,
+        "row_header_column_tuples": tuple(row_header_column_tuples),
+        "caption": caption,
         "excel_range": excel_range,
         "row_range": (row_start, effective_row_end),
         "col_range": col_range,
@@ -386,6 +436,15 @@ def _is_true_separator_col(
     effective_row_range: Tuple[int, int],
     merged_ranges: list | None = None,
 ) -> bool:
+    col_letter = get_column_letter(col)
+    for dim in ws.column_dimensions.values():
+        if dim.hidden:
+            if dim.min is not None and dim.max is not None:
+                if dim.min <= col <= dim.max:
+                    return False
+            elif dim.index == col_letter:
+                return False
+
     row_start, row_end = effective_row_range
     merged_ranges = merged_ranges or []
 

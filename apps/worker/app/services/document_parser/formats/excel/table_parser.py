@@ -43,7 +43,6 @@ class ExcelWorkbookParseRequest:
     output_dir: str
     baseurl: str
     base_llm_paras: dict[str, Any]
-    window_h: int
     relative_root: str | None
     use_precision_mode: bool
     include_hidden_sheets: bool
@@ -55,7 +54,6 @@ def parse_xlsx(
     output_dir: str,
     baseurl: str,
     base_llm_paras: dict[str, Any] | None = None,
-    window_h: int = 10,
     relative_root: str | None = None,
     use_precision_mode: bool = True,
     include_hidden_sheets: bool = False,
@@ -66,7 +64,6 @@ def parse_xlsx(
         output_dir=output_dir,
         baseurl=baseurl,
         base_llm_paras=_normalise_llm_parameters(base_llm_paras),
-        window_h=window_h,
         relative_root=relative_root,
         use_precision_mode=use_precision_mode,
         include_hidden_sheets=include_hidden_sheets,
@@ -160,18 +157,15 @@ def _parse_excel_sheet(
         if len(table_frame) == 0 or table_frame.empty or table_frame.isna().all().all():
             return parsed_rows
 
-        table_frame = _drop_source_row_columns(table_frame)
-        row_header_cols = int(sheet_attrs.get("row_header_cols") or 0)
+        sheet_attrs = dict(table_frame.attrs)
+        row_header_cols = int(sheet_attrs.get("row_header_col_count") or 0)
         logical_sheet_name = _sheet_name_from_attrs(sheet_attrs, fallback=sheet_name)
         subtable_title = _subtable_title_from_attrs(sheet_attrs)
         header_row_count = sheet_attrs.get("header_row_count")
         include_header = True if header_row_count is None else header_row_count != 0
 
-        _table_paths, table_html = parse_tb_contents(
+        table_html = parse_tb_contents(
             table_frame,
-            parent_dic={request.file_name: {logical_sheet_name: {}}},
-            file_name=request.file_name,
-            sheet_name=logical_sheet_name,
             row_header_cols=row_header_cols,
             include_header=include_header,
         )
@@ -201,18 +195,6 @@ def _parse_excel_sheet(
             internal_message=str(exc),
             original_exception=exc,
         ) from exc
-
-
-def _drop_source_row_columns(table_frame: pd.DataFrame) -> pd.DataFrame:
-    source_row_columns = [
-        column
-        for column in table_frame.columns
-        if (isinstance(column, tuple) and column[0] == "_src_row")
-        or column == "_src_row"
-    ]
-    if not source_row_columns:
-        return table_frame
-    return table_frame.drop(columns=source_row_columns)
 
 
 def _write_excel_table_asset(
@@ -280,13 +262,17 @@ def _excel_table_extra_metadata(
     if "header_row_count" not in attrs:
         return None
     column_headers = attrs.get("column_headers") or ()
-    return {
+    meta: dict[str, object] = {
         "header_row_count": int(attrs["header_row_count"]),
         "row_header_col_count": int(attrs.get("row_header_col_count") or 0),
         "column_headers": [str(name) for name in column_headers],
         "sheet_name": sheet_name,
         "excel_range": str(attrs.get("excel_range") or ""),
     }
+    caption = str(attrs.get("caption") or "").strip()
+    if caption:
+        meta["caption"] = caption
+    return meta
 
 
 def _sheet_name_from_attrs(attrs: dict[str, Any], *, fallback: str) -> str:
@@ -295,11 +281,15 @@ def _sheet_name_from_attrs(attrs: dict[str, Any], *, fallback: str) -> str:
 
 
 def _subtable_title_from_attrs(attrs: dict[str, Any]) -> str:
+    caption = str(attrs.get("caption") or "").strip()
+    if caption:
+        return caption
     try:
         subtable_count = int(attrs.get("subtable_count") or 1)
         subtable_index = int(attrs.get("subtable_index") or 1)
     except (TypeError, ValueError):
         subtable_count = 1
+        subtable_index = 1
     if subtable_count <= 1:
         return ""
     title = str(attrs.get("subtable_title") or "").strip()

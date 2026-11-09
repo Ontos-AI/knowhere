@@ -329,7 +329,7 @@ def _span(value: object) -> int:
 
 
 def _sql_ident(name: str, used: set[str], *, fallback: str) -> str:
-    base = re.sub(r"[^A-Za-z0-9_]", "_", str(name or "").strip()) or fallback
+    base = re.sub(r"[^\w]", "_", str(name or "").strip()).strip("_") or fallback
     if base[0].isdigit():
         base = f"c_{base}"
     candidate = base
