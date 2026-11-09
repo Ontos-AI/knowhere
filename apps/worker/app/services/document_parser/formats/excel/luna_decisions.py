@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from loguru import logger
-from openpyxl.utils import get_column_letter
 
 from app.services.document_parser.formats.excel.region_split import (
     ClassifiedRegion,
@@ -63,7 +62,7 @@ def evaluate_sheet_blocks(
     judge: SpreadsheetRegionJudge | None = None,
     locked: Sequence[Region] = (),
 ) -> SheetBlockDecisions:
-    """Pointer-walk atomic blocks: merge-or-separate, then table-or-fragment."""
+    """Pointer-walk atomic blocks for merge-or-separate, then role by shape."""
     if not blocks:
         return SheetBlockDecisions(regions=())
 
@@ -77,7 +76,19 @@ def evaluate_sheet_blocks(
 
     while remaining:
         remaining.sort(key=lambda item: (item.region.min_row, item.region.min_col))
-        center = remaining.pop(0)
+        center_index = next(
+            (
+                index
+                for index, item in enumerate(remaining)
+                if item.locked or _is_two_dimensional_table(sheet, item.region)
+            ),
+            None,
+        )
+        if center_index is None:
+            finalized.extend(remaining)
+            remaining.clear()
+            break
+        center = remaining.pop(center_index)
         rejected: set[Region] = set()
         while True:
             neighbors = _four_neighbors(
@@ -104,7 +115,7 @@ def evaluate_sheet_blocks(
             center = merged
         finalized.append(center)
 
-    classified = _assign_roles(sheet, finalized, resolved_judge)
+    classified = _roles_from_shape(sheet, finalized)
     classified.sort(key=lambda item: (item.region.min_row, item.region.min_col))
     return SheetBlockDecisions(regions=tuple(classified))
 
@@ -120,8 +131,8 @@ def _merge_answers(
         direction: _fallback_merge_choice(sheet, center, direction, neighbors[direction])
         for direction in directions
     }
-    center_preview = _block_preview(sheet, center.region)
-    neighbor_previews = {
+    center_grid = _block_preview(sheet, center.region)
+    neighbor_grids = {
         direction: _block_preview(sheet, neighbors[direction].region)
         for direction in directions
     }
@@ -129,25 +140,16 @@ def _merge_answers(
         f"merge::{direction}": {
             "type": "choice",
             "instructions": (
-                f"Compare center block {center_preview['range']} "
-                f"({center_preview['row_count']}x{center_preview['col_count']}) "
-                f"with {direction} neighbor {neighbor_previews[direction]['range']} "
-                f"({neighbor_previews[direction]['row_count']}x{neighbor_previews[direction]['col_count']}):\n"
-                f"Center {center_preview['range']}:\n{center_preview['grid']}\n"
-                f"Neighbor ({direction}) {neighbor_previews[direction]['range']}:\n"
-                f"{neighbor_previews[direction]['grid']}\n"
-                "Pick merge ONLY if they belong to the exact same spreadsheet table "
-                "split by an empty row or column. Pick separate if the neighbor is an "
-                "independent table, side block, or detached fragment."
+                f"Are the center table and the {direction} neighbor the same "
+                "spreadsheet table split by an empty row or column? "
+                "Pick merge if they are one table. Pick separate if they are independent."
             ),
             "criteria": {
                 _CHOICE_MERGE: (
-                    f"Neighbor ({direction}) {neighbor_previews[direction]['range']} "
-                    f"and center {center_preview['range']} belong to the same table; combine them."
+                    f"The {direction} neighbor and the center are the same table; combine them."
                 ),
                 _CHOICE_SEPARATE: (
-                    f"Neighbor ({direction}) {neighbor_previews[direction]['range']} "
-                    "is an independent table or detached fragment."
+                    f"The {direction} neighbor is an independent table or detached fragment."
                 ),
             },
         }
@@ -158,9 +160,8 @@ def _merge_answers(
         for direction in directions
     }
     state = {
-        "sheet": sheet.name,
-        "center": center_preview,
-        **neighbor_previews,
+        "center": center_grid,
+        **neighbor_grids,
     }
     chosen = judge.choose(
         state=state,
@@ -289,80 +290,20 @@ def _rows_adjacent(left: Region, right: Region) -> bool:
     return left.max_row + 1 == right.min_row or right.max_row + 1 == left.min_row
 
 
-def _assign_roles(
-    sheet: SheetGrid,
-    blocks: Sequence[_OpenBlock],
-    judge: SpreadsheetRegionJudge,
+def _roles_from_shape(
+    sheet: SheetGrid, blocks: Sequence[_OpenBlock]
 ) -> list[ClassifiedRegion]:
-    fallback_roles = [
-        _ROLE_TABLE if item.locked or _is_two_dimensional_table(sheet, item.region) else _ROLE_FRAGMENT
-        for item in blocks
-    ]
-    unlocked_indexes = [
-        index for index, item in enumerate(blocks) if not item.locked
-    ]
-    if not unlocked_indexes:
-        return [
-            ClassifiedRegion(region=item.region, role=_ROLE_TABLE, locked=True)
-            for item in blocks
-        ]
-
-    previews = [
-        _block_preview(sheet, item.region) | {"index": index, "locked": item.locked}
-        for index, item in enumerate(blocks)
-    ]
-    questions = {
-        f"role::{index}": {
-            "type": "choice",
-            "instructions": (
-                f"Classify region index={index} range={previews[index]['range']} "
-                f"({previews[index]['row_count']} rows x {previews[index]['col_count']} cols):\n"
-                f"{previews[index]['grid']}\n"
-                "Pick table if it is a complete multi-row, multi-column data table; "
-                "pick fragment if it is a detached small region (single cell, 1-row total/title, or small side note/KPI)."
-            ),
-            "criteria": {
-                _ROLE_TABLE: f"Region {previews[index]['range']} is a complete data table.",
-                _ROLE_FRAGMENT: (
-                    f"Region {previews[index]['range']} is a detached small region "
-                    "(totals cell/row, title, or side KPI/scratch block)."
-                ),
-            },
-        }
-        for index in unlocked_indexes
-    }
-    allowed = {
-        f"role::{index}": frozenset({_ROLE_TABLE, _ROLE_FRAGMENT})
-        for index in unlocked_indexes
-    }
-    state = {
-        "sheet": sheet.name,
-        "regions": previews,
-    }
-    chosen = judge.choose(
-        state=state,
-        questions=questions,
-        required_ids=tuple(questions),
-        allowed=allowed,
-    )
-    roles = list(fallback_roles)
-    if chosen is not None:
-        valid = True
-        for index in unlocked_indexes:
-            choice = chosen.get(f"role::{index}")
-            if choice not in {_ROLE_TABLE, _ROLE_FRAGMENT}:
-                valid = False
-                break
-            roles[index] = choice
-        if not valid:
-            roles = list(fallback_roles)
     return [
         ClassifiedRegion(
             region=item.region,
-            role=_ROLE_TABLE if item.locked else roles[index],
+            role=(
+                _ROLE_TABLE
+                if item.locked or _is_two_dimensional_table(sheet, item.region)
+                else _ROLE_FRAGMENT
+            ),
             locked=item.locked,
         )
-        for index, item in enumerate(blocks)
+        for item in blocks
     ]
 
 
@@ -421,13 +362,9 @@ def _is_full_width_title_row(sheet: SheetGrid, region: Region) -> bool:
     return kind == "caption" and bool(text)
 
 
-def _block_preview(sheet: SheetGrid, region: Region) -> dict[str, object]:
-    row_indexes, omitted_rows = _edge_indexes(
-        region.min_row, region.max_row, _BOUNDARY_EDGE
-    )
-    col_indexes, omitted_cols = _edge_indexes(
-        region.min_col, region.max_col, _BOUNDARY_EDGE
-    )
+def _block_preview(sheet: SheetGrid, region: Region) -> str:
+    row_indexes = _edge_indexes(region.min_row, region.max_row, _BOUNDARY_EDGE)
+    col_indexes = _edge_indexes(region.min_col, region.max_col, _BOUNDARY_EDGE)
     lines: list[str] = []
     previous_row: int | None = None
     for row in row_indexes:
@@ -441,30 +378,18 @@ def _block_preview(sheet: SheetGrid, region: Region) -> dict[str, object]:
                 cells.append("...")
             cells.append(_cell_preview(sheet, row, col))
             previous_col = col
-        lines.append(f"Row {row}: {' | '.join(cells)}")
+        lines.append(" | ".join(cells))
         previous_row = row
-    range_text = (
-        f"{get_column_letter(region.min_col)}{region.min_row}:"
-        f"{get_column_letter(region.max_col)}{region.max_row}"
-    )
-    return {
-        "range": range_text,
-        "row_count": region.max_row - region.min_row + 1,
-        "col_count": region.max_col - region.min_col + 1,
-        "omitted_rows": omitted_rows,
-        "omitted_cols": omitted_cols,
-        "grid": "\n".join(lines),
-    }
+    return "\n".join(lines)
 
 
-def _edge_indexes(start: int, end: int, edge: int) -> tuple[list[int], int]:
+def _edge_indexes(start: int, end: int, edge: int) -> list[int]:
     count = end - start + 1
     if count <= edge * 2:
-        return list(range(start, end + 1)), 0
+        return list(range(start, end + 1))
     top = list(range(start, start + edge))
     bottom = list(range(end - edge + 1, end + 1))
-    omitted = count - edge * 2
-    return top + bottom, omitted
+    return top + bottom
 
 
 def _cell_preview(sheet: SheetGrid, row: int, col: int) -> str:

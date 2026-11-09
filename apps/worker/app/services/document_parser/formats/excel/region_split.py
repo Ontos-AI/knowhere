@@ -233,19 +233,22 @@ def _split_sheet_recursive(
         effective_col_end,
     ) = effective
 
+    # One-column strips keep empty-row gaps; one-row strips keep empty-column gaps.
     separator_rows = []
-    for row in range(effective_row_start + 1, effective_row_end):
-        if _is_true_separator_row(
-            sheet, row, (effective_col_start, effective_col_end), claimed=claimed
-        ):
-            separator_rows.append(row)
+    if effective_col_start != effective_col_end:
+        for row in range(effective_row_start + 1, effective_row_end):
+            if _is_true_separator_row(
+                sheet, row, (effective_col_start, effective_col_end), claimed=claimed
+            ):
+                separator_rows.append(row)
 
     separator_cols = []
-    for col in range(effective_col_start + 1, effective_col_end):
-        if _is_true_separator_col(
-            sheet, col, (effective_row_start, effective_row_end), claimed=claimed
-        ):
-            separator_cols.append(col)
+    if effective_row_start != effective_row_end:
+        for col in range(effective_col_start + 1, effective_col_end):
+            if _is_true_separator_col(
+                sheet, col, (effective_row_start, effective_row_end), claimed=claimed
+            ):
+                separator_cols.append(col)
 
     row_groups = _find_separator_groups(separator_rows)
     col_groups = _find_separator_groups(separator_cols)

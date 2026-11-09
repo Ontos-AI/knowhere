@@ -164,6 +164,7 @@ def resolve_formula_satellites_and_edges(
 
     planned.sort(key=lambda item: (item.sheet_name, item.region.min_row, item.region.min_col))
     links = _table_formula_links(tables, owned_regions, nodes_by_cell)
+    planned, links = _drop_unlabeled_numeric_strips(sheets, planned, links, graph)
     return WorkbookTablePlan(tables=tuple(planned), links=tuple(links))
 
 
@@ -172,6 +173,64 @@ class _Attachment:
         self.caption_texts: list[str] = []
         self.satellites: list[str] = []
         self.tfoot_rows: list[int] = []
+
+
+def _drop_unlabeled_numeric_strips(
+    sheets: Mapping[str, SheetGrid],
+    planned: Sequence[PlannedTable],
+    links: Sequence[TableFormulaLink],
+    graph: Sequence[FormulaNode],
+) -> tuple[list[PlannedTable], tuple[TableFormulaLink, ...]]:
+    kept: list[PlannedTable] = []
+    for item in planned:
+        sheet = sheets.get(item.sheet_name)
+        if sheet is not None and _is_unlabeled_numeric_strip(sheet, item, graph):
+            continue
+        kept.append(item)
+    kept_keys = {table_key(item.sheet_name, item.region) for item in kept}
+    kept_links = tuple(
+        link
+        for link in links
+        if link.source_key in kept_keys and link.target_key in kept_keys
+    )
+    return kept, kept_links
+
+
+def _is_unlabeled_numeric_strip(
+    sheet: SheetGrid,
+    planned: PlannedTable,
+    graph: Sequence[FormulaNode],
+) -> bool:
+    if planned.locked:
+        return False
+    region = planned.region
+    if region.max_row != region.min_row and region.max_col != region.min_col:
+        return False
+    for row in range(region.min_row, region.max_row + 1):
+        for col in range(region.min_col, region.max_col + 1):
+            cell = sheet.cells.get((row, col))
+            if cell is None:
+                continue
+            if cell.formula:
+                return False
+            shown = display_value(cell)
+            if shown is None:
+                continue
+            if isinstance(shown, str) and not shown.strip():
+                continue
+            if isinstance(shown, bool) or not isinstance(shown, (int, float)):
+                return False
+    for node in graph:
+        if node.unresolved:
+            continue
+        if node.sheet == planned.sheet_name and in_region(
+            node.row, node.col, region
+        ):
+            continue
+        for ref in node.refs:
+            if _ref_hits_table(ref, planned.sheet_name, region):
+                return False
+    return True
 
 
 def _formula_hosts(

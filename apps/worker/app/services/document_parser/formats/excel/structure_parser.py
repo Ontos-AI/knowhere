@@ -20,7 +20,6 @@ from app.services.document_parser.formats.excel.html_render import (
     visible_columns,
 )
 from app.services.document_parser.formats.excel.region_split import (
-    classify_sheet_row,
     seed_title_for_region,
     split_sheet_regions,
 )
@@ -152,39 +151,6 @@ def parse_excel_structure(
         ) from exc
 
 
-def _strip_leading_caption_and_blank_rows(
-    sheet: SheetGrid,
-    region: Region,
-) -> tuple[Region, str | None]:
-    """Strip leading banner-title and blank rows so min_row lands on the header."""
-    row_start = region.min_row
-    row_end = region.max_row
-    col_start, col_end = region.min_col, region.max_col
-    caption_parts: list[str] = []
-
-    while row_start < row_end:
-        kind, text = classify_sheet_row(sheet, row_start, col_start, col_end)
-        if kind == "blank":
-            row_start += 1
-            continue
-        if kind == "caption" and text:
-            caption_parts.append(text)
-            row_start += 1
-            continue
-        break
-
-    caption = " / ".join(caption_parts) if caption_parts else None
-    return (
-        Region(
-            min_row=row_start,
-            min_col=col_start,
-            max_row=row_end,
-            max_col=col_end,
-        ),
-        caption,
-    )
-
-
 def _parse_subtable(
     sheet: SheetGrid,
     planned: PlannedTable,
@@ -194,28 +160,24 @@ def _parse_subtable(
     subtable_count: int,
     seed_title: str,
 ) -> ParsedExcelTable | None:
-    stripped, leading_caption = _strip_leading_caption_and_blank_rows(
-        sheet, planned.region
-    )
-    if stripped.max_row < stripped.min_row:
+    region = planned.region
+    if region.max_row < region.min_row:
         return None
-    visual = build_region_visual(sheet, stripped)
-    caption = _join_captions(
-        leading_caption, planned.caption_texts, planned.satellites
-    )
+    visual = build_region_visual(sheet, region)
+    caption = _join_captions(planned.caption_texts, planned.satellites)
     spec = detect_headers(
         TableRegion(visual=visual),
         llm=header_detector,
         caption=caption,
     )
-    effective_row_end = stripped.min_row + spec.data_end_row
-    if effective_row_end < stripped.min_row:
+    effective_row_end = region.min_row + spec.data_end_row
+    if effective_row_end < region.min_row:
         return None
     table_region = Region(
-        min_row=stripped.min_row,
-        min_col=stripped.min_col,
+        min_row=region.min_row,
+        min_col=region.min_col,
         max_row=effective_row_end,
-        max_col=stripped.max_col,
+        max_col=region.max_col,
     )
     html = render_table_html(
         sheet, table_region, spec, tfoot_rows=planned.tfoot_rows
@@ -246,13 +208,12 @@ def _parse_subtable(
 
 
 def _join_captions(
-    leading: str | None,
     caption_texts: Sequence[str],
     satellites: Sequence[str],
 ) -> str | None:
     parts: list[str] = []
     seen: set[str] = set()
-    for item in (leading, *caption_texts, *satellites):
+    for item in (*caption_texts, *satellites):
         text = (item or "").strip()
         if not text or text in seen:
             continue

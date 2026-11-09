@@ -27,13 +27,7 @@ class _RecordingJudge:
 
     def choose(self, *, state, required_ids, **kwargs):
         self.states.append(state)
-        answers = {}
-        for question_id in required_ids:
-            if question_id.startswith("merge::"):
-                answers[question_id] = "separate"
-            else:
-                answers[question_id] = "table"
-        return answers
+        return {question_id: "separate" for question_id in required_ids}
 
 
 def _save(path: Path, workbook: Workbook) -> Path:
@@ -64,12 +58,46 @@ def test_large_center_preview_omits_interior_rows_and_cols(tmp_path: Path) -> No
         judge=judge,
     )
     assert judge.states
-    center = judge.states[0]["center"]
-    grid_text = str(center["grid"])
-    assert "omitted" in grid_text
-    assert "..." in grid_text
-    assert center["omitted_rows"] == 2
-    assert center["omitted_cols"] == 2
-    assert "R1C1" in grid_text
-    assert "R12C12" in grid_text
-    assert "R6C6" not in grid_text
+    center = str(judge.states[0]["center"])
+    assert "omitted" in center
+    assert "..." in center
+    assert "R1C1" in center
+    assert "R12C12" in center
+    assert "R6C6" not in center
+
+
+def test_one_column_strip_is_never_a_merge_center(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["C1"] = "Extra"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["C2"] = 1
+    sheet["A3"] = "East"
+    sheet["B3"] = 11
+    sheet["C3"] = 2
+    sheet["A4"] = "West"
+    sheet["B4"] = 12
+    sheet["C4"] = 3
+    sheet["E1"] = 1
+    sheet["E3"] = 1
+    sheet["E5"] = 1
+    path = _save(tmp_path / "center.xlsx", workbook)
+
+    grid = load_workbook_grid(str(path)).sheets[0]
+    judge = _RecordingJudge()
+    evaluate_sheet_blocks(
+        grid,
+        [
+            Region(min_row=1, min_col=1, max_row=4, max_col=3),
+            Region(min_row=1, min_col=5, max_row=5, max_col=5),
+        ],
+        judge=judge,
+    )
+    assert judge.states
+    center = str(judge.states[0]["center"])
+    assert "Name" in center
+    assert "North" in center

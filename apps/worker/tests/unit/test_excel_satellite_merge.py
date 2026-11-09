@@ -172,3 +172,100 @@ def test_vlookup_between_tables_emits_formula_links(tmp_path: Path) -> None:
     assert link.source_key == table_key("Data", sales.region)
     assert link.target_key == table_key("Data", rates.region)
     assert "VLOOKUP" in link.formula
+
+
+def test_unlabeled_numeric_strip_is_not_emitted(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["A3"] = "East"
+    sheet["B3"] = 11
+    sheet["E1"] = 1
+    sheet["E3"] = 1
+    sheet["E5"] = 1
+    path = _save(tmp_path / "scratch.xlsx", workbook)
+
+    workbook_grid = load_workbook_grid(str(path))
+    table = ClassifiedRegion(
+        region=Region(min_row=1, min_col=1, max_row=3, max_col=2),
+        role="table",
+    )
+    strip = ClassifiedRegion(
+        region=Region(min_row=1, min_col=5, max_row=5, max_col=5),
+        role="fragment",
+    )
+    plan = resolve_formula_satellites_and_edges(
+        workbook_grid,
+        {"Data": [table, strip]},
+        build_formula_graph(workbook_grid),
+    )
+    assert [item.region for item in plan.tables] == [table.region]
+
+
+def test_labeled_numeric_strip_is_emitted(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["A3"] = "East"
+    sheet["B3"] = 11
+    sheet["E1"] = "面积"
+    sheet["E2"] = 38610.09
+    sheet["E3"] = 38610.09
+    path = _save(tmp_path / "labeled.xlsx", workbook)
+
+    workbook_grid = load_workbook_grid(str(path))
+    table = ClassifiedRegion(
+        region=Region(min_row=1, min_col=1, max_row=3, max_col=2),
+        role="table",
+    )
+    strip = ClassifiedRegion(
+        region=Region(min_row=1, min_col=5, max_row=3, max_col=5),
+        role="fragment",
+    )
+    plan = resolve_formula_satellites_and_edges(
+        workbook_grid,
+        {"Data": [table, strip]},
+        build_formula_graph(workbook_grid),
+    )
+    assert [item.region for item in plan.tables] == [table.region, strip.region]
+
+
+def test_referenced_numeric_strip_is_emitted(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["A3"] = "East"
+    sheet["B3"] = 11
+    sheet["E1"] = 1
+    sheet["E2"] = 2
+    sheet["E3"] = 3
+    sheet["C2"] = "=E2*1.2"
+    path = _save(tmp_path / "referenced.xlsx", workbook)
+
+    workbook_grid = load_workbook_grid(str(path))
+    table = ClassifiedRegion(
+        region=Region(min_row=1, min_col=1, max_row=3, max_col=2),
+        role="table",
+    )
+    strip = ClassifiedRegion(
+        region=Region(min_row=1, min_col=5, max_row=3, max_col=5),
+        role="fragment",
+    )
+    plan = resolve_formula_satellites_and_edges(
+        workbook_grid,
+        {"Data": [table, strip]},
+        build_formula_graph(workbook_grid),
+    )
+    assert [item.region for item in plan.tables] == [table.region, strip.region]

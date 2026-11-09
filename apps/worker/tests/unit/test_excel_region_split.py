@@ -35,13 +35,7 @@ class _FailClosedJudge:
 
 class _MergeJudge:
     def choose(self, *, required_ids, **kwargs):
-        answers = {}
-        for question_id in required_ids:
-            if question_id.startswith("merge::"):
-                answers[question_id] = "merge"
-            else:
-                answers[question_id] = "table"
-        return answers
+        return {question_id: "merge" for question_id in required_ids}
 
 
 def _save(path: Path, workbook: Workbook) -> Path:
@@ -238,6 +232,40 @@ def test_border_block_does_not_rejoin_empty_row_split(tmp_path: Path) -> None:
         Region(min_row=1, min_col=1, max_row=3, max_col=2),
         Region(min_row=5, min_col=1, max_row=7, max_col=2),
     ]
+
+
+def test_one_column_sparse_numbers_stay_one_region(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["C1"] = "Extra"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["C2"] = 1
+    sheet["A3"] = "East"
+    sheet["B3"] = 11
+    sheet["C3"] = 2
+    sheet["A4"] = "West"
+    sheet["B4"] = 12
+    sheet["C4"] = 3
+    sheet["E1"] = 1
+    sheet["E3"] = 1
+    sheet["E5"] = 1
+    path = _save(tmp_path / "sparse-col.xlsx", workbook)
+
+    grid = load_workbook_grid(str(path))
+    classified = split_sheet_regions(
+        grid.sheets[0],
+        defined_names=grid.defined_names,
+        judge=_FailClosedJudge(),
+    )
+    assert _regions(classified) == [
+        Region(min_row=1, min_col=1, max_row=4, max_col=3),
+        Region(min_row=1, min_col=5, max_row=5, max_col=5),
+    ]
+    assert [item.role for item in classified] == ["table", "fragment"]
 
 
 def test_caption_across_blank_row_stays_a_fragment(tmp_path: Path) -> None:

@@ -812,13 +812,7 @@ def test_xlsx_luna_merge_rejoins_same_table_across_empty_row(
     del worker_contract_environment
 
     def _merge_choose(self, *, required_ids, **kwargs):
-        answers = {}
-        for question_id in required_ids:
-            if question_id.startswith("merge::"):
-                answers[question_id] = "merge"
-            else:
-                answers[question_id] = "table"
-        return answers
+        return {question_id: "merge" for question_id in required_ids}
 
     monkeypatch.setattr(_LUNA_CHOOSE, _merge_choose)
     workbook_path = tmp_path / "luna-merge.xlsx"
