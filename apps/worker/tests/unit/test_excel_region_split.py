@@ -15,7 +15,7 @@ from openpyxl.styles import Border, Side  # noqa: E402
 from openpyxl.workbook.defined_name import DefinedName  # noqa: E402
 from openpyxl.worksheet.table import Table, TableColumn  # noqa: E402
 
-from app.services.document_parser.formats.excel.region_split import (  # noqa: E402
+from app.services.document_parser.formats.excel.luna_decisions import (  # noqa: E402
     split_sheet_regions,
 )
 from app.services.document_parser.formats.excel.workbook_grid import (  # noqa: E402

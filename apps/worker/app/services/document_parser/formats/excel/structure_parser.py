@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from openpyxl.utils import get_column_letter
 from loguru import logger
@@ -19,9 +18,12 @@ from app.services.document_parser.formats.excel.html_render import (
     render_table_html,
     visible_columns,
 )
+from app.services.document_parser.formats.excel.luna_decisions import (
+    SpreadsheetRegionJudge,
+    split_sheet_regions,
+)
 from app.services.document_parser.formats.excel.region_split import (
     seed_title_for_region,
-    split_sheet_regions,
 )
 from app.services.document_parser.formats.excel.satellite_merge import (
     PlannedTable,
@@ -35,11 +37,6 @@ from app.services.document_parser.formats.excel.workbook_grid import (
     WorkbookGrid,
 )
 from shared.core.exceptions.domain_exceptions import TableParsingException
-
-if TYPE_CHECKING:
-    from app.services.document_parser.formats.excel.luna_decisions import (
-        SpreadsheetRegionJudge,
-    )
 
 
 @dataclass(frozen=True)

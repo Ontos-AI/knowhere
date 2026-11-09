@@ -9,12 +9,14 @@ from loguru import logger
 
 from app.services.document_parser.formats.excel.region_split import (
     ClassifiedRegion,
+    atomic_sheet_blocks,
     bounding_region,
     classify_sheet_row,
     columns_overlap,
     regions_overlap,
 )
 from app.services.document_parser.formats.excel.workbook_grid import (
+    DefinedNameDef,
     Region,
     SheetGrid,
     display_value,
@@ -53,6 +55,26 @@ class SheetBlockDecisions:
 class _OpenBlock:
     region: Region
     locked: bool
+
+
+def split_sheet_regions(
+    sheet: SheetGrid,
+    *,
+    defined_names: Sequence[DefinedNameDef] = (),
+    judge: SpreadsheetRegionJudge | None = None,
+) -> list[ClassifiedRegion]:
+    """Split one sheet into atomic empty-row/col blocks, then classify them."""
+    seeds, leftover = atomic_sheet_blocks(sheet, defined_names=defined_names)
+    if not seeds and not leftover:
+        return []
+    return list(
+        evaluate_sheet_blocks(
+            sheet,
+            [*seeds, *leftover],
+            judge=judge,
+            locked=seeds,
+        ).regions
+    )
 
 
 def evaluate_sheet_blocks(

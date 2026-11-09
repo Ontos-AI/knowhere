@@ -25,7 +25,6 @@ from app.services.document_parser.formats.excel.workbook_grid import (
 )
 
 _ROLE_TABLE = "table"
-_ROLE_FRAGMENT = "fragment"
 
 
 @dataclass(frozen=True)

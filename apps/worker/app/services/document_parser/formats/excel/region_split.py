@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from app.services.document_parser.formats.excel.formula_graph import parse_formula_refs
 from app.services.document_parser.formats.excel.workbook_grid import (
@@ -14,11 +13,6 @@ from app.services.document_parser.formats.excel.workbook_grid import (
     sheet_display_value,
 )
 
-if TYPE_CHECKING:
-    from app.services.document_parser.formats.excel.luna_decisions import (
-        SpreadsheetRegionJudge,
-    )
-
 
 @dataclass(frozen=True)
 class ClassifiedRegion:
@@ -27,15 +21,14 @@ class ClassifiedRegion:
     locked: bool = False
 
 
-def split_sheet_regions(
+def atomic_sheet_blocks(
     sheet: SheetGrid,
     *,
     defined_names: Sequence[DefinedNameDef] = (),
-    judge: SpreadsheetRegionJudge | None = None,
-) -> list[ClassifiedRegion]:
-    """Split one sheet into atomic empty-row/col blocks, then Luna-classify them."""
+) -> tuple[list[Region], list[Region]]:
+    """Return locked seed regions and leftover empty-row/col blocks."""
     if sheet.max_row == 0 or sheet.max_col == 0:
-        return []
+        return [], []
 
     seeds = _seed_regions(sheet, defined_names)
     leftover = _split_sheet_recursive(
@@ -45,17 +38,7 @@ def split_sheet_regions(
         claimed=seeds,
     )
     leftover = [region for region in leftover if not overlaps_any(region, seeds)]
-    from app.services.document_parser.formats.excel.luna_decisions import (
-        evaluate_sheet_blocks,
-    )
-
-    decisions = evaluate_sheet_blocks(
-        sheet,
-        [*seeds, *leftover],
-        judge=judge,
-        locked=seeds,
-    )
-    return list(decisions.regions)
+    return seeds, leftover
 
 
 def classify_sheet_row(
