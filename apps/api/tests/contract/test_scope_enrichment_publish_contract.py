@@ -1074,7 +1074,7 @@ def test_chunk_final_read_claim_locks_only_pending_revisions(
                             )
                         finally:
                             await blocker.rollback()
-                            await reads
+                            _ = await reads
                     else:
                         await asyncio.wait_for(read(), timeout=1)
                 assert lock_attempts == (2 if needs_finalization else 0)
