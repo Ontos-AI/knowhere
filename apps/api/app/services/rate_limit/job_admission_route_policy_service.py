@@ -23,6 +23,7 @@ _GUEST_API_KEY_ALLOWED_ROUTE_PATTERNS: tuple[str, ...] = (
     "/v2/jobs",
     "/v2/jobs/*",
     "/v2/retrieval/query",
+    "/v2/retrieval/tools/invoke",
     "/v2/documents",
     "/v2/documents/*",
     "/mcp",
