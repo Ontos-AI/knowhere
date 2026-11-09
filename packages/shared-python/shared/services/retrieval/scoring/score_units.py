@@ -61,30 +61,19 @@ def _ancestor_path_titles(ts: Any, section_id: str, doc_id: str) -> str:
     return " / ".join(t for t in titles if t)
 
 
-def _self_only_text(ts: Any, section_id: str, doc_id: str) -> Tuple[str, bool]:
-    """Return (self_text, has_interstitial_body).
-
-    Interstitial means self_only span contains content beyond the heading line
-    itself (structural: more than one line/chunk in the self span).
-    """
+def _self_only_text(ts: Any, section_id: str, doc_id: str) -> str:
+    """Return the text owned by the section before its first structural child."""
     self_fn = getattr(ts, "materialize_self_only_chunks", None)
     if not callable(self_fn):
-        return "", False
-    chunks = list(cast(Sequence[Any], self_fn(section_id, doc_id) or []))
-    if not chunks:
-        return "", False
-    texts = [str(getattr(c, "text", "") or "").strip() for c in chunks]
-    texts = [t for t in texts if t]
-    if not texts:
-        return "", False
-    # Structural interstitial: self span covers more than the node heading line.
-    has_interstitial = len(chunks) > 1
-    return "\n".join(texts), has_interstitial
+        return ""
+    chunks = cast(Sequence[Any], self_fn(section_id, doc_id) or [])
+    texts = [str(getattr(chunk, "text", "") or "").strip() for chunk in chunks]
+    return "\n".join(text for text in texts if text)
 
 
 def _section_body_text(ts: Any, section_id: str, doc_id: str) -> str:
     """Heading + lines until first structural child (leaf body / parent self span)."""
-    text, _ = _self_only_text(ts, section_id, doc_id)
+    text: str = _self_only_text(ts, section_id, doc_id)
     if text:
         return text
     return _line_content(ts, section_id, doc_id)
@@ -165,8 +154,10 @@ def _iterate_score_units(ts: Any, doc_id: str, root_ids: Optional[Sequence[str]]
         if not children:
             yield None
             continue
-        self_text, has_interstitial = _self_only_text(ts, sid, doc_id)
-        if not has_interstitial or not self_text:
+        title: str = titles.get(sid, "")
+        self_text: str = _self_only_text(ts, sid, doc_id)
+        # Parsed chunks may contain the body alone, even when there is only one.
+        if not self_text or self_text == title:
             yield None
             continue
         unit_id: str = f"{sid}__self"
@@ -175,7 +166,6 @@ def _iterate_score_units(ts: Any, doc_id: str, root_ids: Optional[Sequence[str]]
             continue
         seen_unit_ids.add(unit_id)
         path_text = _ancestor_path_titles(ts, sid, doc_id)
-        title = titles.get(sid) or ""
         unit = {"chunk_id": unit_id, "section_id": sid, "kind": "self_only", "content": self_text, "path_text": path_text,
             "path_search_text": build_path_search_text(section_path=path_text, section_title=title) if tokenize else "",
             "content_search_text": build_content_search_text(self_text) if tokenize else ""}

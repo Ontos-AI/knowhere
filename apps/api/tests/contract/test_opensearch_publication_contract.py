@@ -1185,6 +1185,42 @@ def test_existing_discovery_reads_native_build_without_pg_frequency_rows(
         engine.dispose()
 
 
+def test_native_retrieval_finds_the_only_body_chunk_before_child_sections(
+    monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess,
+) -> None:
+    endpoint: str = _getNativeEndpoint()
+    query: str = "chickadee"
+    parentContent: str = "The chickadee procedure applies to all subsections."
+    childContent: str = "Check the archive window before maintenance."
+    engine, jobId, namespace = _prepareParsedJob(monkeypatch, postgresql_proc, preparedChunks=[
+        {"chunk_id": "parent-body", "type": "text", "content": parentContent,
+         "path": "report.pdf/Field Guide", "order": 0, "metadata": {}},
+        {"chunk_id": "child-body", "type": "text", "content": childContent,
+         "path": "report.pdf/Field Guide/Procedure", "order": 1, "metadata": {}},
+    ])
+    from sqlalchemy.orm import sessionmaker
+    from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
+    from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.lexical.worker import IndexingWorker
+
+    monkeypatch.setattr(LegacyCopyDispatch, "submit", staticmethod(lambda _build_id: False))
+    index = OpenSearchLexicalIndex(endpoint=endpoint,
+        scope=LexicalScope(ownerId="native-contract-user", namespace=namespace),
+        indexPrefix="knowhere-slice-test")
+    try:
+        assert IndexingWorker(sessionFactory=sessionmaker(engine, expire_on_commit=False)).run(jobId) == "completed"
+        childRows: list[dict[str, object]] = asyncio.run(_discoverNative(namespace, query="archive"))
+        assert [row["content"] for row in childRows] == [childContent]
+        parentRows: list[dict[str, object]] = asyncio.run(_discoverNative(namespace, query=query))
+        assert [row["content"] for row in parentRows] == [parentContent]
+    finally:
+        response: httpx.Response = httpx.delete(f"{endpoint}/{index.indexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
+        index.close()
+        engine.dispose()
+
+
 def test_native_failure_is_not_an_empty_or_pg_fallback_result(
     monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess,
 ) -> None:
