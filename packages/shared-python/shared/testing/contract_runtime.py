@@ -355,7 +355,7 @@ def configure_contract_environment(
         # change contract expectations (credits seed, upload allow-list).
         "FREE_PLAN_INITIAL_CREDITS": "5",
         "SUPPORTED_EXTENSIONS": (
-            ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.pptx,"
+            ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.tsv,.pptx,"
             ".jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif,"
             ".md,.html,.htm"
         ),

@@ -30,6 +30,7 @@ CONTENT_TYPE_TO_EXTENSION: dict[str, str] = {
     "application/vnd.ms-powerpoint": ".ppt",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
     "text/csv": ".csv",
+    "text/tab-separated-values": ".tsv",
     "text/plain": ".txt",
     "text/markdown": ".md",
     "image/png": ".png",

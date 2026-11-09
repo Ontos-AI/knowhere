@@ -113,25 +113,20 @@ class DocxParseAdapter:
 
 
 @dataclass(frozen=True)
-class XlsParseAdapter:
+class SpreadsheetParseAdapter:
     document_format: object
 
     def parse(self, session: ParseSession) -> ParseOutput:
-        from app.services.document_parser.conversion.legacy_converter import xls_to_xlsx
-
-        converted_xlsx_path, _ = xls_to_xlsx(
-            session.file_full_path,
-            outdir=session.full_output_dir,
+        from app.services.document_parser.formats.excel.normalize import (
+            normalize_table_source,
         )
-        return _parse_xlsx_path(converted_xlsx_path, session)
 
-
-@dataclass(frozen=True)
-class XlsxParseAdapter:
-    document_format: object
-
-    def parse(self, session: ParseSession) -> ParseOutput:
-        return _parse_xlsx_path(session.file_full_path, session)
+        work_xlsx = normalize_table_source(
+            session.file_full_path,
+            session.filename,
+            session.full_output_dir,
+        )
+        return _parse_xlsx_path(work_xlsx, session)
 
 
 @dataclass(frozen=True)

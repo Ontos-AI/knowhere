@@ -8,6 +8,7 @@ from shared.services.chunks.path_segments import unescape_path_segment
 
 _DOCUMENT_FILE_EXTENSIONS = {
     ".csv",
+    ".tsv",
     ".atlas",
     ".fragment",
     ".gif",
