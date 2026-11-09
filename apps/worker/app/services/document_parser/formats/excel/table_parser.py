@@ -150,7 +150,6 @@ def _parse_excel_sheet(
     table_index: int,
 ) -> list[ParsedRow]:
     parsed_rows: list[ParsedRow] = []
-    sheet_attrs = dict(sheet_frame.attrs)
 
     try:
         table_frame = postprocess_tb(sheet_frame, drop=True)
@@ -281,19 +280,7 @@ def _sheet_name_from_attrs(attrs: dict[str, Any], *, fallback: str) -> str:
 
 
 def _subtable_title_from_attrs(attrs: dict[str, Any]) -> str:
-    caption = str(attrs.get("caption") or "").strip()
-    if caption:
-        return caption
-    try:
-        subtable_count = int(attrs.get("subtable_count") or 1)
-        subtable_index = int(attrs.get("subtable_index") or 1)
-    except (TypeError, ValueError):
-        subtable_count = 1
-        subtable_index = 1
-    if subtable_count <= 1:
-        return ""
-    title = str(attrs.get("subtable_title") or "").strip()
-    return title or f"子表 {subtable_index}"
+    return str(attrs.get("subtable_title") or "").strip()
 
 
 def _table_label(*, sheet_name: str, subtable_title: str) -> str:

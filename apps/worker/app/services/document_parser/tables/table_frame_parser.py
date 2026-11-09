@@ -114,32 +114,6 @@ def postprocess_tb(table_frame: pd.DataFrame, drop: bool = False) -> pd.DataFram
         if not isinstance(table_frame.index, pd.RangeIndex):
             was_multiindex = isinstance(table_frame.columns, pd.MultiIndex)
             column_level_count = table_frame.columns.nlevels if was_multiindex else 1
-            existing_column_set = set(table_frame.columns)
-
-            def make_padded(name: object) -> object:
-                if was_multiindex:
-                    return tuple([name] * column_level_count)
-                return name
-
-            if isinstance(table_frame.index, pd.MultiIndex):
-                seen_counts: dict[object, int] = {}
-                deduped_names: list[object | None] = []
-                for name in table_frame.index.names:
-                    if name is None:
-                        deduped_names.append(None)
-                        continue
-                    padded = make_padded(name)
-                    if padded in existing_column_set or name in seen_counts:
-                        deduped_names.append(None)
-                    else:
-                        deduped_names.append(name)
-                    seen_counts[name] = seen_counts.get(name, 0) + 1
-                table_frame.index.names = deduped_names
-            elif hasattr(table_frame.index, "name") and table_frame.index.name is not None:
-                padded = make_padded(table_frame.index.name)
-                if padded in existing_column_set:
-                    table_frame.index.name = None
-
             row_header_tuples: list[tuple[str, ...]] = list(
                 table_frame.attrs.get("row_header_column_tuples") or []
             )
@@ -156,25 +130,26 @@ def postprocess_tb(table_frame: pd.DataFrame, drop: bool = False) -> pd.DataFram
                     if col_idx < index_level_count and col_idx < len(row_header_tuples):
                         padded_tuple = tuple(
                             list(row_header_tuples[col_idx])[:column_level_count]
-                            + [""] * max(0, column_level_count - len(row_header_tuples[col_idx]))
+                            + [""] * max(
+                                0, column_level_count - len(row_header_tuples[col_idx])
+                            )
                         )
                         new_columns.append(padded_tuple)
                     elif isinstance(column, str) and (
                         column.startswith("level_") or column == "index"
                     ):
                         new_columns.append(tuple([""] * column_level_count))
-                    elif isinstance(column, tuple) and len(column) == column_level_count:
-                        if all(c == "" for c in column[1:]) and column[0] != "":
-                            new_columns.append(tuple([column[0]] * column_level_count))
-                        else:
-                            new_columns.append(column)
                     else:
                         new_columns.append(column)
                 table_frame.columns = pd.MultiIndex.from_tuples(new_columns)
             else:
                 new_columns = []
                 for col_idx, column in enumerate(table_frame.columns):
-                    if col_idx < index_level_count and col_idx < len(row_header_tuples) and row_header_tuples[col_idx]:
+                    if (
+                        col_idx < index_level_count
+                        and col_idx < len(row_header_tuples)
+                        and row_header_tuples[col_idx]
+                    ):
                         new_columns.append(row_header_tuples[col_idx][-1])
                     elif isinstance(column, str) and (
                         column.startswith("level_") or column == "index"

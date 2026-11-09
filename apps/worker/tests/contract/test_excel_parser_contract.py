@@ -473,6 +473,7 @@ def test_xlsx_leading_title_row_and_hidden_empty_columns_keep_headers_aligned(
     parsed_df = parse_output.parsed_df
     assert parsed_df is not None
     assert len(parsed_df) == 1
+    assert parsed_df["path"].tolist() == ["boq.xlsx/清单"]
     metadata = _extra_metadata(parsed_df)
     assert metadata["caption"] == "分部分项工程量清单"
     assert metadata["header_row_count"] == 2

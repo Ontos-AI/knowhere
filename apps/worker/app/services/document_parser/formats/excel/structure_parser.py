@@ -89,6 +89,7 @@ def parse_excel_structure(
                         header_detector=header_detector,
                     )
                     dataframe = result["df"]
+                    spec = result["header_spec"]
                     _apply_subtable_attrs(
                         dataframe,
                         result=result,
@@ -99,7 +100,8 @@ def parse_excel_structure(
                     key = selected_sheet_name if index == 0 else f"{selected_sheet_name}_{index + 1}"
                     logger.debug(
                         f"Subtable '{key}': rows={row_range}, cols={col_range}, "
-                        f"header_rows={result['header_rows']}, header_cols={result['header_cols']}"
+                        f"header_row_count={spec.header_row_count}, "
+                        f"row_header_col_count={spec.row_header_col_count}"
                     )
                     results[key] = dataframe
             else:
@@ -113,6 +115,7 @@ def parse_excel_structure(
                     header_detector=header_detector,
                 )
                 dataframe = result["df"]
+                spec = result["header_spec"]
                 _apply_subtable_attrs(
                     dataframe,
                     result=result,
@@ -121,8 +124,9 @@ def parse_excel_structure(
                     subtable_count=1,
                 )
                 logger.debug(
-                    f"Sheet '{selected_sheet_name}': header_rows={result['header_rows']}, "
-                    f"header_cols={result['header_cols']}"
+                    f"Sheet '{selected_sheet_name}': "
+                    f"header_row_count={spec.header_row_count}, "
+                    f"row_header_col_count={spec.row_header_col_count}"
                 )
                 results[selected_sheet_name] = dataframe
 
@@ -151,15 +155,11 @@ def _apply_subtable_attrs(
     dataframe.attrs["row_header_col_count"] = spec.row_header_col_count
     dataframe.attrs["column_headers"] = spec.column_headers
     dataframe.attrs["row_header_column_tuples"] = result.get("row_header_column_tuples", ())
-    dataframe.attrs["caption"] = spec.caption or result.get("caption")
+    dataframe.attrs["caption"] = spec.caption
     dataframe.attrs["excel_range"] = result["excel_range"]
     dataframe.attrs["sheet_name"] = sheet_name
-    dataframe.attrs["subtable_index"] = subtable_index
-    dataframe.attrs["subtable_count"] = subtable_count
     dataframe.attrs["subtable_title"] = (
-        spec.caption
-        or result.get("caption")
-        or (f"子表 {subtable_index}" if subtable_count > 1 else "")
+        f"子表 {subtable_index}" if subtable_count > 1 else ""
     )
 
 
@@ -199,11 +199,9 @@ def _build_row_multiindex(
     header_cols: List[int],
     row_range: Tuple[int, int],
     merged_ranges: list,
-    header_rows: List[int] | None = None,
 ) -> Union[pd.Index, pd.MultiIndex]:
     row_start, row_end = row_range
     levels = []
-    names = []
 
     for col in header_cols:
         col_values = []
@@ -212,18 +210,9 @@ def _build_row_multiindex(
             col_values.append(str(value).strip() if value is not None else "")
         levels.append(col_values)
 
-        if header_rows:
-            name_row = header_rows[-1]
-            name_value = _get_merged_cell_value(ws, name_row, col, merged_ranges)
-            names.append(str(name_value).strip() if name_value else None)
-        else:
-            names.append(None)
-
     if len(levels) == 1:
-        row_index = pd.Index(levels[0])
-        row_index.name = names[0] if names else None
-        return row_index
-    return pd.MultiIndex.from_arrays(levels, names=names)
+        return pd.Index(levels[0])
+    return pd.MultiIndex.from_arrays(levels)
 
 
 def _strip_leading_caption_and_blank_rows(
@@ -334,7 +323,6 @@ def _parse_subtable(
             header_cols,
             (data_row_start, effective_row_end),
             merged_ranges,
-            header_rows,
         )
 
     data = []
@@ -358,14 +346,9 @@ def _parse_subtable(
     )
     return {
         "df": dataframe,
-        "header_rows": header_rows,
-        "header_cols": header_cols,
         "header_spec": spec,
         "row_header_column_tuples": tuple(row_header_column_tuples),
-        "caption": caption,
         "excel_range": excel_range,
-        "row_range": (row_start, effective_row_end),
-        "col_range": col_range,
     }
 
 
