@@ -323,6 +323,7 @@ class JobFileStorage:
             ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             ".ppt": "application/vnd.ms-powerpoint",
             ".csv": "text/csv",
+            ".tsv": "text/tab-separated-values",
             ".txt": "text/plain",
             ".md": "text/markdown",
             ".json": "application/json",

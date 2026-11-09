@@ -12,6 +12,6 @@ from app.services.document_parser.orchestration.parse_session import ParseSessio
 def route_document_parse(session: ParseSession) -> ParseOutput:
     """Route a parser session to the correct adapter and return its output."""
     document_format = resolve_document_format(session.file_full_path)
-    validate_office_container(session.file_full_path, document_format)
+    validate_office_container(session.file_full_path)
     adapter = get_document_parse_adapter(document_format)
     return adapter.parse(session)

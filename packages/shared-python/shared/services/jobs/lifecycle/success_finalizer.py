@@ -150,6 +150,6 @@ class SyncJobSuccessFinalizer:
             post_commit_effects=replace(
                 finalization.post_commit_effects,
                 structure_job_result_ids=(job_result.id,) if parse_track == "page_memory" else (),
-                chunk_final_job_result_ids=(job_result.id,) if parse_track == "chunk" else (),
+                chunk_final_job_result_ids=(),
             ),
         )

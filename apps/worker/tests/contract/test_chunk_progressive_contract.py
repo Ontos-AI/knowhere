@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from datetime import timedelta
@@ -445,6 +446,16 @@ def test_chunk_final_recovery_skips_complete_and_fresh_claims() -> None:
             doc_meta={"progressive": pending.model_dump(mode="json")},
             now=now,
         )
+        is True
+    )
+    requested = ProgressiveIngestionState(
+        stages={"finalization": {"status": "running", "attempts": 0}},
+    )
+    assert (
+        _should_skip_chunk_final_recovery(
+            doc_meta={"progressive": requested.model_dump(mode="json")},
+            now=now,
+        )
         is False
     )
     running = ProgressiveIngestionState(
@@ -611,7 +622,11 @@ def test_sweeper_reenqueues_chunk_final_not_structure(
         CHUNK_FINAL_TASK_NAME,
         sweep_progressive_enrichments_sync,
     )
-    from shared.services.jobs.progressive_ingestion import initialize_baseline_state
+    from shared.services.jobs.progressive_ingestion import (
+        initialize_baseline_state,
+        read_progressive_state,
+        write_progressive_state,
+    )
     from shared.testing.contract_runtime import get_contract_database_url
     from shared.utils.utc_now import utc_now_naive
 
@@ -709,9 +724,28 @@ def test_sweeper_reenqueues_chunk_final_not_structure(
             session.commit()
 
         sweep_progressive_enrichments_sync()
+        assert sent == []
+        assert BUILD_STRUCTURE_TASK_NAME not in {name for name, _args in sent}
+
+        with Session(engine) as session:
+            result = session.get(JobResult, "rev_chunk_sweep")
+            state = read_progressive_state(result.document_metadata)
+            stages = dict(state.stages)
+            stages["finalization"] = {**stages.get("finalization", {}), "status": "running"}
+            state.stages = stages
+            result.document_metadata = write_progressive_state(
+                result.document_metadata, state
+            )
+            session.execute(
+                update(Job)
+                .where(Job.job_id == "job_chunk_sweep")
+                .values(updated_at=stale)
+            )
+            session.commit()
+
+        sweep_progressive_enrichments_sync()
         assert [name for name, _args in sent] == [CHUNK_FINAL_TASK_NAME]
         assert sent[0][1] == ["rev_chunk_sweep"]
-        assert BUILD_STRUCTURE_TASK_NAME not in {name for name, _args in sent}
 
         sent.clear()
         from app.services.page_memory.scope_enrichment_service import (
@@ -809,3 +843,153 @@ def test_download_original_source_reuses_resumed_markdown_file_without_s3_downlo
     assert "# Resumed" in Path(resolved).read_text(encoding="utf-8")
     assert not resumed.exists()
 
+
+def test_promote_on_read_enqueues_chunk_final_once(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.orm import Session
+
+    from shared.core import celery_app as celery_app_mod
+    from shared.core.database import get_db_context
+    from shared.models.database.document import Document
+    from shared.models.database.job import Job
+    from shared.models.database.job_result import JobResult
+    from shared.services.jobs.lifecycle.scope_enrichments import (
+        BUILD_STRUCTURE_TASK_NAME,
+        CHUNK_FINAL_TASK_NAME,
+        ENRICH_SCOPE_TASK_NAME,
+        promote_scopes_on_read,
+    )
+    from shared.services.jobs.progressive_ingestion import initialize_baseline_state
+    from shared.testing.contract_runtime import get_contract_database_url
+
+    del worker_contract_environment
+    engine = create_engine(
+        make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2")
+    )
+    sent: list[tuple[str, list[object]]] = []
+
+    class FakeCelery:
+        def send_task(
+            self,
+            name: str,
+            args: list[object] | None = None,
+            **_kwargs: object,
+        ) -> None:
+            sent.append((name, list(args or [])))
+
+    monkeypatch.setattr(celery_app_mod, "get_celery_app", lambda: FakeCelery())
+    checksum = "c" * 64
+    try:
+        with Session(engine) as session:
+            session.execute(
+                text(
+                    'INSERT INTO "user" (id, name, email) '
+                    "VALUES (:id, :name, :email) ON CONFLICT (id) DO NOTHING"
+                ),
+                {
+                    "id": "chunk-promote-user",
+                    "name": "Chunk Promote",
+                    "email": "chunk-promote@test.local",
+                },
+            )
+            job = Job(
+                job_id="job_chunk_promote",
+                user_id="chunk-promote-user",
+                job_type="document_ingestion",
+                status="done",
+                source_type="file",
+                webhook_enabled=False,
+                job_metadata={
+                    "namespace": "ns-chunk-promote",
+                    "parse_track": "chunk",
+                    "ingestion_mode": "progressive",
+                    "source_file_name": "notes.md",
+                    "enrichment_status": "text",
+                },
+            )
+            session.add(job)
+            session.flush()
+            result = JobResult(
+                id="rev_chunk_promote",
+                job_id="job_chunk_promote",
+                delivery_mode="url",
+                result_s3_key="results/job_chunk_promote.zip",
+                result_size=10,
+                inline_payload={"checksum": checksum},
+                document_metadata={
+                    "enrichment_status": "text",
+                    "progressive": initialize_baseline_state(
+                        snapshot=StoredSnapshot(
+                            snapshot_id="snapshot_promote",
+                            stage="baseline",
+                            job_id="job_chunk_promote",
+                            job_result_id="rev_chunk_promote",
+                            document_id="doc_chunk_promote",
+                            checksum=checksum,
+                            archive_key="results/job_chunk_promote.zip",
+                        ),
+                        missing_pages=[],
+                    ).model_dump(mode="json"),
+                },
+            )
+            session.add(result)
+            session.flush()
+            session.add(
+                Document(
+                    document_id="doc_chunk_promote",
+                    user_id="chunk-promote-user",
+                    namespace="ns-chunk-promote",
+                    status="active",
+                    current_job_result_id="rev_chunk_promote",
+                    source_file_name="notes.md",
+                    parse_track="chunk",
+                )
+            )
+            session.flush()
+            result.document_id = "doc_chunk_promote"
+            session.commit()
+
+        row = {
+            "document_id": "doc_chunk_promote",
+            "job_result_id": "rev_chunk_promote",
+            "chunk_id": "c1",
+            "chunk_type": "text",
+            "content": "Visible baseline sentence.",
+        }
+
+        async def _promote() -> None:
+            async with get_db_context() as db:
+                await promote_scopes_on_read(db, [row])
+
+        asyncio.run(_promote())
+        assert [name for name, _args in sent] == [CHUNK_FINAL_TASK_NAME]
+        assert sent[0][1] == ["rev_chunk_promote"]
+        assert ENRICH_SCOPE_TASK_NAME not in {name for name, _args in sent}
+        assert BUILD_STRUCTURE_TASK_NAME not in {name for name, _args in sent}
+
+        asyncio.run(_promote())
+        assert [name for name, _args in sent] == [CHUNK_FINAL_TASK_NAME]
+
+        async def _promote_empty() -> None:
+            async with get_db_context() as db:
+                await promote_scopes_on_read(
+                    db,
+                    [
+                        {
+                            "document_id": "doc_chunk_promote",
+                            "job_result_id": "rev_chunk_promote",
+                            "chunk_id": "c2",
+                            "chunk_type": "text",
+                            "content": "",
+                        }
+                    ],
+                )
+
+        asyncio.run(_promote_empty())
+        assert [name for name, _args in sent] == [CHUNK_FINAL_TASK_NAME]
+    finally:
+        engine.dispose()
