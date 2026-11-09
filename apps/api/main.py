@@ -222,7 +222,9 @@ def create_app() -> FastAPI:
             import logfire
 
             logfire.instrument_fastapi(
-                app, excluded_urls="/$,/health,/api/health,/database/*"
+                app,
+                excluded_urls="/$,/health,/api/health,/database/*",
+                record_send_receive=True,
             )
         except ImportError:
             pass
