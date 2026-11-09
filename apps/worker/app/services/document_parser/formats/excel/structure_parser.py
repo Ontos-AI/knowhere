@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-from typing import List, Optional, Tuple, Union
-from typing import cast
+from dataclasses import dataclass
 
-import pandas as pd
 from openpyxl.utils import get_column_letter
-from pandas._typing import Axes
 from loguru import logger
 
 from app.services.document_parser.formats.excel.header_detect import (
+    HeaderSpec,
     SpreadsheetHeaderDetector,
     TableRegion,
     build_region_visual,
     detect_headers,
+)
+from app.services.document_parser.formats.excel.html_render import (
+    render_table_html,
+    visible_columns,
 )
 from app.services.document_parser.formats.excel.region_split import (
     classify_sheet_row,
@@ -23,22 +25,47 @@ from app.services.document_parser.formats.excel.workbook_grid import (
     Region,
     SheetGrid,
     WorkbookGrid,
-    sheet_display_value,
 )
 from shared.core.exceptions.domain_exceptions import TableParsingException
 
 
+@dataclass(frozen=True)
+class ParsedExcelTable:
+    sheet_name: str
+    subtable_title: str
+    header_row_count: int
+    row_header_col_count: int
+    column_headers: tuple[str, ...]
+    caption: str | None
+    html: str
+    excel_range: str
+
+    def extra_metadata(self) -> dict[str, object]:
+        meta: dict[str, object] = {
+            "header_row_count": self.header_row_count,
+            "row_header_col_count": self.row_header_col_count,
+            "column_headers": [str(name) for name in self.column_headers],
+            "sheet_name": self.sheet_name,
+            "excel_range": self.excel_range,
+        }
+        caption = (self.caption or "").strip()
+        if caption:
+            meta["caption"] = caption
+        return meta
+
+
 def parse_excel_structure(
     workbook: WorkbookGrid,
-    sheet_name: Optional[str] = None,
-    split_subtables: bool = True,
+    sheet_name: str | None = None,
     include_hidden_sheets: bool = False,
     header_detector: SpreadsheetHeaderDetector | None = None,
-) -> dict[str, pd.DataFrame]:
+) -> list[ParsedExcelTable]:
     try:
-        results: dict[str, pd.DataFrame] = {}
+        results: list[ParsedExcelTable] = []
         sheets = workbook.sheet_by_name()
-        sheets_to_parse = [sheet_name] if sheet_name else [sheet.name for sheet in workbook.sheets]
+        sheets_to_parse = (
+            [sheet_name] if sheet_name else [sheet.name for sheet in workbook.sheets]
+        )
 
         for selected_sheet_name in sheets_to_parse:
             sheet = sheets.get(selected_sheet_name)
@@ -49,9 +76,7 @@ def parse_excel_structure(
                 continue
 
             if not include_hidden_sheets and sheet.hidden:
-                logger.info(
-                    f"Sheet '{selected_sheet_name}' is hidden, skipping"
-                )
+                logger.info(f"Sheet '{selected_sheet_name}' is hidden, skipping")
                 continue
 
             if sheet.max_row == 0 or sheet.max_col == 0:
@@ -62,67 +87,34 @@ def parse_excel_structure(
                 f"Sheet '{selected_sheet_name}': found {len(sheet.merged_ranges)} merged cell ranges"
             )
 
-            if split_subtables:
-                regions = split_sheet_regions(
-                    sheet, defined_names=workbook.defined_names
-                )
-                logger.debug(
-                    f"Sheet '{selected_sheet_name}': {len(regions)} subtables after split"
-                )
-
-                for index, region in enumerate(regions):
-                    row_range = (region.min_row, region.max_row)
-                    col_range = (region.min_col, region.max_col)
-                    result = _parse_subtable(
-                        sheet,
-                        row_range,
-                        col_range,
-                        header_detector=header_detector,
-                    )
-                    dataframe = result["df"]
-                    spec = result["header_spec"]
-                    _apply_subtable_attrs(
-                        dataframe,
-                        result=result,
-                        sheet_name=selected_sheet_name,
-                        subtable_index=index + 1,
-                        subtable_count=len(regions),
-                        seed_title=seed_title_for_region(
-                            sheet, region, workbook.defined_names
-                        ),
-                    )
-                    key = selected_sheet_name if index == 0 else f"{selected_sheet_name}_{index + 1}"
-                    logger.debug(
-                        f"Subtable '{key}': rows={row_range}, cols={col_range}, "
-                        f"header_row_count={spec.header_row_count}, "
-                        f"row_header_col_count={spec.row_header_col_count}"
-                    )
-                    results[key] = dataframe
-            else:
-                row_range = (1, sheet.max_row)
-                col_range = (1, sheet.max_col or 1)
-                result = _parse_subtable(
+            regions = split_sheet_regions(
+                sheet, defined_names=workbook.defined_names
+            )
+            logger.debug(
+                f"Sheet '{selected_sheet_name}': {len(regions)} subtables after split"
+            )
+            region_count = len(regions)
+            for index, region in enumerate(regions):
+                parsed = _parse_subtable(
                     sheet,
-                    row_range,
-                    col_range,
+                    region,
                     header_detector=header_detector,
-                )
-                dataframe = result["df"]
-                spec = result["header_spec"]
-                _apply_subtable_attrs(
-                    dataframe,
-                    result=result,
                     sheet_name=selected_sheet_name,
-                    subtable_index=1,
-                    subtable_count=1,
-                    seed_title="",
+                    subtable_index=index + 1,
+                    subtable_count=region_count,
+                    seed_title=seed_title_for_region(
+                        sheet, region, workbook.defined_names
+                    ),
                 )
+                if parsed is None:
+                    continue
                 logger.debug(
-                    f"Sheet '{selected_sheet_name}': "
-                    f"header_row_count={spec.header_row_count}, "
-                    f"row_header_col_count={spec.row_header_col_count}"
+                    f"Subtable '{selected_sheet_name}' #{index + 1}: "
+                    f"{parsed.excel_range}, "
+                    f"header_row_count={parsed.header_row_count}, "
+                    f"row_header_col_count={parsed.row_header_col_count}"
                 )
-                results[selected_sheet_name] = dataframe
+                results.append(parsed)
 
         return results
     except Exception as exc:
@@ -135,80 +127,14 @@ def parse_excel_structure(
         ) from exc
 
 
-def _apply_subtable_attrs(
-    dataframe: pd.DataFrame,
-    *,
-    result: dict,
-    sheet_name: str,
-    subtable_index: int,
-    subtable_count: int,
-    seed_title: str,
-) -> None:
-    spec = result["header_spec"]
-    dataframe.attrs["header_row_count"] = spec.header_row_count
-    dataframe.attrs["row_header_col_count"] = spec.row_header_col_count
-    dataframe.attrs["column_headers"] = spec.column_headers
-    dataframe.attrs["row_header_column_tuples"] = result.get("row_header_column_tuples", ())
-    dataframe.attrs["caption"] = spec.caption
-    dataframe.attrs["excel_range"] = result["excel_range"]
-    dataframe.attrs["sheet_name"] = sheet_name
-    if subtable_count <= 1:
-        subtable_title = ""
-    elif seed_title:
-        subtable_title = seed_title
-    else:
-        subtable_title = f"子表 {subtable_index}"
-    dataframe.attrs["subtable_title"] = subtable_title
-
-
-def _build_column_multiindex(
-    sheet: SheetGrid,
-    header_rows: List[int],
-    col_range: Tuple[int, int],
-) -> Union[pd.Index, pd.MultiIndex]:
-    col_start, col_end = col_range
-    levels = []
-
-    for row in header_rows:
-        row_values = []
-        for col in range(col_start, col_end + 1):
-            value = sheet_display_value(sheet, row, col)
-            row_values.append(str(value).strip() if value is not None else "")
-        levels.append(row_values)
-
-    if len(levels) == 1:
-        return pd.Index(levels[0])
-    return pd.MultiIndex.from_arrays(levels)
-
-
-def _build_row_multiindex(
-    sheet: SheetGrid,
-    header_cols: List[int],
-    row_range: Tuple[int, int],
-) -> Union[pd.Index, pd.MultiIndex]:
-    row_start, row_end = row_range
-    levels = []
-
-    for col in header_cols:
-        col_values = []
-        for row in range(row_start, row_end + 1):
-            value = sheet_display_value(sheet, row, col)
-            col_values.append(str(value).strip() if value is not None else "")
-        levels.append(col_values)
-
-    if len(levels) == 1:
-        return pd.Index(levels[0])
-    return pd.MultiIndex.from_arrays(levels)
-
-
 def _strip_leading_caption_and_blank_rows(
     sheet: SheetGrid,
-    row_range: Tuple[int, int],
-    col_range: Tuple[int, int],
-) -> tuple[Tuple[int, int], str | None]:
-    """Strip leading full-width/single-cell title rows and blank rows so ``row_start`` lands on the actual header."""
-    row_start, row_end = row_range
-    col_start, col_end = col_range
+    region: Region,
+) -> tuple[Region, str | None]:
+    """Strip leading full-width/single-cell title rows and blank rows so min_row lands on the header."""
+    row_start = region.min_row
+    row_end = region.max_row
+    col_start, col_end = region.min_col, region.max_col
     caption_parts: list[str] = []
 
     while row_start < row_end:
@@ -223,84 +149,91 @@ def _strip_leading_caption_and_blank_rows(
         break
 
     caption = " / ".join(caption_parts) if caption_parts else None
-    return (row_start, row_end), caption
+    return (
+        Region(
+            min_row=row_start,
+            min_col=col_start,
+            max_row=row_end,
+            max_col=col_end,
+        ),
+        caption,
+    )
 
 
 def _parse_subtable(
     sheet: SheetGrid,
-    row_range: Tuple[int, int],
-    col_range: Tuple[int, int],
-    header_detector: SpreadsheetHeaderDetector | None = None,
-) -> dict:
-    (row_start, row_end), caption = _strip_leading_caption_and_blank_rows(
-        sheet, row_range, col_range
-    )
-    col_start, col_end = col_range
-    visual = build_region_visual(
-        sheet,
-        Region(min_row=row_start, min_col=col_start, max_row=row_end, max_col=col_end),
-    )
+    region: Region,
+    *,
+    header_detector: SpreadsheetHeaderDetector | None,
+    sheet_name: str,
+    subtable_index: int,
+    subtable_count: int,
+    seed_title: str,
+) -> ParsedExcelTable | None:
+    stripped, caption = _strip_leading_caption_and_blank_rows(sheet, region)
+    if stripped.max_row < stripped.min_row:
+        return None
+    visual = build_region_visual(sheet, stripped)
     spec = detect_headers(
         TableRegion(visual=visual),
         llm=header_detector,
         caption=caption,
     )
-    effective_row_end = row_start + spec.data_end_row
-    header_rows = list(range(row_start, row_start + spec.header_row_count))
-    header_cols = list(range(col_start, col_start + spec.row_header_col_count))
-
-    all_columns: Union[pd.Index, pd.MultiIndex, None]
-    if spec.header_row_count == 0:
-        data_row_start = row_start
-        all_columns = None
-    else:
-        data_row_start = row_start + spec.header_row_count
-        all_columns = _build_column_multiindex(sheet, header_rows, col_range)
-
-    row_header_column_tuples: list[tuple[str, ...]] = []
-    if all_columns is not None and spec.row_header_col_count > 0:
-        for col_idx in range(min(spec.row_header_col_count, len(all_columns))):
-            col_entry = all_columns[col_idx]
-            if isinstance(col_entry, tuple):
-                row_header_column_tuples.append(tuple(str(part) for part in col_entry))
-            else:
-                row_header_column_tuples.append((str(col_entry),))
-
-    if spec.row_header_col_count == 0:
-        data_col_start = col_start
-        row_index = None
-    elif data_row_start > effective_row_end:
-        data_col_start = col_start + spec.row_header_col_count
-        row_index = None
-    else:
-        data_col_start = col_start + spec.row_header_col_count
-        row_index = _build_row_multiindex(
-            sheet,
-            header_cols,
-            (data_row_start, effective_row_end),
-        )
-
-    data = []
-    if data_row_start <= effective_row_end:
-        for row in range(data_row_start, effective_row_end + 1):
-            row_data = []
-            for col in range(data_col_start, col_end + 1):
-                row_data.append(sheet_display_value(sheet, row, col))
-            data.append(row_data)
-
-    columns = all_columns
-    if columns is not None and spec.row_header_col_count:
-        columns = cast(Axes, columns[spec.row_header_col_count :])
-
-    dataframe = pd.DataFrame(data, columns=columns, index=row_index)
-
-    excel_range = (
-        f"{get_column_letter(col_start)}{row_start}:"
-        f"{get_column_letter(col_end)}{effective_row_end}"
+    effective_row_end = stripped.min_row + spec.data_end_row
+    if effective_row_end < stripped.min_row:
+        return None
+    table_region = Region(
+        min_row=stripped.min_row,
+        min_col=stripped.min_col,
+        max_row=effective_row_end,
+        max_col=stripped.max_col,
     )
-    return {
-        "df": dataframe,
-        "header_spec": spec,
-        "row_header_column_tuples": tuple(row_header_column_tuples),
-        "excel_range": excel_range,
-    }
+    html = render_table_html(sheet, table_region, spec)
+    if not html:
+        return None
+    emitted_headers, emitted_rhcc = _emitted_headers(spec, table_region, sheet)
+    excel_range = (
+        f"{get_column_letter(table_region.min_col)}{table_region.min_row}:"
+        f"{get_column_letter(table_region.max_col)}{table_region.max_row}"
+    )
+    return ParsedExcelTable(
+        sheet_name=sheet_name,
+        subtable_title=_subtable_title(
+            subtable_index=subtable_index,
+            subtable_count=subtable_count,
+            seed_title=seed_title,
+        ),
+        header_row_count=spec.header_row_count,
+        row_header_col_count=emitted_rhcc,
+        column_headers=emitted_headers,
+        caption=spec.caption,
+        html=html,
+        excel_range=excel_range,
+    )
+
+
+def _emitted_headers(
+    spec: HeaderSpec, region: Region, sheet: SheetGrid
+) -> tuple[tuple[str, ...], int]:
+    visible = visible_columns(sheet, region)
+    emitted_rhcc = sum(
+        1 for col in visible if col < region.min_col + spec.row_header_col_count
+    )
+    if spec.header_row_count == 0:
+        return (), emitted_rhcc
+    headers: list[str] = []
+    for col in visible:
+        index = col - region.min_col
+        if 0 <= index < len(spec.column_headers):
+            headers.append(spec.column_headers[index])
+    return tuple(headers), emitted_rhcc
+
+
+def _subtable_title(
+    *, subtable_index: int, subtable_count: int, seed_title: str
+) -> str:
+    if subtable_count <= 1:
+        return ""
+    if seed_title:
+        return seed_title
+    return f"子表 {subtable_index}"

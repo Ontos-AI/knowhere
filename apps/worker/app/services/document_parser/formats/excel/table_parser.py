@@ -9,7 +9,10 @@ from typing import Any
 
 import pandas as pd
 from app.services.document_parser.tables.dataframe_helpers import process_dup_paths_df
-from app.services.document_parser.formats.excel.structure_parser import parse_excel_structure
+from app.services.document_parser.formats.excel.structure_parser import (
+    ParsedExcelTable,
+    parse_excel_structure,
+)
 from app.services.document_parser.formats.excel.workbook_grid import load_workbook_grid
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import ParsedRow, ParsedRowsBuilder
@@ -75,23 +78,23 @@ def parse_xlsx(
 
 def parse_excel_workbook(request: ExcelWorkbookParseRequest) -> pd.DataFrame:
     time_stamp = get_str_time()
-    sheets_dict = _load_excel_sheets(request)
-    parsed_rows: list[ParsedRow] = []
-    table_seq = 0
+    os.makedirs(os.path.join(request.output_dir, "tables"), exist_ok=True)
 
-    for sheet_name, sheet_frame in _iter_unique_sheets(sheets_dict):
-        table_rows = _parse_excel_sheet(
-            request=request,
-            sheet_name=sheet_name,
-            sheet_frame=sheet_frame,
-            time_stamp=time_stamp,
-            table_index=table_seq + 1,
-        )
-        if table_rows:
-            table_seq += 1
-            parsed_rows.extend(table_rows)
+    if not request.use_precision_mode:
+        return _rows_to_dataframe(_parse_pandas_tables(request, time_stamp))
 
-    return _rows_to_dataframe(parsed_rows)
+    logger.info("Using precision mode for Excel header detection")
+    try:
+        workbook = load_workbook_grid(_local_xlsx_path(request))
+    except Exception as exc:
+        logger.warning(f"Workbook grid load failed, falling back to pandas: {exc}")
+        return _rows_to_dataframe(_parse_pandas_tables(request, time_stamp))
+
+    tables = parse_excel_structure(
+        workbook,
+        include_hidden_sheets=request.include_hidden_sheets,
+    )
+    return _rows_to_dataframe(_emit_precision_tables(request, tables, time_stamp))
 
 
 def _normalise_llm_parameters(
@@ -103,30 +106,6 @@ def _normalise_llm_parameters(
     return llm_parameters
 
 
-def _load_excel_sheets(
-    request: ExcelWorkbookParseRequest,
-) -> dict[str, pd.DataFrame]:
-    os.makedirs(os.path.join(request.output_dir, "tables"), exist_ok=True)
-
-    if not request.use_precision_mode:
-        table_data = load_file_bytes(request.file_path, file_url=request.baseurl)
-        return pd.read_excel(io.BytesIO(table_data), sheet_name=None)
-
-    logger.info("Using precision mode for Excel header detection")
-    try:
-        workbook_path = _local_xlsx_path(request)
-        workbook = load_workbook_grid(workbook_path)
-    except Exception as exc:
-        logger.warning(f"Workbook grid load failed, falling back to pandas: {exc}")
-        table_data = load_file_bytes(request.file_path, file_url=request.baseurl)
-        return pd.read_excel(io.BytesIO(table_data), sheet_name=None)
-
-    return parse_excel_structure(
-        workbook,
-        include_hidden_sheets=request.include_hidden_sheets,
-    )
-
-
 def _local_xlsx_path(request: ExcelWorkbookParseRequest) -> str:
     source = Path(request.file_path)
     if source.is_file():
@@ -136,6 +115,65 @@ def _local_xlsx_path(request: ExcelWorkbookParseRequest) -> str:
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(table_data)
     return str(destination)
+
+
+def _emit_precision_tables(
+    request: ExcelWorkbookParseRequest,
+    tables: list[ParsedExcelTable],
+    time_stamp: str,
+) -> list[ParsedRow]:
+    parsed_rows: list[ParsedRow] = []
+    table_seq = 0
+    for table in tables:
+        try:
+            parsed_rows.append(
+                _write_excel_table_asset(
+                    request=request,
+                    sheet_name=table.sheet_name,
+                    subtable_title=table.subtable_title,
+                    table_html=table.html,
+                    time_stamp=time_stamp,
+                    table_index=table_seq + 1,
+                    extra_metadata=table.extra_metadata(),
+                    mechanical_keywords=_keywords_from_column_headers(
+                        table.column_headers
+                    ),
+                )
+            )
+            table_seq += 1
+        except KnowhereException:
+            raise
+        except Exception as exc:
+            logger.error(f"Table parsing failed: {exc}")
+            raise TableParsingException(
+                user_message="Failed to parse Excel table content",
+                reason="TABLE_PROCESSING_FAILED",
+                internal_message=str(exc),
+                original_exception=exc,
+            ) from exc
+    return parsed_rows
+
+
+def _parse_pandas_tables(
+    request: ExcelWorkbookParseRequest,
+    time_stamp: str,
+) -> list[ParsedRow]:
+    table_data = load_file_bytes(request.file_path, file_url=request.baseurl)
+    sheets_dict = pd.read_excel(io.BytesIO(table_data), sheet_name=None)
+    parsed_rows: list[ParsedRow] = []
+    table_seq = 0
+    for sheet_name, sheet_frame in _iter_unique_sheets(sheets_dict):
+        table_rows = _parse_pandas_sheet(
+            request=request,
+            sheet_name=sheet_name,
+            sheet_frame=sheet_frame,
+            time_stamp=time_stamp,
+            table_index=table_seq + 1,
+        )
+        if table_rows:
+            table_seq += 1
+            parsed_rows.extend(table_rows)
+    return parsed_rows
 
 
 def _iter_unique_sheets(
@@ -155,7 +193,7 @@ def _iter_unique_sheets(
     return unique_sheets
 
 
-def _parse_excel_sheet(
+def _parse_pandas_sheet(
     *,
     request: ExcelWorkbookParseRequest,
     sheet_name: str,
@@ -166,35 +204,21 @@ def _parse_excel_sheet(
     parsed_rows: list[ParsedRow] = []
 
     try:
-        table_frame = postprocess_tb(sheet_frame, drop=True)
+        table_frame = postprocess_tb(sheet_frame)
         if len(table_frame) == 0 or table_frame.empty or table_frame.isna().all().all():
             return parsed_rows
 
-        sheet_attrs = dict(table_frame.attrs)
-        row_header_cols = int(sheet_attrs.get("row_header_col_count") or 0)
-        logical_sheet_name = _sheet_name_from_attrs(sheet_attrs, fallback=sheet_name)
-        subtable_title = _subtable_title_from_attrs(sheet_attrs)
-        header_row_count = sheet_attrs.get("header_row_count")
-        include_header = True if header_row_count is None else header_row_count != 0
-
-        table_html = parse_tb_contents(
-            table_frame,
-            row_header_cols=row_header_cols,
-            include_header=include_header,
-        )
-
+        table_html = parse_tb_contents(table_frame)
         parsed_rows.append(
             _write_excel_table_asset(
                 request=request,
-                sheet_name=logical_sheet_name,
-                subtable_title=subtable_title,
-                table_frame=table_frame,
+                sheet_name=sheet_name,
+                subtable_title="",
                 table_html=table_html,
                 time_stamp=time_stamp,
                 table_index=table_index,
-                extra_metadata=_excel_table_extra_metadata(
-                    sheet_attrs, sheet_name=logical_sheet_name
-                ),
+                extra_metadata=None,
+                mechanical_keywords=parse_tb_keywords(table_frame),
             )
         )
         return parsed_rows
@@ -215,16 +239,15 @@ def _write_excel_table_asset(
     request: ExcelWorkbookParseRequest,
     sheet_name: str,
     subtable_title: str,
-    table_frame: pd.DataFrame,
     table_html: str,
     time_stamp: str,
     table_index: int,
     extra_metadata: dict[str, object] | None = None,
+    mechanical_keywords: str = "",
 ) -> ParsedRow:
     title, keywords, summary, entities = _summarize_excel_table(
-        table_frame=table_frame,
         table_html=table_html,
-        sheet_name=sheet_name,
+        mechanical_keywords=mechanical_keywords,
         llm_parameters=request.base_llm_paras,
     )
     table_label = _table_label(sheet_name=sheet_name, subtable_title=subtable_title)
@@ -269,32 +292,18 @@ def _write_excel_table_asset(
     )
 
 
-def _excel_table_extra_metadata(
-    attrs: dict[str, Any], *, sheet_name: str
-) -> dict[str, object] | None:
-    if "header_row_count" not in attrs:
-        return None
-    column_headers = attrs.get("column_headers") or ()
-    meta: dict[str, object] = {
-        "header_row_count": int(attrs["header_row_count"]),
-        "row_header_col_count": int(attrs.get("row_header_col_count") or 0),
-        "column_headers": [str(name) for name in column_headers],
-        "sheet_name": sheet_name,
-        "excel_range": str(attrs.get("excel_range") or ""),
-    }
-    caption = str(attrs.get("caption") or "").strip()
-    if caption:
-        meta["caption"] = caption
-    return meta
-
-
-def _sheet_name_from_attrs(attrs: dict[str, Any], *, fallback: str) -> str:
-    sheet_name = str(attrs.get("sheet_name") or fallback).strip()
-    return sheet_name or fallback
-
-
-def _subtable_title_from_attrs(attrs: dict[str, Any]) -> str:
-    return str(attrs.get("subtable_title") or "").strip()
+def _keywords_from_column_headers(column_headers: tuple[str, ...]) -> str:
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for header in column_headers:
+        text = header.strip()
+        if not text or text == "nan" or "Unnamed" in text:
+            continue
+        if text in seen:
+            continue
+        seen.add(text)
+        keywords.append(text)
+    return ";".join(keywords)
 
 
 def _table_label(*, sheet_name: str, subtable_title: str) -> str:
@@ -325,14 +334,11 @@ def _clean_path_segment(value: str) -> str:
 
 def _summarize_excel_table(
     *,
-    table_frame: pd.DataFrame,
     table_html: str,
-    sheet_name: str,
+    mechanical_keywords: str,
     llm_parameters: dict[str, Any],
 ) -> tuple[str | None, str, str | None, str]:
     from app.services.document_parser.support.parser_rows import serialize_entities
-
-    mechanical_keywords = parse_tb_keywords(table_frame)
 
     if llm_parameters["summary_table"]:
         from shared.services.ai.summary.engine import summarize

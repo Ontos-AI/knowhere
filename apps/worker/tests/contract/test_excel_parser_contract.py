@@ -306,6 +306,8 @@ def test_xlsx_multilevel_headers_flatten_and_feed_query_table(
     assert "2024" in table_html
     assert "Q1" in table_html
     assert "North" in table_html
+    assert 'colspan="2"' in table_html
+    assert "<tfoot" in table_html
 
     chunks = dataframe_to_chunks(parsed_df)
     grid = html_to_grid(table_html)
@@ -534,6 +536,8 @@ def test_xlsx_uncached_formula_cells_do_not_split_table(
     assert "North" in table_html
     assert "South" in table_html
     assert "=B2" in table_html
+    assert "data-formula" in table_html
+    assert "<tfoot" in table_html
 
 
 def test_xlsx_empty_row_keeps_two_tables(
@@ -575,4 +579,50 @@ def test_xlsx_empty_row_keeps_two_tables(
     assert "South" in html_text
     ranges = {_extra_metadata(parsed_df.iloc[[index]])["excel_range"] for index in range(2)}
     assert ranges == {"A1:B3", "A5:B7"}
+
+
+def test_xlsx_html_preserves_merges_formula_and_tfoot(
+    worker_contract_environment: None,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    import openpyxl
+
+    del worker_contract_environment
+    monkeypatch.setattr(
+        _HEADER_DETECT,
+        lambda self, rows_text, rowspan_hint: (
+            1,
+            1,
+            _last_row_from_rows_text(rows_text),
+        ),
+    )
+    workbook_path = tmp_path / "html-contract.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "P&L"
+    sheet.merge_cells("B1:C1")
+    sheet["A1"] = "Item"
+    sheet["B1"] = 2024
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["C2"] = "=B2"
+    workbook.save(workbook_path)
+
+    parse_output = _parse_xlsx(
+        workbook_path, tmp_path / "parser-output", "html-contract.xlsx"
+    )
+    parsed_df = parse_output.parsed_df
+    assert parsed_df is not None
+    table_html = (
+        Path(parse_output.output_dir) / parsed_df["content"].iloc[0]
+    ).read_text(encoding="utf-8")
+    assert 'colspan="2"' in table_html
+    assert "data-formula" in table_html
+    assert "=B2" in table_html
+    assert "<tfoot" in table_html
+    assert 'scope="row"' in table_html
+    metadata = _extra_metadata(parsed_df)
+    assert metadata["excel_range"] == "A1:C2"
+    assert metadata["sheet_name"] == "P&L"
 
