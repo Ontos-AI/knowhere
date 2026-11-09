@@ -11,6 +11,10 @@ _HEADER_DETECT = (
     "app.services.document_parser.formats.excel.header_detect."
     "TextClientSpreadsheetHeaderDetector.detect_spreadsheet_headers"
 )
+_LUNA_CHOOSE = (
+    "app.services.document_parser.formats.excel.luna_decisions."
+    "GatewaySpreadsheetRegionJudge.choose"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -23,6 +27,7 @@ def _fail_closed_spreadsheet_headers(
         _HEADER_DETECT,
         lambda self, rows_text, rowspan_hint: None,
     )
+    monkeypatch.setattr(_LUNA_CHOOSE, lambda self, **kwargs: None)
 
 
 def _last_row_from_rows_text(rows_text: str) -> int:
@@ -625,4 +630,220 @@ def test_xlsx_html_preserves_merges_formula_and_tfoot(
     metadata = _extra_metadata(parsed_df)
     assert metadata["excel_range"] == "A1:C2"
     assert metadata["sheet_name"] == "P&L"
+
+
+def test_xlsx_sum_fragment_lands_in_tfoot_and_emits_one_chunk(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    import openpyxl
+
+    del worker_contract_environment
+    workbook_path = tmp_path / "sum-tfoot.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["A3"] = "East"
+    sheet["B3"] = 11
+    sheet["A5"] = "合计"
+    sheet["B5"] = "=SUM(B2:B3)"
+    workbook.save(workbook_path)
+
+    parse_output = _parse_xlsx(
+        workbook_path, tmp_path / "parser-output", "sum-tfoot.xlsx"
+    )
+    parsed_df = parse_output.parsed_df
+    assert parsed_df is not None
+    assert len(parsed_df) == 1
+    metadata = _extra_metadata(parsed_df)
+    assert metadata["excel_range"] == "A1:B3"
+    table_html = (
+        Path(parse_output.output_dir) / parsed_df["content"].iloc[0]
+    ).read_text(encoding="utf-8")
+    assert "<tfoot>" in table_html
+    assert 'data-formula="=SUM(B2:B3)"' in table_html
+    assert 'data-excel-r="5"' in table_html
+    assert "合计" in table_html
+    assert "<tbody>" in table_html
+    assert "North" in table_html
+
+
+def test_xlsx_cross_sheet_kpi_is_absorbed_into_data_table(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    import openpyxl
+
+    from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
+    from shared.services.retrieval.search.lexical_text import build_content_lexical_text
+
+    del worker_contract_environment
+    workbook_path = tmp_path / "kpi.xlsx"
+    workbook = openpyxl.Workbook()
+    data = workbook.active
+    data.title = "Data"
+    data["A1"] = "Name"
+    data["B1"] = "Amount"
+    data["A2"] = "North"
+    data["B2"] = 10
+    data["A3"] = "East"
+    data["B3"] = 20
+    summary = workbook.create_sheet("Summary")
+    summary["A1"] = "Gross Margin"
+    summary["B1"] = "=(Data!B2-Data!B3)/Data!B2"
+    workbook.save(workbook_path)
+
+    parse_output = _parse_xlsx(workbook_path, tmp_path / "parser-output", "kpi.xlsx")
+    parsed_df = parse_output.parsed_df
+    assert parsed_df is not None
+    assert len(parsed_df) == 1
+    metadata = _extra_metadata(parsed_df)
+    assert metadata["sheet_name"] == "Data"
+    assert metadata["excel_range"] == "A1:B3"
+    assert "satellites" in metadata
+    assert any("Gross Margin" in str(item) for item in metadata["satellites"])
+    table_html = (
+        Path(parse_output.output_dir) / parsed_df["content"].iloc[0]
+    ).read_text(encoding="utf-8")
+    assert "Gross Margin" in table_html
+    chunks = dataframe_to_chunks(parsed_df)
+    lexical = build_content_lexical_text(chunks[0]) or ""
+    assert "Gross Margin" in lexical
+
+
+def test_xlsx_formula_fragment_belongs_to_both_host_tables(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    import openpyxl
+
+    del worker_contract_environment
+    workbook_path = tmp_path / "dual.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["D1"] = "Name"
+    sheet["E1"] = "Amount"
+    sheet["D2"] = "South"
+    sheet["E2"] = 20
+    sheet["C4"] = "=B2+E2"
+    workbook.save(workbook_path)
+
+    parse_output = _parse_xlsx(workbook_path, tmp_path / "parser-output", "dual.xlsx")
+    parsed_df = parse_output.parsed_df
+    assert parsed_df is not None
+    assert len(parsed_df) == 2
+    satellites = [
+        _extra_metadata(parsed_df.iloc[[index]]).get("satellites") or []
+        for index in range(2)
+    ]
+    assert all(satellites)
+    html_text = "\n".join(
+        (Path(parse_output.output_dir) / path).read_text(encoding="utf-8")
+        for path in parsed_df["content"].tolist()
+    )
+    assert html_text.count("B2+E2") == 2
+
+
+def test_xlsx_vlookup_keeps_two_tables_and_derives_edges(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    import openpyxl
+
+    from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
+    from shared.services.chunks.chunk_connections import (
+        RELATION_DERIVED_FROM,
+        RELATION_DERIVES,
+    )
+
+    del worker_contract_environment
+    workbook_path = tmp_path / "vlookup.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Rate"
+    sheet["A2"] = "USD"
+    sheet["B2"] = 7
+    sheet["D1"] = "Name"
+    sheet["E1"] = "Amount"
+    sheet["D2"] = "USD"
+    sheet["E2"] = "=VLOOKUP(D2,A1:B2,2,FALSE)"
+    workbook.save(workbook_path)
+
+    parse_output = _parse_xlsx(
+        workbook_path, tmp_path / "parser-output", "vlookup.xlsx"
+    )
+    parsed_df = parse_output.parsed_df
+    assert parsed_df is not None
+    assert len(parsed_df) == 2
+    chunks = dataframe_to_chunks(parsed_df)
+    relations = {
+        item["relation"]
+        for chunk in chunks
+        for item in chunk["metadata"].get("connect_to") or []
+    }
+    assert RELATION_DERIVES in relations
+    assert RELATION_DERIVED_FROM in relations
+    refs = [
+        item.get("ref")
+        for chunk in chunks
+        for item in chunk["metadata"].get("connect_to") or []
+    ]
+    assert any(ref and "VLOOKUP" in str(ref) for ref in refs)
+
+
+def test_xlsx_luna_merge_rejoins_same_table_across_empty_row(
+    worker_contract_environment: None,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    import openpyxl
+
+    del worker_contract_environment
+
+    def _merge_choose(self, *, required_ids, **kwargs):
+        answers = {}
+        for question_id in required_ids:
+            if question_id.startswith("merge::"):
+                answers[question_id] = "merge"
+            else:
+                answers[question_id] = "table"
+        return answers
+
+    monkeypatch.setattr(_LUNA_CHOOSE, _merge_choose)
+    workbook_path = tmp_path / "luna-merge.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["A4"] = "East"
+    sheet["B4"] = 11
+    workbook.save(workbook_path)
+
+    parse_output = _parse_xlsx(
+        workbook_path, tmp_path / "parser-output", "luna-merge.xlsx"
+    )
+    parsed_df = parse_output.parsed_df
+    assert parsed_df is not None
+    assert len(parsed_df) == 1
+    metadata = _extra_metadata(parsed_df)
+    assert metadata["excel_range"] == "A1:B4"
+    table_html = (
+        Path(parse_output.output_dir) / parsed_df["content"].iloc[0]
+    ).read_text(encoding="utf-8")
+    assert "North" in table_html
+    assert "East" in table_html
 

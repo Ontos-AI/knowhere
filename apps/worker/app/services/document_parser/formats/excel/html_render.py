@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Sequence
 
 from openpyxl.utils import get_column_letter
 
@@ -27,7 +28,13 @@ def visible_columns(sheet: SheetGrid, region: Region) -> tuple[int, ...]:
     return tuple(columns)
 
 
-def render_table_html(sheet: SheetGrid, region: Region, headers: HeaderSpec) -> str:
+def render_table_html(
+    sheet: SheetGrid,
+    region: Region,
+    headers: HeaderSpec,
+    *,
+    tfoot_rows: Sequence[int] = (),
+) -> str:
     """Render one table region as HTML with real merge spans and formula attrs."""
     visible = visible_columns(sheet, region)
     if not visible or region.max_row < region.min_row:
@@ -65,6 +72,7 @@ def render_table_html(sheet: SheetGrid, region: Region, headers: HeaderSpec) -> 
                     section_max_row=thead_end,
                     row_header_col_count=headers.row_header_col_count,
                     header_section=True,
+                    coord_attrs=False,
                 )
             )
         parts.append("</thead>")
@@ -83,10 +91,11 @@ def render_table_html(sheet: SheetGrid, region: Region, headers: HeaderSpec) -> 
                     section_max_row=region.max_row,
                     row_header_col_count=headers.row_header_col_count,
                     header_section=False,
+                    coord_attrs=False,
                 )
             )
     parts.append("</tbody>")
-    parts.append("<tfoot></tfoot>")
+    parts.append(_render_tfoot(sheet, region, visible, tfoot_rows))
     parts.append("</table>")
     return "".join(parts)
 
@@ -100,6 +109,41 @@ def _column_has_value_or_formula(
     return False
 
 
+def _render_tfoot(
+    sheet: SheetGrid,
+    region: Region,
+    visible: tuple[int, ...],
+    tfoot_rows: Sequence[int],
+) -> str:
+    if not tfoot_rows:
+        return "<tfoot></tfoot>"
+    rows = list(tfoot_rows)
+    parts = ["<tfoot>"]
+    for excel_row in rows:
+        foot_region = Region(
+            min_row=excel_row,
+            min_col=region.min_col,
+            max_row=excel_row,
+            max_col=region.max_col,
+        )
+        expanded = expand_visual_grid(sheet, foot_region)
+        parts.append(
+            _render_tr(
+                expanded=expanded,
+                excel_row=excel_row,
+                region=foot_region,
+                visible=visible,
+                section_min_row=excel_row,
+                section_max_row=excel_row,
+                row_header_col_count=0,
+                header_section=False,
+                coord_attrs=True,
+            )
+        )
+    parts.append("</tfoot>")
+    return "".join(parts)
+
+
 def _render_tr(
     *,
     expanded: list[list[GridCell | None]],
@@ -110,6 +154,7 @@ def _render_tr(
     section_max_row: int,
     row_header_col_count: int,
     header_section: bool,
+    coord_attrs: bool,
 ) -> str:
     rel_row = excel_row - region.min_row
     row_cells = expanded[rel_row] if 0 <= rel_row < len(expanded) else []
@@ -147,6 +192,9 @@ def _render_tr(
             attrs.append(f'colspan="{colspan}"')
         if cell is not None and cell.formula:
             attrs.append(f'data-formula="{_attr(cell.formula)}"')
+        if coord_attrs:
+            attrs.append(f'data-excel-r="{excel_row}"')
+            attrs.append(f'data-excel-c="{col}"')
         attr_str = f" {' '.join(attrs)}" if attrs else ""
         parts.append(f"<{tag}{attr_str}>{_cell_text(cell)}</{tag}>")
     parts.append("</tr>")

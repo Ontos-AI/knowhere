@@ -23,14 +23,35 @@ from app.services.document_parser.formats.excel.workbook_grid import (  # noqa: 
     load_workbook_grid,
 )
 
+
 _THIN = Side(style="thin")
 _BOX = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
+
+
+class _FailClosedJudge:
+    def choose(self, **kwargs):
+        return None
+
+
+class _MergeJudge:
+    def choose(self, *, required_ids, **kwargs):
+        answers = {}
+        for question_id in required_ids:
+            if question_id.startswith("merge::"):
+                answers[question_id] = "merge"
+            else:
+                answers[question_id] = "table"
+        return answers
 
 
 def _save(path: Path, workbook: Workbook) -> Path:
     workbook.save(path)
     workbook.close()
     return path
+
+
+def _regions(classified):
+    return [item.region for item in classified]
 
 
 def test_empty_row_keeps_two_geometric_regions(tmp_path: Path) -> None:
@@ -52,11 +73,40 @@ def test_empty_row_keeps_two_geometric_regions(tmp_path: Path) -> None:
     path = _save(tmp_path / "two.xlsx", workbook)
 
     grid = load_workbook_grid(str(path))
-    regions = split_sheet_regions(grid.sheets[0], defined_names=grid.defined_names)
-    assert regions == [
+    classified = split_sheet_regions(
+        grid.sheets[0],
+        defined_names=grid.defined_names,
+        judge=_FailClosedJudge(),
+    )
+    assert _regions(classified) == [
         Region(min_row=1, min_col=1, max_row=3, max_col=2),
         Region(min_row=5, min_col=1, max_row=7, max_col=2),
     ]
+    assert [item.role for item in classified] == ["table", "table"]
+
+
+def test_luna_merge_rejoins_blocks_across_empty_row(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["A4"] = "East"
+    sheet["B4"] = 11
+    path = _save(tmp_path / "merge.xlsx", workbook)
+
+    grid = load_workbook_grid(str(path))
+    classified = split_sheet_regions(
+        grid.sheets[0],
+        defined_names=grid.defined_names,
+        judge=_MergeJudge(),
+    )
+    assert _regions(classified) == [
+        Region(min_row=1, min_col=1, max_row=4, max_col=2)
+    ]
+    assert classified[0].role == "table"
 
 
 def test_excel_table_seed_keeps_internal_blank_row(tmp_path: Path) -> None:
@@ -88,8 +138,14 @@ def test_excel_table_seed_keeps_internal_blank_row(tmp_path: Path) -> None:
     path = _save(tmp_path / "seed.xlsx", workbook)
 
     grid = load_workbook_grid(str(path))
-    regions = split_sheet_regions(grid.sheets[0], defined_names=grid.defined_names)
-    assert regions == [Region(min_row=1, min_col=1, max_row=6, max_col=3)]
+    classified = split_sheet_regions(
+        grid.sheets[0],
+        defined_names=grid.defined_names,
+        judge=_FailClosedJudge(),
+    )
+    assert _regions(classified) == [Region(min_row=1, min_col=1, max_row=6, max_col=3)]
+    assert classified[0].locked is True
+    assert classified[0].role == "table"
 
 
 def test_rectangular_defined_name_is_a_seed(tmp_path: Path) -> None:
@@ -108,12 +164,20 @@ def test_rectangular_defined_name_is_a_seed(tmp_path: Path) -> None:
     path = _save(tmp_path / "named.xlsx", workbook)
 
     grid = load_workbook_grid(str(path))
-    regions = split_sheet_regions(grid.sheets[0], defined_names=grid.defined_names)
+    classified = split_sheet_regions(
+        grid.sheets[0],
+        defined_names=grid.defined_names,
+        judge=_FailClosedJudge(),
+    )
+    regions = _regions(classified)
     assert Region(min_row=1, min_col=1, max_row=2, max_col=2) in regions
     assert Region(min_row=6, min_col=1, max_row=7, max_col=2) in regions
+    locked = [item for item in classified if item.locked]
+    assert len(locked) == 1
+    assert locked[0].role == "table"
 
 
-def test_formula_fragment_is_not_absorbed(tmp_path: Path) -> None:
+def test_formula_fragment_is_not_absorbed_by_split(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Data"
@@ -127,12 +191,19 @@ def test_formula_fragment_is_not_absorbed(tmp_path: Path) -> None:
     path = _save(tmp_path / "sat.xlsx", workbook)
 
     grid = load_workbook_grid(str(path))
-    regions = split_sheet_regions(grid.sheets[0], defined_names=grid.defined_names)
+    classified = split_sheet_regions(
+        grid.sheets[0],
+        defined_names=grid.defined_names,
+        judge=_FailClosedJudge(),
+    )
+    regions = _regions(classified)
     assert Region(min_row=1, min_col=1, max_row=3, max_col=2) in regions
-    assert any(region.min_row == 5 and region.max_row == 5 for region in regions)
+    fragment = next(item for item in classified if item.region.min_row == 5)
+    assert fragment.role == "fragment"
+    assert fragment.region.max_row == 5
 
 
-def test_border_block_rejoins_empty_row_split(tmp_path: Path) -> None:
+def test_border_block_does_not_rejoin_empty_row_split(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Data"
@@ -158,11 +229,18 @@ def test_border_block_rejoins_empty_row_split(tmp_path: Path) -> None:
     path = _save(tmp_path / "border.xlsx", workbook)
 
     grid = load_workbook_grid(str(path))
-    regions = split_sheet_regions(grid.sheets[0], defined_names=grid.defined_names)
-    assert regions == [Region(min_row=1, min_col=1, max_row=7, max_col=2)]
+    classified = split_sheet_regions(
+        grid.sheets[0],
+        defined_names=grid.defined_names,
+        judge=_FailClosedJudge(),
+    )
+    assert _regions(classified) == [
+        Region(min_row=1, min_col=1, max_row=3, max_col=2),
+        Region(min_row=5, min_col=1, max_row=7, max_col=2),
+    ]
 
 
-def test_caption_row_attaches_to_table_below(tmp_path: Path) -> None:
+def test_caption_across_blank_row_stays_a_fragment(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Data"
@@ -175,7 +253,45 @@ def test_caption_row_attaches_to_table_below(tmp_path: Path) -> None:
     path = _save(tmp_path / "caption.xlsx", workbook)
 
     grid = load_workbook_grid(str(path))
-    regions = split_sheet_regions(grid.sheets[0], defined_names=grid.defined_names)
-    assert len(regions) == 1
-    assert regions[0].min_row == 1
-    assert regions[0].max_row == 4
+    classified = split_sheet_regions(
+        grid.sheets[0],
+        defined_names=grid.defined_names,
+        judge=_FailClosedJudge(),
+    )
+    assert len(classified) == 2
+    assert classified[0].role == "fragment"
+    assert classified[0].region == Region(min_row=1, min_col=1, max_row=1, max_col=2)
+    assert classified[1].role == "table"
+    assert classified[1].region.min_row == 3
+
+
+def test_adjacent_caption_merges_onto_seed_table_in_fail_closed_fallback(
+    tmp_path: Path,
+) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet.merge_cells("A1:B1")
+    sheet["A1"] = "Monthly Report"
+    sheet["A2"] = "Name"
+    sheet["B2"] = "Amount"
+    sheet["A3"] = "North"
+    sheet["B3"] = 10
+    table = Table(displayName="Sales", ref="A2:B3")
+    table.tableColumns = [
+        TableColumn(id=1, name="Name"),
+        TableColumn(id=2, name="Amount"),
+    ]
+    sheet.add_table(table)
+    path = _save(tmp_path / "adjacent-caption.xlsx", workbook)
+
+    grid = load_workbook_grid(str(path))
+    classified = split_sheet_regions(
+        grid.sheets[0],
+        defined_names=grid.defined_names,
+        judge=_FailClosedJudge(),
+    )
+    assert _regions(classified) == [
+        Region(min_row=1, min_col=1, max_row=3, max_col=2)
+    ]
+    assert classified[0].role == "table"

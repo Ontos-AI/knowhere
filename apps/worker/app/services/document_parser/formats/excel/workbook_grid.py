@@ -31,7 +31,6 @@ class GridCell:
     number_format: str | None
     bold: bool
     fill: str | None
-    border_sides: int
     merge_origin: tuple[int, int] | None
     rowspan: int
     colspan: int
@@ -141,7 +140,6 @@ def expand_visual_grid(
                     number_format=None,
                     bold=False,
                     fill=None,
-                    border_sides=0,
                     merge_origin=merge_origin,
                     rowspan=rowspan,
                     colspan=colspan,
@@ -155,7 +153,6 @@ def expand_visual_grid(
                 number_format=origin.number_format,
                 bold=origin.bold,
                 fill=origin.fill,
-                border_sides=origin.border_sides,
                 merge_origin=merge_origin,
                 rowspan=rowspan,
                 colspan=colspan,
@@ -259,7 +256,6 @@ def _sheet_from_pair(*, name: str, formula_sheet, value_sheet) -> SheetGrid:
             number_format=number_format if number_format not in {None, "General"} else None,
             bold=_is_bold(formula_cell),
             fill=_non_white_fill(formula_cell),
-            border_sides=_border_sides(formula_cell),
             merge_origin=merge_origin,
             rowspan=rowspan,
             colspan=colspan,
@@ -305,7 +301,7 @@ def _keep_cell(cell: GridCell, *, origin_cell: bool) -> bool:
         return True
     if origin_cell and (cell.rowspan > 1 or cell.colspan > 1):
         return True
-    return bool(cell.bold or cell.fill or cell.border_sides)
+    return bool(cell.bold or cell.fill)
 
 
 def _formula_string(cell) -> str | None:
@@ -352,18 +348,6 @@ def _color_rgb(color: Color | None) -> str | None:
     if rgb is None:
         return None
     return str(rgb).upper()
-
-
-def _border_sides(cell) -> int:
-    border = getattr(cell, "border", None)
-    if border is None:
-        return 0
-    count = 0
-    for side_name in ("left", "right", "top", "bottom"):
-        side = getattr(border, side_name, None)
-        if side is not None and side.style:
-            count += 1
-    return count
 
 
 def _hidden_columns(worksheet) -> frozenset[int]:

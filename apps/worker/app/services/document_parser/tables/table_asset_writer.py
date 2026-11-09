@@ -23,6 +23,7 @@ class TableAssetInput:
     entities: str = ""
     asset_title: str = ""
     extra_metadata: dict[str, object] | None = None
+    connectto: str = ""
 
 
 def write_table_asset(table_input: TableAssetInput) -> ParsedRow:
@@ -48,7 +49,7 @@ def write_table_asset(table_input: TableAssetInput) -> ParsedRow:
         summary=table_input.summary,
         know_id=table_input.know_id,
         tokens=table_input.tokens,
-        connectto="",
+        connectto=table_input.connectto,
         addtime=table_input.addtime,
         length=len(row_content),
         entities=table_input.entities,

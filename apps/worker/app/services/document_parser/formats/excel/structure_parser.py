@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from openpyxl.utils import get_column_letter
 from loguru import logger
 
+from app.services.document_parser.formats.excel.formula_graph import build_formula_graph
 from app.services.document_parser.formats.excel.header_detect import (
     HeaderSpec,
     SpreadsheetHeaderDetector,
@@ -21,12 +24,23 @@ from app.services.document_parser.formats.excel.region_split import (
     seed_title_for_region,
     split_sheet_regions,
 )
+from app.services.document_parser.formats.excel.satellite_merge import (
+    PlannedTable,
+    TableFormulaLink,
+    resolve_formula_satellites_and_edges,
+    table_key,
+)
 from app.services.document_parser.formats.excel.workbook_grid import (
     Region,
     SheetGrid,
     WorkbookGrid,
 )
 from shared.core.exceptions.domain_exceptions import TableParsingException
+
+if TYPE_CHECKING:
+    from app.services.document_parser.formats.excel.luna_decisions import (
+        SpreadsheetRegionJudge,
+    )
 
 
 @dataclass(frozen=True)
@@ -37,8 +51,10 @@ class ParsedExcelTable:
     row_header_col_count: int
     column_headers: tuple[str, ...]
     caption: str | None
+    satellites: tuple[str, ...]
     html: str
     excel_range: str
+    table_key: str
 
     def extra_metadata(self) -> dict[str, object]:
         meta: dict[str, object] = {
@@ -51,7 +67,15 @@ class ParsedExcelTable:
         caption = (self.caption or "").strip()
         if caption:
             meta["caption"] = caption
+        if self.satellites:
+            meta["satellites"] = [str(item) for item in self.satellites]
         return meta
+
+
+@dataclass(frozen=True)
+class ExcelStructureResult:
+    tables: list[ParsedExcelTable]
+    links: tuple[TableFormulaLink, ...]
 
 
 def parse_excel_structure(
@@ -59,14 +83,14 @@ def parse_excel_structure(
     sheet_name: str | None = None,
     include_hidden_sheets: bool = False,
     header_detector: SpreadsheetHeaderDetector | None = None,
-) -> list[ParsedExcelTable]:
+    judge: SpreadsheetRegionJudge | None = None,
+) -> ExcelStructureResult:
     try:
-        results: list[ParsedExcelTable] = []
         sheets = workbook.sheet_by_name()
         sheets_to_parse = (
             [sheet_name] if sheet_name else [sheet.name for sheet in workbook.sheets]
         )
-
+        sheet_regions = {}
         for selected_sheet_name in sheets_to_parse:
             sheet = sheets.get(selected_sheet_name)
             if sheet is None:
@@ -74,36 +98,38 @@ def parse_excel_structure(
                     f"Sheet '{selected_sheet_name}' not found in workbook, skipping"
                 )
                 continue
-
             if not include_hidden_sheets and sheet.hidden:
                 logger.info(f"Sheet '{selected_sheet_name}' is hidden, skipping")
                 continue
-
             if sheet.max_row == 0 or sheet.max_col == 0:
                 logger.debug(f"Sheet '{selected_sheet_name}' is empty, skipping")
                 continue
-
-            logger.debug(
-                f"Sheet '{selected_sheet_name}': found {len(sheet.merged_ranges)} merged cell ranges"
-            )
-
-            regions = split_sheet_regions(
-                sheet, defined_names=workbook.defined_names
+            classified = split_sheet_regions(
+                sheet, defined_names=workbook.defined_names, judge=judge
             )
             logger.debug(
-                f"Sheet '{selected_sheet_name}': {len(regions)} subtables after split"
+                f"Sheet '{selected_sheet_name}': {len(classified)} regions after split"
             )
-            region_count = len(regions)
-            for index, region in enumerate(regions):
+            sheet_regions[selected_sheet_name] = classified
+
+        graph = build_formula_graph(workbook)
+        plan = resolve_formula_satellites_and_edges(workbook, sheet_regions, graph)
+        results: list[ParsedExcelTable] = []
+        by_sheet: dict[str, list[PlannedTable]] = {}
+        for planned in plan.tables:
+            by_sheet.setdefault(planned.sheet_name, []).append(planned)
+        for selected_sheet_name, planned_tables in by_sheet.items():
+            sheet = sheets[selected_sheet_name]
+            count = len(planned_tables)
+            for index, planned in enumerate(planned_tables):
                 parsed = _parse_subtable(
                     sheet,
-                    region,
+                    planned,
                     header_detector=header_detector,
-                    sheet_name=selected_sheet_name,
                     subtable_index=index + 1,
-                    subtable_count=region_count,
+                    subtable_count=count,
                     seed_title=seed_title_for_region(
-                        sheet, region, workbook.defined_names
+                        sheet, planned.region, workbook.defined_names
                     ),
                 )
                 if parsed is None:
@@ -115,10 +141,9 @@ def parse_excel_structure(
                     f"row_header_col_count={parsed.row_header_col_count}"
                 )
                 results.append(parsed)
-
-        return results
+        return ExcelStructureResult(tables=results, links=plan.links)
     except Exception as exc:
-        logger.error(f"Error parsing Excel with precision mode: {exc}")
+        logger.error(f"Error parsing Excel structure: {exc}")
         raise TableParsingException(
             user_message="Failed to parse Excel file headers",
             reason="EXCEL_PRECISION_PARSE_FAILED",
@@ -131,7 +156,7 @@ def _strip_leading_caption_and_blank_rows(
     sheet: SheetGrid,
     region: Region,
 ) -> tuple[Region, str | None]:
-    """Strip leading full-width/single-cell title rows and blank rows so min_row lands on the header."""
+    """Strip leading banner-title and blank rows so min_row lands on the header."""
     row_start = region.min_row
     row_end = region.max_row
     col_start, col_end = region.min_col, region.max_col
@@ -142,7 +167,7 @@ def _strip_leading_caption_and_blank_rows(
         if kind == "blank":
             row_start += 1
             continue
-        if kind == "caption" and text and len(caption_parts) < 2:
+        if kind == "caption" and text:
             caption_parts.append(text)
             row_start += 1
             continue
@@ -162,18 +187,22 @@ def _strip_leading_caption_and_blank_rows(
 
 def _parse_subtable(
     sheet: SheetGrid,
-    region: Region,
+    planned: PlannedTable,
     *,
     header_detector: SpreadsheetHeaderDetector | None,
-    sheet_name: str,
     subtable_index: int,
     subtable_count: int,
     seed_title: str,
 ) -> ParsedExcelTable | None:
-    stripped, caption = _strip_leading_caption_and_blank_rows(sheet, region)
+    stripped, leading_caption = _strip_leading_caption_and_blank_rows(
+        sheet, planned.region
+    )
     if stripped.max_row < stripped.min_row:
         return None
     visual = build_region_visual(sheet, stripped)
+    caption = _join_captions(
+        leading_caption, planned.caption_texts, planned.satellites
+    )
     spec = detect_headers(
         TableRegion(visual=visual),
         llm=header_detector,
@@ -188,7 +217,9 @@ def _parse_subtable(
         max_row=effective_row_end,
         max_col=stripped.max_col,
     )
-    html = render_table_html(sheet, table_region, spec)
+    html = render_table_html(
+        sheet, table_region, spec, tfoot_rows=planned.tfoot_rows
+    )
     if not html:
         return None
     emitted_headers, emitted_rhcc = _emitted_headers(spec, table_region, sheet)
@@ -197,7 +228,7 @@ def _parse_subtable(
         f"{get_column_letter(table_region.max_col)}{table_region.max_row}"
     )
     return ParsedExcelTable(
-        sheet_name=sheet_name,
+        sheet_name=planned.sheet_name,
         subtable_title=_subtable_title(
             subtable_index=subtable_index,
             subtable_count=subtable_count,
@@ -207,9 +238,27 @@ def _parse_subtable(
         row_header_col_count=emitted_rhcc,
         column_headers=emitted_headers,
         caption=spec.caption,
+        satellites=planned.satellites,
         html=html,
         excel_range=excel_range,
+        table_key=table_key(planned.sheet_name, planned.region),
     )
+
+
+def _join_captions(
+    leading: str | None,
+    caption_texts: Sequence[str],
+    satellites: Sequence[str],
+) -> str | None:
+    parts: list[str] = []
+    seen: set[str] = set()
+    for item in (leading, *caption_texts, *satellites):
+        text = (item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        parts.append(text)
+    return " / ".join(parts) if parts else None
 
 
 def _emitted_headers(

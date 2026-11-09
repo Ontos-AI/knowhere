@@ -25,6 +25,11 @@ def _fail_closed_spreadsheet_headers(
         "TextClientSpreadsheetHeaderDetector.detect_spreadsheet_headers",
         lambda self, rows_text, rowspan_hint: None,
     )
+    monkeypatch.setattr(
+        "app.services.document_parser.formats.excel.luna_decisions."
+        "GatewaySpreadsheetRegionJudge.choose",
+        lambda self, **kwargs: None,
+    )
 
 
 def _parse_table_source(

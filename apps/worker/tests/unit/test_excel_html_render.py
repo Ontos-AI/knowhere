@@ -66,6 +66,42 @@ def test_render_table_html_keeps_merge_formula_and_tfoot(tmp_path: Path) -> None
     assert "<tbody>" in html
 
 
+def test_render_table_html_writes_aligned_tfoot_rows(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["A3"] = "East"
+    sheet["B3"] = 11
+    sheet["A5"] = "合计"
+    sheet["B5"] = "=SUM(B2:B3)"
+    path = _save(tmp_path / "tfoot.xlsx", workbook)
+
+    grid = load_workbook_grid(str(path)).sheets[0]
+    region = Region(min_row=1, min_col=1, max_row=3, max_col=2)
+    html = render_table_html(
+        grid,
+        region,
+        HeaderSpec(
+            header_row_count=1,
+            row_header_col_count=0,
+            column_headers=("Name", "Amount"),
+            caption=None,
+            data_end_row=2,
+        ),
+        tfoot_rows=(5,),
+    )
+    assert "<tfoot>" in html
+    assert "</tfoot>" in html
+    assert 'data-formula="=SUM(B2:B3)"' in html
+    assert 'data-excel-r="5"' in html
+    assert 'data-excel-c="2"' in html
+    assert "合计" in html
+
+
 def test_visible_columns_omit_hidden_empty(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active

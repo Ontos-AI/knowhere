@@ -10,7 +10,6 @@ def parse_xlsx(
     baseurl: str,
     base_llm_paras: dict[str, object] | None = None,
     relative_root: str | None = None,
-    use_precision_mode: bool = True,
     include_hidden_sheets: bool = False,
 ) -> pd.DataFrame:
     from app.services.document_parser.formats.excel.table_parser import (
@@ -24,6 +23,5 @@ def parse_xlsx(
         baseurl=baseurl,
         base_llm_paras=base_llm_paras,
         relative_root=relative_root,
-        use_precision_mode=use_precision_mode,
         include_hidden_sheets=include_hidden_sheets,
     )
