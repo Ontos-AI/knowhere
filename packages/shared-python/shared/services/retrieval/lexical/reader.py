@@ -75,6 +75,7 @@ class PublishedLexicalRead:
         if self._hasStarted or self._isFinished:
             raise LexicalIndexError("Retrieval read session is not active", isRetryable=True)
         storage: CorpusStorage = CorpusStorage.resolve_namespace(self.scope.namespace)
+        scopeFingerprint: str = self.scope.fingerprint
         generation = select(storage.RetrievalNamespaceGeneration.generation).where(
             storage.RetrievalNamespaceGeneration.user_id == self.scope.ownerId,
             storage.RetrievalNamespaceGeneration.namespace == self.scope.namespace,
@@ -91,7 +92,7 @@ class PublishedLexicalRead:
                 func.coalesce(JobResult.document_metadata["ingestion_mode"].as_string() == "progressive", False),
             ).select_from(select(literal(1)).subquery()).outerjoin(LexicalBackendControl,
                 LexicalBackendControl.id == 1).outerjoin(LexicalNamespaceIndex,
-                LexicalNamespaceIndex.id == self.scope.fingerprint).outerjoin(storage.Document, and_(
+                LexicalNamespaceIndex.id == scopeFingerprint).outerjoin(storage.Document, and_(
                 storage.Document.user_id == self.scope.ownerId,
                 storage.Document.namespace == self.scope.namespace,
                 storage.Document.status == "active",
@@ -108,12 +109,12 @@ class PublishedLexicalRead:
             revisions: dict[str, str] = {}
             builds: dict[str, str] = {}
             progressiveRevisions: dict[str, str] = {}
-            expectedName: str = f"{settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX}-{self.scope.fingerprint[:48]}"
+            expectedName: str = f"{settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX}-{scopeFingerprint[:48]}"
             for _, _, _, _, documentId, revisionId, build, hasProgressiveContent in rows:
                 if documentId is None:
                     continue
                 if (build is None or build.state != "published" or build.documentId != documentId
-                    or build.revisionId != revisionId or build.namespaceIndexId != self.scope.fingerprint):
+                    or build.revisionId != revisionId or build.namespaceIndexId != scopeFingerprint):
                     raise LexicalIndexError("Published revision has no matching native build")
                 if indexName != expectedName or self._indexUuid is None:
                     raise LexicalIndexError("Published revision has no matching native index")
