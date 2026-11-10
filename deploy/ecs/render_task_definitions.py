@@ -46,6 +46,12 @@ STAGING_OPENSEARCH_VARIABLES: Final[tuple[str, ...]] = (
     "STAGING_OPENSEARCH_API_TLS_PARAMETER",
     "STAGING_OPENSEARCH_WORKER_TLS_PARAMETER",
 )
+PROD_OPENSEARCH_VARIABLES: Final[tuple[str, ...]] = (
+    "PROD_OPENSEARCH_URL",
+    "PROD_OPENSEARCH_API_TLS_PARAMETER",
+    "PROD_OPENSEARCH_WORKER_TLS_PARAMETER",
+)
+PROD_OPENSEARCH_INDEX_PREFIX: Final[str] = "knowhere-prod-lexical-v1"
 
 
 def replace_placeholders(value: object, variables: dict[str, str]) -> object:
@@ -118,33 +124,90 @@ def configure_staging_opensearch(definition: object, variables: dict[str, str]) 
     backend: str = variables.get("STAGING_LEXICAL_BACKEND") or "postgresql"
     if backend not in {"postgresql", "opensearch"}:
         raise ValueError("Unsupported staging lexical backend")
-    for container in definition["containerDefinitions"]:
+    attach_opensearch(
+        definition,
+        backend=backend,
+        url=variables["STAGING_OPENSEARCH_URL"],
+        prefix=variables["STAGING_OPENSEARCH_INDEX_PREFIX"],
+        parameters={"api": api_parameter, "worker": worker_parameter},
+        secret_name="KNOWHERE_STAGING_NATIVE_TLS",
+        module="staging_entrypoint",
+    )
+
+
+def configure_production_opensearch(definition: object, variables: dict[str, str]) -> None:
+    """Attach production credentials while keeping PostgreSQL primary."""
+    if variables.get("DEPLOYMENT_ENVIRONMENT") != "prod" or not any(
+        name in variables for name in PROD_OPENSEARCH_VARIABLES
+    ):
+        return
+    missing = [name for name in PROD_OPENSEARCH_VARIABLES if not variables.get(name)]
+    if missing:
+        raise ValueError(f"Missing production OpenSearch variables: {', '.join(missing)}")
+    if variables.get("RUNTIME_ENVIRONMENT") != "production" or not isinstance(definition, dict):
+        raise ValueError("OpenSearch TLS bootstrap requires a production task definition")
+    url: str = variables["PROD_OPENSEARCH_URL"]
+    if not url.startswith("https://"):
+        raise ValueError("Production OpenSearch requires an HTTPS endpoint")
+    parameters: dict[str, str] = {}
+    for service in ("api", "worker"):
+        parameter: str = variables[f"PROD_OPENSEARCH_{service.upper()}_TLS_PARAMETER"]
+        if not re.fullmatch(
+            rf"arn:aws:ssm:[a-z0-9-]+:[0-9]{{12}}:parameter/knowhere/prod/opensearch/runtime-{service}(?:-[\w.-]+)?",
+            parameter,
+            flags=re.ASCII,
+        ):
+            raise ValueError(f"Invalid production TLS parameter for {service}")
+        parameters[service] = parameter
+    attach_opensearch(
+        definition,
+        backend="postgresql",
+        url=url,
+        prefix=PROD_OPENSEARCH_INDEX_PREFIX,
+        parameters=parameters,
+        secret_name="KNOWHERE_PROD_NATIVE_TLS",
+        module="ecs_entrypoint",
+    )
+
+
+def attach_opensearch(
+    definition: dict[str, object],
+    *,
+    backend: str,
+    url: str,
+    prefix: str,
+    parameters: dict[str, str],
+    secret_name: str,
+    module: str,
+) -> None:
+    """Add native endpoint settings and an ECS-injected TLS bundle."""
+    containers = definition["containerDefinitions"]
+    if not isinstance(containers, list):
+        raise ValueError("Task definition must contain containerDefinitions")
+    for container in containers:
         service = container["name"]
-        if service not in ("api", "worker"):
+        if service not in parameters:
             continue
         container["environment"].extend(
             {"name": name, "value": value}
             for name, value in (
                 ("KNOWHERE_LEXICAL_BACKEND", backend),
-                ("KNOWHERE_OPENSEARCH_URL", variables["STAGING_OPENSEARCH_URL"]),
-                ("KNOWHERE_OPENSEARCH_INDEX_PREFIX", variables["STAGING_OPENSEARCH_INDEX_PREFIX"]),
+                ("KNOWHERE_OPENSEARCH_URL", url),
+                ("KNOWHERE_OPENSEARCH_INDEX_PREFIX", prefix),
             )
         )
-        container["secrets"].append({
-            "name": "KNOWHERE_STAGING_NATIVE_TLS",
-            "valueFrom": variables[f"STAGING_OPENSEARCH_{service.upper()}_TLS_PARAMETER"],
-        })
+        container["secrets"].append({"name": secret_name, "valueFrom": parameters[service]})
         container["entryPoint"] = [
             "/app/venv/bin/python", "-m",
-            "shared.services.retrieval.lexical.staging_entrypoint", service,
+            f"shared.services.retrieval.lexical.{module}", service,
         ]
-
 
 def render_template(template_path: Path, output_path: Path, variables: dict[str, str]) -> None:
     """Render one JSON template to a deployment-only output path."""
     definition = json.loads(template_path.read_text(encoding="utf-8"))
     rendered = replace_placeholders(definition, variables)
     configure_staging_opensearch(rendered, variables)
+    configure_production_opensearch(rendered, variables)
     qstash_base_url: str = variables.get("QSTASH_BASE_URL", "")
     is_staging: bool = variables.get("DEPLOYMENT_ENVIRONMENT") == "staging"
     if qstash_base_url or is_staging:
@@ -172,7 +235,9 @@ def parse_arguments() -> argparse.Namespace:
     """Parse renderer CLI arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--staging-opensearch", action="store_true")
+    opensearch = parser.add_mutually_exclusive_group()
+    opensearch.add_argument("--staging-opensearch", action="store_true")
+    opensearch.add_argument("--production-opensearch", action="store_true")
     parser.add_argument(
         "--environment",
         choices=("staging", "production"),
@@ -209,6 +274,10 @@ def main() -> None:
             raise ValueError("--staging-opensearch requires --environment staging")
         variables.update({name: os.environ.get(name, "") for name in STAGING_OPENSEARCH_VARIABLES})
         variables["STAGING_LEXICAL_BACKEND"] = os.environ.get("STAGING_LEXICAL_BACKEND", "")
+    if arguments.production_opensearch:
+        if arguments.environment != "production":
+            raise ValueError("--production-opensearch requires --environment production")
+        variables.update({name: os.environ.get(name, "") for name in PROD_OPENSEARCH_VARIABLES})
     template_directory = Path(__file__).parent
     output_suffix = variables["DEPLOYMENT_ENVIRONMENT"]
     render_template(

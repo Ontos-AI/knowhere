@@ -83,9 +83,14 @@ jobs:
         if: ${{ github.event_name == 'release' }}
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          PROD_LEXICAL_INPUT_READY: ${{ vars.PROD_LEXICAL_INPUT_READY }}
         shell: bash
         run: |
           set -euo pipefail
+          if [ "$PROD_LEXICAL_INPUT_READY" != "true" ]; then
+            echo "::error::Confirm production S3 lexical input permissions before releasing this source."
+            exit 1
+          fi
           git fetch origin main --no-tags
           release_commit="$(git rev-parse "${RELEASE_TAG}^{commit}")"
           if ! git merge-base --is-ancestor "${release_commit}" origin/main; then
@@ -657,6 +662,8 @@ jobs:
       needs['migrate-ecs-production'].result == 'success' }}
     permissions:
       contents: read
+    env:
+      PROD_OPENSEARCH_ENABLED: ${{ vars.PROD_OPENSEARCH_ENABLED }}
 
     steps:
       - name: Checkout released source
@@ -673,9 +680,25 @@ jobs:
           aws-region: ${{ env.AWS_ECS_PROD_REGION }}
 
       - name: Validate ECS production prerequisites
+        env:
+          PROD_OPENSEARCH_CLIENT_SECURITY_GROUP: ${{ secrets.PROD_OPENSEARCH_CLIENT_SECURITY_GROUP }}
+          STAGING_OPENSEARCH_CLIENT_SECURITY_GROUP: ${{ secrets.STAGING_OPENSEARCH_CLIENT_SECURITY_GROUP }}
         shell: bash
         run: |
           set -euo pipefail
+
+          case "$PROD_OPENSEARCH_ENABLED" in
+            ""|false) ;;
+            true)
+              if [[ ! "$PROD_OPENSEARCH_CLIENT_SECURITY_GROUP" =~ ^sg-[0-9a-f]+$ ]] ||
+                 [[ -z "$STAGING_OPENSEARCH_CLIENT_SECURITY_GROUP" ||
+                    "$PROD_OPENSEARCH_CLIENT_SECURITY_GROUP" == "$STAGING_OPENSEARCH_CLIENT_SECURITY_GROUP" ]]; then
+                echo "::error::OpenSearch requires a dedicated production client security group."
+                exit 1
+              fi
+              ;;
+            *) echo "::error::PROD_OPENSEARCH_ENABLED must be true or false."; exit 1 ;;
+          esac
 
           required_values=(
             AWS_ECS_PROD_EXECUTION_ROLE_ARN
@@ -738,6 +761,15 @@ jobs:
             security_group_count="$(jq '[.services[0].networkConfiguration.awsvpcConfiguration.securityGroups // [] | length] | add' <<<"${service_json}")"
             if [ "${network_count}" -lt 1 ] || [ "${security_group_count}" -lt 1 ]; then
               echo "::error::ECS service ${service} has no usable awsvpc subnet/security-group configuration."
+              exit 1
+            fi
+            if [ "$PROD_OPENSEARCH_ENABLED" = "true" ] && ! jq -e \
+              --arg group "$PROD_OPENSEARCH_CLIENT_SECURITY_GROUP" \
+              --arg staging "$STAGING_OPENSEARCH_CLIENT_SECURITY_GROUP" \
+              '.services[0].networkConfiguration.awsvpcConfiguration.securityGroups |
+               index($group) != null and index($staging) == null' \
+              <<<"$service_json" >/dev/null; then
+              echo "::error::ECS service ${service} needs the production OpenSearch client group and no staging client group."
               exit 1
             fi
           done
@@ -803,12 +835,17 @@ jobs:
           API_MEMORY: "2048"
           WORKER_CPU: "2048"
           WORKER_MEMORY: "4096"
+          PROD_OPENSEARCH_URL: ${{ secrets.PROD_OPENSEARCH_URL }}
+          PROD_OPENSEARCH_API_TLS_PARAMETER: ${{ secrets.PROD_OPENSEARCH_API_TLS_PARAMETER }}
+          PROD_OPENSEARCH_WORKER_TLS_PARAMETER: ${{ secrets.PROD_OPENSEARCH_WORKER_TLS_PARAMETER }}
         shell: bash
         run: |
           set -euo pipefail
-          python3 deploy/ecs/render_task_definitions.py \
-            --environment production \
-            --output-dir "${RUNNER_TEMP}/ecs-task-definitions"
+          arguments=(--environment production --output-dir "${RUNNER_TEMP}/ecs-task-definitions")
+          if [ "$PROD_OPENSEARCH_ENABLED" = "true" ]; then
+            arguments+=(--production-opensearch)
+          fi
+          python3 deploy/ecs/render_task_definitions.py "${arguments[@]}"
 
       - name: Register ECS task definitions
         id: task-definitions
