@@ -252,6 +252,10 @@ using `scripts/init_user.py`.
 
 The API is now running at `http://localhost:5005`. If you want the full product experience with a UI, run the [knowhere-dashboard](https://github.com/Ontos-AI/knowhere-dashboard) alongside it; it connects to this API out of the box.
 
+## One-Click Deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/Knowhere/)
+
 ## Quality Checks
 
 Run lint checks from the repository root:
