@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 640" width="1600" height="640">
+<rect width="1600" height="640" fill="#010909"/>
+<text x="64" y="62" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="17" font-weight="500" fill="#22d9ae" text-anchor="start" letter-spacing="0.6">[ 02 / RETRIEVAL ]</text>
+<text x="64" y="112" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="40" font-weight="400" fill="#f0f2e6" text-anchor="start">Routed per query. Open to any agent.</text>
+<image x="1351.5" y="42.5" width="184.5" height="27.0" href="data:image/png;base64,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"/>
+<line x1="64" y1="152" x2="1536" y2="152" stroke="#1a2b29" stroke-width="1.4"/>
+<text x="64" y="196" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#9aa59f" text-anchor="start">Ask Knowhere</text>
+<rect x="64" y="214" width="240" height="126" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<rect x="64" y="214" width="4" height="126" rx="1" fill="#22d9ae"/>
+<text x="86" y="252" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="22" font-weight="400" fill="#f0f2e6" text-anchor="start">Query API</text>
+<text x="86" y="284" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#9aa59f" text-anchor="start">POST /v2/retrieval/query</text>
+<text x="86" y="312" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#9aa59f" text-anchor="start">evidence-only results</text>
+<path d="M304,277 H350" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M343,271 L352,277 L343,283" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="352" y="214" width="280" height="126" rx="8" fill="#031a1a" stroke="#12403b" stroke-width="1.4"/>
+<text x="372" y="250" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="22" font-weight="400" fill="#f0f2e6" text-anchor="start">Query router</text>
+<rect x="372" y="270" width="114" height="50" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<text x="429" y="292" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="500" fill="#f0f2e6" text-anchor="middle">Classic</text>
+<text x="429" y="310" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#9aa59f" text-anchor="middle">BM25 top-K</text>
+<rect x="498" y="270" width="114" height="50" rx="6" fill="#073a32" stroke="#22d9ae" stroke-width="1.4"/>
+<text x="555" y="292" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="500" fill="#22d9ae" text-anchor="middle">Agent</text>
+<text x="555" y="310" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#9aa59f" text-anchor="middle">explores tools</text>
+<path d="M632,277 H698" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M691,271 L700,277 L691,283" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="64" y="392" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#9aa59f" text-anchor="start">Bring your own agent</text>
+<rect x="64" y="410" width="240" height="84" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<rect x="64" y="410" width="4" height="84" rx="1" fill="#22d9ae"/>
+<text x="86" y="444" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="22" font-weight="400" fill="#f0f2e6" text-anchor="start">Any agent</text>
+<text x="86" y="474" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#9aa59f" text-anchor="start">Cursor · Codex · Claude Code</text>
+<path d="M304,452 H698" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M691,446 L700,452 L691,458" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="502" y="440" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="500" fill="#22d9ae" text-anchor="middle">MCP · /v2/retrieval/tools/invoke</text>
+<rect x="700" y="214" width="420" height="280" rx="8" fill="#031a1a" stroke="#12403b" stroke-width="1.4"/>
+<text x="724" y="256" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="24" font-weight="400" fill="#f0f2e6" text-anchor="start">Knowhere Memory</text>
+<text x="724" y="282" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#9aa59f" text-anchor="start">One schema · one tool contract</text>
+<rect x="724" y="308" width="176" height="44" rx="6" fill="#073a32" stroke="#22d9ae" stroke-width="1.2"/>
+<text x="812" y="335.5" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="500" fill="#22d9ae" text-anchor="middle">corpus.recall</text>
+<rect x="912" y="308" width="176" height="44" rx="6" fill="#073a32" stroke="#22d9ae" stroke-width="1.2"/>
+<text x="1000" y="335.5" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="500" fill="#22d9ae" text-anchor="middle">corpus.grep</text>
+<rect x="724" y="364" width="176" height="44" rx="6" fill="#073a32" stroke="#22d9ae" stroke-width="1.2"/>
+<text x="812" y="391.5" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="500" fill="#22d9ae" text-anchor="middle">corpus.outline</text>
+<rect x="912" y="364" width="176" height="44" rx="6" fill="#073a32" stroke="#22d9ae" stroke-width="1.2"/>
+<text x="1000" y="391.5" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="500" fill="#22d9ae" text-anchor="middle">corpus.read</text>
+<rect x="724" y="420" width="176" height="44" rx="6" fill="#073a32" stroke="#22d9ae" stroke-width="1.2"/>
+<text x="812" y="447.5" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="500" fill="#22d9ae" text-anchor="middle">corpus.query_table</text>
+<rect x="912" y="420" width="176" height="44" rx="6" fill="#073a32" stroke="#22d9ae" stroke-width="1.2"/>
+<text x="1000" y="447.5" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="500" fill="#22d9ae" text-anchor="middle">corpus.assets</text>
+<path d="M1120,354 H1178" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M1171,348 L1180,354 L1171,360" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1180" y="214" width="356" height="280" rx="8" fill="#031a1a" stroke="#12403b" stroke-width="1.4"/>
+<text x="1204" y="256" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="24" font-weight="400" fill="#f0f2e6" text-anchor="start">Grounded Evidence</text>
+<text x="1204" y="282" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#9aa59f" text-anchor="start">Source-linked citations</text>
+<rect x="1204" y="304" width="308" height="50" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<text x="1222" y="335" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="17" font-weight="500" fill="#22d9ae" text-anchor="start">[1]</text>
+<path d="M1262,324 H1490 M1262,336 H1440" fill="none" stroke="#3a5652" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1204" y="366" width="308" height="50" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<text x="1222" y="397" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="17" font-weight="500" fill="#22d9ae" text-anchor="start">[2]</text>
+<path d="M1262,386 H1490 M1262,398 H1440" fill="none" stroke="#3a5652" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1204" y="428" width="308" height="50" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<text x="1222" y="459" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="17" font-weight="500" fill="#22d9ae" text-anchor="start">[3]</text>
+<path d="M1262,448 H1490 M1262,460 H1440" fill="none" stroke="#3a5652" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="64" y="574" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#9aa59f" text-anchor="start">Documents stay searchable while progressive enrichment is still running.</text>
+</svg>

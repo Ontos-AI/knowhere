@@ -41,3 +41,13 @@ chrome --headless --hide-scrollbars \
 Matplotlib exported the text as glyph paths, so the SVG contains no editable
 strings (86 label groups are `<path>`/`<use>` defs). Changing a metric means
 editing the generating script or data and re-exporting, not patching the SVG.
+
+## Step Figures
+
+`step-1-parse-and-publish-{light,dark}.svg` and
+`step-2-routed-retrieval-{light,dark}.svg` are the vector sources for the
+README step figures. They are rendered to the matching PNGs in `docs/assets/`
+with the same headless Chrome procedure as above, using a 1600x640 viewport at
+2x device scale (3200x1280). The text is live (Poppins, with system sans-serif
+fallbacks), so labels can be edited directly in the SVG. The dark variant
+differs only in color literals.
