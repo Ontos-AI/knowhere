@@ -14,7 +14,7 @@ import sys
 from threading import Event, get_ident
 from types import SimpleNamespace
 from uuid import uuid4
-from typing import ParamSpec, TypeVar
+from typing import Any, Literal, ParamSpec, TypeVar
 
 import httpx
 import pytest
@@ -1796,15 +1796,18 @@ def test_classic_read_returns_evidence_while_chunk_final_claim_is_locked(
 
 
 @pytest.mark.parametrize("publication_count", [0, 1, 2])
-def test_progressive_native_read_retries_once_when_publication_crosses_retrieval(
+@pytest.mark.parametrize("boundary", ["assembled", "hydration"])
+def test_progressive_native_read_returns_available_evidence(
     classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch, publication_count: int,
+    boundary: Literal["assembled", "hydration"],
 ) -> None:
-    from shared.core.exceptions.domain_exceptions import ConflictException
     from shared.models.database.document import Document
     from shared.models.database.job_result import JobResult
     from shared.services.retrieval.execution import plan
     from shared.services.retrieval.execution.route_types import RetrievalRouteContext, RetrievalRouteOutcome
+    from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
     from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
+    from shared.services.retrieval.lexical.hit import LexicalHit
     from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
     from shared.services.retrieval.lexical.worker import IndexingWorker
     from shared.services.retrieval.publication_models import DocumentPublicationScope
@@ -1822,17 +1825,32 @@ def test_progressive_native_read_retries_once_when_publication_crosses_retrieval
 
     original = plan.run_retrieval_route
     read_generations: list[int | None] = []
+    publications: list[int] = []
     revised_content: str = "工程验收计划 细化内容"
     sessions = sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(LegacyCopyDispatch, "submit", staticmethod(lambda identity: False))
 
     def publish_refinement(db: Session, staged_scope: DocumentPublicationScope) -> None:
+        chapter = f"细化{len(publications)}" if boundary == "hydration" else "工程验收"
         replace_document_scope_content(db, scope=staged_scope, scope_id="*", chunks=[
             {"chunk_id": "refined-first", "type": "text", "content": revised_content,
-                "path": "report.pdf/工程验收", "metadata": {}},
+                "path": f"report.pdf/{chapter}", "metadata": {}},
             {"chunk_id": "classic-second", "type": "text", "content": "项目质量管理程序",
                 "path": "report.pdf/质量管理", "metadata": {}},
         ])
+
+    def publish_once() -> None:
+        publications.append(len(publications) + 1)
+        ProgressivePublication(sessionFactory=sessions).publish(scope=scope, update=publish_refinement)
+
+    original_search = AsyncOpenSearchLexicalIndex.search
+
+    async def publish_before_hydration(self: AsyncOpenSearchLexicalIndex, **options: Any) -> tuple[LexicalHit, ...]:
+        hits = await original_search(self, **options)
+        if len(publications) < publication_count:
+            assert hits
+            publish_once()
+        return hits
 
     async def publish_after_retrieval(context: RetrievalRouteContext) -> RetrievalRouteOutcome:
         outcome = await original(context)
@@ -1842,24 +1860,28 @@ def test_progressive_native_read_retries_once_when_publication_crosses_retrieval
         if publication_count == 0 and len(read_generations) == 1:
             replacement_id = _stageReplacement(engine, namespace)
             assert IndexingWorker(sessionFactory=sessions).run(replacement_id) == "completed"
-        elif len(read_generations) <= publication_count:
-            ProgressivePublication(sessionFactory=sessions).publish(scope=scope, update=publish_refinement)
+        elif boundary == "assembled" and len(publications) < publication_count:
+            publish_once()
         return outcome
 
     monkeypatch.setattr(plan, "run_retrieval_route", publish_after_retrieval)
-    if publication_count == 2:
-        with pytest.raises(ConflictException):
-            asyncio.run(_queryClassic(namespace))
-    else:
-        response = asyncio.run(_queryClassic(namespace))
-        results: object = response["results"]
-        assert isinstance(results, list) and results
-        assert results[0]["content"] == ("工程验收计划" if publication_count == 0 else revised_content)
-    if publication_count == 0:
+    if boundary == "hydration":
+        monkeypatch.setattr(AsyncOpenSearchLexicalIndex, "search", publish_before_hydration)
+    response = asyncio.run(_queryClassic(namespace))
+    results: object = response["results"]
+    assert isinstance(results, list)
+    if boundary == "assembled" or publication_count == 0:
         assert len(read_generations) == 1
-        return
-    assert len(read_generations) == 2
-    assert read_generations[0] is not None and read_generations[1] == read_generations[0] + 1
+        assert results and results[0]["content"] == "工程验收计划"
+        assert results[0]["source"]["job_result_id"] == scope.job_result_id
+    else:
+        assert len(read_generations) == 2
+        assert read_generations[0] is not None and read_generations[1] == read_generations[0] + 1
+        if publication_count == 1:
+            assert results and results[0]["content"] == revised_content
+            assert results[0]["source"]["job_result_id"] == scope.job_result_id
+        else:
+            assert results == []
 
 
 def test_classic_read_reopens_a_closed_index_through_normal_admission(

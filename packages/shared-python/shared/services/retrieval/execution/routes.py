@@ -164,6 +164,8 @@ async def _try_run_small_corpus_route(
     logger.info(
         f"  small_corpus load: loaded={len(all_rows)} rows after signal/exclude filters"
     )
+    if len(all_rows) > context.top_k:
+        return None
     assembled_rows = await assemble_retrieval_results(
         db=context.db,
         rows=all_rows,
@@ -189,6 +191,7 @@ async def _try_run_small_corpus_route(
         completion_label="Small corpus",
         completion_count=len(results),
         completion_detail="results",
+        has_unhydrated_hits=total_chunk_count > 0 and not all_rows,
     )
     await _persist_retrieval_usage_run(
         db=context.db,
@@ -254,6 +257,7 @@ async def _run_classic_topk_route(
         completion_label="CLASSIC TOP-K",
         completion_count=len(results),
         completion_detail="results",
+        has_unhydrated_hits=discovery_result.has_unhydrated_hits,
     )
     await _persist_retrieval_usage_run(
         db=context.db,
