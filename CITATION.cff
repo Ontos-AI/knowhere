@@ -8,8 +8,8 @@ authors:
 repository-code: "https://github.com/Ontos-AI/knowhere"
 url: "https://knowhereto.ai"
 license: Apache-2.0
-version: "2026.04.30.1"
-date-released: "2026-04-30"
+version: "2026.11.10.1"
+date-released: "2026-11-10"
 keywords:
   - RAG
   - agentic RAG
