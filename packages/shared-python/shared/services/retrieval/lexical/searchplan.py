@@ -77,10 +77,11 @@ class NativeSearchPlan:
             raise LexicalIndexError("Native lexical response was invalid") from error
         if any(channel.timed_out or channel.shards.failed for channel in channels):
             raise LexicalIndexError("Lexical channel returned partial results", isRetryable=True)
+        allowedBuildIds: frozenset[str] = frozenset(buildIds)
         hits: dict[str, LexicalHit] = {}
         for channelNumber, channel in enumerate(channels):
             for rank, native in enumerate(channel.hits.hits):
-                if native.source.buildId not in buildIds:
+                if native.source.buildId not in allowedBuildIds:
                     raise LexicalIndexError(
                         "Native hit escaped its published build scope"
                     )
