@@ -323,7 +323,7 @@ If you use Knowhere in your research, please cite it as:
   year         = {2026},
   publisher    = {GitHub},
   url          = {https://github.com/Ontos-AI/knowhere},
-  version      = {2026.11.10.1},
+  version      = {1.2.51},
   license      = {Apache-2.0}
 }
 ```
