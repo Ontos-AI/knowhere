@@ -574,6 +574,7 @@ async def hybrid_discovery(
     if not visual_rows:
         return lexical_result
     if not lexical_rows:
+        visual_result.has_unhydrated_hits = lexical_result.has_unhydrated_hits
         return visual_result
 
     lexical_weight = CHANNEL_WEIGHT_PATH + CHANNEL_WEIGHT_CONTENT
@@ -632,4 +633,5 @@ async def hybrid_discovery(
         payload={"fused_rows": fused_rows},
         latency_ms=int(lexical_result.latency_ms or 0)
         + int(visual_result.latency_ms or 0),
+        has_unhydrated_hits=lexical_result.has_unhydrated_hits,
     )

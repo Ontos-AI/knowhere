@@ -47,3 +47,4 @@ class RetrievalRouteOutcome:
     completion_label: str
     completion_count: int
     completion_detail: str
+    has_unhydrated_hits: bool = False

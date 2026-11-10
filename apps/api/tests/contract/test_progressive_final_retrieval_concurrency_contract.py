@@ -59,12 +59,15 @@ def build_chunks(stage: str) -> list[dict[str, object]]:
     ]
 
 
-@pytest.mark.parametrize("boundary", ["units", "hydration", "agent"])
+@pytest.mark.parametrize(
+    "boundary",
+    ["units", "hydration", "agent", "assembled", "partial", "no_hits", "small_growth", "small_archive"],
+)
 @pytest.mark.parametrize("mutation_count", [0, 1, 2])
-def test_query_retries_if_final_publication_crosses_a_serving_read(
+def test_query_handles_final_publication_crossing_a_serving_read(
     monkeypatch: pytest.MonkeyPatch,
     postgresql_proc: PostgreSQLProcess,
-    boundary: Literal["units", "hydration", "agent"],
+    boundary: Literal["units", "hydration", "agent", "assembled", "partial", "no_hits", "small_growth", "small_archive"],
     mutation_count: int,
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
@@ -84,13 +87,25 @@ def test_query_retries_if_final_publication_crosses_a_serving_read(
         job_ref=f"job-{boundary}",
         revision_ref=f"result-{boundary}",
     )
+
+    is_small_corpus: bool = boundary in ("small_growth", "small_archive")
+
+    def build_publication_chunks(stage: str, publication: int = 0) -> list[dict[str, object]]:
+        chunks = build_chunks(stage)
+        if publication and boundary in ("hydration", "partial"):
+            chunks[0]["path"] = f"report.pdf/RefinedChapter{publication}"
+        if boundary == "partial":
+            chunks[1]["chunk_id"] = "steady-2"
+            chunks[1]["content"] = "revenue steady 222"
+        return chunks[:1] if is_small_corpus and not publication else chunks
+
     with Session(engine) as db:
         seed_publication_fixture(db, scope=scope)
         published = RetrievalPublicationService().publish_document_state(
             db,
             job_id=scope.job_ref,
             job_result_id=scope.revision_ref,
-            chunks=build_chunks("baseline"),
+            chunks=build_publication_chunks("baseline"),
             update_namespace_snapshot=False,
         )
         assert published is not None and published.document_id is not None
@@ -106,7 +121,7 @@ def test_query_retries_if_final_publication_crosses_a_serving_read(
 
     def publish_final() -> None:
         with Session(engine) as db:
-            db.execute(
+            document = db.execute(
                 select(Document)
                 .where(Document.document_id == document_id)
                 .with_for_update()
@@ -118,9 +133,19 @@ def test_query_retries_if_final_publication_crosses_a_serving_read(
                 job_result_id=scope.revision_ref,
                 source_file_name="report.pdf",
             )
-            replace_document_scope_content(
-                db, scope=publication_scope, scope_id="*", chunks=build_chunks("final")
-            )
+            if boundary == "small_archive":
+                document.status = "archived"
+                advance_namespace_generation(
+                    db, user_id=scope.user_ref, namespace=scope.namespace_ref,
+                )
+            else:
+                chunks = build_publication_chunks("final", len(published_during_read) + 1)
+                replace_document_scope_content(
+                    db,
+                    scope=publication_scope,
+                    scope_id="p1-1" if boundary == "partial" else "*",
+                    chunks=chunks[:1] if boundary == "partial" else chunks,
+                )
             db.commit()
         published_during_read.append(True)
 
@@ -139,7 +164,7 @@ def test_query_retries_if_final_publication_crosses_a_serving_read(
             else "FROM document_map_unit_indexes AS indexes"
         )
         if (
-            boundary == "agent"
+            is_small_corpus or boundary in ("agent", "assembled", "no_hits")
             or connection.dialect.driver != "asyncpg"
             or marker not in statement
             or len(published_during_read) >= mutation_count
@@ -149,6 +174,30 @@ def test_query_retries_if_final_publication_crosses_a_serving_read(
             writer.submit(publish_final).result(timeout=15)
 
     event.listen(Engine, "after_cursor_execute", pause_between_serving_reads)
+
+    if is_small_corpus:
+        count_scoped_chunks = routes.count_scoped_chunks
+
+        async def publish_after_count(*args: object, **kwargs: object) -> int:
+            count = await count_scoped_chunks(*args, **kwargs)
+            if count == 1 and not published_during_read and mutation_count:
+                publish_final()
+            return count
+
+        monkeypatch.setattr(routes, "count_scoped_chunks", publish_after_count)
+
+    if boundary in ("assembled", "no_hits"):
+        from shared.services.retrieval.execution.route_types import RetrievalRouteContext, RetrievalRouteOutcome
+
+        original = plan.run_retrieval_route
+
+        async def publish_after_assembly(context: RetrievalRouteContext) -> RetrievalRouteOutcome:
+            outcome = await original(context)
+            if len(published_during_read) < mutation_count:
+                publish_final()
+            return outcome
+
+        monkeypatch.setattr(plan, "run_retrieval_route", publish_after_assembly)
 
     if boundary == "agent":
         from shared.services.retrieval.agent_explore import harness
@@ -211,8 +260,8 @@ def test_query_retries_if_final_publication_crosses_a_serving_read(
                 db=db,
                 user_id=scope.user_ref,
                 namespace=scope.namespace_ref,
-                query="revenue",
-                top_k=1,
+                query="nonmatchingterm" if boundary == "no_hits" else "revenue",
+                top_k=2 if boundary == "partial" else 1,
                 internal_recall_k=3,
                 exclude_document_ids=[],
                 exclude_sections=[],
@@ -220,19 +269,44 @@ def test_query_retries_if_final_publication_crosses_a_serving_read(
             )
 
     try:
-        if mutation_count == 2:
+        if boundary == "agent" and mutation_count == 2:
             with pytest.raises(ConflictException):
                 asyncio.run(query())
             assert published_during_read == [True, True]
             return
         response = asyncio.run(query())
-        assert published_during_read == [True] * mutation_count
         results = response["results"]
-        assert isinstance(results, list) and results, (
-            "Concurrent final publication must not silently lose matching evidence"
-        )
+        assert isinstance(results, list)
+        if is_small_corpus and mutation_count:
+            assert published_during_read == [True]
+            assert len(results) == (1 if boundary == "small_growth" else 0)
+            if boundary == "small_growth":
+                assert response["router_used"] == "classic_topk"
+                assert results[0]["chunk_id"] == "final-1"
+                assert results[0]["source"]["document_id"] == document_id
+            return
+        if boundary == "no_hits":
+            assert published_during_read == [True] * min(mutation_count, 1)
+            assert results == []
+            return
+        if boundary in ("assembled", "partial") and mutation_count:
+            assert published_during_read == [True]
+            assert {row["chunk_id"] for row in results} == (
+                {"baseline-1"} if boundary == "assembled" else {"steady-2"}
+            )
+            assert results[0]["source"]["document_id"] == document_id
+            assert results[0]["source"]["job_result_id"] == scope.revision_ref
+            return
+        assert published_during_read == [True] * mutation_count
+        if boundary in ("hydration", "units") and mutation_count == 2:
+            assert results == []
+            return
+        assert results, "Concurrent final publication must not silently lose all matching evidence"
         expected_stage = "final" if mutation_count else "baseline"
-        assert {row["chunk_id"] for row in results} == {f"{expected_stage}-1"}
+        expected_ids = {"baseline-1", "steady-2"} if boundary == "partial" else {f"{expected_stage}-1"}
+        assert {row["chunk_id"] for row in results} == expected_ids
+        if boundary == "partial":
+            return
         assert expected_stage in results[0]["content"]
         assert results[0]["source"]["document_id"] == document_id
         assert results[0]["source"]["job_result_id"] == scope.revision_ref
