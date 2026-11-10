@@ -150,10 +150,9 @@ async def load_all_scoped_chunks(
         .join(JobResult, JobResult.id == corpusStorage.DocumentChunk.job_result_id)
         .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
         .where(corpusStorage.Document.namespace == namespace)
+        .where(corpusStorage.Document.status == 'active')
         .order_by(corpusStorage.DocumentChunk.sort_order)
     )
-    if revision_pins is None:
-        stmt = stmt.where(corpusStorage.Document.status == 'active')
     stmt = stmt.where(document_scope.excluding(exclude_document_ids).predicate(corpusStorage.Document.document_id))
     if allowed_chunk_types is not None:
         stmt = stmt.where(func.lower(corpusStorage.DocumentChunk.chunk_type).in_(list(allowed_chunk_types)))

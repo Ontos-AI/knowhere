@@ -119,7 +119,7 @@ class RetrievalExecutionPlan:
                 except _NativeServingGenerationChanged:
                     logger.warning("Progressive publication changed native retrieval generation; retrying once")
                     try:
-                        return await self._execute_native(request)
+                        return await self._execute_native(request, can_retry_classic=False)
                     except _NativeServingGenerationChanged:
                         raise self._serving_generation_conflict() from None
             if request.query:
@@ -151,7 +151,9 @@ class RetrievalExecutionPlan:
             raise LexicalIndexError("PostgreSQL retrieval is gated or another backend is selected", isRetryable=True)
         return epoch
 
-    async def _execute_native(self, request: RetrievalQuery) -> dict[str, Any]:
+    async def _execute_native(
+        self, request: RetrievalQuery, *, can_retry_classic: bool = True,
+    ) -> dict[str, Any]:
         reader: AsyncPublishedLexicalRead | None = None
         failureState: NativeFailureState = NativeFailureState()
         try:
@@ -165,7 +167,9 @@ class RetrievalExecutionPlan:
             with reader.bind(), failureState.bind():
                 async with AsyncSession(bind=bind, expire_on_commit=False) as ownedDb:
                     ownedDb.info["lexical_read_owned"] = True
-                    response = await self._execute_with_overrides(replace(request, db=ownedDb))
+                    response = await self._execute_with_overrides(
+                        replace(request, db=ownedDb), can_retry_classic=can_retry_classic,
+                    )
                     failureState.raiseIfFailed()
                     if reader.isClassic:
                         await reader.finishAsync(ownedDb)
@@ -209,7 +213,9 @@ class RetrievalExecutionPlan:
             request.db, user_id=request.user_id, namespace=request.namespace, pins=pins, strict=True,
         )
 
-    async def _execute_with_overrides(self, request: RetrievalQuery) -> dict[str, Any]:
+    async def _execute_with_overrides(
+        self, request: RetrievalQuery, *, can_retry_classic: bool = True,
+    ) -> dict[str, Any]:
         # TODO(intent-step): Insert Intent Understanding step here.
         # Before any retrieval runs, parse `request.query` with LLM +
         # KG overview + section tree to extract structured navigation
@@ -351,6 +357,14 @@ class RetrievalExecutionPlan:
                 ):
                     raise
             else:
+                is_classic: bool = outcome.response.get("router_used") in {
+                    "classic_topk", "small_corpus_all",
+                }
+                if is_classic and (
+                    outcome.completion_count or not outcome.has_unhydrated_hits
+                    or attempt > 0 or not can_retry_classic
+                ):
+                    break
                 if await self._is_serving_read_stable(
                     request, revision_pins, native_read, route_context.document_scope,
                 ):
@@ -373,7 +387,7 @@ class RetrievalExecutionPlan:
         if outcome.response.get("router_used") == "small_corpus_all":
             StageObserver.record("bypass", "small_corpus")
 
-        if cache_version is not None:
+        if cache_version is not None and not outcome.has_unhydrated_hits:
             await _write_cached_response(
                 user_id=request.user_id,
                 namespace=request.namespace,
