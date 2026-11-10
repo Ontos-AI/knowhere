@@ -68,7 +68,8 @@ async def discoverOpenSearch(
             rowsById[identity] = {"document_id": hit.unit.documentId,
                 "job_result_id": hit.unit.revisionId, "section_id": hit.unit.sectionId}
             scores[identity] = hit.score
-        rows = await _hydrate_winning_units(db, ranked_unit_ids=list(rowsById),
+        rows, has_unhydrated_hits = await _hydrate_winning_units(
+            db, user_id=userId, namespace=namespace, ranked_unit_ids=list(rowsById),
             rows_by_unit_id=rowsById, scores_by_unit=scores, chunk_types=chunkTypes,
             exclude_document_ids=excludeDocumentIds, exclude_sections=excludeSections,
             document_scope=scope, revision_pins=selected)
@@ -82,7 +83,8 @@ async def discoverOpenSearch(
         if rows:
             normalize_row_scores(rows, source_field="score", target_field="discovery_score", default=0.5)
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": rows},
-            latency_ms=int((time.monotonic() - started) * 1000))
+            latency_ms=int((time.monotonic() - started) * 1000),
+            has_unhydrated_hits=has_unhydrated_hits)
     except LexicalIndexError as error:
         unavailable = UnavailableException(internal_message=str(error), retry_after=1,
             user_message="Search is temporarily unavailable. Please retry.", original_exception=error)

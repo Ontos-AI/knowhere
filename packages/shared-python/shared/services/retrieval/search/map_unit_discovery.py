@@ -129,6 +129,7 @@ class DiscoveryResult:
     payload: dict[str, Any] = field(default_factory=dict)
     latency_ms: int = 0
     error: str | None = None
+    has_unhydrated_hits: bool = False
 
 
 def _build_revision_scope(
@@ -729,6 +730,12 @@ async def map_unit_discovery(
     )
 
     rows_by_unit_id = {row["map_unit_id"]: row for row in unit_rows}
+    # The unfiltered projection had already found matching tokens. Publication
+    # can replace those postings before the separate frequency query runs.
+    has_disappearing_matches: bool = is_unfiltered_scope and any(
+        not any((unit_id, channel) in frequencies for channel in _MAP_SCORE_CHANNELS)
+        for unit_id in rows_by_unit_id
+    )
     ranked_unit_ids = sorted(
         (unit_id for unit_id, score in scores_by_unit.items() if score > 0.0),
         key=lambda unit_id: scores_by_unit[unit_id],
@@ -736,8 +743,10 @@ async def map_unit_discovery(
     )[:top_k]
 
     stage_started = time.monotonic()
-    fused_rows = await _hydrate_winning_units(
+    fused_rows, has_unhydrated_hits = await _hydrate_winning_units(
         db,
+        user_id=user_id,
+        namespace=namespace,
         ranked_unit_ids=ranked_unit_ids,
         rows_by_unit_id=rows_by_unit_id,
         scores_by_unit=scores_by_unit,
@@ -771,6 +780,7 @@ async def map_unit_discovery(
         status="discovery_done",
         payload={"fused_rows": fused_rows},
         latency_ms=latency,
+        has_unhydrated_hits=has_unhydrated_hits or has_disappearing_matches,
     )
 
 
@@ -786,6 +796,8 @@ def _as_metadata_dict(value: object) -> dict[str, Any]:
 async def _hydrate_winning_units(
     session: AsyncSession,
     *,
+    user_id: str,
+    namespace: str,
     ranked_unit_ids: list[str],
     rows_by_unit_id: dict[str, dict[str, Any]],
     scores_by_unit: dict[str, float],
@@ -794,11 +806,11 @@ async def _hydrate_winning_units(
     exclude_sections: list[dict[str, str]],
     document_scope: DocumentScope = DocumentScope(),
     revision_pins: Mapping[str, str] | None,
-) -> list[dict[str, Any]]:
-    """Map each winning leaf to its one chunk; asset requests follow connect_to."""
-    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(str(next(iter(rows_by_unit_id.values()), {}).get("document_id") or ""))
+) -> tuple[list[dict[str, Any]], bool]:
+    """Hydrate authorized hits and report hits whose primary chunk disappeared."""
     if not ranked_unit_ids:
-        return []
+        return [], False
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
 
     document_ids = sorted(
         {rows_by_unit_id[unit_id]["document_id"] for unit_id in ranked_unit_ids}
@@ -823,12 +835,15 @@ async def _hydrate_winning_units(
             "LEFT JOIN document_sections ds ON ds.section_id = dc.section_id "
             "LEFT JOIN job_results jr ON jr.id = dc.job_result_id "
             "LEFT JOIN jobs j ON j.job_id = jr.job_id "
-            "WHERE dc.document_id = ANY(:document_ids) "
+            "WHERE d.user_id = :user_id AND d.namespace = :namespace AND d.status = 'active' "
+            "AND dc.document_id = ANY(:document_ids) "
             "AND dc.job_result_id = ANY(:job_result_ids) "
             "AND dc.section_id = ANY(:section_ids) "
             "ORDER BY dc.sort_order, dc.chunk_id")
         ),
         {
+            "user_id": corpusStorage.resolve_owner(user_id),
+            "namespace": namespace,
             "document_ids": document_ids,
             "job_result_ids": job_result_ids,
             "section_ids": section_ids,
@@ -856,8 +871,9 @@ async def _hydrate_winning_units(
         fused["score"] = scores_by_unit.get(unit_id, 0.0)
         primaries.append(fused)
 
+    has_unhydrated_hits: bool = len(primaries) < len(ranked_unit_ids)
     if chunk_types is None or not chunk_types.issubset(ASSET_CHUNK_TYPES):
-        return primaries
+        return primaries, has_unhydrated_hits
 
     connected = await hydrate_connected_target_rows(
         db=session,
@@ -899,4 +915,4 @@ async def _hydrate_winning_units(
             fused = dict(candidate)
             fused["score"] = score
             fused_rows.append(fused)
-    return fused_rows
+    return fused_rows, has_unhydrated_hits
