@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -276,6 +277,8 @@ def _get_pending_chunk_final_state(
 async def _enqueue_chunk_final_on_returned_rows(
     db: Any,
     rows: list[dict[str, Any]],
+    *,
+    skip_locked: bool,
 ) -> list[str]:
     """Queue chunk-track Final once for revisions whose rows this read actually returned."""
     revision_ids: list[str] = []
@@ -293,45 +296,48 @@ async def _enqueue_chunk_final_on_returned_rows(
 
     claimed: list[str] = []
     try:
-        snapshots = await db.execute(
-            select(JobResult.id, JobResult.document_metadata, Job.job_metadata)
-            .join(Job, Job.job_id == JobResult.job_id)
-            .where(JobResult.id.in_(revision_ids))
-        )
-        eligible_ids: list[str] = [
-            revision_id
-            for revision_id, document_metadata, job_metadata in snapshots
-            if _get_pending_chunk_final_state(document_metadata, job_metadata)
-            is not None
-        ]
-        if not eligible_ids:
-            return []
-
-        loaded = (
-            await db.execute(
-                select(JobResult, Job)
+        # Keep optional claim failures from aborting the classic read transaction.
+        transaction = db.begin_nested() if skip_locked else nullcontext()
+        async with transaction:
+            snapshots = await db.execute(
+                select(JobResult.id, JobResult.document_metadata, Job.job_metadata)
                 .join(Job, Job.job_id == JobResult.job_id)
-                .where(JobResult.id.in_(eligible_ids))
-                .order_by(JobResult.id)
-                .with_for_update(of=JobResult)
-                .execution_options(populate_existing=True)
+                .where(JobResult.id.in_(revision_ids))
             )
-        ).all()
-        for job_result, job in loaded:
-            # A concurrent reader may have claimed Final after the unlocked read.
-            state = _get_pending_chunk_final_state(
-                job_result.document_metadata, job.job_metadata
-            )
-            if state is None:
-                continue
-            stages: dict[str, EnhancementStage] = dict(state.stages)
-            stage: EnhancementStage = {**stages.get("finalization", {})}
-            stages["finalization"] = {**stage, "status": "running"}
-            state.stages = stages
-            job_result.document_metadata = write_progressive_state(
-                job_result.document_metadata, state
-            )
-            claimed.append(str(job_result.id))
+            eligible_ids: list[str] = [
+                revision_id
+                for revision_id, document_metadata, job_metadata in snapshots
+                if _get_pending_chunk_final_state(document_metadata, job_metadata)
+                is not None
+            ]
+            if not eligible_ids:
+                return []
+
+            loaded = (
+                await db.execute(
+                    select(JobResult, Job)
+                    .join(Job, Job.job_id == JobResult.job_id)
+                    .where(JobResult.id.in_(eligible_ids))
+                    .order_by(JobResult.id)
+                    .with_for_update(of=JobResult, skip_locked=skip_locked)
+                    .execution_options(populate_existing=True)
+                )
+            ).all()
+            for job_result, job in loaded:
+                # A concurrent reader may have claimed Final after the unlocked read.
+                state = _get_pending_chunk_final_state(
+                    job_result.document_metadata, job.job_metadata
+                )
+                if state is None:
+                    continue
+                stages: dict[str, EnhancementStage] = dict(state.stages)
+                stage: EnhancementStage = {**stages.get("finalization", {})}
+                stages["finalization"] = {**stage, "status": "running"}
+                state.stages = stages
+                job_result.document_metadata = write_progressive_state(
+                    job_result.document_metadata, state
+                )
+                claimed.append(str(job_result.id))
         if claimed:
             await db.commit()
     except Exception as exc:
@@ -386,9 +392,13 @@ async def _enqueue_chunk_final_on_returned_rows(
 async def promote_scopes_on_read(
     db: Any,
     rows: list[dict[str, Any]],
+    *,
+    skip_locked_chunk_final: bool = False,
 ) -> list[tuple[str, str]]:
     """Queue Fine for returned coarse pages, and chunk-track Final once per revision."""
-    await _enqueue_chunk_final_on_returned_rows(db, rows)
+    await _enqueue_chunk_final_on_returned_rows(
+        db, rows, skip_locked=skip_locked_chunk_final
+    )
     targets: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for row in rows:
