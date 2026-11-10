@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from datetime import datetime, timezone
+from dataclasses import replace
+from uuid import uuid4
 from typing import Any
 
 from app.services.document_ingestion.job_state_gate import mark_job_running
@@ -41,6 +45,8 @@ from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.ai.llm_overrides import cleanup_llm_overrides, init_llm_overrides
 from shared.services.ai.token_tracking import cleanup_token_tracker, init_token_tracker
 from shared.services.jobs.lifecycle.service import get_sync_job_lifecycle_service
+from shared.services.jobs.parsing import ParsingOwnership
+from shared.services.jobs.parsing_error import ParsingOwnerError
 from shared.services.redis.distributed_lock import RedisJobLock
 from shared.services.redis.redis_sync_service import (
     SyncRedisServiceFactory,
@@ -51,9 +57,17 @@ from shared.services.storage.result_storage import get_result_storage
 class DocumentProcessingRun:
     """Run worker-side Document Ingestion for an uploaded file Job."""
 
-    def execute(self, job_id: str, user_id: str | None) -> dict[str, object]:
+    def execute(self, job_id: str, user_id: str | None, *, onParsingClaim: Callable[[str], None] | None = None) -> dict[str, object]:
         logger.info(f"Parse started: job_id={job_id}, user_id={user_id}")
         lifecycle_service = get_sync_job_lifecycle_service()
+        ownership: ParsingOwnership = ParsingOwnership()
+        disposition = ownership.getDisposition(job_id)
+        if disposition != "parse":
+            if disposition == "parsed":
+                from shared.services.retrieval.lexical.worker import IndexingWorker
+                IndexingWorker().run(job_id, initialOnly=True)
+            return {"status": "skipped", "job_id": job_id,
+                "reason": "parsing_already_completed" if disposition == "parsed" else "job_already_terminal"}
 
         redis_service = SyncRedisServiceFactory.get_service()
         job_context = load_parse_job_context(job_id, user_id, redis_service)
@@ -68,9 +82,18 @@ class DocumentProcessingRun:
             }
 
         try:
-            with RedisJobLock(job_context.redis_service, job_id):
-                task_workspace = TemporaryParseWorkspace.create(job_id)
+            ownerToken: str = uuid4().hex
+            with RedisJobLock(job_context.redis_service, job_id, ownerToken=ownerToken,
+                             onRenew=lambda: ownership.renew(job_id, ownerToken)):
+                if not ownership.claim(job_id, ownerToken):
+                    return {"status": "skipped", "job_id": job_id,
+                        "reason": "parsing_already_completed" if ownership.getDisposition(job_id) != "parse" else "job_already_processing"}
+                job_context = replace(job_context, parsingOwnerToken=ownerToken)
+                if onParsingClaim is not None:
+                    onParsingClaim(ownerToken)
+                task_workspace: TemporaryParseWorkspace | None = None
                 try:
+                    task_workspace = TemporaryParseWorkspace.create(job_id)
                     result = _run_parse_job(
                         job_id=job_id,
                         job_context=job_context,
@@ -78,7 +101,15 @@ class DocumentProcessingRun:
                         task_workspace=task_workspace,
                     )
                 finally:
-                    task_workspace.cleanup()
+                    if task_workspace is not None:
+                        task_workspace.cleanup()
+                    try:
+                        ownership.release(job_id, ownerToken)
+                    except Exception as releaseError:
+                        logger.warning("Parsing ownership expires normally after release failure: job_id={}, error_type={}", job_id, type(releaseError).__name__)
+        except ParsingOwnerError:
+            logger.info("Skipping stale parsing owner: job_id={}", job_id)
+            return {"status": "skipped", "job_id": job_id, "reason": "parsing_ownership_lost"}
         except UnavailableException as exc:
             if not _is_processing_lock_contention(exc):
                 raise
@@ -107,6 +138,8 @@ def _run_parse_job(
     lifecycle_service: Any,
     task_workspace: TemporaryParseWorkspace,
 ) -> dict[str, object]:
+    if job_context.parsingOwnerToken is not None:
+        ParsingOwnership().assertOwned(job_id, job_context.parsingOwnerToken)
     lifecycle_service.update_progress(job_id, progress=10, message="Parsing document...")
     token_usage_dict = init_token_tracker()
     stage_timing_dict = init_stage_tracker()
@@ -129,6 +162,8 @@ def _run_parse_job(
         )
 
         processing_started_at = datetime.now(timezone.utc)
+        if job_context.parsingOwnerToken is not None:
+            ParsingOwnership().assertOwned(job_id, job_context.parsingOwnerToken)
         oversized_pdf_rejection = _build_parse_track_oversized_pdf_rejection(
             job_context=job_context,
             file_extension=prepared_source.file_extension,
@@ -138,6 +173,7 @@ def _run_parse_job(
             billing_snapshot = record_skipped_parse_job_billing(
                 job_id=job_id,
                 workload_estimate=workload_estimate,
+                parsingOwnerToken=job_context.parsingOwnerToken,
             )
             record_processing_start(
                 job_id=job_id,
@@ -154,6 +190,7 @@ def _run_parse_job(
             filename=prepared_source.source_file_name,
             job_user_id=job_context.job_user_id,
             workload_estimate=workload_estimate,
+            parsingOwnerToken=job_context.parsingOwnerToken,
         )
         record_processing_start(
             job_id=job_id,
@@ -163,6 +200,8 @@ def _run_parse_job(
             workload_estimate=workload_estimate,
         )
 
+        if job_context.parsingOwnerToken is not None:
+            ParsingOwnership().assertOwned(job_id, job_context.parsingOwnerToken)
         parse_output = execute_document_parse(
             job_id=job_id,
             job_context=job_context,

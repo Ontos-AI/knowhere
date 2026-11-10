@@ -1,3 +1,4 @@
+import asyncio
 import os
 import uvicorn
 from fastapi import FastAPI
@@ -120,55 +121,79 @@ async def lifespan(app: FastAPI):
             "agentic retrieval requests will fail until the key is set"
         )
 
+    from shared.services.retrieval.lexical.preparation import LexicalPreparation
+    LexicalPreparation.warmCompiler()
     logger.info("Document API service started!")
-    if mcp_session_manager is not None:
-        async with mcp_session_manager.run():
+    from shared.services.retrieval.lexical.recency import LexicalRecency
+    from shared.core.database import engine
+
+    recencyTask: asyncio.Task[None] | None = (
+        asyncio.create_task(LexicalRecency.runFlushes(engine))
+        if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch" else None
+    )
+    try:
+        if mcp_session_manager is not None:
+            async with mcp_session_manager.run():
+                yield
+        else:
             yield
-    else:
-        yield
+    finally:
+        if recencyTask is not None:
+            recencyTask.cancel()
+            await asyncio.gather(recencyTask, return_exceptions=True)
 
-    try:
-        from shared.services.telemetry.aggregates import (
-            stop_self_hosted_aggregate_telemetry,
-        )
-        from shared.services.telemetry.runtime import (
-            stop_self_hosted_heartbeat_telemetry,
-            stop_self_hosted_telemetry,
-        )
+        from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
+        from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
+        LegacyCopyDispatch.close()
+        SyncJobWebhookOutbox.close()
+        from shared.services.storage.async_presigner import AsyncStoragePresigner
+        AsyncStoragePresigner.closeCurrent()
 
-        await stop_self_hosted_heartbeat_telemetry(
-            getattr(app.state, "self_hosted_heartbeat_telemetry_runner", None)
-        )
-        await stop_self_hosted_aggregate_telemetry(
-            getattr(app.state, "self_hosted_aggregate_telemetry_runner", None)
-        )
-        await stop_self_hosted_telemetry(
-            getattr(app.state, "self_hosted_telemetry_client", None),
-            config=getattr(app.state, "self_hosted_telemetry_config", None),
-        )
-    except Exception as e:
-        logger.error(f"self-hosted telemetry shutdown failed: {e}")
+        try:
+            from shared.services.telemetry.aggregates import (
+                stop_self_hosted_aggregate_telemetry,
+            )
+            from shared.services.telemetry.runtime import (
+                stop_self_hosted_heartbeat_telemetry,
+                stop_self_hosted_telemetry,
+            )
 
-    try:
-        from shared.services.retrieval.stats.recorder import (
-            drain_retrieval_hit_stats_updates,
-        )
+            await stop_self_hosted_heartbeat_telemetry(
+                getattr(app.state, "self_hosted_heartbeat_telemetry_runner", None)
+            )
+            await stop_self_hosted_aggregate_telemetry(
+                getattr(app.state, "self_hosted_aggregate_telemetry_runner", None)
+            )
+            await stop_self_hosted_telemetry(
+                getattr(app.state, "self_hosted_telemetry_client", None),
+                config=getattr(app.state, "self_hosted_telemetry_config", None),
+            )
+        except Exception as e:
+            logger.error(f"self-hosted telemetry shutdown failed: {e}")
 
-        await drain_retrieval_hit_stats_updates()
-    except Exception as e:
-        logger.error(f"retrieval hit stats drain failed: {e}")
+        try:
+            from shared.services.retrieval.stats.recorder import (
+                drain_retrieval_hit_stats_updates,
+            )
 
-    try:
-        from shared.services.http.client_pool import close_async_client
+            await drain_retrieval_hit_stats_updates()
+        except Exception as e:
+            logger.error(f"retrieval hit stats drain failed: {e}")
 
-        await close_async_client()
-    except Exception as e:
-        logger.error(f"async HTTP client close failed: {e}")
+        try:
+            from shared.services.http.client_pool import close_async_client
 
-    logger.info("Document API service stopped!")
-    await dispose_all_engines()
-    logger.info("database engine connection pool disposed.")
-    logger.info("service stopped.")
+            from shared.services.retrieval.lexical.asyncruntime import AsyncOpenSearchRuntime
+
+            await AsyncOpenSearchRuntime.closeCurrent()
+            await close_async_client()
+        except Exception as e:
+            logger.error(f"async HTTP client close failed: {e}")
+
+        logger.info("Document API service stopped!")
+        await dispose_all_engines()
+        logger.info("database engine connection pool disposed.")
+        logger.info("service stopped.")
 
 
 def create_app() -> FastAPI:
@@ -176,6 +201,8 @@ def create_app() -> FastAPI:
     # This ensures all logs (including lifespan) use structured format
     # Note: We pass app=None initially, then instrument FastAPI after app creation
     setup_logging(service_name="knowhere-api")
+    from shared.services.retrieval.lexical.stage_observer import StageObserver
+    StageObserver.install()
 
     app = FastAPI(
         title=settings.APP_TITLE,

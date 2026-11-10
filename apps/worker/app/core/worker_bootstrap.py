@@ -1,6 +1,7 @@
 """Bootstrap the full Celery worker runtime only in the main worker process."""
 
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -45,6 +46,8 @@ def _stop_child_process(
 def init_worker(**kwargs: object) -> None:
     """Initialize structured logging and sync Redis when worker process starts."""
     setup_logging(service_name="knowhere-worker")
+    from shared.services.retrieval.lexical.stage_observer import StageObserver
+    StageObserver.install()
     from shared.core.database_sync import get_sync_db_context
     from shared.services.retrieval.demo_authorization import verify_runtime_database_role
     with get_sync_db_context() as database:
@@ -54,6 +57,8 @@ def init_worker(**kwargs: object) -> None:
             # Celery logs and suppresses ordinary signal receiver exceptions.
             # Exit the process so a bypassing role cannot consume any tasks.
             raise SystemExit(str(error)) from error
+    from shared.services.retrieval.lexical.preparation import LexicalPreparation
+    LexicalPreparation.warmCompiler()
     start_worker_heartbeat()
 
     # Do not cancel gevent tasks from Celery's reconnect or shutdown lifecycle.
@@ -110,6 +115,12 @@ def init_worker(**kwargs: object) -> None:
 @worker_shutdown.connect
 def shutdown_worker(**kwargs: object) -> None:
     """Clean up shared resources on worker shutdown."""
+    from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
+    from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
+    from shared.services.retrieval.lexical.runtime import OpenSearchRuntime
+    LegacyCopyDispatch.close()
+    SyncJobWebhookOutbox.close()
+    OpenSearchRuntime.closeCurrent()
     try:
         from app.services.document_agent.tools.ocr_pages import shutdown_ocr_runner
 
@@ -133,6 +144,20 @@ def shutdown_worker(**kwargs: object) -> None:
         logger.warning(f"Worker HTTP client cleanup failed: {exc}")
 
 
+def _getPreparedCompletionQueue() -> str | None:
+    from shared.core.config import settings
+
+    campaign: str | None = os.environ.get("KNOWHERE_PREPARED_COMPLETION_CAMPAIGN")
+    queue: str | None = os.environ.get("KNOWHERE_PREPARED_COMPLETION_QUEUE")
+    if campaign is None and queue is None:
+        return None
+    if (settings.ENVIRONMENT != "staging" or settings.APP_ENV != "staging"
+        or campaign is None or re.fullmatch(r"[A-Za-z0-9_.:/-]{1,128}", campaign) is None
+        or queue is None or re.fullmatch(r"knowhere-prepared-[a-z0-9][a-z0-9_.-]{0,63}", queue) is None):
+        raise ValueError("Prepared completion requires an isolated staging campaign and a dedicated prepared queue")
+    return queue
+
+
 def run_worker() -> None:
     """Start Celery with colocated Beat and visibility-recovery processes.
 
@@ -151,6 +176,7 @@ def run_worker() -> None:
     from shared.core.database_sync import get_sync_db_context
     from shared.services.retrieval.demo_authorization import verify_runtime_database_role
 
+    preparedQueue: str | None = _getPreparedCompletionQueue()
     with get_sync_db_context() as database:
         verify_runtime_database_role(database)
 
@@ -171,8 +197,12 @@ def run_worker() -> None:
             "kb_low",
             "ai_high_priority",
             "default",
+            "lexical_indexing",
+            "lexical_maintenance",
         ]
     )
+    if preparedQueue is not None:
+        worker_queues += "," + preparedQueue
 
     celery_args = [
         "worker",
@@ -185,6 +215,8 @@ def run_worker() -> None:
         "--without-gossip",
         "--without-mingle",
     ]
+    if preparedQueue is not None:
+        celery_args.extend(["--include", "scripts.probes.prepared-completion-task"])
 
     beat_cmd = [
         sys.executable,

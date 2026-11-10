@@ -121,7 +121,7 @@ def _resolve_duration_seconds(job: Any) -> float | None:
 
 
 def _resolve_credits_spent(job: Any) -> float:
-    if to_job_status_value(job.status) == "failed":
+    if to_job_status_value(job.status) == "failed" and getattr(job, "failure_stage", None) != "indexing":
         return 0.0
 
     billing_status = getattr(job, "billing_status", None)
@@ -133,12 +133,17 @@ def _resolve_credits_spent(job: Any) -> float:
 
 async def _resolve_result_delivery(
     job: Any,
+    *, shouldSignResultURL: bool = True,
 ) -> tuple[dict[str, Any] | None, str | None, datetime]:
     default_expires_at = require_utc(
         job.created_at,
         field_name="created_at",
     )
-    delivery = JobResultDeliveryResolver().resolve(
+    if not shouldSignResultURL:
+        inlinePayload: object = getattr(getattr(job, "job_result", None), "inline_payload", None)
+        result: dict[str, object] | None = cast(dict[str, object], inlinePayload) if isinstance(inlinePayload, dict) else None
+        return result, None, default_expires_at
+    delivery = await JobResultDeliveryResolver().resolveAsync(
         job.job_result,
         default_expires_at=default_expires_at,
     )
@@ -154,11 +159,12 @@ async def build_job_result_response(
     job: Any,
     job_metadata: Optional[dict[str, Any]],
     progress: dict[str, Any] | None,
+    shouldSignResultURL: bool = True,
 ) -> JobResultResponse:
     original_request = _resolve_original_request(job_metadata)
     file_name = _resolve_source_file_name(original_request)
     parsing_params = _resolve_parsing_params(job_metadata, original_request)
-    result, result_url, result_url_expires_at = await _resolve_result_delivery(job)
+    result, result_url, result_url_expires_at = await _resolve_result_delivery(job, shouldSignResultURL=shouldSignResultURL)
     progressive_state = read_progressive_state(
         getattr(getattr(job, "job_result", None), "document_metadata", None)
     )
@@ -170,11 +176,19 @@ async def build_job_result_response(
         job_id=job.job_id,
         page_count=page_count,
         enhancement=progressive_state.enhancement if progressive_state else None,
-        snapshots=publish_snapshot_descriptors(progressive_state, JobFileStorage()) if progressive_state else None,
+        snapshots=(
+            publish_snapshot_descriptors(progressive_state, JobFileStorage())
+            if progressive_state and shouldSignResultURL
+            else None
+        ),
         current_snapshot_id=progressive_state.current_snapshot_id if progressive_state else None,
         namespace=JobMetadataHelper.get_namespace(job_metadata),
         document_id=resolve_job_document_id(job, job_metadata),
         status=to_job_status_value(job.status),
+        parsing_status=("running" if getattr(job, "parsing_status", "pending") == "pending" and job.status in ("running", "converting")
+                        else getattr(job, "parsing_status", "completed" if job.status == "done" else "failed" if job.status == "failed" else "pending")),
+        indexing_status=getattr(job, "indexing_status", "completed" if job.status == "done" else "not_started"),
+        failure_stage=getattr(job, "failure_stage", None),
         source_type=job.source_type,
         data_id=JobMetadataHelper.get_data_id(job_metadata),
         created_at=require_utc(job.created_at, field_name="created_at"),

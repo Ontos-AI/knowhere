@@ -5,6 +5,7 @@ Sync implementation for gevent worker pool.
 All I/O operations use sync services that yield cooperatively under gevent.
 """
 
+from collections.abc import Callable
 from app.core.tasks.base_task import DocumentIngestionBaseTask
 from app.services.document_ingestion.service import parse_uploaded_file_job
 from app.services.workload.url_upload_service import upload_url_file
@@ -157,7 +158,10 @@ def _run_parse_task(
                 internal_message="Worker task 'parse_task' called without job_id",
             )
 
-        result = _parse(job_id, user_id)
+        def bindParsingOwner(token: str) -> None:
+            self.request.parsingOwnerToken = token
+
+        result = _parse(job_id, user_id, onParsingClaim=bindParsingOwner)
 
         logger.bind(event=LogEvent.WORKER_TASK_COMPLETE.value).info(
             "Task completed: parse_task"
@@ -165,6 +169,6 @@ def _run_parse_task(
         return result
 
 
-def _parse(job_id: str, user_id: str | None):
+def _parse(job_id: str, user_id: str | None, *, onParsingClaim: Callable[[str], None] | None = None):
     """Sync parse and vectorize (file already uploaded to S3)."""
-    return parse_uploaded_file_job(job_id, user_id)
+    return parse_uploaded_file_job(job_id, user_id, onParsingClaim=onParsingClaim)

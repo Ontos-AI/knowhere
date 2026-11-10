@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from shared.services.storage.job_file_storage import JobFileStorage
 from shared.services.jobs.progressive_ingestion import read_progressive_state
@@ -59,13 +59,45 @@ class JobResultDeliveryResolver:
             result_url_expires_at=result_url_expires_at,
         )
 
+    async def resolveAsync(
+        self, job_result: object | None, *, default_expires_at: datetime | None = None
+    ) -> JobResultDelivery:
+        if job_result is None:
+            return JobResultDelivery(None, None, default_expires_at)
+        inlinePayload: object = getattr(job_result, "inline_payload", None)
+        result: dict[str, object] | None = (
+            cast(dict[str, object], inlinePayload) if isinstance(inlinePayload, dict) and inlinePayload else None
+        )
+        key: object = getattr(job_result, "result_s3_key", None)
+        if not isinstance(key, str) or not key:
+            return JobResultDelivery(result, None, default_expires_at)
+        information: dict[str, str | int | datetime] = await self._storage.generateDownloadUrlAsync(
+            key, bucket=self._storage.results_bucket
+        )
+        expiresAt: str | int | datetime | None = information.get("expires_at")
+        if not isinstance(expiresAt, datetime):
+            expiresIn: str | int | datetime = information["expires_in"]
+            if not isinstance(expiresIn, (str, int)):
+                raise ValueError("Storage signing returned invalid expiration")
+            expiresAt = utc_now_naive() + timedelta(seconds=int(expiresIn))
+        return JobResultDelivery(result, str(information["download_url"]), expiresAt)
+
+    @staticmethod
+    def supports_payload(payload: dict[str, Any]) -> bool:
+        return (
+            payload.get("event") in {
+                "job.parsed", "job.completed", "job.enrichment.completed",
+            }
+            or payload.get("failure_stage") == "indexing"
+        )
+
     def enrich_payload(
         self,
         payload: dict[str, Any],
         *,
         job_result: Any | None,
     ) -> dict[str, Any]:
-        if payload.get("event") not in {"job.completed", "job.enrichment.completed"}:
+        if not self.supports_payload(payload):
             return payload
 
         state = read_progressive_state(getattr(job_result, "document_metadata", None))

@@ -30,6 +30,16 @@ from .demo_materialization import DemoMaterialization
 from .guest_device import GuestDevice
 from .job import Job
 from .job_result import JobChunk, JobResult
+from .indexing import IndexingAttempt
+from .lexicalcontrol import LexicalBackendControl
+from .lexicalnamespace import LexicalNamespaceIndex
+from .lexicalbuild import LexicalBuild
+from .lexicallease import LexicalLease
+from .lexicalinputinventory import LexicalInputInventory
+from .lexicaloperatorissuer import LexicalOperatorIssuer
+from .lexicaloperatorinvocation import LexicalOperatorInvocation
+from .lexicaloperatorfence import LexicalOperatorFence
+from .lexicalofflinereservation import LexicalOfflineReservation
 from .parse_agent import ParseRun, ParseStep
 
 # 3. Job-related log models
@@ -51,6 +61,10 @@ from .webhook_secret import WebhookSecret
 
 __all__ = [
     "User",
+    "LexicalOperatorIssuer",
+    "LexicalOperatorInvocation",
+    "LexicalOperatorFence",
+    "LexicalOfflineReservation",
     "APIKey",
     "GuestDevice",
     "CreditsTransaction",

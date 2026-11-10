@@ -47,6 +47,13 @@ class Document(Base):
         ForeignKey("job_results.id", ondelete="SET NULL", use_alter=True),
         nullable=True,
     )
+    latest_parsed_job_result_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("job_results.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
+    accepted_job_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("jobs.job_id", deferrable=True, initially="DEFERRED", use_alter=True), nullable=True
+    )
+    current_indexing_build_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     source_file_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     document_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(
         JSON, nullable=True

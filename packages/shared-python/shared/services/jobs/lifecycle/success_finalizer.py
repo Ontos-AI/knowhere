@@ -1,23 +1,19 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal, cast
 
-from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from shared.core.state_machine.service_sync import SyncStateMachineService
 from shared.models.database.job import Job
+from shared.models.database.job_result import JobResult
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.progressive_ingestion import StoredSnapshot
 from shared.services.jobs.progressive_ingestion import initialize_baseline_state, write_progressive_state
 from shared.services.jobs.lifecycle.post_commit_effects import PostCommitEffectPlan
-from shared.services.jobs.lifecycle.publication import SyncJobPublicationFinalizer
 from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
-from shared.services.jobs.lifecycle.result_writer import SyncJobResultWriter
-from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
 from shared.utils.json_utils import remove_nul_characters
 
 
@@ -60,21 +56,6 @@ class JobSuccessFinalization:
 class SyncJobSuccessFinalizer:
     """Finalize successful Jobs inside the lifecycle transaction."""
 
-    def __init__(
-        self,
-        *,
-        state_machine: SyncStateMachineService | None = None,
-        result_writer: SyncJobResultWriter | None = None,
-        publication_finalizer: SyncJobPublicationFinalizer | None = None,
-        webhook_outbox: SyncJobWebhookOutbox | None = None,
-    ) -> None:
-        self._state_machine = state_machine or SyncStateMachineService()
-        self._result_writer = result_writer or SyncJobResultWriter()
-        self._publication_finalizer = (
-            publication_finalizer or SyncJobPublicationFinalizer()
-        )
-        self._webhook_outbox = webhook_outbox or SyncJobWebhookOutbox()
-
     def finalize(
         self,
         db: Session,
@@ -89,6 +70,7 @@ class SyncJobSuccessFinalizer:
         section_summaries: dict[str, str] | None,
         document_top_summary: str | None = None,
         trace: PublicationTrace | None = None,
+        parsingOwnerToken: str | None = None,
     ) -> JobSuccessFinalization:
         safe_chunks = cast(
             list[dict[str, Any]], remove_nul_characters(chunks)
@@ -101,113 +83,73 @@ class SyncJobSuccessFinalizer:
             str | None,
             remove_nul_characters(document_top_summary),
         )
+        from shared.services.retrieval.lexical.parsing import ParsedRevisionFinalizer
+
         with trace.stage("result_binding") if trace is not None else nullcontext():
-            job_result = self._result_writer.upsert_job_result(
+            finalization = ParsedRevisionFinalizer().finalize(
                 db,
-                job_id,
-                delivery_mode,
-                inline_payload={"checksum": checksum},
-                result_s3_key=result_s3_key,
-                result_size=zip_size,
+                jobId=job_id,
+                resultKey=result_s3_key,
+                checksum=checksum,
+                resultSize=zip_size,
+                chunks=safe_chunks,
+                storedCount=stored_count,
+                deliveryMode=delivery_mode,
+                sectionSummaries=safe_section_summaries,
+                documentTopSummary=safe_document_top_summary,
+                parsingOwnerToken=parsingOwnerToken,
             )
-            if trace is not None:
-                trace.bind_result_id(str(job_result.id))
-            self._result_writer.replace_chunks(db, job_result.id, safe_chunks)
-        publication_outcome = self._publication_finalizer.publish_result(
-            db,
+        if not finalization.post_commit_effects.indexing_job_ids:
+            return finalization
+
+        job_result, job_metadata = db.execute(
+            select(JobResult, Job.job_metadata)
+            .join(Job, Job.job_id == JobResult.job_id)
+            .where(JobResult.job_id == job_id)
+        ).one()
+        parse_track: str = JobMetadataHelper.get_parse_track(job_metadata)
+        document_id: str | None = job_result.document_id or job_result.demo_document_id
+        if trace is not None:
+            trace.bind_result_id(job_result.id)
+            if document_id is not None:
+                trace.bind_document_id(document_id)
+            if parse_track in ("chunk", "page_memory"):
+                trace.bind_parse_track(parse_track)
+        if (
+            document_id is None
+            or parse_track not in {"page_memory", "chunk"}
+            or JobMetadataHelper.get_ingestion_mode(job_metadata) != "progressive"
+            or str(job_metadata.get("enrichment_status") or "").strip().lower() != "text"
+        ):
+            return finalization
+
+        snapshot_id: str = str(
+            job_metadata.get("progressive_baseline_snapshot_id") or f"baseline_{checksum}"
+        )
+        baseline_snapshot = StoredSnapshot(
+            snapshot_id=snapshot_id,
+            stage="baseline",
             job_id=job_id,
             job_result_id=job_result.id,
-            chunks=safe_chunks,
-            section_summaries=safe_section_summaries,
-            document_top_summary=safe_document_top_summary,
-            trace=trace,
+            document_id=document_id,
+            checksum=checksum,
+            archive_key=result_s3_key,
         )
-        published_document_id = (
-            publication_outcome.published_document_state.document_id
-            if publication_outcome.published_document_state is not None
-            else None
+        raw_pages: object = job_metadata.get("progressive_missing_embedding_pages")
+        missing_pages: list[int] = (
+            [page for page in raw_pages if isinstance(page, int) and not isinstance(page, bool)]
+            if parse_track == "page_memory" and isinstance(raw_pages, list)
+            else []
         )
-        job_row = db.execute(
-            select(Job.job_metadata).where(Job.job_id == job_id)
-        ).scalar_one_or_none()
-        job_metadata = job_row if isinstance(job_row, dict) else {}
-        parse_track = JobMetadataHelper.get_parse_track(job_metadata)
-        is_progressive_text = bool(
-            published_document_id
-            and JobMetadataHelper.get_ingestion_mode(job_metadata) == "progressive"
-            and str(job_metadata.get("enrichment_status") or "").strip().lower()
-            == "text"
+        job_result.document_metadata = write_progressive_state(
+            job_result.document_metadata,
+            initialize_baseline_state(snapshot=baseline_snapshot, missing_pages=missing_pages),
         )
-        should_enqueue_structure = bool(
-            is_progressive_text and parse_track == "page_memory"
-        )
-        should_enqueue_chunk_final = False
-        baseline_snapshot: StoredSnapshot | None = None
-        if is_progressive_text:
-            snapshot_id = str(job_metadata.get("progressive_baseline_snapshot_id") or f"baseline_{checksum}")
-            baseline_snapshot = StoredSnapshot(
-                snapshot_id=snapshot_id, stage="baseline", job_id=job_id,
-                job_result_id=str(job_result.id), document_id=str(published_document_id),
-                checksum=checksum, archive_key=result_s3_key,
-            )
-            raw_pages = job_metadata.get("progressive_missing_embedding_pages", [])
-            missing_pages = (
-                [
-                    page
-                    for page in raw_pages
-                    if isinstance(page, int) and not isinstance(page, bool)
-                ]
-                if should_enqueue_structure and isinstance(raw_pages, list)
-                else []
-            )
-            job_result.document_metadata = write_progressive_state(
-                job_result.document_metadata,
-                initialize_baseline_state(snapshot=baseline_snapshot, missing_pages=missing_pages),
-            )
-
-        transition_outcome = self._state_machine.mark_completed_outcome(
-            db,
-            job_id,
-            result_metadata={
-                "storage_completed": True,
-                "stored_count": stored_count,
-                "delivery_mode": delivery_mode,
-            },
-        )
-        if not transition_outcome.succeeded:
-            logger.error(
-                f"Job {job_id} mark_completed transition failed: "
-                f"reason={transition_outcome.reason}"
-            )
-            return JobSuccessFinalization(
-                response=JobSuccessResponse.state_transition_failed(job_id=job_id),
-                post_commit_effects=PostCommitEffectPlan.none(),
-            )
-
-        webhook_event = self._webhook_outbox.create_event(
-            db,
-            job_id=job_id,
-            event_type="job.completed",
-            extra_payload={
-                "job_result_id": baseline_snapshot.job_result_id,
-                "document_id": baseline_snapshot.document_id,
-                "snapshot_id": baseline_snapshot.snapshot_id,
-                "checksum": baseline_snapshot.checksum,
-            } if baseline_snapshot else None,
-        )
-        return JobSuccessFinalization(
-            response=JobSuccessResponse.completed(
-                job_id=job_id,
-                stored_count=stored_count,
-            ),
-            post_commit_effects=PostCommitEffectPlan.from_success(
-                cache_invalidation=publication_outcome.cache_invalidation,
-                webhook_event_id=webhook_event.event_id if webhook_event else None,
-                structure_job_result_id=(
-                    str(job_result.id) if should_enqueue_structure else None
-                ),
-                chunk_final_job_result_id=(
-                    str(job_result.id) if should_enqueue_chunk_final else None
-                ),
+        return replace(
+            finalization,
+            post_commit_effects=replace(
+                finalization.post_commit_effects,
+                structure_job_result_ids=(job_result.id,) if parse_track == "page_memory" else (),
+                chunk_final_job_result_ids=(),
             ),
         )

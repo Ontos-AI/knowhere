@@ -83,9 +83,14 @@ jobs:
         if: ${{ github.event_name == 'release' }}
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          PROD_LEXICAL_INPUT_READY: ${{ vars.PROD_LEXICAL_INPUT_READY }}
         shell: bash
         run: |
           set -euo pipefail
+          if [ "$PROD_LEXICAL_INPUT_READY" != "true" ]; then
+            echo "::error::Confirm production S3 lexical input permissions before releasing this source."
+            exit 1
+          fi
           git fetch origin main --no-tags
           release_commit="$(git rev-parse "${RELEASE_TAG}^{commit}")"
           if ! git merge-base --is-ancestor "${release_commit}" origin/main; then
@@ -422,6 +427,7 @@ jobs:
         shell: bash
         env:
           STAGING_SECRETS_ARN: ${{ env.AWS_ECS_STAGING_SECRETS_ARN }}
+          OPENSEARCH_CLIENT_SECURITY_GROUP: ${{ secrets.STAGING_OPENSEARCH_CLIENT_SECURITY_GROUP }}
         run: |
           set -euo pipefail
 
@@ -485,6 +491,13 @@ jobs:
               echo "::error::ECS service ${service} has no usable awsvpc subnet/security-group configuration."
               exit 1
             fi
+            if [ -z "$OPENSEARCH_CLIENT_SECURITY_GROUP" ] || ! jq -e \
+              --arg group "$OPENSEARCH_CLIENT_SECURITY_GROUP" \
+              '.services[0].networkConfiguration.awsvpcConfiguration.securityGroups | index($group) != null' \
+              <<<"$service_json" >/dev/null; then
+              echo "::error::ECS service ${service} is missing the staging OpenSearch client security group."
+              exit 1
+            fi
           done
 
           if [ "${{ steps.deployment.outputs.deploy_api }}" = "true" ]; then
@@ -536,8 +549,8 @@ jobs:
           RUNTIME_ENVIRONMENT: staging
           APP_ENV: staging
           DB_SSL_MODE: require
-          API_DB_POOL_SIZE: "5"
-          API_DB_MAX_OVERFLOW: "5"
+          API_DB_POOL_SIZE: "15"
+          API_DB_MAX_OVERFLOW: "0"
           WORKER_DB_SYNC_POOL_SIZE: "2"
           WORKER_DB_SYNC_MAX_OVERFLOW: "2"
           S3_BUCKET_NAME: knowhere-storage-staging
@@ -550,11 +563,17 @@ jobs:
           API_MEMORY: "1024"
           WORKER_CPU: "2048"
           WORKER_MEMORY: "4096"
+          STAGING_LEXICAL_BACKEND: ${{ vars.STAGING_LEXICAL_BACKEND }}
+          STAGING_OPENSEARCH_URL: ${{ secrets.STAGING_OPENSEARCH_URL }}
+          STAGING_OPENSEARCH_INDEX_PREFIX: ${{ secrets.STAGING_OPENSEARCH_INDEX_PREFIX }}
+          STAGING_OPENSEARCH_API_TLS_PARAMETER: ${{ secrets.STAGING_OPENSEARCH_API_TLS_PARAMETER }}
+          STAGING_OPENSEARCH_WORKER_TLS_PARAMETER: ${{ secrets.STAGING_OPENSEARCH_WORKER_TLS_PARAMETER }}
         shell: bash
         run: |
           set -euo pipefail
           python3 deploy/ecs/render_task_definitions.py \
             --environment staging \
+            --staging-opensearch \
             --output-dir "$RUNNER_TEMP/ecs-task-definitions"
 
       - name: Register ECS task definitions
@@ -575,17 +594,6 @@ jobs:
             echo "worker_task_definition_arn=${worker_task_definition_arn}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Update API ECS service on on-demand Fargate
-        if: steps.deployment.outputs.deploy_api == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          aws ecs update-service \
-            --cluster "${AWS_ECS_STAGING_CLUSTER_NAME}" \
-            --service "${AWS_ECS_STAGING_API_SERVICE_NAME}" \
-            --task-definition "${{ steps.task-definitions.outputs.api_task_definition_arn }}" \
-            --capacity-provider-strategy capacityProvider=FARGATE,weight=1
-
       - name: Update worker ECS service on Fargate Spot
         if: steps.deployment.outputs.deploy_worker == 'true'
         shell: bash
@@ -597,6 +605,36 @@ jobs:
             --task-definition "${{ steps.task-definitions.outputs.worker_task_definition_arn }}" \
             --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=1
 
+      - name: Wait for worker ECS service to stabilize
+        if: steps.deployment.outputs.deploy_worker == 'true'
+        shell: bash
+        env:
+          EXPECTED_WORKER_TASK_DEFINITION: ${{ steps.task-definitions.outputs.worker_task_definition_arn }}
+        run: |
+          set -euo pipefail
+          aws ecs wait services-stable \
+            --cluster "${AWS_ECS_STAGING_CLUSTER_NAME}" \
+            --services "${AWS_ECS_STAGING_WORKER_SERVICE_NAME}"
+          active_task_definition="$(aws ecs describe-services \
+            --cluster "${AWS_ECS_STAGING_CLUSTER_NAME}" \
+            --services "${AWS_ECS_STAGING_WORKER_SERVICE_NAME}" \
+            --query 'services[0].taskDefinition' --output text)"
+          if [ "$active_task_definition" != "$EXPECTED_WORKER_TASK_DEFINITION" ]; then
+            echo "::error::Staging worker stabilized on $active_task_definition. Expected $EXPECTED_WORKER_TASK_DEFINITION."
+            exit 1
+          fi
+
+      - name: Update API ECS service on on-demand Fargate
+        if: steps.deployment.outputs.deploy_api == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "${AWS_ECS_STAGING_CLUSTER_NAME}" \
+            --service "${AWS_ECS_STAGING_API_SERVICE_NAME}" \
+            --task-definition "${{ steps.task-definitions.outputs.api_task_definition_arn }}" \
+            --capacity-provider-strategy capacityProvider=FARGATE,weight=1
+
       - name: Wait for API ECS service to stabilize
         if: steps.deployment.outputs.deploy_api == 'true'
         shell: bash
@@ -605,15 +643,6 @@ jobs:
           aws ecs wait services-stable \
             --cluster "${AWS_ECS_STAGING_CLUSTER_NAME}" \
             --services "${AWS_ECS_STAGING_API_SERVICE_NAME}"
-
-      - name: Wait for worker ECS service to stabilize
-        if: steps.deployment.outputs.deploy_worker == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          aws ecs wait services-stable \
-            --cluster "${AWS_ECS_STAGING_CLUSTER_NAME}" \
-            --services "${AWS_ECS_STAGING_WORKER_SERVICE_NAME}"
 
       - name: Summarize ECS deployment
         shell: bash
@@ -633,6 +662,8 @@ jobs:
       needs['migrate-ecs-production'].result == 'success' }}
     permissions:
       contents: read
+    env:
+      PROD_OPENSEARCH_ENABLED: ${{ vars.PROD_OPENSEARCH_ENABLED }}
 
     steps:
       - name: Checkout released source
@@ -649,9 +680,25 @@ jobs:
           aws-region: ${{ env.AWS_ECS_PROD_REGION }}
 
       - name: Validate ECS production prerequisites
+        env:
+          PROD_OPENSEARCH_CLIENT_SECURITY_GROUP: ${{ secrets.PROD_OPENSEARCH_CLIENT_SECURITY_GROUP }}
+          STAGING_OPENSEARCH_CLIENT_SECURITY_GROUP: ${{ secrets.STAGING_OPENSEARCH_CLIENT_SECURITY_GROUP }}
         shell: bash
         run: |
           set -euo pipefail
+
+          case "$PROD_OPENSEARCH_ENABLED" in
+            ""|false) ;;
+            true)
+              if [[ ! "$PROD_OPENSEARCH_CLIENT_SECURITY_GROUP" =~ ^sg-[0-9a-f]+$ ]] ||
+                 [[ -z "$STAGING_OPENSEARCH_CLIENT_SECURITY_GROUP" ||
+                    "$PROD_OPENSEARCH_CLIENT_SECURITY_GROUP" == "$STAGING_OPENSEARCH_CLIENT_SECURITY_GROUP" ]]; then
+                echo "::error::OpenSearch requires a dedicated production client security group."
+                exit 1
+              fi
+              ;;
+            *) echo "::error::PROD_OPENSEARCH_ENABLED must be true or false."; exit 1 ;;
+          esac
 
           required_values=(
             AWS_ECS_PROD_EXECUTION_ROLE_ARN
@@ -714,6 +761,15 @@ jobs:
             security_group_count="$(jq '[.services[0].networkConfiguration.awsvpcConfiguration.securityGroups // [] | length] | add' <<<"${service_json}")"
             if [ "${network_count}" -lt 1 ] || [ "${security_group_count}" -lt 1 ]; then
               echo "::error::ECS service ${service} has no usable awsvpc subnet/security-group configuration."
+              exit 1
+            fi
+            if [ "$PROD_OPENSEARCH_ENABLED" = "true" ] && ! jq -e \
+              --arg group "$PROD_OPENSEARCH_CLIENT_SECURITY_GROUP" \
+              --arg staging "$STAGING_OPENSEARCH_CLIENT_SECURITY_GROUP" \
+              '.services[0].networkConfiguration.awsvpcConfiguration.securityGroups |
+               index($group) != null and index($staging) == null' \
+              <<<"$service_json" >/dev/null; then
+              echo "::error::ECS service ${service} needs the production OpenSearch client group and no staging client group."
               exit 1
             fi
           done
@@ -779,12 +835,17 @@ jobs:
           API_MEMORY: "2048"
           WORKER_CPU: "2048"
           WORKER_MEMORY: "4096"
+          PROD_OPENSEARCH_URL: ${{ secrets.PROD_OPENSEARCH_URL }}
+          PROD_OPENSEARCH_API_TLS_PARAMETER: ${{ secrets.PROD_OPENSEARCH_API_TLS_PARAMETER }}
+          PROD_OPENSEARCH_WORKER_TLS_PARAMETER: ${{ secrets.PROD_OPENSEARCH_WORKER_TLS_PARAMETER }}
         shell: bash
         run: |
           set -euo pipefail
-          python3 deploy/ecs/render_task_definitions.py \
-            --environment production \
-            --output-dir "${RUNNER_TEMP}/ecs-task-definitions"
+          arguments=(--environment production --output-dir "${RUNNER_TEMP}/ecs-task-definitions")
+          if [ "$PROD_OPENSEARCH_ENABLED" = "true" ]; then
+            arguments+=(--production-opensearch)
+          fi
+          python3 deploy/ecs/render_task_definitions.py "${arguments[@]}"
 
       - name: Register ECS task definitions
         id: task-definitions

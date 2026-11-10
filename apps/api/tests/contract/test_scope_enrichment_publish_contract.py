@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 
-from sqlalchemy import create_engine, select
-from sqlalchemy.engine import make_url
-from sqlalchemy.orm import Session
+import pytest
+from sqlalchemy import create_engine, event, select, text
+from sqlalchemy.engine import Connection, ExecutionContext, make_url
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session, sessionmaker
 
-from shared.core.state_machine.transition_outcome import JobTransitionOutcome
 from shared.models.database.document import (
     Document,
     DocumentChunk,
@@ -56,23 +57,6 @@ from scripts.publication_benchmark.publication_execution import (  # noqa: E402
     PublicationScope,
     seed_publication_fixture,
 )
-
-
-class _DoneStateMachine:
-    def mark_completed_outcome(
-        self,
-        db: object,
-        job_id: str,
-        result_metadata: object = None,
-        operator_id: object = None,
-    ) -> JobTransitionOutcome:
-        del db, result_metadata, operator_id
-        return JobTransitionOutcome.transitioned(
-            job_id=job_id,
-            from_state="running",
-            to_state="done",
-            attempts=1,
-        )
 
 
 def _scope(label: str) -> PublicationScope:
@@ -130,8 +114,11 @@ def _finalize(
     *,
     job_id: str,
     chunks: list[dict[str, object]],
+    publish: bool = True,
 ) -> JobSuccessFinalization:
-    return SyncJobSuccessFinalizer(state_machine=_DoneStateMachine()).finalize(
+    from shared.services.retrieval.lexical.worker import IndexingWorker
+
+    finalization = SyncJobSuccessFinalizer().finalize(
         session,
         job_id=job_id,
         result_s3_key="results/scope-enrich/result.zip",
@@ -142,6 +129,13 @@ def _finalize(
         delivery_mode="url",
         section_summaries=None,
     )
+    assert finalization.response.should_commit()
+    assert finalization.post_commit_effects.indexing_job_ids == (job_id,)
+    session.commit()
+    if publish:
+        worker = IndexingWorker(sessionFactory=sessionmaker(session.get_bind()))
+        assert worker.run(job_id, initialOnly=True) == "completed"
+    return finalization
 
 
 def _write_scope_rows(session: Session, *, scope: PublicationScope) -> None:
@@ -982,6 +976,135 @@ def test_chunk_progressive_baseline_records_text_without_enqueueing_final(
         engine.dispose()
 
 
+@pytest.mark.parametrize("claim_mode", ["full", "blocking", "skip_locked", "database_error"])
+def test_chunk_final_read_claim_locks_only_pending_revisions(
+    monkeypatch: pytest.MonkeyPatch,
+    postgresql_proc: PostgreSQLProcess,
+    claim_mode: str,
+) -> None:
+    from shared.models.database.job_result import JobResult
+    from shared.services.jobs.lifecycle import scope_enrichments
+    from shared.services.jobs.progressive_ingestion import read_progressive_state
+
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    database_url = make_url(get_contract_database_url())
+    engine = create_engine(database_url.set(drivername="postgresql+psycopg2"))
+    scope = _scope(claim_mode)
+    needs_finalization: bool = claim_mode != "full"
+    skip_locked: bool = claim_mode in {"skip_locked", "database_error"}
+    sent: list[str] = []
+
+    def enqueue_finalization(revision_id: str) -> bool:
+        sent.append(revision_id)
+        return True
+
+    monkeypatch.setattr(
+        scope_enrichments, "enqueue_chunk_final_after_commit", enqueue_finalization
+    )
+    try:
+        with Session(engine) as session:
+            seed_publication_fixture(session, scope=scope)
+            _set_job_progressive(
+                session,
+                job_id=scope.job_ref,
+                ingestion_mode="progressive" if needs_finalization else "full",
+                enrichment_status="text" if needs_finalization else "",
+                parse_track="chunk",
+            )
+            session.commit()
+            _finalize(
+                session,
+                job_id=scope.job_ref,
+                chunks=[
+                    {
+                        "chunk_id": "text",
+                        "type": "text",
+                        "content": "Published text.",
+                        "path": f"{scope.source_file_name}/Intro",
+                        "metadata": {},
+                    },
+                ],
+            )
+
+        async def read_concurrently() -> None:
+            async_engine = create_async_engine(database_url)
+            sessions = async_sessionmaker(async_engine)
+            both_claims_started = asyncio.Event()
+            lock_attempts = 0
+            inject_error: bool = claim_mode == "database_error"
+
+            @event.listens_for(async_engine.sync_engine, "before_cursor_execute")
+            def observe_claim(
+                connection: Connection,
+                cursor: object,
+                statement: str,
+                parameters: object,
+                context: ExecutionContext,
+                executemany: bool,
+            ) -> None:
+                nonlocal lock_attempts
+                if "FOR UPDATE OF job_results" in statement:
+                    lock_attempts += 1
+                    if inject_error:
+                        connection.exec_driver_sql("SELECT 1 / 0")
+                    if lock_attempts == 2:
+                        both_claims_started.set()
+
+            async def read() -> None:
+                async with sessions() as session:
+                    await scope_enrichments.promote_scopes_on_read(
+                        session,
+                        [
+                            {
+                                "job_result_id": scope.revision_ref,
+                                "content": "Published text.",
+                            }
+                        ],
+                        skip_locked_chunk_final=skip_locked,
+                    )
+                    assert await session.scalar(text("SELECT 1")) == 1
+
+            try:
+                async with sessions() as blocker:
+                    if not inject_error:
+                        await blocker.execute(
+                            select(JobResult.id)
+                            .where(JobResult.id == scope.revision_ref)
+                            .with_for_update()
+                        )
+                    if claim_mode == "blocking":
+                        reads = asyncio.gather(read(), read())
+                        try:
+                            await asyncio.wait_for(
+                                both_claims_started.wait(), timeout=5
+                            )
+                        finally:
+                            await blocker.rollback()
+                            _ = await reads
+                    else:
+                        await asyncio.wait_for(read(), timeout=3)
+                        assert sent == []
+                        assert lock_attempts == int(skip_locked)
+                if skip_locked:
+                    inject_error = False
+                    await asyncio.gather(read(), read())
+            finally:
+                await async_engine.dispose()
+
+        asyncio.run(read_concurrently())
+        assert sent == ([scope.revision_ref] if needs_finalization else [])
+        if needs_finalization:
+            with Session(engine) as session:
+                result = session.get(JobResult, scope.revision_ref)
+                assert result is not None
+                state = read_progressive_state(result.document_metadata)
+                assert state is not None
+                assert state.stages["finalization"]["status"] == "running"
+    finally:
+        engine.dispose()
+
+
 def test_m0_text_publish_enqueues_structure_and_supports_any_stage_explore_and_ancestor_summary_isolation(
     monkeypatch,
     postgresql_proc: PostgreSQLProcess,
@@ -1068,14 +1191,13 @@ def test_m0_text_publish_enqueues_structure_and_supports_any_stage_explore_and_a
             )
             session.commit()
             finalization = _finalize(
-                session, job_id=scope.job_ref, chunks=m0_chunks
+                session, job_id=scope.job_ref, chunks=m0_chunks, publish=False
             )
-            doc_id = session.execute(
+            assert session.execute(
                 select(Document.document_id).where(
                     Document.current_job_result_id == scope.revision_ref
                 )
-            ).scalar_one()
-            session.commit()
+            ).scalar_one_or_none() is None
 
         assert finalization.post_commit_effects.structure_job_result_ids == (
             scope.revision_ref,
@@ -1089,6 +1211,12 @@ def test_m0_text_publish_enqueues_structure_and_supports_any_stage_explore_and_a
                 None,
             ),
         ]
+        with Session(engine) as session:
+            doc_id = session.execute(
+                select(Document.document_id).where(
+                    Document.current_job_result_id == scope.revision_ref
+                )
+            ).scalar_one()
 
         # Stage M0 (state=text): recall/grep/read work; outline/node_filter/assets/query_table return informative notes.
         async def _verify_m0_tools() -> None:
@@ -1852,42 +1980,44 @@ def test_replace_document_scope_content_reuses_and_transfers_shared_boundary_ass
             session.commit()
 
             # Overlapping scope p126-131 re-extracts the same boundary asset with a slightly different bbox/chunk_id.
+            overlapping_chunks = [
+                {
+                    "chunk_id": "asset-from-b-diff-bbox",
+                    "type": "image",
+                    "content": f"Fig 12\n[{shared_path}]",
+                    "path": shared_path,
+                    "metadata": {
+                        "file_path": shared_path,
+                        "page_nums": [126],
+                        "connect_to": [
+                            {"target": "node-b", "relation": "embedded_by"}
+                        ],
+                    },
+                },
+                {
+                    "chunk_id": "node-b",
+                    "type": "page",
+                    "content": "sec b refined",
+                    "path": f"{scope.source_file_name}/Ch1/SecB",
+                    "metadata": {
+                        "page_nums": [126, 131],
+                        "connect_to": [
+                            {
+                                "target": "asset-from-b-diff-bbox",
+                                "relation": "embeds",
+                                "ref": f"[{shared_path}]",
+                            }
+                        ],
+                    },
+                },
+            ]
             replace_scope_content(
                 session,
                 scope=pub_scope,
                 scope_id="p126-131",
-                chunks=[
-                    {
-                        "chunk_id": "asset-from-b-diff-bbox",
-                        "type": "image",
-                        "content": f"Fig 12\n[{shared_path}]",
-                        "path": shared_path,
-                        "metadata": {
-                            "file_path": shared_path,
-                            "page_nums": [126],
-                            "connect_to": [
-                                {"target": "node-b", "relation": "embedded_by"}
-                            ],
-                        },
-                    },
-                    {
-                        "chunk_id": "node-b",
-                        "type": "page",
-                        "content": "sec b refined",
-                        "path": f"{scope.source_file_name}/Ch1/SecB",
-                        "metadata": {
-                            "page_nums": [126, 131],
-                            "connect_to": [
-                                {
-                                    "target": "asset-from-b-diff-bbox",
-                                    "relation": "embeds",
-                                    "ref": f"[{shared_path}]",
-                                }
-                            ],
-                        },
-                    },
-                ],
+                chunks=overlapping_chunks,
             )
+            assert overlapping_chunks[1]["metadata"]["connect_to"][0]["target"] == "asset-from-b-diff-bbox"
             session.commit()
 
             asset_rows = list(

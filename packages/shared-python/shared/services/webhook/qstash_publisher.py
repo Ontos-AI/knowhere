@@ -45,6 +45,9 @@ class QStashWebhookPublisher:
         self._payload_enricher = payload_enricher or QStashPayloadEnricher()
         self._secret_resolver = secret_resolver or QStashSecretResolver()
 
+    def close(self) -> None:
+        self._client_adapter.close()
+
     def publish_event(self, event_id: str) -> Optional[str]:
         """Publish a webhook event via QStash.
 

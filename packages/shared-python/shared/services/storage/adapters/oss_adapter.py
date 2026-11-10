@@ -6,6 +6,7 @@ from loguru import logger
 
 from shared.core.exceptions.domain_exceptions import StorageServiceException
 from shared.services.storage.storage_adapter import StorageAdapter
+from shared.services.storage.object_inventory_page import ObjectInventoryPage
 
 
 # Lazy-import oss2 so the dependency is only required when OSS is enabled.
@@ -35,6 +36,10 @@ class OSSStorageAdapter(StorageAdapter):
         """
         self.bucket = bucket
         self.default_bucket_name = default_bucket_name
+
+    def close(self) -> None:
+        # oss2's session wrapper owns a requests.Session and has no close API.
+        self.bucket.session.session.close()
 
     def _get_bucket_name(self, bucket: Optional[str] = None) -> str:
         """
@@ -164,6 +169,18 @@ class OSSStorageAdapter(StorageAdapter):
         except OssError as e:
             logger.error(f"OSS list objects failed: {e}")
             return
+
+    def list_object_page(self, *, prefix: str, after: str | None = None,
+                         limit: int = 100, bucket: str | None = None) -> ObjectInventoryPage:
+        if not 1 <= limit <= 1000:
+            raise ValueError("Object inventory page limit must be between 1 and 1000")
+        self._get_bucket_name(bucket)
+        response = self.bucket.list_objects(prefix=prefix, marker=after or "", max_keys=limit)
+        objects: tuple[tuple[str, int], ...] = tuple((item.key, int(item.size)) for item in response.object_list)
+        cursor: str | None = str(response.next_marker) if response.is_truncated else None
+        if response.is_truncated and (not objects or not cursor or cursor == after):
+            raise StorageServiceException(internal_message="Object inventory page did not advance", operation="list_objects")
+        return ObjectInventoryPage(objects=objects, nextCursor=cursor)
 
     def generate_presigned_url(
         self,

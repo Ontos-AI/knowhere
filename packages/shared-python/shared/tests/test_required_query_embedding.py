@@ -88,3 +88,41 @@ async def test_hybrid_does_not_return_lexical_hits_after_required_visual_failure
     monkeypatch.setattr(visual_discovery, "visual_page_discovery", AsyncMock(side_effect=RequiredQueryEmbeddingException(internal_message="provider unavailable")))
     with pytest.raises(RequiredQueryEmbeddingException):
         await visual_discovery.hybrid_discovery(Mock(), user_id="u", namespace="n", query="q", top_k=1)
+
+
+@pytest.mark.asyncio
+async def test_hybrid_reuses_one_query_vector_across_coarse_sections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.search.map_unit_discovery import DiscoveryResult
+
+    has_embeddings = Mock(scalar=Mock(return_value=True))
+    # Initial visual retrieval locates page 5. The follow-up section searches
+    # resolve the evidence pages for four coarse keyword hits.
+    database_results: list[Mock] = []
+    for page in (5, 1, 2, 3, 4):
+        database_results.extend([
+            has_embeddings,
+            Mock(all=Mock(return_value=[Mock(_mapping={
+                "document_id": "d", "chunk_id": f"p{page}", "page_num": page, "similarity": 0.9,
+            })])),
+        ])
+    db = Mock(execute=AsyncMock(side_effect=database_results))
+    embed = Mock(return_value=[0.25, 0.5])
+    lexical_rows: list[dict[str, object]] = [
+        {"document_id": "d", "chunk_id": f"p{page}", "section_path": str(page),
+         "chunk_type": "page", "chunk_metadata": {"enrichment_state": "coarse"}}
+        for page in range(1, 5)
+    ]
+    monkeypatch.setattr(visual_discovery.settings, "VISUAL_RETRIEVAL_ENABLED", True)
+    monkeypatch.setattr(visual_discovery, "embed_query", embed)
+    monkeypatch.setattr(visual_discovery, "map_unit_discovery", AsyncMock(return_value=DiscoveryResult(
+        status="discovery_done", payload={"fused_rows": lexical_rows},
+    )))
+
+    result = await visual_discovery.hybrid_discovery(db, user_id="u", namespace="n", query="q", top_k=5)
+
+    assert {row["chunk_id"]: row.get("matched_page_nums") for row in result.payload["fused_rows"]} == {
+        f"p{page}": [page] for page in range(1, 6)
+    }
+    embed.assert_called_once_with("q", usage_task="retrieval.query_embed")

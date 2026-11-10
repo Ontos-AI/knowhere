@@ -5,10 +5,14 @@ Supports consistent access patterns across S3, OSS, and MinIO backends.
 
 from abc import ABC, abstractmethod
 from typing import Any, BinaryIO, Dict, Iterator, Optional
+from shared.services.storage.object_inventory_page import ObjectInventoryPage
 
 
 class StorageAdapter(ABC):
     """Abstract base class for storage adapters."""
+
+    def close(self) -> None:
+        """Release transport resources when this adapter is exclusively owned."""
 
     @abstractmethod
     def upload_file(
@@ -102,6 +106,15 @@ class StorageAdapter(ABC):
 
         Yields:
             Object keys.
+        """
+
+    @abstractmethod
+    def list_object_page(self, *, prefix: str, after: str | None = None,
+                         limit: int = 100, bucket: str | None = None) -> ObjectInventoryPage:
+        """List one bounded page after an object key, including deleted keys.
+
+        Errors must propagate: an unavailable inventory must not look like an
+        empty successful scan or advance a durable collector cursor.
         """
 
     @abstractmethod

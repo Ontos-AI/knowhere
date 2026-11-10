@@ -4,7 +4,7 @@ from shared.services.retrieval.corpus_storage import CorpusStorage
 
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
-from uuid import uuid4
+from uuid import uuid4, uuid5
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -70,6 +70,7 @@ def replace_document_revision_content(
     chunks: list[dict[str, Any]],
     section_summaries: dict[str, str] | None = None,
     trace: PublicationTrace | None = None,
+    prepare_index: bool = True,
 ) -> dict[str, Any]:
     """Replace retrieval sections and chunks for one published document revision."""
     _delete_existing_revision_content(db, scope=scope, trace=trace)
@@ -129,19 +130,16 @@ def replace_document_revision_content(
     # The revision cleanup above already removed any derived rows for this
     # immutable job result. Skip the constructor's defensive DELETE pass on
     # the hot publication path; standalone backfills retain the default.
-    replace_document_map_units(
-        db,
-        scope=scope,
-        trace=trace,
-        clear_existing=False,
-    )
-    replace_document_page_embeddings(
-        db,
-        scope=scope,
-        incoming_embeddings_by_page=incoming_embeddings_by_page or None,
-    )
-    manifest_payload = persist_revision_serving_state(db, scope=scope, trace=trace)
-    return manifest_payload
+    if prepare_index and scope.prepare_pg_tokens:
+        replace_document_map_units(db, scope=scope, trace=trace, clear_existing=False)
+    if prepare_index or incoming_embeddings_by_page:
+        # Visual embeddings are supplied by parsing and stripped from chunk metadata.
+        replace_document_page_embeddings(
+            db,
+            scope=scope,
+            incoming_embeddings_by_page=incoming_embeddings_by_page or None,
+        )
+    return persist_revision_serving_state(db, scope=scope, trace=trace) if prepare_index else {}
 
 
 class DocumentSectionPublisher:
@@ -221,7 +219,7 @@ class DocumentSectionPublisher:
                 continue
 
             ancestor_section = corpusStorage.DocumentSection(
-                section_id=f"sec_{uuid4().hex[:12]}",
+                section_id=_make_row_identity("sec", self._scope, ancestor_path),
                 user_id=self._scope.user_id,
                 namespace=self._scope.namespace,
                 document_id=self._scope.document_id,
@@ -258,18 +256,19 @@ def _delete_existing_revision_content(
     trace: PublicationTrace | None = None,
 ) -> None:
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
-    with trace_publication_stage(trace, "statistics_persist"):
-        db.execute(
-            delete(corpusStorage.DocumentMapUnitIndex)
-            .where(corpusStorage.DocumentMapUnitIndex.document_id == scope.document_id)
-            .where(corpusStorage.DocumentMapUnitIndex.job_result_id == scope.job_result_id)
-        )
-    with trace_publication_stage(trace, "map_units_persist"):
-        db.execute(
-            delete(corpusStorage.DocumentMapUnit)
-            .where(corpusStorage.DocumentMapUnit.document_id == scope.document_id)
-            .where(corpusStorage.DocumentMapUnit.job_result_id == scope.job_result_id)
-        )
+    if scope.prepare_pg_tokens:
+        with trace_publication_stage(trace, "statistics_persist"):
+            db.execute(
+                delete(corpusStorage.DocumentMapUnitIndex)
+                .where(corpusStorage.DocumentMapUnitIndex.document_id == scope.document_id)
+                .where(corpusStorage.DocumentMapUnitIndex.job_result_id == scope.job_result_id)
+            )
+        with trace_publication_stage(trace, "map_units_persist"):
+            db.execute(
+                delete(corpusStorage.DocumentMapUnit)
+                .where(corpusStorage.DocumentMapUnit.document_id == scope.document_id)
+                .where(corpusStorage.DocumentMapUnit.job_result_id == scope.job_result_id)
+            )
     with trace_publication_stage(trace, "chunks_persist"):
         db.execute(
             delete(corpusStorage.DocumentChunk)
@@ -282,6 +281,12 @@ def _delete_existing_revision_content(
             .where(corpusStorage.DocumentSection.document_id == scope.document_id)
             .where(corpusStorage.DocumentSection.job_result_id == scope.job_result_id)
         )
+
+
+def _make_row_identity(prefix: str, scope: DocumentPublicationScope, identity: str) -> str:
+    seed = scope.row_identity_seed
+    value = uuid4() if seed is None else uuid5(seed, f"{prefix}:{identity}")
+    return f"{prefix}_{value.hex[:12]}"
 
 
 def _build_document_chunk(
@@ -299,8 +304,8 @@ def _build_document_chunk(
     section_title = section.section_title
     path_text = f"{scope.source_file_name or ''} {section_path}".strip()
     return corpusStorage.DocumentChunk(
-        id=f"dchk_{uuid4().hex[:12]}",
-        chunk_id=str(chunk.get("chunk_id") or f"chunk_{uuid4().hex[:12]}"),
+        id=_make_row_identity("dchk", scope, str(fallback_sort_order)),
+        chunk_id=str(chunk.get("chunk_id") or _make_row_identity("chunk", scope, str(fallback_sort_order))),
         user_id=scope.user_id,
         namespace=scope.namespace,
         document_id=scope.document_id,

@@ -22,7 +22,7 @@ class WebhookPayloadEnricher:
     async def enrich(self, event: WebhookEvent) -> dict[str, Any]:
         payload = dict(cast(Mapping[str, Any], event.payload))
 
-        if payload.get("event") not in {"job.completed", "job.enrichment.completed"}:
+        if not self._resolver.supports_payload(payload):
             return payload
 
         try:

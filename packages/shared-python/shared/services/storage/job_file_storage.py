@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from datetime import datetime
 from typing import Any, BinaryIO
 
 from shared.core.config import settings
@@ -87,6 +88,16 @@ class JobFileStorage:
             method="GET",
         )
         return {"download_url": download_url, "expires_in": expires_in}
+
+    async def generateDownloadUrlAsync(
+        self, storage_key: str, *, bucket: str, expires_in: int = 3600
+    ) -> dict[str, str | int | datetime]:
+        from shared.services.storage.async_presigner import AsyncStoragePresigner
+
+        signed = await AsyncStoragePresigner().generateUrlWithExpiry(
+            storage_key, expiration=expires_in, bucket=bucket, method="GET"
+        )
+        return {"download_url": signed.url, "expires_in": signed.expiresIn, "expires_at": signed.expiresAt}
 
     def generate_upload_download_url(
         self,

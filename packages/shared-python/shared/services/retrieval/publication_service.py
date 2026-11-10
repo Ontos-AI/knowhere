@@ -17,9 +17,9 @@ from uuid import uuid4
 
 from loguru import logger
 from sqlalchemy import select, text, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
-from shared.models.database.document import Document
+from shared.models.database.document import Document, RetrievalNamespaceGeneration
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.job_metadata import JobMetadataHelper
@@ -248,14 +248,22 @@ class RetrievalPublicationService:
         manifest_payload: dict[str, Any],
         previous_namespace: str | None = None,
         trace: PublicationTrace | None = None,
+        locked_generation: RetrievalNamespaceGeneration | None = None,
     ) -> None:
-        """Patch one namespace snapshot while holding only its short lock."""
+        """Patch the snapshot, reusing an owned exclusive generation lock when supplied."""
+        if locked_generation is not None and (
+            previous_namespace is not None
+            or locked_generation.user_id != scope.user_id
+            or locked_generation.namespace != scope.namespace
+            or object_session(locked_generation) is not db
+        ):
+            raise ValueError("A reused generation must belong to this session and publication scope")
         namespaces = [scope.namespace]
         if previous_namespace:
             namespaces.insert(0, previous_namespace)
         for namespace in namespaces:
             with trace_publication_stage(trace, "namespace_generation_lock_wait"):
-                generation = lock_namespace_generation(
+                generation = locked_generation if locked_generation is not None else lock_namespace_generation(
                     db,
                     user_id=scope.user_id,
                     namespace=namespace,
@@ -352,6 +360,8 @@ class RetrievalPublicationService:
                 document.parse_track = parse_track or document.parse_track
                 document.updated_at = utc_now_naive()
 
+            document.latest_parsed_job_result_id = job_result_id
+            document.accepted_job_id = job.job_id
             db.flush()
             return document, previous_namespace
 

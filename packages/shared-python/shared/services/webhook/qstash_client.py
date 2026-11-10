@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
 
 from shared.core.config import app_config
 from shared.core.exceptions.domain_exceptions import QStashServiceException
 from shared.models.database.webhook import WebhookEventStatus
+
+if TYPE_CHECKING:
+    from qstash import QStash
 
 
 @dataclass(frozen=True)
@@ -25,9 +28,9 @@ class QStashClientAdapter:
     """Upstash QStash client adapter for webhook publication and log lookup."""
 
     def __init__(self) -> None:
-        self._client: Any = None
+        self._client: QStash | None = None
 
-    def get_client(self) -> Any:
+    def get_client(self) -> QStash:
         """Lazily initialize the QStash client."""
         if self._client is None:
             try:
@@ -51,6 +54,14 @@ class QStashClientAdapter:
 
             self._client = QStash(token, base_url=app_config.QSTASH_BASE_URL)
         return self._client
+
+    def close(self) -> None:
+        client: QStash | None = self._client
+        self._client = None
+        if client is not None:
+            # The pinned QStash SDK owns an HTTPX client but exposes no public
+            # close method. Keep transport teardown at this adapter boundary.
+            client.http._client.close()
 
     def publish_webhook(
         self,

@@ -19,6 +19,7 @@ from shared.services.redis.redis_sync_service import (
     SyncJobMetadataService,
     SyncRedisServiceFactory,
 )
+from shared.services.jobs.parsing import ParsingOwnership
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,7 @@ class ParseJobContext:
     metadata_service: SyncJobMetadataService
     redis_service: Any
     s3_key: str
+    parsingOwnerToken: str | None = None
 
 
 def persist_job_metadata_updates(
@@ -45,6 +47,8 @@ def persist_job_metadata_updates(
     if not metadata_updates:
         return
     with get_sync_db_context() as db:
+        if job_context.parsingOwnerToken is not None:
+            ParsingOwnership().assertInTransaction(db, job_id, job_context.parsingOwnerToken)
         job = _select_job_row_for_update(db, job_id)
         if job is not None:
             job.job_metadata = {

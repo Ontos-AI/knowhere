@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
+from collections.abc import Callable, Generator
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from shared.services.retrieval.publication_preparation_cache import PublicationPreparationCache
@@ -38,34 +39,47 @@ def tokenize_query_for_ranker(query: str) -> List[str]:
     return tokenize_for_retrieval(query, dedupe=True)
 
 
-def _space_join_tokens(text: str) -> str:
-    return " ".join(tokenize_for_retrieval(text, dedupe=False))
+def _iterate_space_join_tokens(text: str, validateCjkSpan: Callable[[str], None] | None) -> Generator[None, None, str]:
+    tokens: List[str] = []
+    for token in PublicationPreparationCache.iterateTokenSteps(text, dedupe=False, validateCjkSpan=validateCjkSpan):
+        if token is not None:
+            tokens.append(token)
+        yield None
+    return " ".join(tokens)
 
 
-def build_content_search_text(
-    content: str, *, section_summary: Optional[str] = None
-) -> str:
+def _finish_search_text(steps: Generator[None, None, str]) -> str:
+    while True:
+        try:
+            next(steps)
+        except StopIteration as completed:
+            return str(completed.value)
+
+
+def _iterate_content_search_text(content: str, *, section_summary: Optional[str] = None,
+                                 validateCjkSpan: Callable[[str], None] | None = None) -> Generator[None, None, str]:
     parts = [str(content or "").strip()]
     if section_summary and str(section_summary).strip():
         parts.append(str(section_summary).strip())
     raw = " ".join(p for p in parts if p)
-    return _space_join_tokens(raw) if raw else ""
+    return (yield from _iterate_space_join_tokens(raw, validateCjkSpan)) if raw else ""
 
 
-def build_path_search_text(
-    *,
-    source_file_name: Optional[str] = None,
-    section_path: Optional[str] = None,
-    section_title: Optional[str] = None,
-) -> str:
-    parts = [
-        str(v).strip()
-        for v in (source_file_name, section_path, section_title)
-        if v and str(v).strip()
-    ]
-    if not parts:
-        return ""
-    return _space_join_tokens(" ".join(parts))
+def build_content_search_text(content: str, *, section_summary: Optional[str] = None) -> str:
+    return _finish_search_text(_iterate_content_search_text(content, section_summary=section_summary))
+
+
+def _iterate_path_search_text(*, source_file_name: Optional[str] = None,
+                              section_path: Optional[str] = None, section_title: Optional[str] = None,
+                              validateCjkSpan: Callable[[str], None] | None = None) -> Generator[None, None, str]:
+    parts = [str(v).strip() for v in (source_file_name, section_path, section_title) if v and str(v).strip()]
+    return (yield from _iterate_space_join_tokens(" ".join(parts), validateCjkSpan)) if parts else ""
+
+
+def build_path_search_text(*, source_file_name: Optional[str] = None,
+                           section_path: Optional[str] = None, section_title: Optional[str] = None) -> str:
+    return _finish_search_text(_iterate_path_search_text(source_file_name=source_file_name,
+        section_path=section_path, section_title=section_title))
 
 
 def build_term_search_text(content: str, *, path_text: Optional[str] = None) -> str:

@@ -46,9 +46,11 @@ async def get_job_result_for_user(
     *,
     job_id: str,
     user_id: str,
+    shouldSignResultURL: bool = True,
 ) -> JobResultResponse:
     return await JobReadModel().get_job_result_for_user(
         db,
         job_id=job_id,
         user_id=user_id,
+        shouldSignResultURL=shouldSignResultURL,
     )

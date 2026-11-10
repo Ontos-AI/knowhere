@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from shared.core.exceptions.domain_exceptions import StorageServiceException
 from shared.services.storage.storage_adapter import StorageAdapter
+from shared.services.storage.object_inventory_page import ObjectInventoryPage
 
 
 class FileSystemStorageAdapter(StorageAdapter):
@@ -89,6 +90,36 @@ class FileSystemStorageAdapter(StorageAdapter):
             if file_path.is_file()
         )
         return iter(sorted(key for key in object_keys if key.startswith(prefix)))
+
+    def list_object_page(self, *, prefix: str, after: str | None = None,
+                         limit: int = 100, bucket: str | None = None) -> ObjectInventoryPage:
+        if not 1 <= limit <= 1000:
+            raise ValueError("Object inventory page limit must be between 1 and 1000")
+        bucketPath: Path = self._resolve_bucket_path(self._get_bucket(bucket))
+
+        def walk(directory: Path) -> Iterator[tuple[str, int]]:
+            for path in sorted(directory.iterdir(), key=lambda item: item.name + ("/" if item.is_dir() else "")):
+                if path.is_symlink():
+                    continue
+                key: str = path.relative_to(bucketPath).as_posix()
+                if path.is_dir():
+                    directoryPrefix: str = key + "/"
+                    if not (directoryPrefix.startswith(prefix) or prefix.startswith(directoryPrefix)):
+                        continue
+                    if after is not None and directoryPrefix < after and not after.startswith(directoryPrefix):
+                        continue
+                    yield from walk(path)
+                elif key.startswith(prefix) and (after is None or key > after):
+                    yield key, path.stat().st_size
+
+        objects: list[tuple[str, int]] = []
+        if bucketPath.is_dir():
+            for item in walk(bucketPath):
+                objects.append(item)
+                if len(objects) > limit:
+                    break
+        return ObjectInventoryPage(objects=tuple(objects[:limit]),
+            nextCursor=objects[limit - 1][0] if len(objects) > limit else None)
 
     def generate_presigned_url(
         self,

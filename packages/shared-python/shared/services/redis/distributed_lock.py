@@ -9,6 +9,8 @@ release, and a gevent greenlet for periodic TTL renewal.
 """
 
 import uuid
+from collections.abc import Callable
+from time import monotonic
 from typing import Optional
 
 import gevent
@@ -66,6 +68,7 @@ class RedisJobLock:
         job_id: str,
         ttl: int = 60,
         renewal_interval: int = 20,
+        *, ownerToken: str | None = None, onRenew: Callable[[], bool] | None = None,
     ) -> None:
         self._redis = redis_service
         self._job_id = job_id
@@ -73,7 +76,8 @@ class RedisJobLock:
         self._renewal_interval = renewal_interval
 
         self._lock_key: str = redis_key_builder.lock_job_processing(job_id)
-        self._token: str = uuid.uuid4().hex
+        self._token: str = ownerToken or uuid.uuid4().hex
+        self._onRenew: Callable[[], bool] | None = onRenew
         self._acquired: bool = False
         self._renewal_greenlet: Optional[gevent.Greenlet] = None
         self._stop_event = gevent.event.Event()
@@ -82,20 +86,22 @@ class RedisJobLock:
     # Public API
     # ------------------------------------------------------------------
 
-    def acquire(self) -> bool:
-        """Try to acquire the lock. Returns True on success."""
+    def acquire(self, *, waitSeconds: float = 0.0) -> bool:
+        """Acquire the lock, optionally waiting for its current owner to release it."""
+        deadline: float = monotonic() + waitSeconds
         client = self._redis._get_client()
         full_key = self._redis._build_key(self._lock_key)
-        result = client.set(full_key, self._token, nx=True, ex=self._ttl)
-        if result:
-            self._acquired = True
-            self._start_renewal()
-            logger.debug(f"Lock acquired: {self._lock_key}")
-            return True
-        logger.info(
-            f"Lock already held for job {self._job_id}, another worker is processing"
-        )
-        return False
+        while True:
+            if client.set(full_key, self._token, nx=True, ex=self._ttl):
+                self._acquired = True
+                self._start_renewal()
+                logger.debug(f"Lock acquired: {self._lock_key}")
+                return True
+            remaining: float = deadline - monotonic()
+            if remaining <= 0:
+                logger.info(f"Lock already held for job {self._job_id}, another worker is processing")
+                return False
+            gevent.sleep(min(0.25, remaining))
 
     def release(self) -> bool:
         """Release the lock if we still own it. Returns True if deleted."""
@@ -168,6 +174,9 @@ class RedisJobLock:
                 if result != 1:
                     logger.warning(f"Lock lost during renewal: {self._lock_key}")
                     self._acquired = False
+                    break
+                if self._onRenew is not None and not self._onRenew():
+                    logger.warning(f"Durable parsing ownership lost: {self._job_id}")
                     break
             except Exception as exc:
                 logger.warning(f"Lock renewal failed for {self._lock_key}: {exc}")

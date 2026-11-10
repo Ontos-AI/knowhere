@@ -4,6 +4,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection, Engine
 
 from alembic import context
+from alembic.runtime.migration import MigrationContext, MigrationInfo
 
 # Import the shared database configuration and metadata.
 from shared.core.config import settings
@@ -94,6 +95,23 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def flush_demo_catalog_constraints(*, ctx: MigrationContext, step: MigrationInfo,
+                                   heads: set[str], run_args: dict[str, object]) -> None:
+    """Settle deferred catalog inserts without committing the caller's transaction."""
+    del heads, run_args
+    if not ctx.opts.get("knowhere_external_transaction") or not step.is_upgrade or step.is_stamp:
+        return
+    if step.up_revision_id != "4d5e6f7a8b9c":
+        return
+    # This revision installs the FK as initially deferred and seeds the demo
+    # rows. With per-migration commits those checks already run before later
+    # DDL. Recreate that boundary for the newly installed FK only.
+    connection: Connection | None = ctx.connection
+    assert connection is not None
+    connection.exec_driver_sql("SET CONSTRAINTS fk_demo_documents_current_revision IMMEDIATE")
+    connection.exec_driver_sql("SET CONSTRAINTS fk_demo_documents_current_revision DEFERRED")
+
+
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode.
 
@@ -123,6 +141,7 @@ def run_migrations_online() -> None:
             # Concurrent DDL cannot run inside a transaction owned by the
             # caller.  Migrations use regular DDL for that compatibility path.
             knowhere_external_transaction=caller_owned_transaction,
+            on_version_apply=flush_demo_catalog_constraints,
         )
 
         with context.begin_transaction():
