@@ -14,6 +14,7 @@ from shared.core.state_machine.service import AsyncStateMachineService
 from shared.core.exceptions.knowhere_exception import KnowhereException
 from shared.models.database.job import Job
 from shared.models.database.job_state_history import JobStateHistory
+from shared.models.schemas.job_metadata import JobMetadataHelper
 
 
 class JobRepository:
@@ -69,9 +70,17 @@ class JobRepository:
                         internal_message="Progressive admission is paused for the lexical backend transition",
                         retry_after=60,
                     ) from error
-            if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch" and job_type == "document_ingestion":
-                from shared.services.retrieval.lexical.admission import IndexingAdmission
-                await db.run_sync(lambda session: IndexingAdmission().bind(session, job=job))
+            if job_type == "document_ingestion":
+                uses_opensearch = settings.KNOWHERE_LEXICAL_BACKEND == "opensearch"
+                original_request = JobMetadataHelper.get_original_request(metadata)
+                if uses_opensearch or original_request.get("document_id"):
+                    from shared.services.retrieval.lexical.admission import IndexingAdmission
+
+                    await db.run_sync(
+                        lambda session: IndexingAdmission().bind(
+                            session, job=job, createDocument=uses_opensearch
+                        )
+                    )
             db.add(job)
             await db.commit()
             # Skip db.refresh() — all fields are already set in-memory.
