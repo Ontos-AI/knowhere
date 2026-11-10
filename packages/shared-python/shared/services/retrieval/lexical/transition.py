@@ -428,14 +428,20 @@ class LexicalTransition:
                 )
             return len(jobs)
 
-    def _loadInput(self, binding: _Binding) -> LexicalInput:
+    @staticmethod
+    def _getRetainedInputResult(db: Session, binding: _Binding, *, lock: bool = True) -> JobResult:
+        statement = select(JobResult).where(JobResult.id == binding.revisionId)
+        if lock:
+            statement = statement.with_for_update(of=JobResult)
+        result: JobResult = db.scalars(statement).one()
+        LexicalInputRetention.assertRetained(db, result, lock=lock)
+        return result
+
+    def _loadInput(self, binding: _Binding, *, isReadOnly: bool = False) -> LexicalInput:
         with self.sessions.begin() as db:
-            result: JobResult = db.scalars(
-                select(JobResult)
-                .where(JobResult.id == binding.revisionId)
-                .with_for_update(of=JobResult)
-            ).one()
-            LexicalInputRetention.assertRetained(db, result)
+            if isReadOnly:
+                db.execute(text("SET TRANSACTION READ ONLY"))
+            result: JobResult = self._getRetainedInputResult(db, binding, lock=not isReadOnly)
             if not result.indexing_input_key or not result.indexing_input_checksum:
                 raise LexicalIndexError(
                     "Published revision has no assigned frozen lexical input"
@@ -881,21 +887,32 @@ class LexicalTransition:
             document.current_indexing_build_id,
         )
 
-    def _materializeInput(self, binding: _Binding, epoch: int) -> _Binding | None:
+    def preflightShadowInput(self, binding: _Binding, *, epoch: int) -> None:
+        """Read and validate the selected input before a shadow operator claims authority."""
+        if binding.inputKey:
+            with self.sessions.begin() as db:
+                db.execute(text("SET TRANSACTION READ ONLY"))
+                self._getControl(db, expectedEpoch=epoch)
+                if self._getCurrentBinding(db, binding) != binding:
+                    raise LexicalIndexError("Published input changed during shadow preflight")
+            self._loadInput(binding, isReadOnly=True)
+        elif self._materializeInput(binding, epoch, isReadOnly=True) is None:
+            raise LexicalIndexError("Published input changed during shadow preflight")
+
+    def _materializeInput(
+        self, binding: _Binding, epoch: int, *, isReadOnly: bool = False,
+    ) -> _Binding | None:
         """Freeze historical PG bags of terms; never call a tokenizer during migration."""
         if binding.inputKey:
             return binding
         storage: CorpusStorage = CorpusStorage.resolve_namespace(binding.namespace)
         with self.sessions.begin() as db:
+            if isReadOnly:
+                db.execute(text("SET TRANSACTION READ ONLY"))
             self._getControl(db, expectedEpoch=epoch)
             if self._getCurrentBinding(db, binding) != binding:
                 return None
-            result: JobResult = db.scalars(
-                select(JobResult)
-                .where(JobResult.id == binding.revisionId)
-                .with_for_update(of=JobResult)
-            ).one()
-            LexicalInputRetention.assertRetained(db, result)
+            result: JobResult = self._getRetainedInputResult(db, binding, lock=not isReadOnly)
             marker = db.scalar(
                 select(storage.DocumentMapUnitIndex).where(
                     storage.DocumentMapUnitIndex.document_id == binding.documentId,
@@ -1009,6 +1026,8 @@ class LexicalTransition:
             payload: LexicalInput = LexicalInput(
                 compilerFingerprint=compiler, units=tuple(units)
             )
+        if isReadOnly:
+            return binding
         key, checksum, size = LexicalInputStorage().saveWithSize(
             jobId=binding.jobId, revisionId=binding.revisionId, payload=payload
         )
