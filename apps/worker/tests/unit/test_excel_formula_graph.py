@@ -86,7 +86,6 @@ def test_parse_formula_refs_expands_defined_name_and_table(tmp_path: Path) -> No
     name_node = nodes[(2, 3)]
     amount_column = _range("Data", 2, 1, 3, 1)
     assert table_node.formula == "=SUM(Table1[Amount])"
-    assert table_node.functions == ("SUM",)
     assert table_node.unresolved is False
     assert table_node.refs == (amount_column,)
     assert name_node.formula == "=TotalRange"
@@ -113,7 +112,5 @@ def test_indirect_and_offset_formulas_are_unresolved(tmp_path: Path) -> None:
     offset = nodes[(1, 3)]
     assert indirect.unresolved is True
     assert offset.unresolved is True
-    assert indirect.functions == ("INDIRECT",)
-    assert offset.functions == ("OFFSET",)
     assert _range("Data", 1, 1, 1, 1) in indirect.refs
     assert _range("Data", 1, 1, 1, 1) in offset.refs

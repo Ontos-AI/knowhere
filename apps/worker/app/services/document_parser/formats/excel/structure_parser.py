@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from openpyxl.utils import get_column_letter
 from loguru import logger
@@ -9,7 +9,6 @@ from loguru import logger
 from app.services.document_parser.formats.excel.formula_graph import build_formula_graph
 from app.services.document_parser.formats.excel.header_detect import (
     HeaderSpec,
-    SpreadsheetHeaderDetector,
     TableRegion,
     build_region_visual,
     detect_headers,
@@ -19,7 +18,6 @@ from app.services.document_parser.formats.excel.html_render import (
     visible_columns,
 )
 from app.services.document_parser.formats.excel.luna_decisions import (
-    SpreadsheetRegionJudge,
     split_sheet_regions,
 )
 from app.services.document_parser.formats.excel.region_split import (
@@ -28,6 +26,7 @@ from app.services.document_parser.formats.excel.region_split import (
 from app.services.document_parser.formats.excel.satellite_merge import (
     PlannedTable,
     TableFormulaLink,
+    format_region_cells,
     resolve_formula_satellites_and_edges,
     table_key,
 )
@@ -76,24 +75,14 @@ class ExcelStructureResult:
 
 def parse_excel_structure(
     workbook: WorkbookGrid,
-    sheet_name: str | None = None,
     include_hidden_sheets: bool = False,
-    header_detector: SpreadsheetHeaderDetector | None = None,
-    judge: SpreadsheetRegionJudge | None = None,
 ) -> ExcelStructureResult:
     try:
         sheets = workbook.sheet_by_name()
-        sheets_to_parse = (
-            [sheet_name] if sheet_name else [sheet.name for sheet in workbook.sheets]
-        )
+        graph = build_formula_graph(workbook)
         sheet_regions = {}
-        for selected_sheet_name in sheets_to_parse:
-            sheet = sheets.get(selected_sheet_name)
-            if sheet is None:
-                logger.warning(
-                    f"Sheet '{selected_sheet_name}' not found in workbook, skipping"
-                )
-                continue
+        for sheet in workbook.sheets:
+            selected_sheet_name = sheet.name
             if not include_hidden_sheets and sheet.hidden:
                 logger.info(f"Sheet '{selected_sheet_name}' is hidden, skipping")
                 continue
@@ -101,14 +90,15 @@ def parse_excel_structure(
                 logger.debug(f"Sheet '{selected_sheet_name}' is empty, skipping")
                 continue
             classified = split_sheet_regions(
-                sheet, defined_names=workbook.defined_names, judge=judge
+                sheet,
+                formula_nodes=graph,
+                defined_names=workbook.defined_names,
             )
             logger.debug(
                 f"Sheet '{selected_sheet_name}': {len(classified)} regions after split"
             )
             sheet_regions[selected_sheet_name] = classified
 
-        graph = build_formula_graph(workbook)
         plan = resolve_formula_satellites_and_edges(workbook, sheet_regions, graph)
         results: list[ParsedExcelTable] = []
         by_sheet: dict[str, list[PlannedTable]] = {}
@@ -121,7 +111,6 @@ def parse_excel_structure(
                 parsed = _parse_subtable(
                     sheet,
                     planned,
-                    header_detector=header_detector,
                     subtable_index=index + 1,
                     subtable_count=count,
                     seed_title=seed_title_for_region(
@@ -152,7 +141,6 @@ def _parse_subtable(
     sheet: SheetGrid,
     planned: PlannedTable,
     *,
-    header_detector: SpreadsheetHeaderDetector | None,
     subtable_index: int,
     subtable_count: int,
     seed_title: str,
@@ -161,30 +149,38 @@ def _parse_subtable(
     if region.max_row < region.min_row:
         return None
     visual = build_region_visual(sheet, region)
-    caption = _join_captions(planned.caption_texts, planned.satellites)
-    spec = detect_headers(
-        TableRegion(visual=visual),
-        llm=header_detector,
-        caption=caption,
+    spec = detect_headers(TableRegion(visual=visual))
+    # Rows above the header start (titles, parameter notes) go to the caption,
+    # not to <tr>: retrieval reads every <tr> as a grid row before headers.
+    header_top = region.min_row + spec.header_start_row
+    preamble = ""
+    if header_top > region.min_row:
+        preamble = format_region_cells(
+            sheet,
+            Region(
+                min_row=region.min_row,
+                min_col=region.min_col,
+                max_row=header_top - 1,
+                max_col=region.max_col,
+            ),
+        )
+    spec = replace(
+        spec,
+        caption=_join_captions((preamble, *planned.satellites)),
     )
-    effective_row_end = region.min_row + spec.data_end_row
-    if effective_row_end < region.min_row:
-        return None
     table_region = Region(
-        min_row=region.min_row,
+        min_row=header_top,
         min_col=region.min_col,
-        max_row=effective_row_end,
+        max_row=region.max_row,
         max_col=region.max_col,
     )
-    html = render_table_html(
-        sheet, table_region, spec, tfoot_rows=planned.tfoot_rows
-    )
+    html = render_table_html(sheet, table_region, spec, tfoot_rows=planned.tfoot_rows)
     if not html:
         return None
     emitted_headers, emitted_rhcc = _emitted_headers(spec, table_region, sheet)
     excel_range = (
-        f"{get_column_letter(table_region.min_col)}{table_region.min_row}:"
-        f"{get_column_letter(table_region.max_col)}{table_region.max_row}"
+        f"{get_column_letter(region.min_col)}{region.min_row}:"
+        f"{get_column_letter(region.max_col)}{region.max_row}"
     )
     return ParsedExcelTable(
         sheet_name=planned.sheet_name,
@@ -204,13 +200,10 @@ def _parse_subtable(
     )
 
 
-def _join_captions(
-    caption_texts: Sequence[str],
-    satellites: Sequence[str],
-) -> str | None:
+def _join_captions(items: Sequence[str]) -> str | None:
     parts: list[str] = []
     seen: set[str] = set()
-    for item in (*caption_texts, *satellites):
+    for item in items:
         text = (item or "").strip()
         if not text or text in seen:
             continue

@@ -49,11 +49,11 @@ def test_render_table_html_keeps_merge_formula_and_tfoot(tmp_path: Path) -> None
         grid,
         region,
         HeaderSpec(
+            header_start_row=0,
             header_row_count=1,
             row_header_col_count=1,
             column_headers=("Item", "2024", ""),
             caption=None,
-            data_end_row=1,
         ),
     )
     assert 'data-sheet="P&amp;L"' in html
@@ -86,11 +86,11 @@ def test_render_table_html_writes_aligned_tfoot_rows(tmp_path: Path) -> None:
         grid,
         region,
         HeaderSpec(
+            header_start_row=0,
             header_row_count=1,
             row_header_col_count=0,
             column_headers=("Name", "Amount"),
             caption=None,
-            data_end_row=2,
         ),
         tfoot_rows=(5,),
     )
@@ -121,11 +121,11 @@ def test_visible_columns_omit_hidden_empty(tmp_path: Path) -> None:
         grid,
         region,
         HeaderSpec(
+            header_start_row=0,
             header_row_count=1,
             row_header_col_count=1,
             column_headers=("序号", "单价", "", "合价"),
             caption="工程量清单",
-            data_end_row=1,
         ),
     )
     assert "<caption>工程量清单</caption>" in html

@@ -15,6 +15,9 @@ from openpyxl.styles import Border, Side  # noqa: E402
 from openpyxl.workbook.defined_name import DefinedName  # noqa: E402
 from openpyxl.worksheet.table import Table, TableColumn  # noqa: E402
 
+from app.services.document_parser.formats.excel.formula_graph import (  # noqa: E402
+    build_formula_graph,
+)
 from app.services.document_parser.formats.excel.luna_decisions import (  # noqa: E402
     split_sheet_regions,
 )
@@ -69,6 +72,7 @@ def test_empty_row_keeps_two_geometric_regions(tmp_path: Path) -> None:
     grid = load_workbook_grid(str(path))
     classified = split_sheet_regions(
         grid.sheets[0],
+        formula_nodes=build_formula_graph(grid),
         defined_names=grid.defined_names,
         judge=_FailClosedJudge(),
     )
@@ -94,6 +98,7 @@ def test_luna_merge_rejoins_blocks_across_empty_row(tmp_path: Path) -> None:
     grid = load_workbook_grid(str(path))
     classified = split_sheet_regions(
         grid.sheets[0],
+        formula_nodes=build_formula_graph(grid),
         defined_names=grid.defined_names,
         judge=_MergeJudge(),
     )
@@ -134,6 +139,7 @@ def test_excel_table_seed_keeps_internal_blank_row(tmp_path: Path) -> None:
     grid = load_workbook_grid(str(path))
     classified = split_sheet_regions(
         grid.sheets[0],
+        formula_nodes=build_formula_graph(grid),
         defined_names=grid.defined_names,
         judge=_FailClosedJudge(),
     )
@@ -160,6 +166,7 @@ def test_rectangular_defined_name_is_a_seed(tmp_path: Path) -> None:
     grid = load_workbook_grid(str(path))
     classified = split_sheet_regions(
         grid.sheets[0],
+        formula_nodes=build_formula_graph(grid),
         defined_names=grid.defined_names,
         judge=_FailClosedJudge(),
     )
@@ -187,6 +194,7 @@ def test_formula_fragment_is_not_absorbed_by_split(tmp_path: Path) -> None:
     grid = load_workbook_grid(str(path))
     classified = split_sheet_regions(
         grid.sheets[0],
+        formula_nodes=build_formula_graph(grid),
         defined_names=grid.defined_names,
         judge=_FailClosedJudge(),
     )
@@ -225,6 +233,7 @@ def test_border_block_does_not_rejoin_empty_row_split(tmp_path: Path) -> None:
     grid = load_workbook_grid(str(path))
     classified = split_sheet_regions(
         grid.sheets[0],
+        formula_nodes=build_formula_graph(grid),
         defined_names=grid.defined_names,
         judge=_FailClosedJudge(),
     )
@@ -258,6 +267,7 @@ def test_one_column_sparse_numbers_stay_one_region(tmp_path: Path) -> None:
     grid = load_workbook_grid(str(path))
     classified = split_sheet_regions(
         grid.sheets[0],
+        formula_nodes=build_formula_graph(grid),
         defined_names=grid.defined_names,
         judge=_FailClosedJudge(),
     )
@@ -283,6 +293,7 @@ def test_caption_across_blank_row_stays_a_fragment(tmp_path: Path) -> None:
     grid = load_workbook_grid(str(path))
     classified = split_sheet_regions(
         grid.sheets[0],
+        formula_nodes=build_formula_graph(grid),
         defined_names=grid.defined_names,
         judge=_FailClosedJudge(),
     )
@@ -293,7 +304,7 @@ def test_caption_across_blank_row_stays_a_fragment(tmp_path: Path) -> None:
     assert classified[1].region.min_row == 3
 
 
-def test_adjacent_caption_merges_onto_seed_table_in_fail_closed_fallback(
+def test_caption_above_seed_table_stays_separate_when_luna_fails(
     tmp_path: Path,
 ) -> None:
     workbook = Workbook()
@@ -316,10 +327,12 @@ def test_adjacent_caption_merges_onto_seed_table_in_fail_closed_fallback(
     grid = load_workbook_grid(str(path))
     classified = split_sheet_regions(
         grid.sheets[0],
+        formula_nodes=build_formula_graph(grid),
         defined_names=grid.defined_names,
         judge=_FailClosedJudge(),
     )
     assert _regions(classified) == [
-        Region(min_row=1, min_col=1, max_row=3, max_col=2)
+        Region(min_row=1, min_col=1, max_row=1, max_col=2),
+        Region(min_row=2, min_col=1, max_row=3, max_col=2),
     ]
-    assert classified[0].role == "table"
+    assert [item.role for item in classified] == ["fragment", "table"]

@@ -7,11 +7,17 @@ from typing import Protocol
 
 from loguru import logger
 
+from app.services.document_parser.formats.excel.formula_graph import (
+    CellRange,
+    FormulaNode,
+    range_hits_region,
+)
 from app.services.document_parser.formats.excel.region_split import (
+    ROLE_FRAGMENT,
+    ROLE_TABLE,
     ClassifiedRegion,
     atomic_sheet_blocks,
     bounding_region,
-    classify_sheet_row,
     columns_overlap,
     regions_overlap,
 )
@@ -28,8 +34,6 @@ _CLOCKWISE_DIRS = ("up", "right", "down", "left")
 _BOUNDARY_EDGE = 5
 _LUNA_MODEL = "openai/gpt-6-luna-decisions"
 _LUNA_EVALUATE_URL = "https://ai-gateway.vercel.sh/v1/evaluate"
-_ROLE_TABLE = "table"
-_ROLE_FRAGMENT = "fragment"
 _CHOICE_MERGE = "merge"
 _CHOICE_SEPARATE = "separate"
 
@@ -46,11 +50,6 @@ class SpreadsheetRegionJudge(Protocol):
         """Return question id → choice, or None to fail closed."""
 
 
-@dataclass(frozen=True)
-class SheetBlockDecisions:
-    regions: tuple[ClassifiedRegion, ...]
-
-
 @dataclass
 class _OpenBlock:
     region: Region
@@ -60,6 +59,7 @@ class _OpenBlock:
 def split_sheet_regions(
     sheet: SheetGrid,
     *,
+    formula_nodes: Sequence[FormulaNode],
     defined_names: Sequence[DefinedNameDef] = (),
     judge: SpreadsheetRegionJudge | None = None,
 ) -> list[ClassifiedRegion]:
@@ -67,13 +67,12 @@ def split_sheet_regions(
     seeds, leftover = atomic_sheet_blocks(sheet, defined_names=defined_names)
     if not seeds and not leftover:
         return []
-    return list(
-        evaluate_sheet_blocks(
-            sheet,
-            [*seeds, *leftover],
-            judge=judge,
-            locked=seeds,
-        ).regions
+    return evaluate_sheet_blocks(
+        sheet,
+        [*seeds, *leftover],
+        formula_nodes=formula_nodes,
+        judge=judge,
+        locked=seeds,
     )
 
 
@@ -81,12 +80,21 @@ def evaluate_sheet_blocks(
     sheet: SheetGrid,
     blocks: Sequence[Region],
     *,
+    formula_nodes: Sequence[FormulaNode],
     judge: SpreadsheetRegionJudge | None = None,
     locked: Sequence[Region] = (),
-) -> SheetBlockDecisions:
-    """Pointer-walk atomic blocks for merge-or-separate, then role by shape."""
+) -> list[ClassifiedRegion]:
+    """Pointer-walk atomic blocks for merge-or-separate, then role by shape.
+
+    A neighbor joins the center without asking Luna when one formula range
+    spans both blocks. Otherwise Luna is asked only about neighbors whose
+    shared-edge span nests with the center's: the narrower one does not stick
+    out of the wider one.
+    """
     if not blocks:
-        return SheetBlockDecisions(regions=())
+        return []
+
+    formula_ranges = _sheet_formula_ranges(sheet.name, formula_nodes)
 
     locked_set = set(locked)
     remaining = [
@@ -116,12 +124,25 @@ def evaluate_sheet_blocks(
             neighbors = _four_neighbors(
                 center,
                 remaining,
+                sheet_name=sheet.name,
+                formula_ranges=formula_ranges,
                 obstacles=[*remaining, *finalized],
                 rejected=rejected,
             )
             if not neighbors:
                 break
-            answers = _merge_answers(sheet, center, neighbors, resolved_judge)
+            answers = {
+                direction: _CHOICE_MERGE
+                for direction, neighbor in neighbors.items()
+                if _formula_spans(center.region, neighbor.region, sheet.name, formula_ranges)
+            }
+            asked = {
+                direction: neighbor
+                for direction, neighbor in neighbors.items()
+                if direction not in answers
+            }
+            if asked:
+                answers.update(_merge_answers(sheet, center, asked, resolved_judge))
             for direction, choice in answers.items():
                 if choice == _CHOICE_SEPARATE and direction in neighbors:
                     rejected.add(neighbors[direction].region)
@@ -139,7 +160,7 @@ def evaluate_sheet_blocks(
 
     classified = _roles_from_shape(sheet, finalized)
     classified.sort(key=lambda item: (item.region.min_row, item.region.min_col))
-    return SheetBlockDecisions(regions=tuple(classified))
+    return classified
 
 
 def _merge_answers(
@@ -149,10 +170,7 @@ def _merge_answers(
     judge: SpreadsheetRegionJudge,
 ) -> Mapping[str, str]:
     directions = tuple(direction for direction in _CLOCKWISE_DIRS if direction in neighbors)
-    fallback = {
-        direction: _fallback_merge_choice(sheet, center, direction, neighbors[direction])
-        for direction in directions
-    }
+    fail_closed = {direction: _CHOICE_SEPARATE for direction in directions}
     center_grid = _block_preview(sheet, center.region)
     neighbor_grids = {
         direction: _block_preview(sheet, neighbors[direction].region)
@@ -191,13 +209,13 @@ def _merge_answers(
         allowed=allowed,
     )
     if chosen is None:
-        return fallback
+        return fail_closed
     answers: dict[str, str] = {}
     for direction in directions:
         question_id = f"merge::{direction}"
         choice = chosen.get(question_id)
         if choice not in {_CHOICE_MERGE, _CHOICE_SEPARATE}:
-            return fallback
+            return fail_closed
         answers[direction] = choice
     return answers
 
@@ -240,6 +258,8 @@ def _four_neighbors(
     center: _OpenBlock,
     remaining: Sequence[_OpenBlock],
     *,
+    sheet_name: str,
+    formula_ranges: Sequence[CellRange],
     obstacles: Sequence[_OpenBlock] | None = None,
     rejected: set[Region] | None = None,
 ) -> dict[str, _OpenBlock]:
@@ -257,6 +277,12 @@ def _four_neighbors(
             if distance is None:
                 continue
             if not _axis_aligned(center.region, candidate.region, direction):
+                continue
+            if not _edges_nested(
+                center.region, candidate.region, direction
+            ) and not _formula_spans(
+                center.region, candidate.region, sheet_name, formula_ranges
+            ):
                 continue
             union = bounding_region([center.region, candidate.region])
             swallows = any(
@@ -299,6 +325,51 @@ def _axis_aligned(center: Region, candidate: Region, direction: str) -> bool:
     return _rows_overlap(center, candidate) or _rows_adjacent(center, candidate)
 
 
+def _edges_nested(center: Region, candidate: Region, direction: str) -> bool:
+    """Whether one shared-edge span (columns or rows) lies within the other."""
+    if direction in {"up", "down"}:
+        return _span_nested(
+            (center.min_col, center.max_col), (candidate.min_col, candidate.max_col)
+        )
+    return _span_nested(
+        (center.min_row, center.max_row), (candidate.min_row, candidate.max_row)
+    )
+
+
+def _span_nested(left: tuple[int, int], right: tuple[int, int]) -> bool:
+    left_in_right = right[0] <= left[0] and left[1] <= right[1]
+    right_in_left = left[0] <= right[0] and right[1] <= left[1]
+    return left_in_right or right_in_left
+
+
+def _sheet_formula_ranges(
+    sheet_name: str, formula_nodes: Sequence[FormulaNode]
+) -> tuple[CellRange, ...]:
+    """Resolved formula ranges, from any sheet, that point into ``sheet_name``."""
+    ranges: dict[CellRange, None] = {}
+    for node in formula_nodes:
+        if node.unresolved:
+            continue
+        for ref in node.refs:
+            if ref.sheet == sheet_name:
+                ranges[ref] = None
+    return tuple(ranges)
+
+
+def _formula_spans(
+    left: Region,
+    right: Region,
+    sheet_name: str,
+    formula_ranges: Sequence[CellRange],
+) -> bool:
+    """Whether one formula range intersects both regions."""
+    return any(
+        range_hits_region(ref, sheet_name, left)
+        and range_hits_region(ref, sheet_name, right)
+        for ref in formula_ranges
+    )
+
+
 def _columns_adjacent(left: Region, right: Region) -> bool:
     return left.max_col + 1 == right.min_col or right.max_col + 1 == left.min_col
 
@@ -318,39 +389,14 @@ def _roles_from_shape(
         ClassifiedRegion(
             region=item.region,
             role=(
-                _ROLE_TABLE
+                ROLE_TABLE
                 if item.locked or _is_two_dimensional_table(sheet, item.region)
-                else _ROLE_FRAGMENT
+                else ROLE_FRAGMENT
             ),
             locked=item.locked,
         )
         for item in blocks
     ]
-
-
-def _fallback_merge_choice(
-    sheet: SheetGrid,
-    center: _OpenBlock,
-    direction: str,
-    neighbor: _OpenBlock,
-) -> str:
-    if direction == "up" and _adjacent_caption_above(sheet, neighbor.region, center.region):
-        return _CHOICE_MERGE
-    if direction == "down" and _adjacent_caption_above(sheet, center.region, neighbor.region):
-        return _CHOICE_MERGE
-    return _CHOICE_SEPARATE
-
-
-def _adjacent_caption_above(
-    sheet: SheetGrid, upper: Region, lower: Region
-) -> bool:
-    if upper.max_row + 1 != lower.min_row:
-        return False
-    if not _is_two_dimensional_table(sheet, lower):
-        return False
-    if not _is_full_width_title_row(sheet, upper):
-        return False
-    return columns_overlap(upper, lower)
 
 
 def _is_two_dimensional_table(sheet: SheetGrid, region: Region) -> bool:
@@ -372,15 +418,6 @@ def _is_single_merge_region(sheet: SheetGrid, region: Region) -> bool:
         and max_row == region.max_row
         and max_col == region.max_col
     )
-
-
-def _is_full_width_title_row(sheet: SheetGrid, region: Region) -> bool:
-    if region.min_row != region.max_row:
-        return False
-    kind, text = classify_sheet_row(
-        sheet, region.min_row, region.min_col, region.max_col
-    )
-    return kind == "caption" and bool(text)
 
 
 def _block_preview(sheet: SheetGrid, region: Region) -> str:

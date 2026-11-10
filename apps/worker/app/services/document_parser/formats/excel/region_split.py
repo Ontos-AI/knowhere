@@ -10,8 +10,11 @@ from app.services.document_parser.formats.excel.workbook_grid import (
     SheetGrid,
     cell_has_value_or_formula,
     merge_at,
-    sheet_display_value,
 )
+
+
+ROLE_TABLE = "table"
+ROLE_FRAGMENT = "fragment"
 
 
 @dataclass(frozen=True)
@@ -39,46 +42,6 @@ def atomic_sheet_blocks(
     )
     leftover = [region for region in leftover if not overlaps_any(region, seeds)]
     return seeds, leftover
-
-
-def classify_sheet_row(
-    sheet: SheetGrid, row: int, col_start: int, col_end: int
-) -> tuple[str, str | None]:
-    """Classify a row as ``blank``, ``caption``, or ``other``.
-
-    Caption is a single-origin, rowspan-1 banner across a region at least
-    two columns wide.
-    """
-    region_width = col_end - col_start + 1
-    non_empty_origins: dict[tuple[int, int], tuple[str, int, int]] = {}
-    for col in range(col_start, col_end + 1):
-        merge = merge_at(sheet, row, col)
-        if merge is not None:
-            origin_row, origin_col, max_row, max_col = merge
-            value = sheet_display_value(sheet, origin_row, origin_col)
-            text = str(value).strip() if value is not None else ""
-            if text:
-                non_empty_origins[(origin_row, origin_col)] = (
-                    text,
-                    max_row - origin_row + 1,
-                    max_col - origin_col + 1,
-                )
-            continue
-        value = sheet_display_value(sheet, row, col)
-        text = str(value).strip() if value is not None else ""
-        if text:
-            non_empty_origins[(row, col)] = (text, 1, 1)
-            if len(non_empty_origins) > 1:
-                return "other", None
-
-    if not non_empty_origins:
-        return "blank", None
-    if len(non_empty_origins) != 1 or region_width < 2:
-        return "other", None
-    only_text, rowspan, _colspan = next(iter(non_empty_origins.values()))
-    if rowspan != 1:
-        return "other", None
-    return "caption", only_text
 
 
 def bounding_region(regions: Sequence[Region]) -> Region:
