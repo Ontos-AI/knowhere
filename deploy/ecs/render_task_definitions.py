@@ -163,6 +163,7 @@ def render_template(template_path: Path, output_path: Path, variables: dict[str,
                 environment.append({"name": "QSTASH_BASE_URL", "value": qstash_base_url})
             if is_staging and container.get("name") == "api":
                 environment.append({"name": "DB_POOL_RECYCLE", "value": "-1"})
+                environment.append({"name": "DB_POOL_PREWARM_SIZE", "value": variables["API_DB_POOL_SIZE"]})
     validate_rendered_definition(rendered)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(rendered, indent=2) + "\n", encoding="utf-8")

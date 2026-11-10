@@ -31,6 +31,7 @@ class DatabaseConfig(BaseModel):
     # (pool_size + max_overflow = 100 checkouts per API process).
     DB_POOL_SIZE: int = Field(default=50, description="Connection-pool size")
     DB_MAX_OVERFLOW: int = Field(default=50, description="Maximum overflow connections")
+    DB_POOL_PREWARM_SIZE: int = Field(default=5, ge=0, description="Maximum connections to open at API startup")
     DB_POOL_RECYCLE: int = Field(
         default=1800, description="Connection recycle interval in seconds"
     )

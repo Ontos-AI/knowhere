@@ -317,7 +317,7 @@ async def prewarm_connection_pool():
     logger.info("Starting connection pool prewarming...")
     try:
         # Warm the base connection pool.
-        connections_to_warm = min(settings.DB_POOL_SIZE, 5)
+        connections_to_warm: int = min(settings.DB_POOL_SIZE, settings.DB_POOL_PREWARM_SIZE)
         tasks = []
 
         for _ in range(connections_to_warm):
