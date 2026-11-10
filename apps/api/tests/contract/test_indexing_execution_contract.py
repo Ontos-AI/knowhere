@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 import time
 from uuid import uuid4
@@ -117,19 +118,19 @@ def test_committed_parsing_runs_inline_without_waiting_for_webhook_transport(
     from shared.services.retrieval.lexical.worker import IndexingWorker
     from shared.services.webhook import qstash_publisher
 
-    engine, jobId = parsedRuntime
+    _, jobId = parsedRuntime
     started: Event = Event()
     release: Event = Event()
+    finished: Event = Event()
     calls: list[str] = []
 
     class BlockedPublisher:
         def publish_event(self, eventId: str) -> None:
             started.set()
-            release.wait(timeout=1)
-            return None
+            release.wait()
 
         def close(self) -> None:
-            return None
+            finished.set()
 
     def runInline(self: IndexingWorker, identity: str, **options: object) -> str:
         assert identity == jobId
@@ -139,15 +140,17 @@ def test_committed_parsing_runs_inline_without_waiting_for_webhook_transport(
     monkeypatch.setattr(qstash_publisher, "QStashWebhookPublisher", BlockedPublisher)
     monkeypatch.setattr(dispatch, "dispatchIndexing", lambda identity: calls.append("queued"))
     monkeypatch.setattr(IndexingWorker, "run", runInline)
-    startedAt: float = time.monotonic()
-    try:
-        SyncJobPostCommitEffectRunner().run(PostCommitEffectPlan(
-            indexing_job_ids=(jobId,), webhook_event_ids=("event-parsed",)))
-        assert time.monotonic() - startedAt < 0.25
-        assert calls == ["inline"]
-        assert started.wait(timeout=0.25)
-    finally:
-        release.set()
+    plan = PostCommitEffectPlan(indexing_job_ids=(jobId,), webhook_event_ids=("event-parsed",))
+    with ThreadPoolExecutor(max_workers=1) as caller:
+        result = caller.submit(SyncJobPostCommitEffectRunner().run, plan)
+        try:
+            assert started.wait(timeout=5), "Webhook transport did not start"
+            # The caller must return before the test lets the transport finish.
+            result.result(timeout=5)
+            assert calls == ["inline"]
+        finally:
+            release.set()
+    assert finished.wait(timeout=5), "Webhook transport did not finish after release"
 
 
 def test_execution_deadline_is_persisted_before_native_admission(
