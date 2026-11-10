@@ -1665,6 +1665,100 @@ def test_classic_read_hydrates_its_hit_revision_after_replacement_and_cleanup(
     assert cleanup.collect(oldBuild)
 
 
+def test_classic_read_returns_evidence_while_chunk_final_claim_is_locked(
+    classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy.engine import Connection
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from shared.models.database.document import Document
+    from shared.models.database.job import Job
+    from shared.models.database.job_result import JobResult
+    from shared.models.schemas.progressive_ingestion import ProgressiveIngestionState
+    from shared.services.jobs.lifecycle import scope_enrichments
+    from shared.services.jobs.progressive_ingestion import read_progressive_state, write_progressive_state
+    from shared.services.retrieval.execution import plan
+    from shared.services.retrieval.lexical.asyncruntime import AsyncOpenSearchRuntime
+
+    engine, namespace = classicRuntime
+    with Session(engine) as database, database.begin():
+        document = database.scalars(select(Document)).one()
+        revision = database.get(JobResult, document.current_job_result_id)
+        assert revision is not None
+        revision_id: str = revision.id
+        job = database.get(Job, revision.job_id)
+        assert job is not None
+        job.job_metadata = {**(job.job_metadata or {}), "parse_track": "chunk",
+                            "ingestion_mode": "progressive", "enrichment_status": "text"}
+        revision.document_metadata = write_progressive_state(
+            {**(revision.document_metadata or {}), "ingestion_mode": "progressive",
+             "enrichment_status": "text"},
+            ProgressiveIngestionState(stages={"finalization": {"status": "pending"}}),
+        )
+
+    dispatched: list[str] = []
+
+    def dispatch(revision_id: str) -> bool:
+        dispatched.append(revision_id)
+        return True
+
+    monkeypatch.setattr(scope_enrichments, "enqueue_chunk_final_after_commit", dispatch)
+
+    async def exercise() -> None:
+        database = create_async_engine(get_contract_database_url())
+        claim_started = asyncio.Event()
+
+        @event.listens_for(database.sync_engine, "before_cursor_execute")
+        def observe_claim(_connection: Connection, _cursor: object, statement: str,
+                          _parameters: object, _context: object, _executemany: bool) -> None:
+            if "FOR UPDATE OF job_results" in statement:
+                claim_started.set()
+
+        async def search() -> dict[str, object]:
+            async with AsyncSession(database) as reader:
+                return await plan.run_retrieval_query(
+                    db=reader, user_id="native-contract-user", namespace=namespace,
+                    query="工程验收计划", top_k=1, use_agentic=False,
+                    exclude_document_ids=[], exclude_sections=[],
+                )
+
+        def assert_evidence(response: dict[str, object]) -> None:
+            assert response["router_used"] == "classic_topk"
+            results: object = response["results"]
+            assert isinstance(results, list) and results
+            assert results[0]["content"] == "工程验收计划"
+            assert results[0]["source"]["job_result_id"] == revision_id
+
+        try:
+            async with AsyncSession(database) as blocker:
+                await blocker.execute(
+                    select(JobResult.id).where(JobResult.id == revision_id).with_for_update()
+                )
+                request = asyncio.create_task(search())
+                try:
+                    await asyncio.wait_for(claim_started.wait(), timeout=10)
+                    assert_evidence(await asyncio.wait_for(asyncio.shield(request), timeout=3))
+                finally:
+                    await blocker.rollback()
+                    if not request.done():
+                        request.cancel()
+                        await asyncio.gather(request, return_exceptions=True)
+                assert dispatched == []
+                stored = await blocker.get(JobResult, revision_id)
+                assert stored is not None
+                state = read_progressive_state(stored.document_metadata)
+                assert state is not None and state.stages["finalization"]["status"] == "pending"
+                await blocker.rollback()
+
+            for response in await asyncio.gather(search(), search()):
+                assert_evidence(response)
+            assert dispatched == [revision_id]
+        finally:
+            await AsyncOpenSearchRuntime.closeCurrent()
+            await database.dispose()
+
+    asyncio.run(exercise())
+
+
 @pytest.mark.parametrize("publication_count", [0, 1, 2])
 def test_progressive_native_read_retries_once_when_publication_crosses_retrieval(
     classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch, publication_count: int,

@@ -172,6 +172,7 @@ async def _try_run_small_corpus_route(
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
         revision_pins=context.revision_pins,
+        skip_locked_chunk_final=True,
     )
     results = assembled_rows
     response = {
@@ -236,6 +237,7 @@ async def _run_classic_topk_route(
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
         revision_pins=context.revision_pins,
+        skip_locked_chunk_final=True,
     )
     results = assembled_rows
     response = {

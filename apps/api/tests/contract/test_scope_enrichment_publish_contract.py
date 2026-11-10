@@ -976,11 +976,11 @@ def test_chunk_progressive_baseline_records_text_without_enqueueing_final(
         engine.dispose()
 
 
-@pytest.mark.parametrize("needs_finalization", [False, True])
+@pytest.mark.parametrize("claim_mode", ["full", "blocking", "skip_locked", "database_error"])
 def test_chunk_final_read_claim_locks_only_pending_revisions(
     monkeypatch: pytest.MonkeyPatch,
     postgresql_proc: PostgreSQLProcess,
-    needs_finalization: bool,
+    claim_mode: str,
 ) -> None:
     from shared.models.database.job_result import JobResult
     from shared.services.jobs.lifecycle import scope_enrichments
@@ -990,7 +990,9 @@ def test_chunk_final_read_claim_locks_only_pending_revisions(
     asyncio.run(prepare_contract_storage())
     database_url = make_url(get_contract_database_url())
     engine = create_engine(database_url.set(drivername="postgresql+psycopg2"))
-    scope = _scope("claim-pending" if needs_finalization else "claim-full")
+    scope = _scope(claim_mode)
+    needs_finalization: bool = claim_mode != "full"
+    skip_locked: bool = claim_mode in {"skip_locked", "database_error"}
     sent: list[str] = []
 
     def enqueue_finalization(revision_id: str) -> bool:
@@ -1030,6 +1032,7 @@ def test_chunk_final_read_claim_locks_only_pending_revisions(
             sessions = async_sessionmaker(async_engine)
             both_claims_started = asyncio.Event()
             lock_attempts = 0
+            inject_error: bool = claim_mode == "database_error"
 
             @event.listens_for(async_engine.sync_engine, "before_cursor_execute")
             def observe_claim(
@@ -1043,6 +1046,8 @@ def test_chunk_final_read_claim_locks_only_pending_revisions(
                 nonlocal lock_attempts
                 if "FOR UPDATE OF job_results" in statement:
                     lock_attempts += 1
+                    if inject_error:
+                        connection.exec_driver_sql("SELECT 1 / 0")
                     if lock_attempts == 2:
                         both_claims_started.set()
 
@@ -1056,17 +1061,19 @@ def test_chunk_final_read_claim_locks_only_pending_revisions(
                                 "content": "Published text.",
                             }
                         ],
+                        skip_locked_chunk_final=skip_locked,
                     )
                     assert await session.scalar(text("SELECT 1")) == 1
 
             try:
                 async with sessions() as blocker:
-                    await blocker.execute(
-                        select(JobResult.id)
-                        .where(JobResult.id == scope.revision_ref)
-                        .with_for_update()
-                    )
-                    if needs_finalization:
+                    if not inject_error:
+                        await blocker.execute(
+                            select(JobResult.id)
+                            .where(JobResult.id == scope.revision_ref)
+                            .with_for_update()
+                        )
+                    if claim_mode == "blocking":
                         reads = asyncio.gather(read(), read())
                         try:
                             await asyncio.wait_for(
@@ -1076,8 +1083,12 @@ def test_chunk_final_read_claim_locks_only_pending_revisions(
                             await blocker.rollback()
                             _ = await reads
                     else:
-                        await asyncio.wait_for(read(), timeout=1)
-                assert lock_attempts == (2 if needs_finalization else 0)
+                        await asyncio.wait_for(read(), timeout=3)
+                        assert sent == []
+                        assert lock_attempts == int(skip_locked)
+                if skip_locked:
+                    inject_error = False
+                    await asyncio.gather(read(), read())
             finally:
                 await async_engine.dispose()
 
