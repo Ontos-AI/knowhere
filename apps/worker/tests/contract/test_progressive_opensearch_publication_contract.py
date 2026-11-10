@@ -106,7 +106,7 @@ def test_worker_publishes_progressive_stages_to_opensearch(
             )
             assert search_stage("orchidrefined", "cedarcoarse") != coarse_build
         else:
-            claim = page_service._claim_progressive_stage(job_result_id=revision_id, stage_name="finalization")
+            claim = page_service.claim_progressive_stage(job_result_id=revision_id, stage_name="finalization")
             assert claim is not None
             target = chunk_service._ChunkFinalTarget(document_id=document_id, job_id=job_id, user_id=owner_id,
                 namespace=namespace, source_file_name=filename, s3_key="uploads/report.md",

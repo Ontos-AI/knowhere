@@ -6,9 +6,7 @@ import json
 import os
 import shutil
 import tempfile
-from contextlib import nullcontext
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -56,7 +54,6 @@ from app.services.page_memory.skeleton_extractor import (
     SectionSkeleton,
     collapse_single_child_chains,
 )
-from shared.core.config import app_config
 from shared.core.database_sync import get_sync_db_context
 from shared.models.database.document import (
     Document,
@@ -85,8 +82,14 @@ from shared.services.ai.token_tracking import (
 )
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.jobs.lifecycle.scope_enrichments import (
-    scope_claimable_filter,
+    claim_scope_enrichment,
+    mark_scope_enrichment_failed,
     write_coarse_scope_enrichments,
+)
+from shared.services.jobs.progressive_stages import (
+    claim_progressive_stage,
+    finish_progressive_stage,
+    required_stages_before_finalization,
 )
 from shared.services.jobs.lifecycle.directory_ready import capture_initial_directory
 from shared.services.jobs.lifecycle.webhook_outbox import (
@@ -258,7 +261,7 @@ def execute_structure_enrichment(
             job_result_id=job_result_id,
             claim_generation=target.claim_generation,
         )
-        _finish_progressive_stage(
+        finish_progressive_stage(
             job_result_id=job_result_id,
             stage_name="structure",
             claim_generation=str(target.claim_generation),
@@ -345,7 +348,7 @@ def execute_scope_enrichment(
             "all_refined": all_refined,
         }
     except Exception:
-        _mark_scope_failed(
+        mark_scope_enrichment_failed(
             job_result_id=job_result_id,
             scope_id=scope_id,
             claim_generation=target.claim_generation,
@@ -646,7 +649,7 @@ def _load_and_validate_structure_target(
             return "skipped", None
         claim_generation: str | None = str(uuid4())
         if read_progressive_state(job_result.document_metadata) is not None:
-            claim_generation = _claim_progressive_stage(
+            claim_generation = claim_progressive_stage(
                 job_result_id=job_result_id, stage_name="structure", db=db
             )
             if claim_generation is None:
@@ -1066,19 +1069,13 @@ def _claim_and_validate_scope(
     now = utc_now_naive()
     claim_generation = str(uuid4())
     with get_sync_db_context() as db:
-        claimed_doc_id = db.execute(
-            update(DocumentScopeEnrichment)
-            .where(DocumentScopeEnrichment.job_result_id == job_result_id)
-            .where(DocumentScopeEnrichment.scope_id == scope_id)
-            .where(scope_claimable_filter(now))
-            .values(
-                state="running",
-                claim_generation=claim_generation,
-                attempts=DocumentScopeEnrichment.attempts + 1,
-                updated_at=now,
-            )
-            .returning(DocumentScopeEnrichment.document_id)
-        ).scalar_one_or_none()
+        claimed_doc_id = claim_scope_enrichment(
+            db,
+            job_result_id=job_result_id,
+            scope_id=scope_id,
+            claim_generation=claim_generation,
+            now=now,
+        )
         if claimed_doc_id is None:
             return "skipped", None
 
@@ -1371,13 +1368,16 @@ def _finalize_all_scopes_refined(
             return
         if state is not None:
             stages = state.stages
-            if (
-                stages.get("structure", {}).get("status") != "complete"
-                or stages.get("vector_repair", {}).get("status") != "complete"
+            required_stages = required_stages_before_finalization(
+                JobMetadataHelper.get_parse_track(target.job_metadata)
+            )
+            if any(
+                stages.get(stage_name, {}).get("status") != "complete"
+                for stage_name in required_stages
             ):
                 return
     token = (
-        _claim_progressive_stage(job_result_id=job_result_id, stage_name="finalization")
+        claim_progressive_stage(job_result_id=job_result_id, stage_name="finalization")
         if state is not None
         else None
     )
@@ -1452,7 +1452,7 @@ def _finalize_all_scopes_refined(
         SyncJobWebhookOutbox().enqueue_after_commit(event)
     except Exception as exc:
         if token is not None:
-            _finish_progressive_stage(
+            finish_progressive_stage(
                 job_result_id=job_result_id,
                 stage_name="finalization",
                 claim_generation=token,
@@ -1589,21 +1589,6 @@ def _load_published_package_chunks(
             }
             for row in rows
         ]
-
-
-def _mark_scope_failed(
-    *, job_result_id: str, scope_id: str, claim_generation: str | None
-) -> None:
-    now = utc_now_naive()
-    with get_sync_db_context() as db:
-        db.execute(
-            update(DocumentScopeEnrichment)
-            .where(DocumentScopeEnrichment.job_result_id == job_result_id)
-            .where(DocumentScopeEnrichment.scope_id == scope_id)
-            .where(DocumentScopeEnrichment.claim_generation == claim_generation)
-            .where(DocumentScopeEnrichment.state == "running")
-            .values(state="failed", updated_at=now)
-        )
 
 
 def _build_scope_section_summaries(
@@ -1744,152 +1729,6 @@ def _resolve_default_scope_publisher() -> ScopePublisher:
     return replace_document_scope_content
 
 
-def _claim_progressive_stage(
-    *, job_result_id: str, stage_name: str, db: Session | None = None
-) -> str | None:
-    now: datetime = utc_now_naive()
-    with nullcontext(db) if db is not None else get_sync_db_context() as db:
-        result = db.execute(
-            select(JobResult)
-            .options(noload("*"))
-            .where(JobResult.id == job_result_id)
-            .with_for_update(of=JobResult)
-        ).scalar_one_or_none()
-        if result is None:
-            return None
-        state = read_progressive_state(result.document_metadata)
-        if state is None or state.enhancement.status in ("complete", "failed"):
-            return None
-        stages: dict[str, EnhancementStage] = dict(state.stages)
-        stage: EnhancementStage = {**stages.get(stage_name, {})}
-        if stage.get("status") == "complete":
-            return None
-        if stage.get("status") == "running" and stage.get("claimed_at"):
-            claimed_at = datetime.fromisoformat(str(stage.get("claimed_at"))).replace(
-                tzinfo=None
-            )
-            if now - claimed_at < timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS):
-                return None
-        attempts: int = int(stage.get("attempts", 0))
-        if attempts >= 3:
-            stages[stage_name] = {**stage, "status": "failed", "claim_generation": None}
-            state.stages = stages
-            state.enhancement = EnhancementProgress(
-                status="failed",
-                can_retry=True,
-                attempt=state.enhancement.attempt,
-                error="Background enhancement exhausted its automatic retries",
-            )
-            result.document_metadata = write_progressive_state(
-                result.document_metadata, state
-            )
-            return None
-        token: str = str(uuid4())
-        stages[stage_name] = {
-            **stage,
-            "status": "running",
-            "attempts": attempts + 1,
-            "claim_generation": token,
-            "claimed_at": now.isoformat(),
-            "error": None,
-        }
-        state.stages = stages
-        state.enhancement = EnhancementProgress(
-            status="running", attempt=state.enhancement.attempt
-        )
-        result.document_metadata = write_progressive_state(
-            result.document_metadata, state
-        )
-        return token
-
-
-def _finish_progressive_stage(
-    *,
-    job_result_id: str,
-    stage_name: str,
-    claim_generation: str,
-    error: str | None,
-    pending_pages: list[int] | None = None,
-) -> bool:
-    with get_sync_db_context() as db:
-        document: Document | None = None
-        if stage_name == "vector_repair":
-            document_id: str | None = db.scalar(
-                select(JobResult.document_id).where(JobResult.id == job_result_id)
-            )
-            if document_id is None:
-                return False
-            document = db.execute(
-                select(Document)
-                .where(Document.document_id == document_id)
-                .with_for_update()
-            ).scalar_one_or_none()
-            if (
-                document is None
-                or document.status != "active"
-                or document.current_job_result_id != job_result_id
-            ):
-                return False
-        result = db.execute(
-            select(JobResult)
-            .options(noload("*"))
-            .where(JobResult.id == job_result_id)
-            .with_for_update(of=JobResult)
-        ).scalar_one_or_none()
-        if result is None:
-            return False
-        if document is not None and result.document_id != document.document_id:
-            return False
-        state = read_progressive_state(result.document_metadata)
-        if state is None:
-            return False
-        stages: dict[str, EnhancementStage] = dict(state.stages)
-        stage: EnhancementStage = {**stages.get(stage_name, {})}
-        if (
-            stage.get("claim_generation") != claim_generation
-            or stage.get("status") != "running"
-        ):
-            return False
-        if document is not None:
-            from shared.services.retrieval.page_embedding_index import (
-                load_missing_document_page_embedding_pages,
-            )
-
-            # Provider results and the initial probe can outlive page owners.
-            # Settle every repair exit against coverage under the publication lock.
-            pending_pages = load_missing_document_page_embedding_pages(
-                db,
-                scope=DocumentPublicationScope(
-                    user_id=document.user_id,
-                    namespace=document.namespace,
-                    document_id=document.document_id,
-                    job_result_id=job_result_id,
-                    source_file_name=document.source_file_name,
-                ),
-            )
-            if pending_pages:
-                error = error or "Page embedding provider left missing coverage"
-            else:
-                error = None
-        stage["status"] = "failed" if error else "complete"
-        stage["error"] = error
-        if pending_pages is not None:
-            stage["pending_pages"] = pending_pages
-        stages[stage_name] = stage
-        state.stages = stages
-        if error and int(stage.get("attempts", 0)) >= 3:
-            state.enhancement = EnhancementProgress(
-                status="failed",
-                can_retry=True,
-                attempt=state.enhancement.attempt,
-                error="Background enhancement exhausted its automatic retries",
-            )
-        result.document_metadata = write_progressive_state(
-            result.document_metadata, state
-        )
-        return True
-
-
 def execute_progressive_recovery(
     *,
     job_result_id: str,
@@ -2008,7 +1847,7 @@ def _repair_missing_page_embeddings(
         _invalidate_namespace_after_commit,
     )
 
-    token = _claim_progressive_stage(
+    token = claim_progressive_stage(
         job_result_id=job_result_id, stage_name="vector_repair"
     )
     if token is None:
@@ -2029,7 +1868,7 @@ def _repair_missing_page_embeddings(
                 db, scope=publication_scope
             )
         if not pending:
-            _finish_progressive_stage(
+            finish_progressive_stage(
                 job_result_id=job_result_id,
                 stage_name="vector_repair",
                 claim_generation=token,
@@ -2109,7 +1948,7 @@ def _repair_missing_page_embeddings(
             result.document_metadata = write_progressive_state(
                 result.document_metadata, state
             )
-        _finish_progressive_stage(
+        finish_progressive_stage(
             job_result_id=job_result_id,
             stage_name="vector_repair",
             claim_generation=token,
@@ -2117,7 +1956,7 @@ def _repair_missing_page_embeddings(
             pending_pages=pending,
         )
     except Exception as exc:
-        _finish_progressive_stage(
+        finish_progressive_stage(
             job_result_id=job_result_id,
             stage_name="vector_repair",
             claim_generation=token,

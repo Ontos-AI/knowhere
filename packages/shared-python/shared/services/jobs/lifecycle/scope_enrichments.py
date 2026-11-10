@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from shared.core.config import app_config
 from shared.core.database_sync import get_sync_db_context
 from shared.models.database.document import (
+    SCOPE_KIND_PAGE_RANGE,
     Document,
     DocumentChunk,
     DocumentScopeEnrichment,
@@ -28,6 +29,9 @@ from shared.models.schemas.progressive_ingestion import (
 from shared.services.jobs.progressive_ingestion import (
     read_progressive_state,
     write_progressive_state,
+)
+from shared.services.jobs.progressive_stages import (
+    required_stages_before_finalization,
 )
 from shared.services.retrieval.hydration.row_utils import (
     extract_matched_page_nums,
@@ -51,10 +55,18 @@ BUILD_STRUCTURE_TASK_NAME = (
     "app.core.tasks.enrichment_tasks.build_page_memory_structure"
 )
 CHUNK_FINAL_TASK_NAME = "app.core.tasks.enrichment_tasks.run_chunk_final_enrichment"
+_ENRICH_SCOPE_TASK_BY_KIND: dict[str, str] = {
+    SCOPE_KIND_PAGE_RANGE: ENRICH_SCOPE_TASK_NAME,
+}
 LOW_ENRICHMENT_QUEUE = "document_ingestion_low"
 NORMAL_ENRICHMENT_QUEUE = "document_ingestion_medium"
 HIGH_ENRICHMENT_QUEUE = "document_ingestion_high"
 HIGH_ENRICHMENT_TASK_PRIORITY = 9
+
+
+def enrich_scope_task_name(scope_kind: str) -> str:
+    """Celery task that refines one coarse scope of the given kind."""
+    return _ENRICH_SCOPE_TASK_BY_KIND[scope_kind]
 
 
 def scope_claimable_filter(now: datetime) -> ColumnElement[bool]:
@@ -82,6 +94,46 @@ def scope_claimable_filter(now: datetime) -> ColumnElement[bool]:
             ),
         ),
     )
+
+
+def claim_scope_enrichment(
+    db: Session,
+    *,
+    job_result_id: str,
+    scope_id: str,
+    claim_generation: str,
+    now: datetime,
+) -> str | None:
+    """Claim one claimable scope row as ``running``; return its document id."""
+    return db.execute(
+        update(DocumentScopeEnrichment)
+        .where(DocumentScopeEnrichment.job_result_id == job_result_id)
+        .where(DocumentScopeEnrichment.scope_id == scope_id)
+        .where(scope_claimable_filter(now))
+        .values(
+            state=_RUNNING_STATE,
+            claim_generation=claim_generation,
+            attempts=DocumentScopeEnrichment.attempts + 1,
+            updated_at=now,
+        )
+        .returning(DocumentScopeEnrichment.document_id)
+    ).scalar_one_or_none()
+
+
+def mark_scope_enrichment_failed(
+    *, job_result_id: str, scope_id: str, claim_generation: str | None
+) -> None:
+    """Fail a running scope only while this claim generation still owns it."""
+    now = utc_now_naive()
+    with get_sync_db_context() as db:
+        db.execute(
+            update(DocumentScopeEnrichment)
+            .where(DocumentScopeEnrichment.job_result_id == job_result_id)
+            .where(DocumentScopeEnrichment.scope_id == scope_id)
+            .where(DocumentScopeEnrichment.claim_generation == claim_generation)
+            .where(DocumentScopeEnrichment.state == _RUNNING_STATE)
+            .values(state=_FAILED_STATE, updated_at=now)
+        )
 
 
 def write_coarse_scope_enrichments(
@@ -129,6 +181,7 @@ def write_coarse_scope_enrichments(
                 document_id=document_id,
                 job_result_id=job_result_id,
                 scope_id=scope_id,
+                scope_kind=SCOPE_KIND_PAGE_RANGE,
                 page_start=page_start,
                 page_end=page_end,
                 state=_COARSE_STATE,
@@ -419,6 +472,7 @@ async def promote_scopes_on_read(
         return []
 
     promoted: list[tuple[str, str]] = []
+    task_names: dict[tuple[str, str], str] = {}
     now = utc_now_naive()
     try:
         for job_result_id, scope_id in targets:
@@ -433,10 +487,14 @@ async def promote_scopes_on_read(
                     last_hit_at=now,
                     updated_at=now,
                 )
-                .returning(DocumentScopeEnrichment.scope_id)
+                .returning(DocumentScopeEnrichment.scope_kind)
             )
-            if result.scalar_one_or_none() is not None:
+            scope_kind = result.scalar_one_or_none()
+            if scope_kind is not None:
                 promoted.append((job_result_id, scope_id))
+                task_names[(job_result_id, scope_id)] = enrich_scope_task_name(
+                    scope_kind
+                )
         if promoted:
             await db.commit()
     except Exception as exc:
@@ -453,7 +511,7 @@ async def promote_scopes_on_read(
         celery_app = get_celery_app()
         for job_result_id, scope_id in promoted:
             celery_app.send_task(
-                ENRICH_SCOPE_TASK_NAME,
+                task_names[(job_result_id, scope_id)],
                 args=[job_result_id, scope_id],
                 queue=HIGH_ENRICHMENT_QUEUE,
                 priority=HIGH_ENRICHMENT_TASK_PRIORITY,
@@ -550,6 +608,7 @@ def _can_recover_stage(stage: EnhancementStage, *, now: datetime) -> bool:
 def _needs_progressive_recovery(
     metadata: Mapping[str, object] | None,
     *,
+    parse_track: str,
     now: datetime,
     has_unrefined_scopes: bool,
     has_exhausted_scopes: bool,
@@ -560,7 +619,8 @@ def _needs_progressive_recovery(
     if has_exhausted_scopes:
         return True
     required_stages: list[EnhancementStage] = [
-        state.stages.get(name, {}) for name in ("structure", "vector_repair")
+        state.stages.get(name, {})
+        for name in required_stages_before_finalization(parse_track)
     ]
     if any(_can_recover_stage(stage, now=now) for stage in required_stages):
         return True
@@ -579,6 +639,7 @@ def sweep_progressive_enrichments_sync(
     now = utc_now_naive()
     structure_cutoff = now - timedelta(seconds=structure_timeout_seconds)
     retried_scopes: list[tuple[str, str]] = []
+    retried_task_names: dict[tuple[str, str], str] = {}
 
     with get_sync_db_context() as db:
         structure_rows = db.execute(
@@ -673,10 +734,12 @@ def sweep_progressive_enrichments_sync(
                     claim_generation=None,
                     updated_at=now,
                 )
-                .returning(DocumentScopeEnrichment.scope_id)
+                .returning(DocumentScopeEnrichment.scope_kind)
             ).scalar_one_or_none()
             if claimed is not None:
-                retried_scopes.append((str(rev_id), str(claimed)))
+                key = (str(rev_id), str(scope_id))
+                retried_scopes.append(key)
+                retried_task_names[key] = enrich_scope_task_name(claimed)
 
     with get_sync_db_context() as db:
         unfinished_scope = (
@@ -698,6 +761,7 @@ def sweep_progressive_enrichments_sync(
             select(
                 JobResult.id,
                 JobResult.document_metadata,
+                Document.parse_track,
                 unfinished_scope,
                 exhausted_scope,
             )
@@ -715,9 +779,16 @@ def sweep_progressive_enrichments_sync(
         ).all()
         recovery_revisions = [
             revision_id
-            for revision_id, metadata, has_unrefined, has_exhausted in recovery_rows
+            for (
+                revision_id,
+                metadata,
+                parse_track,
+                has_unrefined,
+                has_exhausted,
+            ) in recovery_rows
             if _needs_progressive_recovery(
                 metadata,
+                parse_track=str(parse_track),
                 now=now,
                 has_unrefined_scopes=has_unrefined,
                 has_exhausted_scopes=has_exhausted,
@@ -750,7 +821,7 @@ def sweep_progressive_enrichments_sync(
             celery_app = get_celery_app()
             for rev_id, scope_id in retried_scopes:
                 celery_app.send_task(
-                    ENRICH_SCOPE_TASK_NAME,
+                    retried_task_names[(rev_id, scope_id)],
                     args=[rev_id, scope_id],
                     queue=HIGH_ENRICHMENT_QUEUE,
                     priority=HIGH_ENRICHMENT_TASK_PRIORITY,

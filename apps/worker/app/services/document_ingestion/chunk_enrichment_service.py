@@ -43,10 +43,6 @@ from app.services.document_parser.orchestration.postprocess import apply_parse_p
 from app.services.document_parser.support.internal_parse_name import (
     prepare_internal_parse_input,
 )
-from app.services.page_memory.scope_enrichment_service import (
-    _claim_progressive_stage,
-    _finish_progressive_stage,
-)
 from shared.core.config import settings
 from shared.core.database_sync import get_sync_db_context
 from shared.models.database.document import Document
@@ -67,6 +63,10 @@ from shared.services.ai.token_tracking import (
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox, WebhookOutboxEvent
 from shared.services.jobs.progressive_completion import commit_final_completion
+from shared.services.jobs.progressive_stages import (
+    claim_progressive_stage,
+    finish_progressive_stage,
+)
 from shared.services.jobs.progressive_ingestion import (
     read_progressive_state,
     write_progressive_state,
@@ -110,7 +110,7 @@ def execute_chunk_final_enrichment(
     if target is None:
         return {"status": "aborted", "job_result_id": job_result_id}
 
-    claim_token = _claim_progressive_stage(
+    claim_token = claim_progressive_stage(
         job_result_id=job_result_id,
         stage_name="finalization",
     )
@@ -191,7 +191,7 @@ def execute_chunk_final_enrichment(
             "snapshot_id": snapshot.snapshot_id,
         }
     except Exception as exc:
-        _finish_progressive_stage(
+        finish_progressive_stage(
             job_result_id=job_result_id,
             stage_name="finalization",
             claim_generation=claim_token,

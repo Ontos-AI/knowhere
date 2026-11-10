@@ -17,8 +17,8 @@ os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
 def test_late_failure_does_not_change_a_newer_running_claim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from app.services.page_memory import scope_enrichment_service as service
     from shared.models.database.document import DocumentScopeEnrichment
+    from shared.services.jobs.lifecycle import scope_enrichments as service
 
     engine = create_engine("sqlite://")
     DocumentScopeEnrichment.__table__.create(engine)
@@ -45,7 +45,7 @@ def test_late_failure_does_not_change_a_newer_running_claim(
             db.commit()
 
     monkeypatch.setattr(service, "get_sync_db_context", database)
-    service._mark_scope_failed(
+    service.mark_scope_enrichment_failed(
         job_result_id="result", scope_id="p1-2", claim_generation="old"
     )
     with Session(engine) as db:
@@ -227,8 +227,8 @@ def test_publication_cache_version_changes_only_after_sql_commit(
 def test_stage_claims_are_bounded_and_late_completion_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from app.services.page_memory import scope_enrichment_service as service
     from shared.models.database.job_result import JobResult
+    from shared.services.jobs import progressive_stages as service
 
     engine = create_engine("sqlite://")
     from shared.models.database.job import Job
@@ -262,12 +262,12 @@ def test_stage_claims_are_bounded_and_late_completion_is_rejected(
             db.commit()
 
     monkeypatch.setattr(service, "get_sync_db_context", database)
-    token = service._claim_progressive_stage(
+    token = service.claim_progressive_stage(
         job_result_id="result", stage_name="finalization"
     )
     assert token
     assert (
-        service._finish_progressive_stage(
+        service.finish_progressive_stage(
             job_result_id="result",
             stage_name="finalization",
             claim_generation="obsolete",
@@ -276,7 +276,7 @@ def test_stage_claims_are_bounded_and_late_completion_is_rejected(
         is False
     )
     assert (
-        service._finish_progressive_stage(
+        service.finish_progressive_stage(
             job_result_id="result",
             stage_name="finalization",
             claim_generation=token,
@@ -285,7 +285,7 @@ def test_stage_claims_are_bounded_and_late_completion_is_rejected(
         is True
     )
     assert (
-        service._claim_progressive_stage(
+        service.claim_progressive_stage(
             job_result_id="result", stage_name="finalization"
         )
         is None

@@ -1590,7 +1590,9 @@ def test_late_scope_failure_cannot_override_recovered_claim(
 ) -> None:
     from app.services.page_memory.scope_enrichment_service import (
         _claim_and_validate_scope,
-        _mark_scope_failed,
+    )
+    from shared.services.jobs.lifecycle.scope_enrichments import (
+        mark_scope_enrichment_failed,
     )
     from datetime import timedelta
     from shared.utils.utc_now import utc_now_naive
@@ -1616,7 +1618,7 @@ def test_late_scope_failure_cannot_override_recovered_claim(
         _, second = _claim_and_validate_scope(job_result_id=revision, scope_id="p1-2")
         assert second is not None
         assert first.claim_generation != second.claim_generation
-        _mark_scope_failed(
+        mark_scope_enrichment_failed(
             job_result_id=revision,
             scope_id="p1-2",
             claim_generation=first.claim_generation,

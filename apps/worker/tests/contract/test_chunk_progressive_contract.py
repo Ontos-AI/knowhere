@@ -566,7 +566,7 @@ def test_chunk_final_orchestration_replaces_revision_then_commits(
     )
 
     monkeypatch.setattr(service, "_load_chunk_final_target", lambda **_: target)
-    monkeypatch.setattr(service, "_claim_progressive_stage", lambda **_: "claim-1")
+    monkeypatch.setattr(service, "claim_progressive_stage", lambda **_: "claim-1")
     monkeypatch.setattr(service, "_download_original_source", lambda **_: str(tmp_path / "notes.md"))
     monkeypatch.setattr(service, "_download_resume_artifacts", lambda **_: str(tmp_path))
     monkeypatch.setattr(
