@@ -932,6 +932,95 @@ async def test_should_inherit_existing_document_namespace_when_update_namespace_
 
 
 @pytest.mark.asyncio
+async def test_should_publish_a_reparse_of_an_existing_postgresql_document(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        from sqlalchemy import create_engine, select
+        from sqlalchemy.engine import make_url
+        from sqlalchemy.orm import Session, sessionmaker
+
+        from shared.models.database.document import Document
+        from shared.models.database.job import Job
+        from shared.models.database.job_result import JobResult
+        from shared.services.jobs.parsing import ParsingOwnership
+        from shared.services.retrieval.lexical.parsing import ParsedRevisionFinalizer
+        from shared.services.retrieval.lexical.worker import IndexingWorker
+
+        engine = create_engine(
+            make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2")
+        )
+        sessions: sessionmaker[Session] = sessionmaker(engine)
+
+        def publish_parse(job_id: str, content: str) -> str:
+            # Model the worker's transition after its input file becomes ready.
+            with sessions.begin() as db:
+                db.scalars(select(Job).where(Job.job_id == job_id)).one().status = "running"
+            token = uuid4().hex
+            assert ParsingOwnership(sessionFactory=sessions).claim(job_id, token)
+            with sessions.begin() as db:
+                ParsedRevisionFinalizer().finalize(
+                    db,
+                    jobId=job_id,
+                    resultKey=f"results/{job_id}.zip",
+                    checksum=job_id,
+                    resultSize=100,
+                    chunks=[
+                        {
+                            "chunk_id": "page-1",
+                            "type": "text",
+                            "path": "contract-reparse.pdf/Contents",
+                            "content": content,
+                            "metadata": {},
+                        }
+                    ],
+                    storedCount=1,
+                    deliveryMode="url",
+                    sectionSummaries=None,
+                    documentTopSummary=None,
+                    parsingOwnerToken=token,
+                )
+            assert IndexingWorker(sessionFactory=sessions).run(job_id) == "completed"
+            with sessions() as db:
+                return db.scalars(select(JobResult.id).where(JobResult.job_id == job_id)).one()
+
+        payload = {
+            "source_type": "file",
+            "file_name": "contract-reparse.pdf",
+            "namespace": "contract-reparse",
+            "ingestion_mode": "progressive",
+        }
+        try:
+            first = await api_client.post("/api/v2/jobs", json=payload)
+            assert first.status_code == 200
+            document_id: str = first.json()["document_id"]
+            first_job_id: str = first.json()["job_id"]
+            first_revision = publish_parse(first_job_id, "Original published text.")
+
+            replacement = await api_client.post(
+                "/api/v2/jobs", json={**payload, "document_id": document_id, "reparse": True}
+            )
+            assert replacement.status_code == 200
+            assert replacement.json()["document_id"] == document_id
+            replacement_job_id: str = replacement.json()["job_id"]
+            assert replacement_job_id != first_job_id
+            with sessions() as db:
+                document = db.scalars(select(Document).where(Document.document_id == document_id)).one()
+                assert document.current_job_result_id == first_revision
+
+            replacement_revision = publish_parse(replacement_job_id, "Recovered searchable text.")
+            with sessions() as db:
+                document = db.scalars(select(Document).where(Document.document_id == document_id)).one()
+                assert document.current_job_result_id == replacement_revision
+                assert replacement_revision != first_revision
+                assert db.scalars(select(Job.status).where(Job.job_id == replacement_job_id)).one() == "done"
+        finally:
+            engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_should_accept_same_file_name_before_source_content_is_available(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
