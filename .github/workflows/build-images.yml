@@ -544,8 +544,8 @@ jobs:
           RUNTIME_ENVIRONMENT: staging
           APP_ENV: staging
           DB_SSL_MODE: require
-          API_DB_POOL_SIZE: "5"
-          API_DB_MAX_OVERFLOW: "5"
+          API_DB_POOL_SIZE: "15"
+          API_DB_MAX_OVERFLOW: "0"
           WORKER_DB_SYNC_POOL_SIZE: "2"
           WORKER_DB_SYNC_MAX_OVERFLOW: "2"
           S3_BUCKET_NAME: knowhere-storage-staging
@@ -554,7 +554,7 @@ jobs:
           API_WEBHOOK_ENDPOINT: https://api-staging.knowhereto.ai/v1/internal/s3-events
           SNS_TOPIC_ARN: arn:aws:sns:us-east-1:107424103509:knowhere-staging-s3-events
           QSTASH_CALLBACK_BASE_URL: https://api-staging.knowhereto.ai/api/v1
-          API_CPU: "256"
+          API_CPU: "512"
           API_MEMORY: "1024"
           WORKER_CPU: "2048"
           WORKER_MEMORY: "4096"
