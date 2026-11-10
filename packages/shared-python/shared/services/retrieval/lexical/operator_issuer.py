@@ -2,22 +2,30 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from hashlib import sha256
 import json
 import re
 from typing import Literal
 from uuid import UUID
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from shared.models.database.indexing import IndexingAttempt
+from shared.models.database.lexicalbuild import LexicalBuild
+from shared.models.database.lexicallease import LexicalLease
+from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
+from shared.models.database.lexicalofflinereservation import LexicalOfflineReservation
 from shared.models.database.lexicalcontrol import LexicalBackendControl
 from shared.models.database.lexicaloperatorfence import LexicalOperatorFence
 from shared.models.database.lexicaloperatorissuer import LexicalOperatorIssuer
 from shared.models.database.lexicaloperatorinvocation import LexicalOperatorInvocation
 from shared.services.retrieval.lexical.error import LexicalIndexError
+from shared.services.retrieval.lexical.nativestate import NativeLifecycleSnapshot
+from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
 
 _HASH_PATTERN: str = r"^[a-f0-9]{64}$"
 _INSTANCE_PATTERN: str = r"^i-[a-f0-9]{8,17}$"
@@ -62,18 +70,64 @@ class _NativeFence(BaseModel):
     main_pid: int = Field(ge=0, le=0)
 
 
-class _PhysicalFence(BaseModel):
+class _IssuerObservation(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     version: int = Field(ge=1, le=1)
     mode: Literal["actual"]
-    status: Literal["fenced"]
-    driver: Literal["aws-ssm-systemd-v1"]
     logical_cluster_id: str
     old_issuer: _OldIssuer
     verified_at_utc: str
     external: _ExternalFence
+
+
+class _PhysicalFence(_IssuerObservation):
+    status: Literal["fenced"]
+    driver: Literal["aws-ssm-systemd-v1"]
     native_issuer_fenced: bool
     native_fence: _NativeFence
+
+
+class _StoppedExternalFence(_ExternalFence):
+    load_state: Literal["not-found"]
+
+
+class _StoppedIssuer(_IssuerObservation):
+    status: Literal["stopped"]
+    driver: Literal["aws-ssm-stopped-issuer-v1"]
+    external: _StoppedExternalFence
+
+
+class _ShardRouting(BaseModel):
+    model_config = ConfigDict(strict=True)
+    primary: bool
+    state: str
+
+
+class _ShardHistory(BaseModel):
+    model_config = ConfigDict(strict=True)
+    max_seq_no: int
+
+
+class _ShardDocuments(BaseModel):
+    model_config = ConfigDict(strict=True)
+    count: int
+    deleted: int
+
+
+class _ShardStats(BaseModel):
+    routing: _ShardRouting
+    seq_no: _ShardHistory
+    docs: _ShardDocuments
+
+
+class _IndexStats(BaseModel):
+    uuid: str
+    shards: dict[str, list[_ShardStats]]
+
+
+class _StatsResponse(BaseModel):
+    shards: dict[str, int] = Field(alias="_shards")
+    indices: dict[str, _IndexStats]
 
 
 class _ActiveIssuer(_OldIssuer):
@@ -153,17 +207,13 @@ def _checkOwner(issuer: LexicalOperatorIssuer | None, token: str, host: str, ope
     return issuer
 
 
-def _checkFence(receipt: dict[str, object] | None, issuer: LexicalOperatorIssuer,
-                expectedOwnerToken: str | None, now: datetime, *, reservedAt: datetime) -> str:
-    if receipt is None or expectedOwnerToken != issuer.invocationToken:
-        raise LexicalIndexError("Operator takeover requires an exact old-owner CAS and actual physical fence")
+def _checkStoppedIssuer(proof: _IssuerObservation, issuer: LexicalOperatorIssuer,
+                        *, earliest: datetime, now: datetime) -> datetime:
     try:
-        proof: _PhysicalFence = _PhysicalFence.model_validate(receipt)
         verifiedAt: datetime = datetime.fromisoformat(proof.verified_at_utc)
         UUID(proof.external.command_id)
-        UUID(proof.native_fence.command_id)
-    except (ValidationError, ValueError) as error:
-        raise LexicalIndexError("Operator takeover physical fence receipt is incomplete") from error
+    except ValueError as error:
+        raise LexicalIndexError("Physical issuer observation is incomplete") from error
     old: _OldIssuer = proof.old_issuer
     if ((old.invocation_token, old.host_identity, old.operation_id, old.source_hash, old.epoch, old.cluster_uuid)
         != (issuer.invocationToken, issuer.hostIdentity, issuer.operationId, issuer.sourceHash, issuer.epoch, issuer.clusterUuid)
@@ -171,10 +221,66 @@ def _checkFence(receipt: dict[str, object] | None, issuer: LexicalOperatorIssuer
         or proof.external.region != issuer.logicalClusterId.split(":", 1)[0]
         or proof.external.unit_name != "knowhere-native-issuer-" + issuer.invocationToken.replace("-", "") + ".service"
         or proof.external.observed_host_sha256 != issuer.hostIdentity
-        or proof.external.cgroup_empty is not True or proof.native_issuer_fenced is not True
-        or verifiedAt.tzinfo is None or verifiedAt < max(issuer.acquiredAt, reservedAt) or verifiedAt > now):
-        raise LexicalIndexError("Operator physical fence does not bind the current owner, native issuer and fresh observation")
+        or proof.external.cgroup_empty is not True
+        or verifiedAt.tzinfo is None or verifiedAt < max(issuer.acquiredAt, earliest) or verifiedAt > now):
+        raise LexicalIndexError("Physical issuer observation does not bind the current owner and fresh stopped unit")
+    return verifiedAt
+
+
+def _checkFence(receipt: dict[str, object] | None, issuer: LexicalOperatorIssuer,
+                expectedOwnerToken: str | None, now: datetime, *, reservedAt: datetime) -> str:
+    if receipt is None or expectedOwnerToken != issuer.invocationToken:
+        raise LexicalIndexError("Operator takeover requires an exact old-owner CAS and actual physical fence")
+    try:
+        proof: _PhysicalFence = _PhysicalFence.model_validate(receipt)
+        UUID(proof.native_fence.command_id)
+    except (ValidationError, ValueError) as error:
+        raise LexicalIndexError("Operator takeover physical fence receipt is incomplete") from error
+    _checkStoppedIssuer(proof, issuer, earliest=reservedAt, now=now)
+    if proof.native_issuer_fenced is not True:
+        raise LexicalIndexError("Physical fence does not bind the stopped native issuer")
     return sha256(json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _readNative(client: httpx.Client, path: str, *, params: dict[str, str] | None = None) -> object:
+    try:
+        response: httpx.Response = client.get(path, params=params, timeout=2)
+        response.raise_for_status()
+        return response.json()
+    except (httpx.HTTPError, ValueError) as error:
+        raise LexicalIndexError("Cannot establish empty native shadow state") from error
+
+
+def _verifyEmptyShadow(client: httpx.Client, control: LexicalBackendControl,
+                       indexPrefix: str, rows: list[LexicalNamespaceIndex]) -> dict[str, str | None]:
+    try:
+        live: NativeLifecycleSnapshot = NativeLifecycleSnapshot.model_validate(
+            _readNative(client, OpenSearchLexicalIndex.buildLifecyclePath("", isExact=False)))
+        if (live.cluster_uuid, live.getIncarnation()) != (control.clusterUuid, control.nodeIncarnation):
+            raise LexicalIndexError("Empty shadow recovery lost the exact native cluster identity")
+        names: set[str] = {name for name in live.metadata.indices
+            if name.startswith(indexPrefix + "-") and name != indexPrefix + "-deployment-probe"}
+        if names != {row.indexName for row in rows}:
+            raise LexicalIndexError("Empty shadow recovery native and SQL index catalogs differ")
+        for row in rows:
+            if live.getIndexUuid(row.indexName) != row.indexUuid or not live.isReady(row.indexName):
+                raise LexicalIndexError("Empty shadow recovery found a different or unready native index")
+            stats: _StatsResponse = _StatsResponse.model_validate(_readNative(
+                client, f"/{row.indexName}/_stats/docs", params={"level": "shards", "timeout": "1s"}))
+            index: _IndexStats | None = stats.indices.get(row.indexName)
+            if (stats.shards.get("failed") != 0 or set(stats.indices) != {row.indexName}
+                or index is None or index.uuid != row.indexUuid
+                or index.shards.keys() != live.routing_table.indices[row.indexName].shards.keys()):
+                raise LexicalIndexError("Empty shadow recovery did not receive complete native shard statistics")
+            for copies in index.shards.values():
+                primaries: list[_ShardStats] = [shard for shard in copies if shard.routing.primary]
+                if (len(primaries) != 1 or primaries[0].routing.state != "STARTED"
+                    or primaries[0].seq_no.max_seq_no != -1
+                    or primaries[0].docs.count != 0 or primaries[0].docs.deleted != 0):
+                    raise LexicalIndexError("Empty shadow recovery found prior native shard operations")
+    except ValidationError as error:
+        raise LexicalIndexError("Empty shadow recovery received incomplete native evidence") from error
+    return {row.indexName: row.indexUuid for row in rows}
 
 
 def _checkFenceControl(control: LexicalBackendControl, expectedEpoch: int, expectedClusterUuid: str) -> None:
@@ -279,6 +385,56 @@ class LexicalOperatorAuthority:
                 logicalClusterId=logicalClusterId, recordedAt=now))
             db.flush()
             return _project(issuer)
+
+    def releaseEmptyShadow(self, *, fenceToken: str, expectedSourceHash: str, expectedEpoch: int,
+                           indexPrefix: str, stoppedReceipt: dict[str, object],
+                           client: httpx.Client) -> dict[str, object]:
+        """Release a stopped initial shadow issuer with no native indexing activity."""
+        _checkToken(fenceToken)
+        _checkSource(expectedSourceHash)
+        if re.fullmatch(r"[a-z][a-z0-9-]{0,39}", indexPrefix) is None:
+            raise LexicalIndexError("Empty shadow recovery requires a specific native index prefix")
+        try:
+            proof: _StoppedIssuer = _StoppedIssuer.model_validate(stoppedReceipt)
+        except ValidationError as error:
+            raise LexicalIndexError("Empty shadow recovery requires an observed stopped issuer") from error
+        with self._lockControl() as (db, control):
+            _checkEpoch(control, expectedEpoch)
+            if (control.backend, control.mode, control.clusterUuid) != ("postgresql", "serving", proof.old_issuer.cluster_uuid):
+                raise LexicalIndexError("Empty shadow recovery requires the exact PG-serving control")
+            issuer = db.scalar(select(LexicalOperatorIssuer).where(LexicalOperatorIssuer.controlId == 1).with_for_update())
+            if issuer is None or issuer.state != "unknown" or issuer.epoch != control.epoch:
+                raise LexicalIndexError("Empty shadow recovery requires the exact unknown issuer in this epoch")
+            now: datetime = db.scalars(select(func.clock_timestamp())).one()
+            verifiedAt: datetime = _checkStoppedIssuer(proof, issuer, earliest=now - timedelta(minutes=2), now=now)
+            if (db.get(LexicalOperatorFence, issuer.invocationToken) is not None
+                or db.get(LexicalOperatorInvocation, fenceToken) is not None
+                or db.scalar(select(LexicalOperatorFence.fenceToken).where(LexicalOperatorFence.fenceToken == fenceToken)) is not None):
+                raise LexicalIndexError("Empty shadow recovery cannot reuse a fence or invocation")
+            if (db.scalar(select(IndexingAttempt.id).where(IndexingAttempt.origin == "migration").limit(1)) is not None
+                or db.scalar(select(LexicalBuild.id).limit(1)) is not None
+                or db.scalar(select(LexicalLease.id).limit(1)) is not None
+                or db.scalar(select(LexicalOfflineReservation.indexName).where(LexicalOfflineReservation.state != "closed").limit(1)) is not None):
+                raise LexicalIndexError("Empty shadow recovery found prior migration or outstanding native activity")
+            rows: list[LexicalNamespaceIndex] = list(db.scalars(select(LexicalNamespaceIndex).limit(2)))
+            if len(rows) > 1 or any(
+                row.state != "open" or row.operationId is not None or not row.indexUuid
+                or re.fullmatch(re.escape(indexPrefix) + r"-[a-f0-9]{48}", row.indexName) is None for row in rows
+            ):
+                raise LexicalIndexError("Empty shadow recovery requires the initial empty namespace state")
+            catalog: dict[str, str | None] = _verifyEmptyShadow(client, control, indexPrefix, rows)
+            proofHash: str = sha256(json.dumps({"issuer": stoppedReceipt, "indexes": catalog,
+                "node_incarnation": control.nodeIncarnation}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            now = db.scalars(select(func.clock_timestamp())).one()
+            db.add(LexicalOperatorFence(oldInvocationToken=issuer.invocationToken, fenceToken=fenceToken,
+                oldBindingSha256=_getOwnerBindingHash(issuer), sourceHash=expectedSourceHash, epoch=control.epoch,
+                clusterUuid=control.clusterUuid, controlBackend=control.backend, nodeIncarnation=control.nodeIncarnation,
+                state="consumed", reservedAt=verifiedAt, proofSha256=proofHash, provenAt=now, consumedAt=now))
+            issuer.state = "released"
+            issuer.releasedAt = now
+            issuer.fenceReceiptSha256 = proofHash
+            db.flush()
+            return {**_project(issuer), "native_indexes": catalog, "node_incarnation": control.nodeIncarnation}
 
     def reserveFence(self, *, expectedOwnerReceipt: dict[str, object], fenceToken: str,
                      expectedSourceHash: str, expectedEpoch: int, expectedClusterUuid: str) -> dict[str, object]:

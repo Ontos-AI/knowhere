@@ -245,6 +245,13 @@ does not prove that a native issuer stopped.
   `operator.py reconcile-fence --fence-token ORIGINAL_UUID` observes existing
   tagged commands only; it never reissues them. Takeover requires the proven
   receipt and exact old-token CAS. No TTL frees unknown authority.
+- An interrupted first shadow pilot while PostgreSQL is serving can use
+  `operator.py release-empty-shadow` with the same old-issuer plan. The command
+  observes the collected transient unit through SSM and checks the exact native
+  identity, namespace inventory, and primary shard history. It records the
+  release only before any migration attempt or native write. The shared native
+  service stays online. Run the selected inputs through the read-only
+  preflight under the pilot's temporary database role before retrying.
 - After a successful host restart, execute the source-owned
   `operator.py reconcile-restart` against the same recovery operation UUID in
   a new physical invocation. The plan binds `inventory_path`, `inventory_sha256`,
@@ -265,7 +272,8 @@ does not prove that a native issuer stopped.
   or restored durability. Newer published data can remain unavailable.
 
 Use the `launch-issuer.py --kind operator` form above with `fence-host`,
-`reconcile-fence`, `recover-process`, `recover-volume`, or `reconcile-restart`.
+`reconcile-fence`, `release-empty-shadow`, `recover-process`, `recover-volume`,
+or `reconcile-restart`.
 For a takeover supply `--expected-issuer-token OLD_UUID --fence-receipt
 /private/actual-fence.json` to the child command. Never start both old and new
 native hosts against the retained data.
