@@ -79,6 +79,8 @@ class FakeCloud:
         command = self.commands[UUID(str(values["CommandId"])).int - 1]
         kind: str = str(command["Comment"]).split(":")[-1]
         result: dict[str, object] = {"kind": kind, "host_sha256": "a" * 64, "active_state": "inactive", "main_pid": 0, "cgroup_empty": True}
+        if kind == "observe-stopped-issuer":
+            result["load_state"] = "not-found"
         if kind == "recover-native":
             result.update({"active_state": "active", "main_pid": 42, "installation_sha256": "f" * 64,
                 "filesystem_uuid": "12345678-1234-1234-1234-123456789abc"})
@@ -143,3 +145,18 @@ def test_lost_fence_ownership_before_native_stop_prevents_the_second_ssm_send() 
     with pytest.raises(ValueError, match="ownership changed"):
         recovery.fence(createPlan(), ec2=cloud, ssm=cloud, beforeMutation=assertReservation)
     assert len(cloud.commands) == 1 and cloud.commands[0]["Comment"] == "fence-operator"
+
+
+
+def test_observe_stopped_issuer_never_requests_native_fencing() -> None:
+    recovery: type = loadHostRecovery()
+    cloud: FakeCloud = FakeCloud()
+    receipt = recovery.observeStoppedIssuer(createPlan(), ec2=cloud, ssm=cloud, commandIdentity=str(UUID(int=99)))
+    assert receipt["status"] == "stopped"
+    assert receipt["driver"] == "aws-ssm-stopped-issuer-v1"
+    assert receipt["external"]["cgroup_empty"] is True
+    assert receipt["external"]["load_state"] == "not-found"
+    assert len(cloud.commands) == 1
+    assert str(cloud.commands[0]["Comment"]).endswith(":observe-stopped-issuer")
+    assert cloud.commands[0]["InstanceIds"] == ["i-0123456789abcdef0"]
+    assert cloud.calls == ["ssm"]

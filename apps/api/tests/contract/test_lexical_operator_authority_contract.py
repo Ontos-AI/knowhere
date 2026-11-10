@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
+import httpx
 import pytest
 from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.engine import Engine, make_url
@@ -525,3 +526,86 @@ def test_refresh_cannot_authorize_unreceipted_or_foreign_transition(
             isKnownOutcome=damage == "released")
     with pytest.raises(LexicalIndexError):
         _refresh(authority, token, transition)
+
+
+@pytest.mark.parametrize("unsafe", ["active", "stale", "wrong-index", "written", "lifecycle", "gated", None])
+def test_release_empty_shadow_while_postgresql_serves(
+    issuerRuntime: tuple[Engine, sessionmaker[Session]], unsafe: str | None
+) -> None:
+    from shared.models.database.lexicalcontrol import LexicalBackendControl
+    from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
+    from shared.models.database.lexicaloperatorfence import LexicalOperatorFence
+    from shared.models.database.lexicaloperatorissuer import LexicalOperatorIssuer
+    from shared.services.retrieval.lexical.error import LexicalIndexError
+
+    _, factory = issuerRuntime
+    authority = _getAuthority(factory)
+    token = str(uuid4())
+    owner = _claim(authority, token)
+    authority.finish(invocationToken=token, hostIdentity=_HOST, operationId="restore-operation", isKnownOutcome=False)
+    indexName = "knowhere-prod-lexical-v1-" + "a" * 48
+    probeName = "knowhere-prod-lexical-v1-deployment-probe"
+    with factory.begin() as db:
+        control = db.get(LexicalBackendControl, 1)
+        assert control is not None
+        control.backend = "postgresql"
+        control.mode = "gated" if unsafe == "gated" else "serving"
+        control.nodeIncarnation = "node-one"
+        db.add(LexicalNamespaceIndex(id="scope", ownerId="owner", namespace="ns", corpusKind="private",
+            indexName=indexName, indexUuid="uuid-one", state="opening" if unsafe == "lifecycle" else "open"))
+
+    proof = _fence(owner)
+    proof["driver"] = "aws-ssm-stopped-issuer-v1"
+    proof["status"] = "stopped"
+    del proof["native_issuer_fenced"], proof["native_fence"]
+    cast(dict[str, object], proof["external"])["load_state"] = "not-found"
+    if unsafe == "stale":
+        proof["verified_at_utc"] = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
+    if unsafe == "active":
+        cast(dict[str, object], proof["external"])["cgroup_empty"] = False
+    requests: list[str] = []
+
+    def readNative(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        requests.append(request.url.path)
+        if request.url.path.startswith("/_cluster/state/"):
+            return httpx.Response(200, json={"cluster_uuid": "cluster-one", "nodes": {"node": {"ephemeral_id": "node-one"}},
+                "metadata": {"indices": {
+                    indexName: {"state": "open", "settings": {"index": {"uuid": "uuid-other" if unsafe == "wrong-index" else "uuid-one"}}},
+                    probeName: {"state": "open", "settings": {"index": {"uuid": "probe"}}},
+                    "knowhere-staging-lexical-v1-other": {"state": "open", "settings": {"index": {"uuid": "staging"}}},
+                }},
+                "routing_table": {"indices": {indexName: {"shards": {"0": [{"primary": True, "state": "STARTED"}]}}}},
+            })
+        assert request.url.path == f"/{indexName}/_stats/docs"
+        return httpx.Response(200, json={"_shards": {"total": 1, "successful": 1, "failed": 0},
+            "indices": {indexName: {"uuid": "uuid-one", "shards": {"0": [
+                {"routing": {"primary": True, "state": "STARTED"}, "seq_no": {"max_seq_no": 0 if unsafe == "written" else -1},
+                 "docs": {"count": 0, "deleted": 0}},
+            ]}}}})
+
+    fenceToken = str(uuid4())
+    with httpx.Client(base_url="https://native.invalid", transport=httpx.MockTransport(readNative)) as client:
+        def release() -> dict[str, object]:
+            return authority.releaseEmptyShadow(fenceToken=fenceToken, expectedSourceHash=_SOURCE_HASH,
+                expectedEpoch=7, indexPrefix="knowhere-prod-lexical-v1", stoppedReceipt=proof, client=client)
+
+        if unsafe:
+            with pytest.raises(LexicalIndexError):
+                release()
+            with factory() as db:
+                issuer = db.get(LexicalOperatorIssuer, _LOGICAL_CLUSTER)
+                assert issuer is not None and issuer.state == "unknown"
+                assert db.get(LexicalOperatorFence, token) is None
+        else:
+            receipt = release()
+            assert receipt["status"] == "released"
+            assert len(requests) == 2
+            with pytest.raises(LexicalIndexError):
+                release()
+            with factory() as db:
+                intent = db.get(LexicalOperatorFence, token)
+                assert intent is not None and intent.state == "consumed" and intent.proofSha256
+                control = db.get(LexicalBackendControl, 1)
+                assert control is not None and (control.backend, control.mode, control.epoch) == ("postgresql", "serving", 7)
+            assert _claim(authority, str(uuid4()))["status"] == "active"

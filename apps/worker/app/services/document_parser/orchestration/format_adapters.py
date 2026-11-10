@@ -225,7 +225,6 @@ def _parse_xlsx_path(
         xlsx_path,
         session.filename,
         session.full_output_dir,
-        session.base_url,
         base_llm_paras=session.base_llm_paras,
         relative_root=session.relative_root,
     )

@@ -293,3 +293,80 @@ def test_renderer_rejects_unresolved_placeholders() -> None:
 
     with pytest.raises(ValueError, match="Unresolved task-definition placeholders"):
         validate_rendered_definition(definition)
+
+
+PRODUCTION_VARIABLES: dict[str, str] = {
+    **RENDER_VARIABLES,
+    "DEPLOYMENT_ENVIRONMENT": "prod",
+    "RUNTIME_ENVIRONMENT": "production",
+    "APP_ENV": "production",
+}
+PRODUCTION_OPENSEARCH: dict[str, str] = {
+    "PROD_OPENSEARCH_URL": "https://opensearch.example.internal:9200",
+    "PROD_OPENSEARCH_API_TLS_PARAMETER": (
+        "arn:aws:ssm:us-east-1:123456789012:parameter/knowhere/prod/opensearch/runtime-api"
+    ),
+    "PROD_OPENSEARCH_WORKER_TLS_PARAMETER": (
+        "arn:aws:ssm:us-east-1:123456789012:parameter/knowhere/prod/opensearch/runtime-worker"
+    ),
+}
+
+
+@pytest.mark.parametrize("is_enabled", [False, True])
+def test_production_cli_requires_opt_in_and_keeps_postgresql(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, is_enabled: bool
+) -> None:
+    import sys
+
+    from render_task_definitions import main
+
+    for name, value in {**PRODUCTION_VARIABLES, **PRODUCTION_OPENSEARCH}.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("PROD_LEXICAL_BACKEND", "opensearch")
+    arguments = ["render", "--environment", "production", "--output-dir", str(tmp_path)]
+    if is_enabled:
+        arguments.append("--production-opensearch")
+    monkeypatch.setattr(sys, "argv", arguments)
+
+    main()
+
+    for service in ("api", "worker"):
+        container = json.loads(
+            (tmp_path / f"knowhere-{service}-prod.json").read_text()
+        )["containerDefinitions"][0]
+        environment = {item["name"]: item["value"] for item in container["environment"]}
+        secrets = {item["name"]: item["valueFrom"] for item in container["secrets"]}
+        if is_enabled:
+            assert environment["KNOWHERE_LEXICAL_BACKEND"] == "postgresql"
+            assert environment["KNOWHERE_OPENSEARCH_URL"] == PRODUCTION_OPENSEARCH["PROD_OPENSEARCH_URL"]
+            assert environment["KNOWHERE_OPENSEARCH_INDEX_PREFIX"] == "knowhere-prod-lexical-v1"
+            assert secrets["KNOWHERE_PROD_NATIVE_TLS"] == PRODUCTION_OPENSEARCH[
+                f"PROD_OPENSEARCH_{service.upper()}_TLS_PARAMETER"
+            ]
+            assert "KNOWHERE_STAGING_NATIVE_TLS" not in secrets
+            assert container["entryPoint"] == [
+                "/app/venv/bin/python", "-m", "shared.services.retrieval.lexical.ecs_entrypoint", service
+            ]
+        else:
+            assert "KNOWHERE_LEXICAL_BACKEND" not in environment
+            assert "KNOWHERE_PROD_NATIVE_TLS" not in secrets
+
+
+@pytest.mark.parametrize(
+    "worker_parameter",
+    ["", STAGING_OPENSEARCH["STAGING_OPENSEARCH_WORKER_TLS_PARAMETER"],
+     PRODUCTION_OPENSEARCH["PROD_OPENSEARCH_API_TLS_PARAMETER"]],
+)
+def test_production_render_rejects_missing_or_wrong_role_tls(
+    tmp_path: Path, worker_parameter: str
+) -> None:
+    with pytest.raises(ValueError, match="production OpenSearch|production TLS"):
+        render_template(
+            TEMPLATE_DIRECTORY / "task-definition-worker.staging.json",
+            tmp_path / "worker.json",
+            {
+                **PRODUCTION_VARIABLES,
+                **PRODUCTION_OPENSEARCH,
+                "PROD_OPENSEARCH_WORKER_TLS_PARAMETER": worker_parameter,
+            },
+        )

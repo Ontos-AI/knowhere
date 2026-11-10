@@ -76,15 +76,8 @@ def _guardClient(client: httpx.Client, authority: OperatorAuthority) -> None:
     client.event_hooks["request"].append(guard)
 
 
-def _runFence(arguments: argparse.Namespace, manifest: dict[str, object], plan: dict[str, object],
-        progress: dict[str, object], persist: Callable[[dict[str, object]], None]) -> dict[str, object]:
-    from shared.core.database_sync import get_sync_session_factory
-    from shared.services.retrieval.lexical.operator_issuer import LexicalOperatorAuthority
-    from shared.services.retrieval.lexical.transition import LexicalTransition
-
-    if LexicalTransition.getSourceHash() != arguments.source_hash:
-        raise ValueError("Physical fence command source differs from its reviewed identity")
-    ownerPath: Path = arguments.plan.parent / str(plan["old_issuer_receipt_path"])
+def _getPlanOwner(planDirectory: Path, manifest: dict[str, object], plan: dict[str, object]) -> dict[str, object]:
+    ownerPath: Path = planDirectory / str(plan["old_issuer_receipt_path"])
     raw: bytes = ownerPath.read_bytes()
     if sha256(raw).hexdigest() != plan["old_issuer_receipt_sha256"]:
         raise ValueError("Reviewed exact old issuer receipt changed")
@@ -94,6 +87,19 @@ def _runFence(arguments: argparse.Namespace, manifest: dict[str, object], plan: 
             or owner.get("logical_cluster_id") != plan.get("logical_cluster_id")
             or plan.get("logical_cluster_id") != str(manifest["region"]) + ":" + str(manifest["cluster_name"])):
         raise ValueError("SSM plan must bind the actual old issuer receipt")
+    return owner
+
+
+def _runFence(arguments: argparse.Namespace, manifest: dict[str, object], plan: dict[str, object],
+        progress: dict[str, object], persist: Callable[[dict[str, object]], None]) -> dict[str, object]:
+    from shared.core.database_sync import get_sync_session_factory
+    from shared.services.retrieval.lexical.operator_issuer import LexicalOperatorAuthority
+    from shared.services.retrieval.lexical.transition import LexicalTransition
+
+    if LexicalTransition.getSourceHash() != arguments.source_hash:
+        raise ValueError("Physical fence command source differs from its reviewed identity")
+    owner: dict[str, object] = _getPlanOwner(arguments.plan.parent, manifest, plan)
+    identity: dict[str, object] = _requireObject(plan["old_issuer"])
     isReconciling: bool = arguments.operation == "reconcile-fence"
     token: str = str(UUID(arguments.fence_token if isReconciling else arguments.issuer_token))
     if token == owner["invocation_token"] or (isReconciling and arguments.issuer_token == token):
@@ -139,6 +145,38 @@ def _runFence(arguments: argparse.Namespace, manifest: dict[str, object], plan: 
     progress["authority"] = service.proveFence(fenceToken=token, expectedSourceHash=sourceHash,
         expectedEpoch=epoch, expectedClusterUuid=cluster, fenceReceipt=result)
     progress["status"] = "fenced"
+    persist(progress)
+    return result
+
+
+def _releaseEmptyShadow(arguments: argparse.Namespace, manifest: dict[str, object], plan: dict[str, object],
+                        progress: dict[str, object], persist: Callable[[dict[str, object]], None]) -> dict[str, object]:
+    from shared.core.config import settings
+    from shared.core.database_sync import get_sync_session_factory
+    from shared.services.retrieval.lexical.operator_issuer import LexicalOperatorAuthority
+    from shared.services.retrieval.lexical.transition import LexicalTransition
+
+    if LexicalTransition.getSourceHash() != arguments.source_hash:
+        raise ValueError("Empty shadow recovery source differs from its reviewed identity")
+    if progress.get("status") == "released":
+        raise ValueError("Empty shadow authority was already released; use its existing journal")
+    owner: dict[str, object] = _getPlanOwner(arguments.plan.parent, manifest, plan)
+    token: str = str(UUID(arguments.issuer_token))
+    indexPrefix: str = str(manifest["index_prefix"])
+    if (token == owner["invocation_token"] or owner["epoch"] != arguments.epoch
+        or indexPrefix != settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX):
+        raise ValueError("Empty shadow recovery requires a fresh invocation and exact configured epoch and prefix")
+    cloud = _cloud(plan, manifest, token)
+    stopped: dict[str, object] = HostRecovery.observeStoppedIssuer(plan, ec2=cast(_EC2, cloud("ec2")),
+        ssm=cast(_SSM, cloud("ssm")), commandIdentity=token)
+    progress.update({"status": "empty-shadow-observed", "stopped_issuer": stopped})
+    persist(progress)
+    service = LexicalOperatorAuthority(sessionFactory=get_sync_session_factory())
+    with _nativeClient(manifest) as client:
+        result: dict[str, object] = service.releaseEmptyShadow(fenceToken=token,
+            expectedSourceHash=arguments.source_hash, expectedEpoch=arguments.epoch, indexPrefix=indexPrefix,
+            stoppedReceipt=stopped, client=client)
+    progress.update({"status": "released", "authority": result})
     persist(progress)
     return result
 
@@ -373,7 +411,10 @@ def _reconcileRestart(arguments: argparse.Namespace, plan: dict[str, object], au
 
 def _main() -> int:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("fence-host", "reconcile-fence", "recover-process", "recover-volume", "reconcile-restart", "backup", "release"))
+    parser.add_argument("operation", choices=(
+        "fence-host", "reconcile-fence", "release-empty-shadow", "recover-process", "recover-volume",
+        "reconcile-restart", "backup", "release",
+    ))
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--plan", required=True, type=Path)
     parser.add_argument("--journal", required=True, type=Path)
@@ -421,7 +462,7 @@ def _main() -> int:
     def persist(value: dict[str, object]) -> None:
         _writeJson(arguments.journal, {**value, "binding": binding}, replace=arguments.journal.exists())
 
-    if arguments.operation in ("fence-host", "reconcile-fence"):
+    if arguments.operation in ("fence-host", "reconcile-fence", "release-empty-shadow"):
         lockPath: Path = arguments.journal.with_name(arguments.journal.name + ".lock")
         with lockPath.open("a") as lock:
             lockPath.chmod(0o600)
@@ -429,7 +470,8 @@ def _main() -> int:
             current: dict[str, object] = _requireObject(_readJson(arguments.journal)) if arguments.journal.exists() else {}
             if current != progress:
                 raise ValueError("Fence journal changed before physical admission; inspect its actual current state")
-            result: dict[str, object] = _runFence(arguments, manifest, plan, progress, persist)
+            execute = _releaseEmptyShadow if arguments.operation == "release-empty-shadow" else _runFence
+            result: dict[str, object] = execute(arguments, manifest, plan, progress, persist)
             _writeJson(arguments.output, result)
         return 0
     with OperatorAuthority.fromArguments(arguments, manifest, operationId=arguments.operation_id,

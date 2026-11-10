@@ -79,12 +79,12 @@ def _remoteScript(kind: str, plan: _HostPlan) -> str:
         "p=json.loads(sys.argv[1]); kind=sys.argv[2]",
         "def run(argv,check=True): return subprocess.run(argv,check=check,capture_output=True,text=True)",
         "host=hashlib.sha256(pathlib.Path('/etc/machine-id').read_bytes().strip()).hexdigest()",
-        "unit='knowhere-native-issuer-'+p['old_issuer']['invocation_token'].replace('-','')+'.service' if kind=='fence-operator' else 'knowhere-opensearch.service'",
-        "if kind=='fence-operator' and host!=p['old_issuer']['host_identity']: raise RuntimeError('Old operator host differs')",
+        "unit='knowhere-native-issuer-'+p['old_issuer']['invocation_token'].replace('-','')+'.service' if kind in ('fence-operator','observe-stopped-issuer') else 'knowhere-opensearch.service'",
+        "if kind in ('fence-operator','observe-stopped-issuer') and host!=p['old_issuer']['host_identity']: raise RuntimeError('Old operator host differs')",
         "if kind.startswith('fence-'):",
         " run(['systemctl','kill','--kill-who=all','--signal=SIGKILL',unit],False)",
         " run(['systemctl','stop',unit],False)",
-        "else:",
+        "elif kind=='recover-native':",
         " receipt=pathlib.Path('/opt/knowhere-opensearch/knowhere-installation.json')",
         " if hashlib.sha256(receipt.read_bytes()).hexdigest()!=p['installation_sha256']: raise RuntimeError('Pinned installation differs')",
         " devices=json.loads(run(['lsblk','-dn','-o','NAME,SERIAL','--json']).stdout)['blockdevices']",
@@ -96,17 +96,20 @@ def _remoteScript(kind: str, plan: _HostPlan) -> str:
         " if mounted.returncode==0 and mounted.stdout.strip()!=p['filesystem_uuid']: raise RuntimeError('Mount point already belongs to another volume')",
         " if mounted.returncode!=0: run(['mount','--uuid',p['filesystem_uuid'],'--target','/var/lib/knowhere-opensearch'])",
         " run(['systemctl','start','knowhere-opensearch.service'])",
-        "fields=dict(row.split('=',1) for row in run(['systemctl','show',unit,'-p','LoadState','-p','ActiveState','-p','MainPID','-p','ControlGroup']).stdout.splitlines())",
+        "shown=run(['systemctl','show',unit,'-p','LoadState','-p','ActiveState','-p','MainPID','-p','ControlGroup'],False)",
+        "fields=dict(row.split('=',1) for row in shown.stdout.splitlines())",
         "active=fields['ActiveState']; load=fields['LoadState']",
-        "if load not in ('loaded','not-found') or (load=='not-found' and kind!='fence-operator'): raise RuntimeError('Unexpected system unit load state')",
+        "if kind=='observe-stopped-issuer' and load!='not-found': raise RuntimeError('Old unit is still registered')",
+        "if kind!='observe-stopped-issuer' and shown.returncode!=0: raise RuntimeError('Cannot read system unit state')",
+        "if load not in ('loaded','not-found') or (load=='not-found' and kind not in ('fence-operator','observe-stopped-issuer')): raise RuntimeError('Unexpected system unit load state')",
         "pid=int(fields.get('MainPID','0') if load=='not-found' else fields['MainPID'])",
         "group=fields.get('ControlGroup','') or '/system.slice/'+unit",
         "if group!='/system.slice/'+unit: raise RuntimeError('Unexpected system unit control group')",
         "root=pathlib.Path('/sys/fs/cgroup')/group.lstrip('/')",
         "empty=not root.exists() or (not (root/'cgroup.procs').read_text().strip() and all(not f.read_text().strip() for f in root.rglob('cgroup.procs')))",
-        "if kind.startswith('fence-') and (active not in ('inactive','failed') or pid!=0 or not empty): raise RuntimeError('Issuer still active')",
+        "if (kind.startswith('fence-') or kind=='observe-stopped-issuer') and (active not in ('inactive','failed') or pid!=0 or not empty): raise RuntimeError('Issuer still active')",
         "if kind=='recover-native' and (active!='active' or pid<=0): raise RuntimeError('Native service did not start')",
-        "print(json.dumps({'kind':kind,'host_sha256':host,'active_state':active or 'inactive','main_pid':pid,'cgroup_empty':empty,'installation_sha256':p['installation_sha256'],'filesystem_uuid':p['filesystem_uuid']}))",
+        "print(json.dumps({'kind':kind,'host_sha256':host,'active_state':active or 'inactive','load_state':load,'main_pid':pid,'cgroup_empty':empty,'installation_sha256':p['installation_sha256'],'filesystem_uuid':p['filesystem_uuid']}))",
     ])
     return "python3 -c " + shlex.quote(program) + " " + shlex.quote(json.dumps(plan.model_dump(mode="json"), separators=(",", ":"))) + " " + shlex.quote(kind)
 
@@ -146,6 +149,23 @@ class HostRecovery:
                 raise ValueError("SSM operation failed; retain unknown ownership and reconcile")
             sleep(min(1, max(0, deadline - now())))
         raise TimeoutError("SSM issuer remains uncertain; never repeat or send an opposite operation")
+
+    @staticmethod
+    def observeStoppedIssuer(value: object, *, ec2: _EC2, ssm: _SSM, commandIdentity: str,
+                             now: Callable[[], float] = time.monotonic,
+                             sleep: Callable[[float], None] = time.sleep) -> dict[str, object]:
+        plan: _HostPlan = _HostPlan.model_validate(value)
+        HostRecovery._instances(ec2, plan)
+        observed, command = HostRecovery._invoke(
+            ssm, plan, plan.old_operator_instance_id, "observe-stopped-issuer",
+            now() + plan.timeout_seconds, now=now, sleep=sleep, commandIdentity=commandIdentity,
+        )
+        if observed.get("load_state") != "not-found":
+            raise ValueError("Old transient issuer unit is still registered")
+        external: dict[str, object] = HostRecovery._getStoppedIssuerEvidence(plan, observed, command)
+        return {"version": 1, "mode": "actual", "status": "stopped", "driver": "aws-ssm-stopped-issuer-v1",
+            "logical_cluster_id": plan.logical_cluster_id, "old_issuer": plan.old_issuer.model_dump(mode="json"),
+            "verified_at_utc": datetime.now(timezone.utc).isoformat(), "external": {**external, "load_state": "not-found"}}
 
     @staticmethod
     def fence(value: object, *, ec2: _EC2, ssm: _SSM, now: Callable[[], float] = time.monotonic,
@@ -189,20 +209,25 @@ class HostRecovery:
         return HostRecovery._fenceReceipt(plan, operator, command, native, nativeCommand)
 
     @staticmethod
-    def _fenceReceipt(plan: _HostPlan, operator: dict[str, object], command: str,
-            native: dict[str, object], nativeCommand: str) -> dict[str, object]:
+    def _getStoppedIssuerEvidence(plan: _HostPlan, operator: dict[str, object], command: str) -> dict[str, object]:
         if (operator.get("host_sha256") != plan.old_issuer.host_identity or operator.get("active_state") not in ("inactive", "failed")
                 or operator.get("main_pid") != 0 or operator.get("cgroup_empty") is not True):
             raise ValueError("Actual old operator host/unit was not fenced")
+        return {"account_id": plan.account_id, "region": plan.region, "instance_id": plan.old_operator_instance_id,
+            "command_id": command, "document_name": "AWS-RunShellScript", "status": "Success", "response_code": 0,
+            "unit_name": "knowhere-native-issuer-" + plan.old_issuer.invocation_token.hex + ".service",
+            "observed_host_sha256": operator["host_sha256"], "active_state": operator["active_state"], "main_pid": 0,
+            "cgroup_empty": True}
+
+    @staticmethod
+    def _fenceReceipt(plan: _HostPlan, operator: dict[str, object], command: str,
+            native: dict[str, object], nativeCommand: str) -> dict[str, object]:
+        external: dict[str, object] = HostRecovery._getStoppedIssuerEvidence(plan, operator, command)
         if native.get("active_state") not in ("inactive", "failed") or native.get("main_pid") != 0 or native.get("cgroup_empty") is not True:
             raise ValueError("Actual old native issuer was not fenced")
         return {"version": 1, "mode": "actual", "status": "fenced", "driver": "aws-ssm-systemd-v1",
             "logical_cluster_id": plan.logical_cluster_id, "old_issuer": plan.old_issuer.model_dump(mode="json"),
-            "verified_at_utc": datetime.now(timezone.utc).isoformat(),
-            "external": {"account_id": plan.account_id, "region": plan.region, "instance_id": plan.old_operator_instance_id,
-                "command_id": command, "document_name": "AWS-RunShellScript", "status": "Success", "response_code": 0,
-                "unit_name": "knowhere-native-issuer-" + plan.old_issuer.invocation_token.hex + ".service",
-                "observed_host_sha256": operator["host_sha256"], "active_state": operator["active_state"], "main_pid": 0, "cgroup_empty": True},
+            "verified_at_utc": datetime.now(timezone.utc).isoformat(), "external": external,
             "native_issuer_fenced": True, "native_fence": {"instance_id": plan.old_native_instance_id, "command_id": nativeCommand,
                 "status": "Success", "response_code": 0, "unit": "knowhere-opensearch.service", "active_state": native["active_state"], "main_pid": 0}}
 

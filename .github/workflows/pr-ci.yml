@@ -112,6 +112,9 @@ jobs:
       - name: Run native background shutdown tests
         run: uv run pytest packages/shared-python/shared/tests/test_background_pool.py -q
 
+      - name: Run OpenSearch ECS bootstrap tests
+        run: uv run pytest deploy/ecs/test_render_task_definitions.py packages/shared-python/shared/tests/test_staging_opensearch_entrypoint.py -q
+
       # api/worker both expose top-level `app`; run separately to avoid module shadowing.
       - name: Run API tests
         run: uv run pytest apps/api/tests -q

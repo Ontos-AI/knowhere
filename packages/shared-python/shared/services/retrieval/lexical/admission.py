@@ -12,7 +12,7 @@ from shared.services.retrieval.serving_generation import lock_namespace_generati
 
 
 class IndexingAdmission:
-    def bind(self, db: Session, *, job: Job) -> None:
+    def bind(self, db: Session, *, job: Job, createDocument: bool = True) -> None:
         metadata: dict[str, object] = dict(job.job_metadata or {})
         documentId: str = str(metadata.get("document_id") or "")
         if not documentId:
@@ -20,7 +20,9 @@ class IndexingAdmission:
         storage = validate_job_corpus(db, job=job, lock_document=False)
         ownerId: str = storage.resolve_owner(str(job.user_id))
         namespace: str = str(metadata.get("namespace") or "default")
-        LexicalCoordination.lockControl(db)
+        # PostgreSQL replacements use the same lock order. Their progressive
+        # admission already checks the serving gate before reaching this bind.
+        LexicalCoordination.lockControl(db, requiresServing=createDocument)
         lock_namespace_generation(db, user_id=ownerId, namespace=namespace)
         document = db.scalar(select(storage.Document).where(
             storage.Document.document_id == documentId,
@@ -39,6 +41,8 @@ class IndexingAdmission:
         if document is None:
             if storage.is_demo:
                 raise NotFoundException(resource="demo document", resource_id=documentId)
+            if not createDocument:
+                raise NotFoundException(resource="Document", resource_id=documentId)
             document = storage.Document(document_id=documentId, user_id=ownerId,
                 namespace=namespace, status="active")
             db.add(document)

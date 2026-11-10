@@ -1,54 +1,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any
 
 import pandas as pd
-
-from app.services.document_parser.support.identifiers import gen_str_codes
-
-
-def flatten_list(nested_list: list[Any]) -> list[Any]:
-    """Flatten a nested list."""
-    flat_list: list[Any] = []
-    for item in nested_list:
-        if isinstance(item, list):
-            flat_list.extend(flatten_list(item))
-        else:
-            flat_list.append(item)
-    return flat_list
-
-
-def merge_df(input_df: pd.DataFrame) -> pd.DataFrame:
-    """Merge DataFrame rows that share the same path."""
-    dfs_by_path = list(input_df.groupby("path", sort=False))
-    processed_dfs: list[pd.DataFrame] = []
-
-    for key, df in dfs_by_path:
-        content_to_merge: list[str] = []
-        types_to_merge: list[str] = []
-        total_length = 0
-
-        for _, row in df.iterrows():
-            content_to_merge.append(str(row["content"]))
-            types_to_merge.extend(str(row["type"]).split("\n"))
-            total_length += len(str(row["content"]))
-
-        processed_dfs.append(
-            pd.DataFrame(
-                [
-                    {
-                        "content": "\n".join(content_to_merge),
-                        "type": "\n".join(sorted(set(types_to_merge))),
-                        "path": key,
-                        "length": total_length,
-                        "know_id": gen_str_codes("\n".join(content_to_merge)),
-                    }
-                ]
-            )
-        )
-
-    return pd.concat(processed_dfs, axis=0, ignore_index=True)
 
 
 def process_dup_paths_df(df: pd.DataFrame) -> pd.DataFrame:

@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 640" width="1600" height="640">
+<rect width="1600" height="640" fill="#010909"/>
+<text x="64" y="62" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="17" font-weight="500" fill="#22d9ae" text-anchor="start" letter-spacing="0.6">[ 01 / PARSING ]</text>
+<text x="64" y="112" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="40" font-weight="400" fill="#f0f2e6" text-anchor="start">Parsed by format. Readable while it enriches.</text>
+<image x="1351.5" y="42.5" width="184.5" height="27.0" href="data:image/png;base64,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"/>
+<line x1="64" y1="152" x2="1536" y2="152" stroke="#1a2b29" stroke-width="1.4"/>
+<text x="64" y="196" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#9aa59f" text-anchor="start">Source documents</text>
+<rect x="64" y="214" width="200" height="44" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<rect x="64" y="214" width="4" height="44" rx="1" fill="#22d9ae"/>
+<text x="84" y="242" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#f0f2e6" text-anchor="start">PDF · PPTX</text>
+<rect x="64" y="282" width="200" height="44" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<rect x="64" y="282" width="4" height="44" rx="1" fill="#22d9ae"/>
+<text x="84" y="310" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#f0f2e6" text-anchor="start">DOCX</text>
+<rect x="64" y="338" width="200" height="44" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<rect x="64" y="338" width="4" height="44" rx="1" fill="#22d9ae"/>
+<text x="84" y="366" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#f0f2e6" text-anchor="start">XLSX · CSV</text>
+<rect x="64" y="394" width="200" height="44" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<rect x="64" y="394" width="4" height="44" rx="1" fill="#22d9ae"/>
+<text x="84" y="422" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#f0f2e6" text-anchor="start">MD · HTML · TXT</text>
+<rect x="64" y="450" width="200" height="44" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<rect x="64" y="450" width="4" height="44" rx="1" fill="#22d9ae"/>
+<text x="84" y="478" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#f0f2e6" text-anchor="start">IMAGE</text>
+<path d="M264,236 H277 V284" fill="none" stroke="#3a5652" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M277,284 H288" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M281,278 L290,284 L281,290" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M264,304 H277 M264,360 H277 M264,416 H277 M264,472 H277 M277,304 V472" fill="none" stroke="#3a5652" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M277,444 H288" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M281,438 L290,444 L281,450" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="64" y="520" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#9aa59f" text-anchor="start">Route by file format</text>
+<rect x="290" y="214" width="270" height="140" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<rect x="290" y="214" width="4" height="140" rx="1" fill="#22d9ae"/>
+<text x="312" y="252" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="22" font-weight="400" fill="#f0f2e6" text-anchor="start">Vision parsing</text>
+<text x="312" y="282" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#9aa59f" text-anchor="start">Page images understood by</text>
+<text x="312" y="302" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#9aa59f" text-anchor="start">vision models, guided by</text>
+<text x="312" y="322" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#9aa59f" text-anchor="start">the native hierarchy</text>
+<rect x="290" y="394" width="270" height="100" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<rect x="290" y="394" width="4" height="100" rx="1" fill="#22d9ae"/>
+<text x="312" y="432" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="22" font-weight="400" fill="#f0f2e6" text-anchor="start">Native parsing</text>
+<text x="312" y="460" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#9aa59f" text-anchor="start">Text, tables, and images</text>
+<text x="312" y="480" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#9aa59f" text-anchor="start">with structure preserved</text>
+<path d="M560,284 H580 M560,444 H580 M580,284 V444" fill="none" stroke="#3a5652" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M580,364 H598" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M591,358 L600,364 L591,370" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="600" y="214" width="530" height="280" rx="8" fill="#031a1a" stroke="#12403b" stroke-width="1.4"/>
+<text x="620" y="240" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="500" fill="#22d9ae" text-anchor="start">ingestion_mode=progressive</text>
+<rect x="620" y="254" width="150" height="124" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<rect x="632" y="266" width="53.6" height="24" rx="12" fill="#073a32" stroke="#22d9ae" stroke-width="1"/>
+<text x="658.8" y="282.5" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="500" fill="#22d9ae" text-anchor="middle">text</text>
+<circle cx="750" cy="278" r="7" fill="none" stroke="#22d9ae" stroke-width="1.8"/>
+<text x="632" y="324" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="20" font-weight="400" fill="#f0f2e6" text-anchor="start">Baseline</text>
+<text x="632" y="348" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#9aa59f" text-anchor="start">Content readable</text>
+<text x="632" y="366" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#9aa59f" text-anchor="start">and searchable</text>
+<path d="M770,316 H793" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M786,310 L795,316 L786,322" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="795" y="254" width="150" height="124" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<rect x="807" y="266" width="70.4" height="24" rx="12" fill="#073a32" stroke="#22d9ae" stroke-width="1"/>
+<text x="842.2" y="282.5" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="500" fill="#22d9ae" text-anchor="middle">coarse</text>
+<circle cx="925" cy="278" r="7" fill="none" stroke="#22d9ae" stroke-width="1.8"/>
+<path d="M925,271 A7,7 0 0 1 925,285 Z" fill="#22d9ae"/>
+<text x="807" y="324" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="20" font-weight="400" fill="#f0f2e6" text-anchor="start">Structure</text>
+<text x="807" y="348" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#9aa59f" text-anchor="start">Outline and</text>
+<text x="807" y="366" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#9aa59f" text-anchor="start">hierarchy</text>
+<path d="M945,316 H968" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M961,310 L970,316 L961,322" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="970" y="254" width="150" height="124" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<rect x="982" y="266" width="87.2" height="24" rx="12" fill="#073a32" stroke="#22d9ae" stroke-width="1"/>
+<text x="1025.6" y="282.5" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="13" font-weight="500" fill="#22d9ae" text-anchor="middle">complete</text>
+<circle cx="1100" cy="278" r="7" fill="none" stroke="#22d9ae" stroke-width="1.8"/>
+<circle cx="1100" cy="278" r="7" fill="#22d9ae"/>
+<text x="982" y="324" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="20" font-weight="400" fill="#f0f2e6" text-anchor="start">Enriched</text>
+<text x="982" y="348" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#9aa59f" text-anchor="start">Entities, figures,</text>
+<text x="982" y="366" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#9aa59f" text-anchor="start">tables, summaries</text>
+<rect x="620" y="398" width="490" height="80" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<text x="640" y="426" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="18" font-weight="400" fill="#f0f2e6" text-anchor="start">Full ingestion</text>
+<text x="640" y="448" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#9aa59f" text-anchor="start">Published once parsing completes</text>
+<text x="640" y="466" font-family="'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="400" fill="#9aa59f" text-anchor="start">ingestion_mode=full (default)</text>
+<path d="M1130,354 H1178" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M1171,348 L1180,354 L1171,360" fill="none" stroke="#22d9ae" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1180" y="214" width="356" height="280" rx="8" fill="#031a1a" stroke="#12403b" stroke-width="1.4"/>
+<text x="1204" y="256" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="24" font-weight="400" fill="#f0f2e6" text-anchor="start">Navigable Memory</text>
+<rect x="1196" y="282" width="100" height="192" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<text x="1246.0" y="312" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#f0f2e6" text-anchor="middle">Hierarchy</text>
+<rect x="1235.0" y="340" width="22" height="14" rx="3" fill="#073a32" stroke="#22d9ae" stroke-width="1.5"/>
+<path d="M1246.0,354 V368 M1224.0,368 H1268.0 M1224.0,368 V380 M1268.0,368 V380" fill="none" stroke="#22d9ae" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1213.0" y="380" width="22" height="14" rx="3" fill="#073a32" stroke="#22d9ae" stroke-width="1.5"/>
+<rect x="1257.0" y="380" width="22" height="14" rx="3" fill="#073a32" stroke="#22d9ae" stroke-width="1.5"/>
+<path d="M1224.0,394 V406" fill="none" stroke="#22d9ae" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1213.0" y="406" width="22" height="12" rx="3" fill="#073a32" stroke="#22d9ae" stroke-width="1.5"/>
+<rect x="1308" y="282" width="100" height="192" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<text x="1358.0" y="312" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#f0f2e6" text-anchor="middle">Nodes</text>
+<rect x="1320.0" y="340" width="76" height="22" rx="4" fill="#073a32" stroke="#22d9ae" stroke-width="1.2"/>
+<circle cx="1330.0" cy="351" r="2.6" fill="#22d9ae"/>
+<path d="M1340.0,348 H1386.0 M1340.0,355 H1372.0" fill="none" stroke="#22d9ae" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1320.0" y="370" width="76" height="22" rx="4" fill="#073a32" stroke="#22d9ae" stroke-width="1.2"/>
+<circle cx="1330.0" cy="381" r="2.6" fill="#22d9ae"/>
+<path d="M1340.0,378 H1386.0 M1340.0,385 H1372.0" fill="none" stroke="#22d9ae" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1320.0" y="400" width="76" height="22" rx="4" fill="#073a32" stroke="#22d9ae" stroke-width="1.2"/>
+<circle cx="1330.0" cy="411" r="2.6" fill="#22d9ae"/>
+<path d="M1340.0,408 H1386.0 M1340.0,415 H1372.0" fill="none" stroke="#22d9ae" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1420" y="282" width="100" height="192" rx="6" fill="#06241f" stroke="#14463f" stroke-width="1.4"/>
+<text x="1470.0" y="312" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#f0f2e6" text-anchor="middle">Graph</text>
+<path d="M1444.0,346 L1496.0,354" fill="none" stroke="#3a5652" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M1444.0,346 L1470.0,382" fill="none" stroke="#3a5652" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M1496.0,354 L1470.0,382" fill="none" stroke="#3a5652" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M1470.0,382 L1440.0,418" fill="none" stroke="#3a5652" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M1470.0,382 L1500.0,412" fill="none" stroke="#3a5652" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M1440.0,418 L1500.0,412" fill="none" stroke="#3a5652" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M1444.0,346 L1440.0,418" fill="none" stroke="#3a5652" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M1496.0,354 L1500.0,412" fill="none" stroke="#3a5652" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="1444.0" cy="346" r="5.5" fill="#22d9ae"/>
+<circle cx="1496.0" cy="354" r="5.5" fill="#22d9ae"/>
+<circle cx="1470.0" cy="382" r="5.5" fill="#22d9ae"/>
+<circle cx="1440.0" cy="418" r="5.5" fill="#22d9ae"/>
+<circle cx="1500.0" cy="412" r="5.5" fill="#22d9ae"/>
+<text x="64" y="574" font-family="Poppins, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#9aa59f" text-anchor="start">One schema for every route: chunks and metadata, section paths, page ranges, and linked assets.</text>
+</svg>

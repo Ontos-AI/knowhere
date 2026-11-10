@@ -8,12 +8,13 @@ from typing import Any
 
 import pandas as pd
 
-from app.services.document_agent.pdf_text import coerce_page_text_cache
+from app.services.document_agent.pdf_text import PageTextBands, coerce_page_text_cache
 from app.services.document_agent.visual import (
     purge_debug_visual_dirs,
     visual_debug_enabled,
 )
 from app.services.document_parser.profiling.doc_profiler import profile_document
+from app.services.document_parser.profiling.profile_model import ParserDocumentProfile
 from app.services.document_parser.support.parser_rows import PARSER_DF_COLUMNS
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.page_memory.normalizer import normalize_to_pdf
@@ -41,6 +42,10 @@ from loguru import logger
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.models.schemas.page_memory_config import PageMemoryConfig, resolve_asset_model
+
+
+PROGRESSIVE_OCR_PAGE_TIMEOUT_SECONDS = 60
+PROGRESSIVE_OCR_BUDGET_SECONDS = 900
 
 
 @dataclass(frozen=True)
@@ -120,32 +125,14 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
         }
 
         if is_progressive:
-            page_texts = coerce_page_text_cache(
-                getattr(profile, "page_full_text_cache", None)
+            parsed_df = _build_progressive_m0_dataframe(
+                pdf_path=pdf_path,
+                filename=request.filename,
+                output_dir=full_output_dir,
+                page_count=page_count,
+                profile=profile,
+                include_page_assets=visual_m0_enabled,
             )
-            body_text_by_page = coerce_page_text_cache(
-                getattr(profile, "page_body_text_cache", None)
-            )
-            if visual_m0_enabled:
-                treat_as_scanned: bool = treat_profile_as_scanned(profile) or not any(
-                    text.strip() for text in page_texts.values()
-                )
-                parsed_df = _build_visual_m0_dataframe(
-                    pdf_path=pdf_path,
-                    filename=request.filename,
-                    output_dir=full_output_dir,
-                    page_count=page_count,
-                    page_texts=page_texts,
-                    body_text_by_page=body_text_by_page,
-                    embed_pages=treat_as_scanned,
-                )
-            else:
-                parsed_df = build_coarse_text_dataframe(
-                    page_texts=page_texts,
-                    body_text_by_page=body_text_by_page,
-                    page_count=page_count,
-                    filename=request.filename,
-                )
             persist_m0_inputs(
                 output_dir=full_output_dir,
                 profile=profile,
@@ -236,33 +223,76 @@ def embed_rendered_pages(
     return embeddings_by_page
 
 
-def _build_visual_m0_dataframe(
+def _has_corrupt_native_text(text: str) -> bool:
+    # A high density of control or replacement characters signals a failed
+    # glyph mapping without assuming the document's language or script.
+    invalid_count = sum(
+        char == "\ufffd"
+        or (
+            char not in "\t\n\r"
+            and (ord(char) < 32 or 127 <= ord(char) < 160)
+        )
+        for char in text
+    )
+    return invalid_count >= 3 and invalid_count * 20 >= len(text)
+
+
+def _build_progressive_m0_dataframe(
     *,
     pdf_path: str,
     filename: str,
     output_dir: str,
     page_count: int,
-    page_texts: dict[int, str],
-    body_text_by_page: dict[int, str],
-    embed_pages: bool = True,
+    profile: ParserDocumentProfile,
+    include_page_assets: bool,
 ) -> pd.DataFrame:
+    from app.services.document_agent.tools.ocr_pages import ocr_rendered_pages
     from app.services.page_memory.page_renderer import render_document_pages
 
-    pages = list(range(1, max(int(page_count or 0), 0) + 1))
-    with stage_timer("page_memory.m0_render", filename=filename, page_count=len(pages)):
-        rendered = render_document_pages(
-            pdf_path=pdf_path,
-            page_count=page_count,
-            output_dir=output_dir,
-            scope_id="m0",
-            pages=pages,
-            page_texts=page_texts,
-        )
-    image_path_by_page = {
-        int(item.page_index): str(item.image_path)
-        for item in rendered
-        if item.image_path
-    }
+    page_texts = coerce_page_text_cache(getattr(profile, "page_full_text_cache", None))
+    body_text_by_page = coerce_page_text_cache(getattr(profile, "page_body_text_cache", None))
+    corrupt_pages = [page for page, text in page_texts.items() if _has_corrupt_native_text(text)]
+    pages = list(range(1, page_count + 1)) if include_page_assets else corrupt_pages
+    embed_pages = include_page_assets and (
+        treat_profile_as_scanned(profile) or not any(text.strip() for text in page_texts.values())
+    )
+    image_path_by_page: dict[int, str] = {}
+    if pages:
+        with stage_timer("page_memory.m0_render", filename=filename, page_count=len(pages)):
+            rendered = render_document_pages(
+                pdf_path=pdf_path,
+                page_count=page_count,
+                output_dir=output_dir,
+                scope_id="m0",
+                pages=pages,
+                page_texts=page_texts,
+            )
+        image_path_by_page = {
+            item.page_index: item.image_path for item in rendered if item.image_path
+        }
+    if corrupt_pages:
+        with stage_timer("page_memory.m0_ocr", page_count=len(corrupt_pages)):
+            recovered = ocr_rendered_pages(
+                {
+                    page: image_path_by_page[page]
+                    for page in corrupt_pages
+                    if page in image_path_by_page
+                },
+                timeout=PROGRESSIVE_OCR_PAGE_TIMEOUT_SECONDS,
+                total_timeout=PROGRESSIVE_OCR_BUDGET_SECONDS,
+            )
+        blackboard = getattr(profile, "blackboard", None)
+        for page in corrupt_pages:
+            text = recovered.get(page, "")
+            bands = PageTextBands.from_text("" if _has_corrupt_native_text(text) else text)
+            page_texts[page] = bands.content
+            body_text_by_page[page] = bands.content
+            if blackboard is not None:
+                blackboard.page_full_text_cache[page] = bands
+        # Phase B reuses both the plain text and the blackboard bands.
+        profile.page_full_text_cache = page_texts
+        profile.page_body_text_cache = body_text_by_page
+
     embeddings_by_page = (
         embed_rendered_pages(
             image_path_by_page=image_path_by_page,
@@ -277,7 +307,7 @@ def _build_visual_m0_dataframe(
         body_text_by_page=body_text_by_page,
         page_count=page_count,
         filename=filename,
-        image_path_by_page=image_path_by_page,
+        image_path_by_page=image_path_by_page if include_page_assets else None,
         embeddings_by_page=embeddings_by_page,
         output_dir=output_dir,
     )

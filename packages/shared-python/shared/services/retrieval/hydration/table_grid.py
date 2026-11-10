@@ -10,6 +10,7 @@ import html
 import re
 import tempfile
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -166,14 +167,16 @@ def render_explore_table(
     if not too_large:
         return table_html
     document_id = str(row.get("document_id") or "")
+    spec = table_header_metadata(row.get("chunk_metadata") or row.get("metadata"))
+    preview_columns, preview_rows = _explore_header_preview(grid, spec)
     lines = [
         (
             f"This table is too large ({len(grid)} rows × {len(grid[0])} cols). "
             "Read does not return the full table. Use corpus.query_table with "
             f"document_id={document_id} chunk_id={chunk_id} and a SELECT."
         ),
-        f"Column headers: {_join_headers(column_headers(grid))}",
-        f"Row headers: {_join_headers(row_headers(grid))}",
+        f"Column headers: {_join_headers(preview_columns)}",
+        f"Row headers: {_join_headers(preview_rows)}",
         f"SQL table name: {QUERY_TABLE_NAME}",
     ]
     return "\n".join(line for line in lines if line)
@@ -192,9 +195,81 @@ def normalize_select_sql(sql: str) -> str | None:
     return text
 
 
-# TODO: later adapt nested / multi-level row and column headers.
-# Current mapping is first row as columns and the first cell of each data row as row_header.
-def sql_columns(grid: list[list[str]]) -> list[str]:
+@dataclass(frozen=True)
+class TableHeaderMetadata:
+    header_row_count: int
+    row_header_col_count: int
+    column_headers: tuple[str, ...]
+
+
+def table_header_metadata(metadata: object) -> TableHeaderMetadata | None:
+    if not isinstance(metadata, Mapping):
+        return None
+    header_row_count = metadata.get("header_row_count")
+    row_header_col_count = metadata.get("row_header_col_count")
+    column_headers_value = metadata.get("column_headers")
+    if type(header_row_count) is not int or header_row_count < 0:
+        return None
+    if type(row_header_col_count) is not int or row_header_col_count < 0:
+        return None
+    if not isinstance(column_headers_value, list):
+        return None
+    names: list[str] = []
+    for name in column_headers_value:
+        if not isinstance(name, str):
+            return None
+        names.append(name)
+    return TableHeaderMetadata(
+        header_row_count=header_row_count,
+        row_header_col_count=row_header_col_count,
+        column_headers=tuple(names),
+    )
+
+
+def sql_columns(
+    grid: list[list[str]],
+    metadata: Mapping[str, Any] | None = None,
+) -> list[str]:
+    spec = table_header_metadata(metadata)
+    if spec is None:
+        return _sql_columns_from_first_row(grid)
+    if spec.header_row_count == 0:
+        width = len(grid[0]) if grid else 0
+        return [f"col_{index}" for index in range(width)]
+    value_headers = list(spec.column_headers[spec.row_header_col_count :])
+    used = {"row_header"}
+    columns = ["row_header"]
+    for index, header in enumerate(value_headers, start=1):
+        columns.append(_sql_ident(header, used, fallback=f"col_{index}"))
+    return columns
+
+
+def grid_sql_rows(
+    grid: list[list[str]],
+    metadata: Mapping[str, Any] | None = None,
+) -> list[list[str]]:
+    spec = table_header_metadata(metadata)
+    if spec is None:
+        return _grid_sql_rows_from_first_row(grid)
+    data_rows = grid[spec.header_row_count :]
+    if spec.header_row_count == 0:
+        return [list(row) for row in data_rows]
+    row_header_col_count = spec.row_header_col_count
+    rows: list[list[str]] = []
+    for row in data_rows:
+        if row_header_col_count <= 0:
+            row_header = ""
+            values = list(row)
+        else:
+            row_header = " ".join(
+                part for part in row[:row_header_col_count] if part
+            )
+            values = list(row[row_header_col_count:])
+        rows.append([row_header, *values])
+    return rows
+
+
+def _sql_columns_from_first_row(grid: list[list[str]]) -> list[str]:
     if not grid:
         return ["row_header"]
     headers = column_headers(grid)
@@ -208,7 +283,7 @@ def sql_columns(grid: list[list[str]]) -> list[str]:
     return columns
 
 
-def grid_sql_rows(grid: list[list[str]]) -> list[list[str]]:
+def _grid_sql_rows_from_first_row(grid: list[list[str]]) -> list[list[str]]:
     if len(grid) <= 1:
         return []
     col_count = len(grid[0])
@@ -219,6 +294,26 @@ def grid_sql_rows(grid: list[list[str]]) -> list[list[str]]:
         values.extend(padded[1:] if col_count > 1 else [])
         rows.append(values)
     return rows
+
+
+def _explore_header_preview(
+    grid: list[list[str]],
+    spec: TableHeaderMetadata | None,
+) -> tuple[list[str], list[str]]:
+    if spec is None:
+        return column_headers(grid), row_headers(grid)
+    if spec.header_row_count == 0:
+        width = len(grid[0]) if grid else 0
+        return [f"col_{index}" for index in range(width)], []
+    value_headers = list(spec.column_headers[spec.row_header_col_count :])
+    data_rows = grid[spec.header_row_count :]
+    if spec.row_header_col_count <= 0:
+        return value_headers, []
+    preview_rows = [
+        " ".join(part for part in row[: spec.row_header_col_count] if part)
+        for row in data_rows
+    ]
+    return value_headers, preview_rows
 
 
 def _join_headers(values: list[str]) -> str:
@@ -234,7 +329,7 @@ def _span(value: object) -> int:
 
 
 def _sql_ident(name: str, used: set[str], *, fallback: str) -> str:
-    base = re.sub(r"[^A-Za-z0-9_]", "_", str(name or "").strip()) or fallback
+    base = re.sub(r"[^\w]", "_", str(name or "").strip()).strip("_") or fallback
     if base[0].isdigit():
         base = f"c_{base}"
     candidate = base

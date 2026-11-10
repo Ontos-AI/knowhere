@@ -908,32 +908,6 @@ header_rows_to_skip: integer, the number of leading rows in Table B that duplica
         - Do NOT add any explanation before or after the formatted string
         """
 
-    # ==================== Table Processing Prompts ====================
-
-    elif task == "detect-table-headers":
-        temperature = 0.1
-        context = f"        {texts}"
-
-        prompt = f"""
-        You are an intelligent assistant familiar with table data structures. You will receive the first few rows of a table (in HTML format).
-        
-        {context}
-        
-        Your task is: identify the header rows of this table, considering the possibility of MultiIndex (multi-level index) headers.
-        You must strictly follow these requirements:
-        - You need to determine the **consecutive rows that may constitute the header**, i.e., all rows of the MultiIndex
-        - The result should be a **list of row numbers where headers are located** (0-indexed), for example:
-            - If only the first row is a header, the result is `[0]`
-            - If rows 1-3 are all headers (multi-level index), the result is `[0, 1, 2]`
-        
-        - If you cannot determine, please return an empty list `[]`
-        - Only return a JSON object in the following format with key "answer" and value being the result:
-        ```json
-        {{
-          "answer": [<row_number1>, <row_number2>, ...]
-        }}
-        """
-
     # ==================== TOC Detection Prompts ====================
 
     elif task == "detect-toc-range":

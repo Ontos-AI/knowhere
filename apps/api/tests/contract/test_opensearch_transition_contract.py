@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 from shared.testing.contract_runtime import (
     PostgreSQLProcess,
@@ -595,3 +596,54 @@ def _require(value: _Value | None) -> _Value:
 def _object(value: object) -> dict[str, object]:
     assert isinstance(value, dict)
     return cast(dict[str, object], value)
+
+
+def test_shadow_input_preflight_checks_chunk_permissions_before_writing(
+    transitionRuntime: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from shared.models.database.job_result import JobResult
+    from shared.services.retrieval.lexical.storage import LexicalInputStorage
+    from shared.services.retrieval.lexical.transition import LexicalTransition
+
+    jobId, _, revisionId = createParsed(transitionRuntime)
+    publishPostgresql(transitionRuntime, jobId)
+    with Session(transitionRuntime) as db:
+        result = _require(db.get(JobResult, revisionId))
+        result.indexing_input_key = None
+        result.indexing_input_checksum = None
+        result.indexing_input_compiler = None
+        db.commit()
+    _, bindings = LexicalTransition(sessionFactory=sessionmaker(transitionRuntime))._capture()
+    binding = next(binding for binding in bindings if binding.revisionId == revisionId)
+
+    def refuseSave(*args: object, **kwargs: object) -> None:
+        pytest.fail("Shadow input preflight must never upload")
+
+    monkeypatch.setattr(LexicalInputStorage, "saveWithSize", refuseSave)
+    roleName = f"kw_shadow_{uuid4().hex[:12]}"
+    with transitionRuntime.begin() as connection:
+        connection.exec_driver_sql(f"CREATE ROLE {roleName} NOLOGIN BYPASSRLS")
+        connection.exec_driver_sql(f"GRANT USAGE ON SCHEMA public TO {roleName}")
+        connection.exec_driver_sql(
+            "GRANT SELECT ON lexical_backend_control, documents, job_results, jobs, document_map_unit_indexes, "
+            f"document_map_units, document_map_unit_tokens, document_sections TO {roleName}"
+        )
+
+    def preflight() -> None:
+        with transitionRuntime.begin() as connection:
+            connection.exec_driver_sql(f"SET LOCAL ROLE {roleName}")
+            service = LexicalTransition(sessionFactory=sessionmaker(connection))
+            service.preflightShadowInput(binding, epoch=1)
+
+    try:
+        with pytest.raises(DBAPIError, match="permission denied for table job_chunks"):
+            preflight()
+        with transitionRuntime.begin() as connection:
+            connection.exec_driver_sql(f"GRANT SELECT ON job_chunks TO {roleName}")
+        preflight()
+        with Session(transitionRuntime) as db:
+            assert _require(db.get(JobResult, revisionId)).indexing_input_key is None
+    finally:
+        with transitionRuntime.begin() as connection:
+            connection.exec_driver_sql(f"DROP OWNED BY {roleName}")
+            connection.exec_driver_sql(f"DROP ROLE {roleName}")

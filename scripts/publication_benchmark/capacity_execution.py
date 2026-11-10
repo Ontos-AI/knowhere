@@ -47,16 +47,21 @@ class CapacityBatch:
     container_name: str | None = None
 
 
+def _pg_checkpoints_fragment(engine) -> str:
+    with engine.connect() as connection:
+        version_number = int(
+            connection.execute(text("SHOW server_version_num")).scalar_one()
+        )
+    if version_number >= 170000:
+        return "(SELECT num_timed + num_requested FROM pg_stat_checkpointer)"
+    return "(SELECT checkpoints_timed + checkpoints_req FROM pg_stat_bgwriter)"
+
+
 def _database_resources(database_url: str, spec: RetrievalProbeSpec) -> dict[str, int]:
     engine = create_engine(database_url_for_owner(database_url, owner="sync"))
     try:
+        checkpoints_fragment = _pg_checkpoints_fragment(engine)
         with engine.connect() as connection:
-            # PostgreSQL 17 moved checkpoint counters out of pg_stat_bgwriter.
-            checkpoint_count_sql = (
-                "SELECT num_timed + num_requested FROM pg_stat_checkpointer"
-                if (connection.dialect.server_version_info or ()) >= (17,)
-                else "SELECT checkpoints_timed + checkpoints_req FROM pg_stat_bgwriter"
-            )
             row = (
                 connection.execute(
                     text(
@@ -64,8 +69,8 @@ def _database_resources(database_url: str, spec: RetrievalProbeSpec) -> dict[str
                         "(SELECT temp_bytes FROM pg_stat_database WHERE datname = current_database()) "
                         "AS temp_bytes, (SELECT deadlocks FROM pg_stat_database "
                         "WHERE datname = current_database()) AS deadlocks, "
-                        f"({checkpoint_count_sql}) "
-                        "AS checkpoints, pg_database_size(current_database()) AS database_bytes, "
+                        + checkpoints_fragment
+                        + " AS checkpoints, pg_database_size(current_database()) AS database_bytes, "
                         "(SELECT coalesce(sum(pg_relation_size(c.oid)), 0) FROM pg_class c "
                         "WHERE c.relkind IN ('r', 'm') AND c.relnamespace IN "
                         "(SELECT oid FROM pg_namespace WHERE nspname = 'public')) AS table_bytes, "

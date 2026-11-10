@@ -16,14 +16,16 @@ class LexicalInputRetention:
         return sha256(f"{bucket}:{key}".encode()).hexdigest()
 
     @staticmethod
-    def assertRetained(db: Session, result: JobResult, *, key: str | None = None) -> None:
-        """Call under the result row lock before loading or assigning input."""
+    def assertRetained(
+        db: Session, result: JobResult, *, key: str | None = None, lock: bool = True,
+    ) -> None:
+        """Use the result row lock for loading or assigning live input."""
         if result.indexing_input_gc_state != "retained":
             raise LexicalIndexError("Indexing input is fenced for collection")
         objectKey: str | None = key or result.indexing_input_key
         if objectKey is None:
             return
         identity: str = LexicalInputRetention.getIdentity(bucket=LexicalInputStorage().bucket, key=objectKey)
-        inventory: LexicalInputInventory | None = db.get(LexicalInputInventory, identity, with_for_update=True)
+        inventory: LexicalInputInventory | None = db.get(LexicalInputInventory, identity, with_for_update=lock)
         if inventory is not None and inventory.state in ("deleting", "deleted"):
             raise LexicalIndexError("Indexing input object is fenced for collection")

@@ -1,5 +1,6 @@
 """Helpers for deterministic mock responses from OpenAI-compatible LLM calls."""
 
+import json
 from typing import Any, Dict, List
 
 from loguru import logger
@@ -18,6 +19,10 @@ def build_mock_chat_completion_response(
         model_name,
         task_name,
     )
+    if task_name == "detect-spreadsheet-headers":
+        return _mock_spreadsheet_headers()
+    if task_name == "locate-spreadsheet-header-start":
+        return _mock_spreadsheet_header_start()
     return _build_mock_response(task_name)
 
 
@@ -81,10 +86,12 @@ def _detect_mock_task(prompt_text: str) -> str:
     ):
         return "detect-toc-range"
     if (
-        "row numbers where headers are located" in normalized_prompt
-        and '"answer"' in normalized_prompt
+        '"header_row_count"' in normalized_prompt
+        and '"row_header_col_count"' in normalized_prompt
     ):
-        return "detect-table-headers"
+        return "detect-spreadsheet-headers"
+    if '"list_head_row"' in normalized_prompt:
+        return "locate-spreadsheet-header-start"
     if '"answer"' in normalized_prompt and '"text" or "image"' in normalized_prompt:
         return "judge-image-type"
     if (
@@ -129,7 +136,6 @@ def _build_mock_response(task_name: str) -> str:
         # Document parsing / ingestion tasks
         "fragment-title": "Mock Fragment Title",
         "detect-toc-range": '{"toc_start": null, "toc_end": null, "confidence": "low"}',
-        "detect-table-headers": '{"answer": [0]}',
         "judge-image-type": '{"answer": "image"}',
         "summary-full": (
             '{"title": "Mock Title", "summary": "Mock summary", '
@@ -151,3 +157,11 @@ def _build_mock_response(task_name: str) -> str:
         "default": "Mock LLM response",
     }
     return response_by_task.get(task_name, response_by_task["default"])
+
+
+def _mock_spreadsheet_headers() -> str:
+    return json.dumps({"header_row_count": 1, "row_header_col_count": 0})
+
+
+def _mock_spreadsheet_header_start() -> str:
+    return json.dumps({"list_head_row": 0})

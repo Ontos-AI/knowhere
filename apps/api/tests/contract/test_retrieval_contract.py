@@ -1,11 +1,14 @@
 import asyncio
 from collections.abc import AsyncGenerator, Callable, Coroutine, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, cast
+from types import SimpleNamespace
+from typing import Any, Literal, cast
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from loguru import logger
 from pytest import MonkeyPatch
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -445,6 +448,141 @@ def _patch_harness(monkeypatch: MonkeyPatch, episode: Any) -> None:
         "shared.services.retrieval.agent_explore.harness.resolve_harness",
         lambda **_kwargs: _FakeHarness(episode),
     )
+
+
+@pytest.mark.parametrize(
+    ("status", "provider_message", "expected_reason"),
+    [
+        ("error", "You're out of usage. Switch to Auto.", "usage_limit"),
+        ("error", "Unknown upstream error.", "provider_error"),
+        ("cancelled", "", "cancelled"),
+    ],
+)
+async def test_cursor_run_failure_is_reported_without_caching_empty_results(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+    status: Literal["error", "cancelled"],
+    provider_message: str,
+    expected_reason: str,
+) -> None:
+    import cursor_sdk
+    from shared.services.retrieval.cache_service import (
+        get_retrieval_namespace_cache_version,
+        set_cached_retrieval_query_result,
+    )
+
+    namespace = "contract-cursor-failure"
+    dummy_key = "crsr_test_secret"
+    run = SimpleNamespace(
+        request_id="req_cursor_test",
+        wait=AsyncMock(
+            side_effect=[
+                cursor_sdk.RunResult(
+                    id="run-cursor-test",
+                    agent_id="agent-cursor-test",
+                    status=status,
+                    error_code="upstream_error" if status == "error" else None,
+                    error_message=f"{provider_message} {dummy_key}",
+                ),
+                cursor_sdk.RunResult(
+                    id="run-cursor-healthy", agent_id="agent-cursor-test", status="finished"
+                ),
+            ]
+        ),
+    )
+    agent = MagicMock()
+    agent.__aenter__.return_value.send = AsyncMock(return_value=run)
+    bridge = MagicMock()
+    bridge.__aenter__.return_value.agents.create = AsyncMock(return_value=agent)
+    errors: list[tuple[dict[str, Any], str]] = []
+
+    monkeypatch.setenv("AGENT_EXPLORE_HARNESS", "cursor_sdk")
+    monkeypatch.setenv("CURSOR_API_KEY", dummy_key)
+    async with developer_api_client_factory() as api_client:
+        monkeypatch.setattr(
+            cursor_sdk.AsyncClient, "launch_bridge", AsyncMock(return_value=bridge)
+        )
+        for filename in ("target.pdf", "filler.pdf"):
+            await _seed_retrieval_document(
+                user_id="local-dev-user",
+                namespace=namespace,
+                source_file_name=filename,
+                section_path="Findings",
+                content=f"searchable text for {filename}",
+            )
+        payload = {
+            "namespace": namespace,
+            "query": "Find the evidence",
+            "top_k": 1,
+            "use_agentic": True,
+            "agent_explore_model": "composer-2.5",
+        }
+        if expected_reason == "usage_limit":
+            # A cached response from an earlier release can hide a fresh run.
+            cache_version = await get_retrieval_namespace_cache_version(
+                user_id="local-dev-user", namespace=namespace
+            )
+            await set_cached_retrieval_query_result(
+                user_id="local-dev-user",
+                namespace=namespace,
+                version=cache_version,
+                query="Find the evidence",
+                top_k=1,
+                exclude_document_ids=[],
+                exclude_sections=[],
+                use_agentic=True,
+                agent_explore_model="composer-2.5",
+                harness="cursor_sdk",
+                response={
+                    "namespace": namespace,
+                    "query": "Find the evidence",
+                    "router_used": "agent_explore",
+                    "stop_reason": "finished",
+                    "results": [],
+                },
+            )
+        sink = logger.add(
+            lambda message: errors.append((message.record["extra"], str(message))),
+            level="ERROR",
+        )
+        try:
+            response = await api_client.post("/api/v2/retrieval/query", json=payload)
+        finally:
+            logger.remove(sink)
+
+        assert response.status_code == 503
+        error = response.json()["error"]
+        assert error["code"] == "UNAVAILABLE"
+        assert error["details"] == {"service": "cursor", "reason": expected_reason}
+        assert ("usage limit" in error["message"]) == (expected_reason == "usage_limit")
+        assert dummy_key not in response.text
+        assert "run-cursor-test" not in response.text
+        assert "req_cursor_test" not in response.text
+        matching_logs = [
+            (entry, formatted)
+            for entry, formatted in errors
+            if entry.get("request_id") == error["request_id"]
+            and entry.get("event") == "exception.system"
+        ]
+        assert len(matching_logs) == 1
+        entry, formatted = matching_logs[0]
+        assert entry["cursor_model"] == "composer-2.5"
+        assert entry["cursor_status"] == status
+        assert entry["cursor_run_id"] == "run-cursor-test"
+        assert entry["cursor_request_id"] == "req_cursor_test"
+        assert entry.get("cursor_error_code") == (
+            "upstream_error" if status == "error" else None
+        )
+        assert dummy_key not in repr(entry)
+        assert dummy_key not in formatted
+
+        healthy = await api_client.post("/api/v2/retrieval/query", json=payload)
+        assert healthy.status_code == 200
+        assert healthy.json()["stop_reason"] == "finished"
+        assert healthy.json()["results"] == []
+        assert run.wait.await_count == 2
 
 
 @pytest.mark.asyncio

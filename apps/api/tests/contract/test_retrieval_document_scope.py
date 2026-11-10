@@ -594,7 +594,9 @@ async def test_real_harness_provider_loop_scopes_postgresql_tools(
                 self.tools["finish"].execute(
                     {"notes": ""}, SimpleNamespace(tool_call_id="finish")
                 )
-                return SimpleNamespace(usage=SimpleNamespace(total_tokens=1))
+                return SimpleNamespace(
+                    status="finished", usage=SimpleNamespace(total_tokens=1)
+                )
 
         class Agent:
             def __init__(self, tools):

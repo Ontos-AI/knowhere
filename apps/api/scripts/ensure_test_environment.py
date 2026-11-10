@@ -203,7 +203,7 @@ def get_install_commands() -> tuple[InstallCommand, ...]:
                 command=_with_privilege(("apt-get", "update")),
             ),
             InstallCommand(
-                description="Install PostgreSQL server binaries and contrib extensions",
+                description="Install PostgreSQL server binaries",
                 command=_with_privilege(("apt-get", "install", "-y", "postgresql")),
             ),
             InstallCommand(
@@ -218,7 +218,6 @@ def get_install_commands() -> tuple[InstallCommand, ...]:
                             "set -euo pipefail; "
                             "major=$(pg_config --version | awk '{print $2}' | cut -d. -f1); "
                             "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y; "
-                            # The versioned server includes contrib on Ubuntu.
                             'apt-mark hold postgresql "postgresql-${major}"; '
                             'apt-get install -y --no-upgrade "postgresql-${major}-pgvector"'
                         ),
