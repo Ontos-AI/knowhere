@@ -17,6 +17,8 @@ import pytest
 from shared.services.retrieval.agent_explore.config import FINISH_TOOL_SCHEMA
 from shared.services.retrieval.agent_tools import REGISTRY, ToolContext, load_corpus_overview_text
 from shared.services.retrieval.agent_tools.snippet import build_row, format_row
+from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+from shared.services.retrieval.execution.revision_pins import RetrievalRevisionPins
 
 
 @asynccontextmanager
@@ -213,7 +215,9 @@ async def test_limit_below_minimum_is_rejected() -> None:
 
 @pytest.mark.asyncio
 async def test_recall_blank_query_is_rejected() -> None:
-    result = await REGISTRY.dispatch("corpus.recall", _ctx(), {"query": "   "})
+    # Whitespace is handler validation, after the episode's revision capture.
+    with CorpusRevisionContext.bind(RetrievalRevisionPins({})):
+        result = await REGISTRY.dispatch("corpus.recall", _ctx(), {"query": "   "})
     assert result.error == "recall requires query"
 
 

@@ -793,11 +793,25 @@ async def reset_contract_database() -> None:
                 qualified_table_list: str = ", ".join(
                     f'public."{table_name}"' for table_name in table_names
                 )
-                await connection.execute(
-                    text(
-                        f"TRUNCATE TABLE {qualified_table_list} RESTART IDENTITY CASCADE"
-                    )
-                )
+                # Only this isolated contract database reset may erase consumed
+                # invocation nonces. Production authority never disables guards.
+                invocationTriggers: tuple[str, ...] = (
+                    "protect_lexical_invocation_rows", "protect_lexical_invocation_truncate"
+                ) if "lexical_operator_invocations" in table_names else ()
+                for trigger in invocationTriggers:
+                    await connection.execute(text(
+                        f"ALTER TABLE public.lexical_operator_invocations DISABLE TRIGGER {trigger}"
+                    ))
+                try:
+                    async with connection.begin_nested():
+                        await connection.execute(text(
+                            f"TRUNCATE TABLE {qualified_table_list} RESTART IDENTITY CASCADE"
+                        ))
+                finally:
+                    for trigger in invocationTriggers:
+                        await connection.execute(text(
+                            f"ALTER TABLE public.lexical_operator_invocations ENABLE TRIGGER {trigger}"
+                        ))
     finally:
         await engine.dispose()
 

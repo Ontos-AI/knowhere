@@ -97,7 +97,8 @@ class DocumentRepository:
             return document, result, job
         stmt = (
             select(corpusStorage.Document, JobResult, Job)
-            .join(JobResult, JobResult.id == (job_result_id or corpusStorage.Document.current_job_result_id))
+            .join(JobResult, JobResult.id == (job_result_id or func.coalesce(
+                corpusStorage.Document.latest_parsed_job_result_id, corpusStorage.Document.current_job_result_id)))
             .join(Job, Job.job_id == JobResult.job_id)
             .where(corpusStorage.Document.document_id == document_id)
             .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))

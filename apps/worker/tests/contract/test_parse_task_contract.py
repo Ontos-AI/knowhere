@@ -73,9 +73,7 @@ def test_parse_task_should_process_uploaded_file_through_real_contract_boundarie
     assert celery_result.result["status"] == "success"
     assert celery_result.result["job_id"] == job["job_id"]
     assert celery_result.result["delivery_mode"] == "url"
-    assert celery_result.result["result_s3_key"] == contract.storage.build_result_zip_key(
-        job_id=job["job_id"]
-    )
+    assert celery_result.result["result_s3_key"].startswith(f"results/{job['job_id']}/parsing/")
 
     observed = contract.observe_successful_job(job["job_id"])
     job_row = observed["job"]
@@ -89,9 +87,9 @@ def test_parse_task_should_process_uploaded_file_through_real_contract_boundarie
     assert job_row["error_message"] is None
 
     assert result_row["document_id"]
-    assert result_row["result_s3_key"] == contract.storage.build_result_zip_key(
-        job_id=job["job_id"]
-    )
+    expected_identity = f"{job['job_id']}/parsing/{result_row['document_metadata']['parsing_execution_id']}"
+    assert result_row["result_s3_key"] == contract.storage.build_result_zip_key(job_id=expected_identity)
+    assert celery_result.result["result_s3_key"] == result_row["result_s3_key"]
     assert result_row["result_size"] and result_row["result_size"] > 0
 
     assert len(job_chunks) > 0
@@ -494,12 +492,15 @@ def test_parse_task_should_reject_identical_source_before_billing_or_parsing(
             published_events.append(event_id)
             return "contract-webhook-message"
 
+        def close(self) -> None:
+            return None
+
     from sqlalchemy import text
     import shared.services.webhook.qstash_publisher as publisher_module
 
     monkeypatch.setattr(
         publisher_module,
-        "get_qstash_webhook_publisher",
+        "QStashWebhookPublisher",
         lambda: CapturedWebhookPublisher(),
     )
     with contract.engine.begin() as connection:

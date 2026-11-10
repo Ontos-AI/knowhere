@@ -14,6 +14,7 @@ from shared.services.retrieval.execution.route_types import (
     RetrievalRouteContext,
     RetrievalRouteOutcome,
 )
+from shared.services.retrieval.execution.native_failure import NativeFailureState
 from shared.services.retrieval.hydration.evidence_compose import (
     group_evidence_units,
 )
@@ -171,6 +172,7 @@ async def _try_run_small_corpus_route(
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
         revision_pins=context.revision_pins,
+        skip_locked_chunk_final=True,
     )
     results = assembled_rows
     response = {
@@ -235,6 +237,7 @@ async def _run_classic_topk_route(
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
         revision_pins=context.revision_pins,
+        skip_locked_chunk_final=True,
     )
     results = assembled_rows
     response = {
@@ -297,6 +300,7 @@ async def _run_agent_explore_route(
         budget=EpisodeBudget(),
         document_scope=context.document_scope,
     )
+    NativeFailureState.raiseCurrent()
     logger.info(
         "retrieval agent_explore stage=episode seconds={:.3f} pool={} "
         "steps={} tokens={} stop_reason={}".format(

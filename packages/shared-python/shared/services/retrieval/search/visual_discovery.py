@@ -154,6 +154,27 @@ def _copy_matched_page_nums(target: dict[str, Any], source: Mapping[str, Any]) -
         target["matched_page_nums"] = pages
 
 
+class _QueryEmbedding:
+    """Resolve one vector lazily for the visual searches in this request."""
+
+    def __init__(self, query: str) -> None:
+        self._query: str = query
+        self._vector: list[float] | None = None
+
+    async def get(self) -> list[float]:
+        if self._vector is None:
+            try:
+                self._vector = await asyncio.to_thread(
+                    embed_query, self._query, usage_task="retrieval.query_embed",
+                )
+            except Exception as exc:
+                raise RequiredQueryEmbeddingException(
+                    internal_message="Required retrieval query embedding failed",
+                    provider="query_embedding", original_exception=exc,
+                ) from exc
+        return self._vector
+
+
 async def visual_page_discovery(
     db: AsyncSession | None,
     *,
@@ -169,6 +190,7 @@ async def visual_page_discovery(
     filter_mode: str = "delete",
     revision_pins: Mapping[str, str] | None = None,
     section_targets: list[tuple[str, str | None]] | None = None,
+    query_embedding: _QueryEmbedding | None = None,
 ) -> DiscoveryResult:
     """Rank persisted page embeddings via pgvector cosine similarity."""
     if db is None:
@@ -227,16 +249,8 @@ async def visual_page_discovery(
     if not has_embeddings:
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
 
-    try:
-        query_vector = await asyncio.to_thread(
-            embed_query, normalized_query, usage_task="retrieval.query_embed",
-        )
-    except Exception as exc:
-        raise RequiredQueryEmbeddingException(
-            internal_message="Required retrieval query embedding failed",
-            provider="query_embedding", original_exception=exc,
-        ) from exc
-    vector_literal = HalfVector(query_vector).to_text()
+    embedding = query_embedding or _QueryEmbedding(normalized_query)
+    vector_literal = HalfVector(await embedding.get()).to_text()
 
     signal_clause, signal_params = _build_signal_clause(
         signal_paths or [], filter_mode
@@ -429,6 +443,7 @@ async def light_unrefined_section_pages(
     rows: list[dict[str, Any]],
     document_scope: DocumentScope = DocumentScope(),
     revision_pins: Mapping[str, str] | None = None,
+    query_embedding: _QueryEmbedding | None = None,
 ) -> None:
     """Populate ``matched_page_nums`` on unrefined page rows via section-scoped visual discovery."""
     if (
@@ -462,6 +477,7 @@ async def light_unrefined_section_pages(
     if not pending or not targets:
         return
 
+    embedding = query_embedding or _QueryEmbedding(str(query or '').strip())
     pages_by_chunk: dict[tuple[str, str], list[int]] = {}
     for document_id, section_path in targets:
         discovery = await visual_page_discovery(
@@ -473,6 +489,7 @@ async def light_unrefined_section_pages(
             document_scope=document_scope,
             revision_pins=revision_pins,
             section_targets=[(document_id, section_path)],
+            query_embedding=embedding,
         )
         for vis_row in discovery.payload.get("fused_rows") or []:
             if not isinstance(vis_row, dict):
@@ -533,6 +550,7 @@ async def hybrid_discovery(
     if not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)):
         return lexical_result
 
+    embedding = _QueryEmbedding(str(query or '').strip())
     visual_result = await visual_page_discovery(
         db,
         user_id=user_id,
@@ -547,6 +565,7 @@ async def hybrid_discovery(
         filter_mode=filter_mode,
         revision_pins=revision_pins,
         section_targets=section_targets,
+        query_embedding=embedding,
     )
 
     lexical_rows = list(lexical_result.payload.get("fused_rows") or [])
@@ -599,6 +618,7 @@ async def hybrid_discovery(
             rows=fused_rows,
             document_scope=document_scope,
             revision_pins=revision_pins,
+            query_embedding=embedding,
         )
         normalize_row_scores(
             fused_rows,

@@ -25,6 +25,10 @@ celery_app = Celery(
     backend=app_config.get_celery_result_backend(),
     include=[
         "shared.core.tasks.celery_tasks",
+        "shared.services.retrieval.lexical.tasks",
+        "shared.services.retrieval.lexical.reconcile",
+        "shared.services.retrieval.lexical.maintenance",
+        "shared.services.retrieval.lexical.turnover",
     ],
 )
 
@@ -44,6 +48,8 @@ celery_app.conf.task_queues = (
     Queue("ai_high_priority", routing_key="ai.high"),
     # Default queue for sweeper and other generic tasks
     Queue("default", routing_key="default"),
+    Queue("lexical_indexing", routing_key="lexical.indexing"),
+    Queue("lexical_maintenance", routing_key="lexical.maintenance"),
 )
 
 celery_app.conf.update(
@@ -93,6 +99,10 @@ celery_app.conf.update(
     beat_max_loop_interval=30,
     # Task routing
     task_routes={
+        "shared.services.retrieval.lexical.tasks.*": {"queue": "lexical_indexing"},
+        "shared.services.retrieval.lexical.reconcile.*": {"queue": "default"},
+        "shared.services.retrieval.lexical.maintenance.*": {"queue": "lexical_maintenance"},
+        "shared.services.retrieval.lexical.turnover.*": {"queue": "lexical_maintenance"},
         # Document Ingestion tasks (default medium priority)
         "app.core.tasks.document_ingestion_tasks.*": {
             "queue": "document_ingestion_medium"
@@ -120,6 +130,14 @@ celery_app.conf.update(
     },
     # Periodic tasks (Celery Beat)
     beat_schedule={
+        "maintain-lexical-builds": {
+            "task": "shared.services.retrieval.lexical.maintenance.maintainLexical",
+            "schedule": 30.0,
+        },
+        "turn-over-lexical-indexes": {
+            "task": "shared.services.retrieval.lexical.turnover.turnOverLexicalIndexes",
+            "schedule": 30.0,
+        },
         "recover-orphaned-webhooks": {
             "task": "app.core.tasks.webhook_tasks.recover_orphaned_webhooks",
             "schedule": 1800.0,  # Every 30 minutes

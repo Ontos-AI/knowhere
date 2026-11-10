@@ -1,4 +1,4 @@
-# Fake AWS security-group IDs in staging-only OpenSearch fixtures.
+# Synthetic EC2 security group fixture in OpenSearch tests.
 # History scan uses --all, so these staging commits fail PRs based on main.
 8dc20f8d28a38e149a2558cd8d281abfb82156fb:deploy/opensearch/tests/test_operations.py:generic-api-key:31
 b6011cd9b6df9586911b888c159522d45c7951ab:deploy/opensearch/tests/test_operations.py:generic-api-key:31

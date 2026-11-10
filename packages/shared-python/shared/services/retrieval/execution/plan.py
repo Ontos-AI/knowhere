@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import time
 from dataclasses import replace
+from hashlib import sha256
 from typing import Any
 
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncSession
-from hashlib import sha256
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
+
+from shared.core.config import settings
+from shared.core.exceptions.domain_exceptions import ConflictException, UnavailableException
+from shared.models.database.lexicalcontrol import LexicalBackendControl
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.demo_query_scope import validate_demo_query_scope
+from shared.services.retrieval.document_scope import DocumentScope
 
 from shared.models.schemas.llm_config import LLMConfig
 from shared.services.ai.llm_overrides import (
@@ -25,6 +31,7 @@ from shared.services.retrieval.cache_service import (
 )
 from shared.services.retrieval.execution.routes import run_retrieval_route
 from shared.services.retrieval.execution.revision_pins import (
+    RetrievalRevisionPins,
     capture_revision_pins,
     is_revision_generation_stable,
 )
@@ -35,11 +42,19 @@ from shared.services.retrieval.execution.response_projection import (
     project_public_retrieval_response,
 )
 from shared.services.retrieval.execution.query_request import RetrievalQuery
-from shared.core.exceptions.domain_exceptions import ConflictException
+from shared.services.retrieval.execution.native_failure import NativeFailureState
+from shared.services.retrieval.lexical.asyncread import AsyncPublishedLexicalRead
+from shared.services.retrieval.lexical.error import LexicalIndexError
+from shared.services.retrieval.lexical.reader import PublishedLexicalRead
+from shared.services.retrieval.lexical.stage_observer import StageObserver
 from shared.services.retrieval.manifest_cache import discard_cached_manifest_payloads
 from shared.services.retrieval.required_query_embedding import (
     RequiredQueryEmbeddingException,
 )
+
+
+class _NativeServingGenerationChanged(RuntimeError):
+    """A progressive publication crossed a native retrieval attempt."""
 
 
 async def run_retrieval_query(
@@ -91,15 +106,108 @@ async def run_retrieval_query(
 class RetrievalExecutionPlan:
     def __init__(self, request: RetrievalQuery) -> None:
         self.request = request
+        self._postgresqlEpoch: int | None = None
 
     async def execute(self) -> dict[str, Any]:
         request = self.request
         override_token = set_llm_overrides_async(request.llm_config)
 
         try:
+            if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch" and request.query:
+                try:
+                    return await self._execute_native(request)
+                except _NativeServingGenerationChanged:
+                    logger.warning("Progressive publication changed native retrieval generation; retrying once")
+                    try:
+                        return await self._execute_native(request)
+                    except _NativeServingGenerationChanged:
+                        raise self._serving_generation_conflict() from None
+            if request.query:
+                self._postgresqlEpoch = await self._capture_postgresql_epoch(request)
             return await self._execute_with_overrides(request)
+        except LexicalIndexError as error:
+            raise UnavailableException(internal_message=str(error), retry_after=1,
+                user_message="Search is temporarily unavailable. Please retry.", original_exception=error) from error
         finally:
             reset_llm_overrides_async(override_token)
+
+    @staticmethod
+    async def _capture_postgresql_epoch(request: RetrievalQuery) -> int:
+        bind: AsyncEngine | AsyncConnection | None = getattr(request.db, "bind", None)
+        if bind is None:
+            raise LexicalIndexError("API retrieval requires an asynchronous database bind")
+        # Capture the operator gate before cache/shortcuts. Reuse the existing
+        # async engine and finish this short transaction before any route work.
+        async with AsyncSession(bind=bind) as gateDb:
+            state: tuple[str, str, int] | None = (await gateDb.execute(select(
+                LexicalBackendControl.backend, LexicalBackendControl.mode, LexicalBackendControl.epoch,
+            ).where(LexicalBackendControl.id == 1))).tuples().one_or_none()
+        if state is None:
+            # Legacy PG scopes predate the optional native control row; reads
+            # never initialize it. First admission establishes a new epoch/key.
+            return 0
+        backend, mode, epoch = state
+        if backend != "postgresql" or mode != "serving":
+            raise LexicalIndexError("PostgreSQL retrieval is gated or another backend is selected", isRetryable=True)
+        return epoch
+
+    async def _execute_native(self, request: RetrievalQuery) -> dict[str, Any]:
+        reader: AsyncPublishedLexicalRead | None = None
+        failureState: NativeFailureState = NativeFailureState()
+        try:
+            bind: AsyncEngine | AsyncConnection | None = getattr(request.db, "bind", None)
+            if bind is None:
+                raise LexicalIndexError("API retrieval requires an asynchronous database bind")
+            reader = AsyncPublishedLexicalRead(userId=request.user_id,
+                namespace=request.namespace, bind=bind, isClassic=request.use_agentic is False,
+                preferContentCoverage=request.use_agentic is False and request.include_document_ids is not None)
+            await reader.startAsync()
+            with reader.bind(), failureState.bind():
+                async with AsyncSession(bind=bind, expire_on_commit=False) as ownedDb:
+                    ownedDb.info["lexical_read_owned"] = True
+                    response = await self._execute_with_overrides(replace(request, db=ownedDb))
+                    failureState.raiseIfFailed()
+                    if reader.isClassic:
+                        await reader.finishAsync(ownedDb)
+                        await ownedDb.commit()
+                    else:
+                        await reader.finishAsync()
+                    return response
+        except Exception as error:
+            if isinstance(error, LexicalIndexError):
+                failureState.record(error)
+            nativeError: LexicalIndexError | None = failureState.failure
+            if nativeError is None:
+                raise
+            logger.warning("retrieval native failure: stage=request error_type={} retryable={}",
+                type(nativeError).__name__, nativeError.isRetryable)
+            raise UnavailableException(internal_message=str(nativeError), retry_after=1,
+                user_message="Search is temporarily unavailable. Please retry.", original_exception=nativeError) from nativeError
+        finally:
+            try:
+                if reader is not None and not reader.isFinished:
+                    await reader.closeAsync()
+            except Exception as error:
+                logger.warning("Lexical read close failed: error_type={}", type(error).__name__)
+
+    @staticmethod
+    def _serving_generation_conflict() -> ConflictException:
+        return ConflictException(
+            user_message="Document search changed during retrieval. Please retry.",
+            reason="ABORTED",
+            resource="Namespace",
+        )
+
+    @staticmethod
+    async def _is_serving_read_stable(
+        request: RetrievalQuery, pins: RetrievalRevisionPins,
+        native_read: PublishedLexicalRead | None, scope: DocumentScope,
+    ) -> bool:
+        if native_read is not None:
+            return await native_read.isProgressivePublicationStable(request.db, scope)
+        return await is_revision_generation_stable(
+            request.db, user_id=request.user_id, namespace=request.namespace, pins=pins, strict=True,
+        )
 
     async def _execute_with_overrides(self, request: RetrievalQuery) -> dict[str, Any]:
         # TODO(intent-step): Insert Intent Understanding step here.
@@ -148,21 +256,39 @@ class RetrievalExecutionPlan:
             f"rerank={request.rerank}  threshold={request.threshold}"
         )
 
-        capturedDemoPins = None
+        native_read: PublishedLexicalRead | None = PublishedLexicalRead.current()
+        is_demo: bool = CorpusStorage.resolve_namespace(request.namespace).is_demo
+        captured_pins: RetrievalRevisionPins | None = (
+            native_read.pins if native_read is not None else None
+        )
         cache_extra = request.build_cache_extra()
-        if CorpusStorage.resolve_namespace(request.namespace).is_demo:
-            capturedDemoPins = await capture_revision_pins(
+        if is_demo and captured_pins is None:
+            captured_pins = await capture_revision_pins(
                 request.db, user_id=request.user_id, namespace=request.namespace
             )
+        if is_demo:
+            assert captured_pins is not None
             await validate_demo_query_scope(
                 request.db,
                 include_document_ids=request.include_document_ids,
-                pins=capturedDemoPins,
+                pins=captured_pins,
             )
-            cache_extra["corpus_generation"] = capturedDemoPins.generation
+        if captured_pins is not None:
+            cache_extra["corpus_generation"] = captured_pins.generation
             cache_extra["revision_digest"] = sha256(
-                repr(sorted(capturedDemoPins.items())).encode()
+                repr(sorted(captured_pins.items())).encode()
             ).hexdigest()
+        if native_read is not None:
+            cache_extra["lexical_backend"] = "opensearch"
+            cache_extra["backend_epoch"] = native_read.epoch
+            if (
+                isinstance(native_read, AsyncPublishedLexicalRead)
+                and native_read.preferContentCoverage
+            ):
+                cache_extra["lexical_ranking_profile"] = "document-content-coverage-v1"
+        elif self._postgresqlEpoch is not None:
+            cache_extra["lexical_backend"] = "postgresql"
+            cache_extra["backend_epoch"] = self._postgresqlEpoch
 
         cache_version, cached_response = await _read_cached_response(
             user_id=request.user_id,
@@ -174,6 +300,7 @@ class RetrievalExecutionPlan:
             cache_extra=cache_extra,
         )
         if cached_response is not None:
+            StageObserver.record("bypass", "cache")
             return cached_response
 
         logger.debug(
@@ -182,14 +309,16 @@ class RetrievalExecutionPlan:
 
         route_context = request.build_route_context()
         for attempt in range(2):
-            revision_pins = (
-                capturedDemoPins if attempt == 0 else None
-            ) or await capture_revision_pins(
-                request.db,
-                user_id=request.user_id,
-                namespace=request.namespace,
+            revision_pins: RetrievalRevisionPins | None = (
+                captured_pins if attempt == 0 else None
             )
-            if capturedDemoPins is not None:
+            if revision_pins is None:
+                revision_pins = await capture_revision_pins(
+                    request.db,
+                    user_id=request.user_id,
+                    namespace=request.namespace,
+                )
+            if is_demo and attempt > 0:
                 await validate_demo_query_scope(
                     request.db,
                     include_document_ids=request.include_document_ids,
@@ -210,32 +339,27 @@ class RetrievalExecutionPlan:
                             ),
                         )
                     )
-            except (CursorRetrievalException, RequiredQueryEmbeddingException):
+            except (
+                CursorRetrievalException,
+                RequiredQueryEmbeddingException,
+                LexicalIndexError,
+            ):
                 raise
             except Exception:
-                if await is_revision_generation_stable(
-                    request.db,
-                    user_id=request.user_id,
-                    namespace=request.namespace,
-                    pins=revision_pins,
-                    strict=True,
+                if await self._is_serving_read_stable(
+                    request, revision_pins, native_read, route_context.document_scope,
                 ):
                     raise
             else:
-                if await is_revision_generation_stable(
-                    request.db,
-                    user_id=request.user_id,
-                    namespace=request.namespace,
-                    pins=revision_pins,
-                    strict=True,
+                if await self._is_serving_read_stable(
+                    request, revision_pins, native_read, route_context.document_scope,
                 ):
                     break
+            if native_read is not None:
+                # Retry with a fresh native read, cache key, and SQL session.
+                raise _NativeServingGenerationChanged
             if attempt == 1:
-                raise ConflictException(
-                    user_message="Document search changed during retrieval. Please retry.",
-                    reason="ABORTED",
-                    resource="Namespace",
-                )
+                raise self._serving_generation_conflict()
             # Agent tools intentionally use short-lived sessions across LLM waits.
             # Validate the whole episode instead of retaining a long DB snapshot.
             await request.db.rollback()
@@ -245,6 +369,9 @@ class RetrievalExecutionPlan:
                 request.user_id,
                 request.namespace,
             )
+        NativeFailureState.raiseCurrent()
+        if outcome.response.get("router_used") == "small_corpus_all":
+            StageObserver.record("bypass", "small_corpus")
 
         if cache_version is not None:
             await _write_cached_response(

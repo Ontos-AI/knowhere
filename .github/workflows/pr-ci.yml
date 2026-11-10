@@ -109,6 +109,9 @@ jobs:
       - name: Install test system dependencies
         run: uv run python apps/api/scripts/ensure_test_environment.py --install
 
+      - name: Run native background shutdown tests
+        run: uv run pytest packages/shared-python/shared/tests/test_background_pool.py -q
+
       # api/worker both expose top-level `app`; run separately to avoid module shadowing.
       - name: Run API tests
         run: uv run pytest apps/api/tests -q

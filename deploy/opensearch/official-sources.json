@@ -1,0 +1,23 @@
+{
+  "candidate": "OpenSearch 3.9.0 ARM64",
+  "opensearch_source_commit": "4ee42a94e87f66fbf1e62a9871b1b87f91e02472",
+  "tag_commit_verified_with": "gh api repos/opensearch-project/OpenSearch/git/ref/tags/3.9.0",
+  "sources": [
+    "https://docs.opensearch.org/latest/tuning-your-cluster/availability-and-recovery/remote-store/index/",
+    "https://docs.opensearch.org/latest/tuning-your-cluster/availability-and-recovery/remote-store/remote-cluster-state/",
+    "https://docs.opensearch.org/latest/api-reference/snapshots/create-snapshot/",
+    "https://docs.opensearch.org/latest/api-reference/snapshots/get-snapshot-status/",
+    "https://docs.opensearch.org/latest/api-reference/snapshots/create-repository/",
+    "https://docs.opensearch.org/latest/security/configuration/tls/",
+    "https://docs.opensearch.org/latest/security/authentication-backends/client-auth/",
+    "https://github.com/opensearch-project/OpenSearch/blob/4ee42a94e87f66fbf1e62a9871b1b87f91e02472/server/src/main/java/org/opensearch/indices/IndicesService.java",
+    "https://github.com/opensearch-project/OpenSearch/blob/4ee42a94e87f66fbf1e62a9871b1b87f91e02472/plugins/repository-s3/src/main/java/org/opensearch/repositories/s3/S3Service.java",
+    "https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-instance.html",
+    "https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-volume.html",
+    "https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html",
+    "https://github.com/opensearch-project/OpenSearch/blob/4ee42a94e87f66fbf1e62a9871b1b87f91e02472/server/src/internalClusterTest/java/org/opensearch/snapshots/SharedClusterSnapshotRestoreIT.java#L894-L923",
+    "https://github.com/opensearch-project/OpenSearch/blob/4ee42a94e87f66fbf1e62a9871b1b87f91e02472/server/src/main/java/org/opensearch/index/engine/ReadOnlyEngine.java#L448-L451",
+    "https://github.com/opensearch-project/OpenSearch/blob/4ee42a94e87f66fbf1e62a9871b1b87f91e02472/server/src/main/java/org/opensearch/snapshots/SnapshotShardsService.java#L469-L486"
+  ],
+  "limitations": "Latest documentation is a lookup aid; pin and qualify actual archive, plugin and generated configuration checksums before installation. No AWS drill, recovery objective, notification delivery or cost approval is implied."
+}

@@ -40,11 +40,23 @@ def test_should_register_worker_task_modules_for_celery_consumers(
         assert task_name in celery_app.tasks
 
 
+@pytest.mark.parametrize("hasPreparedCampaign", [False, True])
 def test_should_consume_current_and_legacy_ingestion_queues(
     worker_contract_environment: None,
     monkeypatch: MonkeyPatch,
+    hasPreparedCampaign: bool,
 ) -> None:
     from app.core import worker_bootstrap
+    from shared.core.config import settings
+
+    if hasPreparedCampaign:
+        monkeypatch.setattr(settings, "ENVIRONMENT", "staging")
+        monkeypatch.setattr(settings, "APP_ENV", "staging")
+        monkeypatch.setenv("KNOWHERE_PREPARED_COMPLETION_CAMPAIGN", "reviewed-campaign")
+        monkeypatch.setenv("KNOWHERE_PREPARED_COMPLETION_QUEUE", "knowhere-prepared-reviewed")
+    else:
+        monkeypatch.delenv("KNOWHERE_PREPARED_COMPLETION_CAMPAIGN", raising=False)
+        monkeypatch.delenv("KNOWHERE_PREPARED_COMPLETION_QUEUE", raising=False)
 
     worker_main_calls: list[list[str]] = []
     child_process_commands: list[list[str]] = []
@@ -110,6 +122,30 @@ def test_should_consume_current_and_legacy_ingestion_queues(
     }.issubset(consumed_queues)
 
     assert "worker_maintenance" not in consumed_queues
+    if hasPreparedCampaign:
+        assert "knowhere-prepared-reviewed" in consumed_queues
+        assert worker_args[worker_args.index("--include") + 1] == "scripts.probes.prepared-completion-task"
+    else:
+        assert "--include" not in worker_args and not any(queue.startswith("knowhere-prepared-") for queue in consumed_queues)
+
+
+@pytest.mark.parametrize("environment,queue", [("production", "knowhere-prepared-reviewed"), ("staging", "lexical_indexing"), ("staging", "")])
+def test_prepared_completion_refuses_unsafe_startup_before_spawning_children(
+    worker_contract_environment: None, monkeypatch: MonkeyPatch, environment: str, queue: str,
+) -> None:
+    from app.core import worker_bootstrap
+    from shared.core.config import settings
+    monkeypatch.setattr(settings, "ENVIRONMENT", environment)
+    monkeypatch.setattr(settings, "APP_ENV", environment)
+    monkeypatch.setenv("KNOWHERE_PREPARED_COMPLETION_CAMPAIGN", "reviewed-campaign")
+    monkeypatch.setenv("KNOWHERE_PREPARED_COMPLETION_QUEUE", queue)
+
+    def refuseSpawn(*_args: object, **_options: object) -> None:
+        raise AssertionError("Invalid prepared completion configuration must not start a process")
+
+    monkeypatch.setattr(worker_bootstrap.subprocess, "Popen", refuseSpawn)
+    with pytest.raises(ValueError, match="staging campaign and a dedicated prepared queue"):
+        worker_bootstrap.run_worker()
 
 
 def test_should_kill_a_child_that_ignores_sigterm(

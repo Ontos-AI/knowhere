@@ -14,6 +14,8 @@ from shared.services.billing.credits_sync_service import SyncCreditsService
 from shared.services.jobs.lifecycle.post_commit_effects import PostCommitEffectPlan
 from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
 from shared.utils.error_details import normalize_error_details
+from shared.services.jobs.parsing import ParsingOwnership
+from shared.services.jobs.parsing_error import ParsingOwnerError
 
 
 @dataclass(frozen=True)
@@ -45,7 +47,22 @@ class SyncJobFailureFinalizer:
         error_code: str,
         error_details: dict[str, Any] | None,
         should_refund: bool,
+        parsingOwnerToken: str | None = None,
     ) -> JobFailureFinalization:
+        if parsingOwnerToken is not None:
+            try:
+                owned: Job = ParsingOwnership._lockJob(db, job_id)
+            except ParsingOwnerError:
+                return JobFailureFinalization(succeeded=False, post_commit_effects=PostCommitEffectPlan.none())
+            if owned.parsing_owner_token != parsingOwnerToken:
+                return JobFailureFinalization(succeeded=False, post_commit_effects=PostCommitEffectPlan.none())
+        job: Job | None = db.scalar(select(Job).where(Job.job_id == job_id).with_for_update())
+        if job is not None and parsingOwnerToken is None and job.parsing_owner_token is not None:
+            # A duplicate delivery can fail before it ever claims ownership.
+            # Its callback must not fail or refund a different parser delivery.
+            return JobFailureFinalization(succeeded=False, post_commit_effects=PostCommitEffectPlan.none())
+        if job is not None and job.parsing_status == "completed":
+            return JobFailureFinalization(succeeded=False, post_commit_effects=PostCommitEffectPlan.none())
         transition_outcome = self._state_machine.mark_failed_outcome(
             db,
             job_id,
@@ -63,6 +80,10 @@ class SyncJobFailureFinalizer:
                 post_commit_effects=PostCommitEffectPlan.none(),
             )
 
+        if job is not None:
+            job.parsing_status = "failed"
+            job.indexing_status = "not_started"
+            job.failure_stage = "parsing"
         if should_refund:
             self._try_refund_credits(db, job_id)
 

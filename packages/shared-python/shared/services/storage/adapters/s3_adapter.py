@@ -8,6 +8,7 @@ from loguru import logger
 
 from shared.core.exceptions.domain_exceptions import StorageServiceException
 from shared.services.storage.storage_adapter import StorageAdapter
+from shared.services.storage.object_inventory_page import ObjectInventoryPage
 
 
 class S3StorageAdapter(StorageAdapter):
@@ -23,6 +24,9 @@ class S3StorageAdapter(StorageAdapter):
         """
         self.s3_client = s3_client
         self.default_bucket = default_bucket
+
+    def close(self) -> None:
+        self.s3_client.close()
 
     def _get_bucket(self, bucket: Optional[str] = None) -> str:
         """Get the effective bucket name."""
@@ -172,6 +176,20 @@ class S3StorageAdapter(StorageAdapter):
                 f"S3 list_objects failed: bucket={bucket_name}, prefix={prefix}, error_code={error_code}, error={e}"
             )
             return
+
+    def list_object_page(self, *, prefix: str, after: str | None = None,
+                         limit: int = 100, bucket: str | None = None) -> ObjectInventoryPage:
+        if not 1 <= limit <= 1000:
+            raise ValueError("Object inventory page limit must be between 1 and 1000")
+        arguments: dict[str, str | int] = {"Bucket": self._get_bucket(bucket), "Prefix": prefix, "MaxKeys": limit}
+        if after is not None:
+            arguments["StartAfter"] = after
+        response = self.s3_client.list_objects_v2(**arguments)
+        objects: tuple[tuple[str, int], ...] = tuple((item["Key"], int(item["Size"])) for item in response.get("Contents", []))
+        if response.get("IsTruncated") and not objects:
+            raise StorageServiceException(internal_message="Object inventory page did not advance", operation="list_objects")
+        return ObjectInventoryPage(objects=objects,
+            nextCursor=objects[-1][0] if response.get("IsTruncated") else None)
 
     def generate_presigned_url(
         self,
