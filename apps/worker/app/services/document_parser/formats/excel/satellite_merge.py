@@ -8,11 +8,11 @@ from openpyxl.utils import get_column_letter
 from app.services.document_parser.formats.excel.formula_graph import (
     CellRange,
     FormulaNode,
+    range_hits_region,
 )
 from app.services.document_parser.formats.excel.region_split import (
+    ROLE_TABLE,
     ClassifiedRegion,
-    classify_sheet_row,
-    columns_overlap,
     in_region,
 )
 from app.services.document_parser.formats.excel.workbook_grid import (
@@ -24,15 +24,11 @@ from app.services.document_parser.formats.excel.workbook_grid import (
     merge_at,
 )
 
-_ROLE_TABLE = "table"
-
 
 @dataclass(frozen=True)
 class PlannedTable:
     sheet_name: str
     region: Region
-    locked: bool
-    caption_texts: tuple[str, ...]
     satellites: tuple[str, ...]
     tfoot_rows: tuple[int, ...]
 
@@ -63,15 +59,26 @@ def resolve_formula_satellites_and_edges(
     sheet_regions: Mapping[str, Sequence[ClassifiedRegion]],
     graph: Sequence[FormulaNode],
 ) -> WorkbookTablePlan:
+    """Plan emitted tables: attach detached regions to main tables, link tables.
+
+    Main tables are locked seeds and shape-tables that contain text. Every other
+    region is a candidate: formula edges in either direction attach it to the
+    tables it touches; an isolated candidate without text is noise once the
+    workbook has a main table; an isolated candidate with text becomes a
+    satellite of its nearest same-sheet table(s).
+    """
     sheets = workbook.sheet_by_name()
     tables: list[tuple[str, ClassifiedRegion]] = []
-    fragments: list[tuple[str, ClassifiedRegion]] = []
+    candidates: list[tuple[str, ClassifiedRegion]] = []
     for sheet_name, classified in sheet_regions.items():
+        sheet = sheets[sheet_name]
         for item in classified:
-            if item.role == _ROLE_TABLE:
+            if item.role == ROLE_TABLE and (
+                item.locked or _has_text(sheet, item.region)
+            ):
                 tables.append((sheet_name, item))
             else:
-                fragments.append((sheet_name, item))
+                candidates.append((sheet_name, item))
 
     attachments: dict[str, _Attachment] = {
         table_key(sheet_name, item.region): _Attachment()
@@ -82,205 +89,174 @@ def resolve_formula_satellites_and_edges(
         for sheet_name, item in tables
     }
     absorbed: set[tuple[str, Region]] = set()
-    nodes_by_cell = {(node.sheet, node.row, node.col): node for node in graph}
 
     while True:
         progressed = False
-        for sheet_name, fragment in fragments:
-            if (sheet_name, fragment.region) in absorbed:
+        for sheet_name, candidate in candidates:
+            if (sheet_name, candidate.region) in absorbed:
                 continue
-            sheet = sheets.get(sheet_name)
-            if sheet is None:
-                continue
+            sheet = sheets[sheet_name]
             hosts = _formula_hosts(
-                fragment.region,
+                candidate.region,
                 sheet_name=sheet_name,
                 tables=tables,
                 owned_regions=owned_regions,
-                nodes_by_cell=nodes_by_cell,
+                graph=graph,
             )
             if not hosts:
                 continue
-            text = _format_satellite(sheet, fragment.region)
+            text = format_region_cells(sheet, candidate.region)
             for host_sheet, host in hosts:
                 key = table_key(host_sheet, host.region)
                 attachment = attachments[key]
-                if _is_aligned_totals(sheet, fragment.region, host.region, host_sheet):
+                if _is_aligned_totals(sheet, candidate.region, host.region, host_sheet):
                     attachment.tfoot_rows.extend(
-                        _occupied_rows(sheet, fragment.region)
+                        _occupied_rows(sheet, candidate.region)
                     )
                 elif text:
                     attachment.satellites.append(text)
                 if sheet_name == host_sheet and len(hosts) == 1:
-                    owned_regions[key].append(fragment.region)
-            absorbed.add((sheet_name, fragment.region))
+                    owned_regions[key].append(candidate.region)
+            absorbed.add((sheet_name, candidate.region))
             progressed = True
         if not progressed:
             break
 
-    for sheet_name, fragment in fragments:
-        if (sheet_name, fragment.region) in absorbed:
+    dropped: set[tuple[str, Region]] = set()
+    for sheet_name, candidate in candidates:
+        if (sheet_name, candidate.region) in absorbed:
             continue
-        sheet = sheets.get(sheet_name)
-        if sheet is None:
+        sheet = sheets[sheet_name]
+        if not _has_text(sheet, candidate.region):
+            if tables:
+                dropped.add((sheet_name, candidate.region))
             continue
-        host = _title_host_below(sheet, fragment, tables)
-        if host is None:
+        nearest = _nearest_hosts(candidate.region, sheet_name=sheet_name, tables=tables)
+        if not nearest:
             continue
-        title = _title_text(sheet, fragment.region)
-        if not title:
-            continue
-        attachments[table_key(host[0], host[1].region)].caption_texts.append(title)
-        absorbed.add((sheet_name, fragment.region))
+        text = format_region_cells(sheet, candidate.region)
+        for host_sheet, host in nearest:
+            attachments[table_key(host_sheet, host.region)].satellites.append(text)
+        absorbed.add((sheet_name, candidate.region))
 
     planned: list[PlannedTable] = []
     for sheet_name, item in tables:
-        key = table_key(sheet_name, item.region)
-        attachment = attachments[key]
+        attachment = attachments[table_key(sheet_name, item.region)]
         planned.append(
             PlannedTable(
                 sheet_name=sheet_name,
                 region=item.region,
-                locked=item.locked,
-                caption_texts=tuple(_unique(attachment.caption_texts)),
                 satellites=tuple(_unique(attachment.satellites)),
                 tfoot_rows=tuple(sorted(set(attachment.tfoot_rows))),
             )
         )
-    for sheet_name, fragment in fragments:
-        if (sheet_name, fragment.region) in absorbed:
+    for sheet_name, candidate in candidates:
+        key = (sheet_name, candidate.region)
+        if key in absorbed or key in dropped:
             continue
         planned.append(
             PlannedTable(
                 sheet_name=sheet_name,
-                region=fragment.region,
-                locked=False,
-                caption_texts=(),
+                region=candidate.region,
                 satellites=(),
                 tfoot_rows=(),
             )
         )
 
     planned.sort(key=lambda item: (item.sheet_name, item.region.min_row, item.region.min_col))
+    nodes_by_cell = {(node.sheet, node.row, node.col): node for node in graph}
     links = _table_formula_links(tables, owned_regions, nodes_by_cell)
-    planned, links = _drop_unlabeled_numeric_strips(sheets, planned, links, graph)
     return WorkbookTablePlan(tables=tuple(planned), links=tuple(links))
 
 
 class _Attachment:
     def __init__(self) -> None:
-        self.caption_texts: list[str] = []
         self.satellites: list[str] = []
         self.tfoot_rows: list[int] = []
 
 
-def _drop_unlabeled_numeric_strips(
-    sheets: Mapping[str, SheetGrid],
-    planned: Sequence[PlannedTable],
-    links: Sequence[TableFormulaLink],
-    graph: Sequence[FormulaNode],
-) -> tuple[list[PlannedTable], tuple[TableFormulaLink, ...]]:
-    kept: list[PlannedTable] = []
-    for item in planned:
-        sheet = sheets.get(item.sheet_name)
-        if sheet is not None and _is_unlabeled_numeric_strip(sheet, item, graph):
+def _has_text(sheet: SheetGrid, region: Region) -> bool:
+    """Whether a non-formula cell in ``region`` holds a value that is not a number."""
+    for (row, col), cell in sheet.cells.items():
+        if cell.formula or not in_region(row, col, region):
             continue
-        kept.append(item)
-    kept_keys = {table_key(item.sheet_name, item.region) for item in kept}
-    kept_links = tuple(
-        link
-        for link in links
-        if link.source_key in kept_keys and link.target_key in kept_keys
-    )
-    return kept, kept_links
+        value = cell.value
+        if isinstance(value, str) and value.strip() and not _is_number_text(value):
+            return True
+    return False
 
 
-def _is_unlabeled_numeric_strip(
-    sheet: SheetGrid,
-    planned: PlannedTable,
-    graph: Sequence[FormulaNode],
-) -> bool:
-    if planned.locked:
+def _is_number_text(value: str) -> bool:
+    try:
+        float(value.strip())
+    except ValueError:
         return False
-    region = planned.region
-    if region.max_row != region.min_row and region.max_col != region.min_col:
-        return False
-    for row in range(region.min_row, region.max_row + 1):
-        for col in range(region.min_col, region.max_col + 1):
-            cell = sheet.cells.get((row, col))
-            if cell is None:
-                continue
-            if cell.formula:
-                return False
-            shown = display_value(cell)
-            if shown is None:
-                continue
-            if isinstance(shown, str) and not shown.strip():
-                continue
-            if isinstance(shown, bool) or not isinstance(shown, (int, float)):
-                return False
-    for node in graph:
-        if node.unresolved:
-            continue
-        if node.sheet == planned.sheet_name and in_region(
-            node.row, node.col, region
-        ):
-            continue
-        for ref in node.refs:
-            if _ref_hits_table(ref, planned.sheet_name, region):
-                return False
     return True
 
 
+def _nearest_hosts(
+    region: Region,
+    *,
+    sheet_name: str,
+    tables: Sequence[tuple[str, ClassifiedRegion]],
+) -> list[tuple[str, ClassifiedRegion]]:
+    """Same-sheet tables at the smallest row-gap plus column-gap; ties all win."""
+    gaps = [
+        (_region_gap(region, table.region), (table_sheet, table))
+        for table_sheet, table in tables
+        if table_sheet == sheet_name
+    ]
+    if not gaps:
+        return []
+    best = min(gap for gap, _host in gaps)
+    return [host for gap, host in gaps if gap == best]
+
+
+def _region_gap(left: Region, right: Region) -> int:
+    row_gap = max(0, right.min_row - left.max_row - 1, left.min_row - right.max_row - 1)
+    col_gap = max(0, right.min_col - left.max_col - 1, left.min_col - right.max_col - 1)
+    return row_gap + col_gap
+
+
 def _formula_hosts(
-    fragment: Region,
+    region: Region,
     *,
     sheet_name: str,
     tables: Sequence[tuple[str, ClassifiedRegion]],
     owned_regions: Mapping[str, Sequence[Region]],
-    nodes_by_cell: Mapping[tuple[str, int, int], FormulaNode],
+    graph: Sequence[FormulaNode],
 ) -> list[tuple[str, ClassifiedRegion]]:
+    """Tables this region's formulas read, plus tables whose formulas read it."""
     hosts: list[tuple[str, ClassifiedRegion]] = []
     seen: set[str] = set()
-    for row in range(fragment.min_row, fragment.max_row + 1):
-        for col in range(fragment.min_col, fragment.max_col + 1):
-            node = nodes_by_cell.get((sheet_name, row, col))
-            if node is None or node.unresolved:
+    for node in graph:
+        if node.unresolved:
+            continue
+        node_in_region = node.sheet == sheet_name and in_region(
+            node.row, node.col, region
+        )
+        if not node_in_region and not any(
+            range_hits_region(ref, sheet_name, region) for ref in node.refs
+        ):
+            continue
+        for table_sheet, table in tables:
+            key = table_key(table_sheet, table.region)
+            if key in seen:
                 continue
-            for ref in node.refs:
-                for table_sheet, table in tables:
-                    key = table_key(table_sheet, table.region)
-                    if not _ref_hits_any_region(
-                        ref, table_sheet, owned_regions.get(key, (table.region,))
-                    ):
-                        continue
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    hosts.append((table_sheet, table))
+            owned = owned_regions[key]
+            if node_in_region:
+                touches = any(
+                    _ref_hits_any_region(ref, table_sheet, owned) for ref in node.refs
+                )
+            else:
+                touches = node.sheet == table_sheet and any(
+                    in_region(node.row, node.col, owned_region)
+                    for owned_region in owned
+                )
+            if touches:
+                seen.add(key)
+                hosts.append((table_sheet, table))
     return hosts
-
-
-def _title_host_below(
-    sheet: SheetGrid,
-    fragment: ClassifiedRegion,
-    tables: Sequence[tuple[str, ClassifiedRegion]],
-) -> tuple[str, ClassifiedRegion] | None:
-    if _fragment_has_formula(sheet, fragment.region):
-        return None
-    if not _is_plain_title(sheet, fragment.region):
-        return None
-    best: tuple[str, ClassifiedRegion] | None = None
-    for sheet_name, table in tables:
-        if sheet_name != sheet.name:
-            continue
-        if table.region.min_row <= fragment.region.max_row:
-            continue
-        if not columns_overlap(fragment.region, table.region):
-            continue
-        if best is None or table.region.min_row < best[1].region.min_row:
-            best = (sheet_name, table)
-    return best
 
 
 def _is_aligned_totals(
@@ -344,55 +320,15 @@ def _table_formula_links(
 def _ref_hits_any_region(
     ref: CellRange, sheet_name: str, regions: Sequence[Region]
 ) -> bool:
-    return any(_ref_hits_table(ref, sheet_name, region) for region in regions)
+    return any(range_hits_region(ref, sheet_name, region) for region in regions)
 
 
-def _ref_hits_table(ref: CellRange, sheet_name: str, region: Region) -> bool:
-    if ref.sheet != sheet_name:
-        return False
-    return not (
-        ref.max_row < region.min_row
-        or region.max_row < ref.min_row
-        or ref.max_col < region.min_col
-        or region.max_col < ref.min_col
-    )
+def format_region_cells(sheet: SheetGrid, region: Region) -> str:
+    """Cell-addressed text, e.g. ``J5=38610.09 M4=599020.59 (=K4+L4)``.
 
-
-def _fragment_has_formula(sheet: SheetGrid, region: Region) -> bool:
-    for (row, col), cell in sheet.cells.items():
-        if in_region(row, col, region) and cell.formula:
-            return True
-    return False
-
-
-def _is_plain_title(sheet: SheetGrid, region: Region) -> bool:
-    caption_count = 0
-    for row in range(region.min_row, region.max_row + 1):
-        kind, text = classify_sheet_row(
-            sheet, row, region.min_col, region.max_col
-        )
-        if kind == "blank":
-            continue
-        if kind != "caption" or not text:
-            return False
-        caption_count += 1
-    return caption_count >= 1
-
-
-def _title_text(sheet: SheetGrid, region: Region) -> str:
+    Addresses let a host table's ``data-formula`` resolve against these values.
+    """
     parts: list[str] = []
-    for row in range(region.min_row, region.max_row + 1):
-        kind, text = classify_sheet_row(
-            sheet, row, region.min_col, region.max_col
-        )
-        if kind == "caption" and text:
-            parts.append(text)
-    return " / ".join(parts)
-
-
-def _format_satellite(sheet: SheetGrid, region: Region) -> str:
-    labels: list[str] = []
-    values: list[str] = []
     seen_origins: set[tuple[int, int]] = set()
     for row in range(region.min_row, region.max_row + 1):
         for col in range(region.min_col, region.max_col + 1):
@@ -403,19 +339,20 @@ def _format_satellite(sheet: SheetGrid, region: Region) -> str:
             cell = sheet.cells.get(origin)
             if cell is None:
                 continue
-            shown = display_value(cell)
-            text = "" if shown is None else str(shown).strip()
+            address = f"{get_column_letter(origin[1])}{origin[0]}"
             if cell.formula:
                 body = cell.formula[1:] if cell.formula.startswith("=") else cell.formula
                 cached = "" if cell.value is None else str(cell.value).strip()
                 if cached and cached != cell.formula:
-                    values.append(f"{cached} (= {body})")
+                    parts.append(f"{address}={cached} (={body})")
                 else:
-                    values.append(f"(= {body})")
+                    parts.append(f"{address} (={body})")
                 continue
+            shown = display_value(cell)
+            text = "" if shown is None else str(shown).strip()
             if text:
-                labels.append(text)
-    return " ".join([*labels, *values]).strip()
+                parts.append(f"{address}={text}")
+    return " ".join(parts)
 
 
 def _origin(sheet: SheetGrid, row: int, col: int) -> tuple[int, int]:

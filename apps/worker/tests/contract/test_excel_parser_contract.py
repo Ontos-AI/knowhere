@@ -11,6 +11,10 @@ _HEADER_DETECT = (
     "app.services.document_parser.formats.excel.header_detect."
     "TextClientSpreadsheetHeaderDetector.detect_spreadsheet_headers"
 )
+_HEADER_LOCATE = (
+    "app.services.document_parser.formats.excel.header_detect."
+    "TextClientSpreadsheetHeaderDetector.locate_header_start"
+)
 _LUNA_CHOOSE = (
     "app.services.document_parser.formats.excel.luna_decisions."
     "GatewaySpreadsheetRegionJudge.choose"
@@ -25,16 +29,10 @@ def _fail_closed_spreadsheet_headers(
     del worker_contract_environment
     monkeypatch.setattr(
         _HEADER_DETECT,
-        lambda self, rows_text, rowspan_hint: None,
+        lambda self, rows_text: None,
     )
+    monkeypatch.setattr(_HEADER_LOCATE, lambda self, rows_text: None)
     monkeypatch.setattr(_LUNA_CHOOSE, lambda self, **kwargs: None)
-
-
-def _last_row_from_rows_text(rows_text: str) -> int:
-    return max(
-        sum(1 for line in rows_text.splitlines() if line.startswith("Row ")) - 1,
-        0,
-    )
 
 
 def _parse_xlsx(workbook_path: Path, output_root: Path, filename: str):
@@ -274,11 +272,7 @@ def test_xlsx_multilevel_headers_flatten_and_feed_query_table(
     del worker_contract_environment
     monkeypatch.setattr(
         _HEADER_DETECT,
-        lambda self, rows_text, rowspan_hint: (
-            2,
-            1,
-            _last_row_from_rows_text(rows_text),
-        ),
+        lambda self, rows_text: (2, 1),
     )
     workbook_path = tmp_path / "nested.xlsx"
     workbook = openpyxl.Workbook()
@@ -340,11 +334,7 @@ def test_xlsx_left_column_row_headers(
     del worker_contract_environment
     monkeypatch.setattr(
         _HEADER_DETECT,
-        lambda self, rows_text, rowspan_hint: (
-            1,
-            1,
-            _last_row_from_rows_text(rows_text),
-        ),
+        lambda self, rows_text: (1, 1),
     )
     workbook_path = tmp_path / "roster.xlsx"
     workbook = openpyxl.Workbook()
@@ -393,11 +383,7 @@ def test_xlsx_header_row_count_zero_still_emits_table(
     del worker_contract_environment
     monkeypatch.setattr(
         _HEADER_DETECT,
-        lambda self, rows_text, rowspan_hint: (
-            0,
-            0,
-            _last_row_from_rows_text(rows_text),
-        ),
+        lambda self, rows_text: (0, 0),
     )
     workbook_path = tmp_path / "records.xlsx"
     workbook = openpyxl.Workbook()
@@ -449,11 +435,7 @@ def test_xlsx_leading_title_row_and_hidden_empty_columns_keep_headers_aligned(
     del worker_contract_environment
     monkeypatch.setattr(
         _HEADER_DETECT,
-        lambda self, rows_text, rowspan_hint: (
-            2,
-            1,
-            _last_row_from_rows_text(rows_text),
-        ),
+        lambda self, rows_text: (2, 1),
     )
     workbook_path = tmp_path / "boq.xlsx"
     workbook = openpyxl.Workbook()
@@ -482,7 +464,7 @@ def test_xlsx_leading_title_row_and_hidden_empty_columns_keep_headers_aligned(
     assert len(parsed_df) == 1
     assert parsed_df["path"].tolist() == ["boq.xlsx/清单"]
     metadata = _extra_metadata(parsed_df)
-    assert metadata["caption"] == "分部分项工程量清单"
+    assert metadata["caption"] == "A1=分部分项工程量清单"
     assert metadata["header_row_count"] == 2
     assert metadata["row_header_col_count"] == 1
     assert metadata["column_headers"] == ["序号", "金额（元）-->综合单价", "合价"]
@@ -499,6 +481,68 @@ def test_xlsx_leading_title_row_and_hidden_empty_columns_keep_headers_aligned(
         "合价",
     ]
     assert grid_sql_rows(grid, chunks[0]["metadata"]) == [["1", "2.5", "100"]]
+
+
+def test_xlsx_rows_above_header_start_become_caption(
+    worker_contract_environment: None,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    import openpyxl
+
+    from app.services.document_parser.formats.excel.header_detect import HeaderStart
+    from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
+    from shared.services.retrieval.hydration.table_grid import (
+        grid_sql_rows,
+        html_to_grid,
+        sql_columns,
+    )
+
+    del worker_contract_environment
+    monkeypatch.setattr(_HEADER_LOCATE, lambda self, rows_text: HeaderStart(row=2))
+    monkeypatch.setattr(_HEADER_DETECT, lambda self, rows_text: (2, 1))
+    workbook_path = tmp_path / "piles.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "桩基"
+    sheet.merge_cells("A1:C1")
+    sheet["A1"] = "人工挖孔桩基础收方单"
+    sheet["A2"] = "桩身保护层"
+    sheet["B2"] = 0.05
+    sheet.merge_cells("A3:A4")
+    sheet["A3"] = "序号"
+    sheet.merge_cells("B3:C3")
+    sheet["B3"] = "设计尺寸"
+    sheet["B4"] = "桩径"
+    sheet["C4"] = "桩半径"
+    sheet["A5"] = 1
+    sheet["B5"] = 2.1
+    sheet["C5"] = 1.05
+    workbook.save(workbook_path)
+
+    parse_output = _parse_xlsx(
+        workbook_path, tmp_path / "parser-output", "piles.xlsx"
+    )
+    parsed_df = parse_output.parsed_df
+    assert parsed_df is not None
+    assert len(parsed_df) == 1
+    metadata = _extra_metadata(parsed_df)
+    assert metadata["excel_range"] == "A1:C5"
+    assert metadata["header_row_count"] == 2
+    assert metadata["column_headers"] == ["序号", "设计尺寸-->桩径", "设计尺寸-->桩半径"]
+    assert "人工挖孔桩基础收方单" in metadata["caption"]
+    assert "B2=0.05" in metadata["caption"]
+    table_html = (
+        Path(parse_output.output_dir) / parsed_df["content"].iloc[0]
+    ).read_text(encoding="utf-8")
+    chunks = dataframe_to_chunks(parsed_df)
+    grid = html_to_grid(table_html)
+    assert sql_columns(grid, chunks[0]["metadata"]) == [
+        "row_header",
+        "设计尺寸___桩径",
+        "设计尺寸___桩半径",
+    ]
+    assert grid_sql_rows(grid, chunks[0]["metadata"]) == [["1", "2.1", "1.05"]]
 
 
 def test_xlsx_uncached_formula_cells_do_not_split_table(
@@ -596,11 +640,7 @@ def test_xlsx_html_preserves_merges_formula_and_tfoot(
     del worker_contract_environment
     monkeypatch.setattr(
         _HEADER_DETECT,
-        lambda self, rows_text, rowspan_hint: (
-            1,
-            1,
-            _last_row_from_rows_text(rows_text),
-        ),
+        lambda self, rows_text: (1, 1),
     )
     workbook_path = tmp_path / "html-contract.xlsx"
     workbook = openpyxl.Workbook()

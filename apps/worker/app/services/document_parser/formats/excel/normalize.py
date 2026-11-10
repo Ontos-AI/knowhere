@@ -48,16 +48,6 @@ def normalize_table_source(path: str, filename: str, output_dir: str) -> str:
     )
 
 
-def csv_to_xlsx(path: str, output_dir: str, *, delimiter: str | None) -> str:
-    """Write a delimited text file to ``output_dir/.work/{stem}.xlsx``."""
-    return _delimited_text_to_xlsx(
-        source_path=path,
-        output_dir=output_dir,
-        delimiter=delimiter,
-        stem=Path(path).stem,
-    )
-
-
 def _delimited_text_to_xlsx(
     *,
     source_path: str,

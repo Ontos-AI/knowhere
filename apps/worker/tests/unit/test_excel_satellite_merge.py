@@ -206,7 +206,7 @@ def test_unlabeled_numeric_strip_is_not_emitted(tmp_path: Path) -> None:
     assert [item.region for item in plan.tables] == [table.region]
 
 
-def test_labeled_numeric_strip_is_emitted(tmp_path: Path) -> None:
+def test_labeled_isolated_strip_hangs_on_nearest_table(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Data"
@@ -235,28 +235,30 @@ def test_labeled_numeric_strip_is_emitted(tmp_path: Path) -> None:
         {"Data": [table, strip]},
         build_formula_graph(workbook_grid),
     )
-    assert [item.region for item in plan.tables] == [table.region, strip.region]
+    assert [item.region for item in plan.tables] == [table.region]
+    assert plan.tables[0].satellites == ("E1=面积 E2=38610.09 E3=38610.09",)
 
 
-def test_referenced_numeric_strip_is_emitted(tmp_path: Path) -> None:
+def test_numeric_block_read_by_table_hangs_on_it(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Data"
     sheet["A1"] = "Name"
     sheet["B1"] = "Amount"
+    sheet["C1"] = "Adjusted"
     sheet["A2"] = "North"
     sheet["B2"] = 10
+    sheet["C2"] = "=E2*1.2"
     sheet["A3"] = "East"
     sheet["B3"] = 11
     sheet["E1"] = 1
     sheet["E2"] = 2
     sheet["E3"] = 3
-    sheet["C2"] = "=E2*1.2"
     path = _save(tmp_path / "referenced.xlsx", workbook)
 
     workbook_grid = load_workbook_grid(str(path))
     table = ClassifiedRegion(
-        region=Region(min_row=1, min_col=1, max_row=3, max_col=2),
+        region=Region(min_row=1, min_col=1, max_row=3, max_col=3),
         role="table",
     )
     strip = ClassifiedRegion(
@@ -268,4 +270,104 @@ def test_referenced_numeric_strip_is_emitted(tmp_path: Path) -> None:
         {"Data": [table, strip]},
         build_formula_graph(workbook_grid),
     )
-    assert [item.region for item in plan.tables] == [table.region, strip.region]
+    assert [item.region for item in plan.tables] == [table.region]
+    assert plan.tables[0].satellites == ("E1=1 E2=2 E3=3",)
+
+
+def test_textless_shape_table_read_by_table_is_absorbed(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Rate"
+    sheet["A2"] = "Tower"
+    sheet["B2"] = "=K2/J2"
+    sheet["J1"] = 48053.2
+    sheet["K1"] = 599020.59
+    sheet["J2"] = 38610.09
+    sheet["K2"] = 722633.3
+    sheet["M1"] = "=K1+L1"
+    path = _save(tmp_path / "params.xlsx", workbook)
+
+    workbook_grid = load_workbook_grid(str(path))
+    table = ClassifiedRegion(
+        region=Region(min_row=1, min_col=1, max_row=2, max_col=2),
+        role="table",
+    )
+    params = ClassifiedRegion(
+        region=Region(min_row=1, min_col=10, max_row=2, max_col=13),
+        role="table",
+    )
+    plan = resolve_formula_satellites_and_edges(
+        workbook_grid,
+        {"Data": [table, params]},
+        build_formula_graph(workbook_grid),
+    )
+    assert [item.region for item in plan.tables] == [table.region]
+    assert plan.links == ()
+    satellite = plan.tables[0].satellites[0]
+    assert "J2=38610.09" in satellite
+    assert "K2=722633.3" in satellite
+    assert "M1 (=K1+L1)" in satellite
+
+
+def test_isolated_textless_block_dropped_only_beside_a_main_table(
+    tmp_path: Path,
+) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = 1
+    sheet["B1"] = 2
+    sheet["A2"] = 3
+    sheet["B2"] = "=A2*2"
+    path = _save(tmp_path / "numbers.xlsx", workbook)
+
+    workbook_grid = load_workbook_grid(str(path))
+    numbers = ClassifiedRegion(
+        region=Region(min_row=1, min_col=1, max_row=2, max_col=2),
+        role="table",
+    )
+    plan = resolve_formula_satellites_and_edges(
+        workbook_grid,
+        {"Data": [numbers]},
+        build_formula_graph(workbook_grid),
+    )
+    assert [item.region for item in plan.tables] == [numbers.region]
+
+
+def test_text_note_ties_hang_on_every_nearest_table(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "Amount"
+    sheet["A2"] = "North"
+    sheet["B2"] = 10
+    sheet["D3"] = "a*b*2"
+    sheet["A4"] = "Name"
+    sheet["B4"] = "Amount"
+    sheet["A5"] = "South"
+    sheet["B5"] = 20
+    path = _save(tmp_path / "note.xlsx", workbook)
+
+    workbook_grid = load_workbook_grid(str(path))
+    upper = ClassifiedRegion(
+        region=Region(min_row=1, min_col=1, max_row=2, max_col=2),
+        role="table",
+    )
+    lower = ClassifiedRegion(
+        region=Region(min_row=4, min_col=1, max_row=5, max_col=2),
+        role="table",
+    )
+    note = ClassifiedRegion(
+        region=Region(min_row=3, min_col=4, max_row=3, max_col=4),
+        role="fragment",
+    )
+    plan = resolve_formula_satellites_and_edges(
+        workbook_grid,
+        {"Data": [upper, lower, note]},
+        build_formula_graph(workbook_grid),
+    )
+    assert [item.region for item in plan.tables] == [upper.region, lower.region]
+    assert all(item.satellites == ("D3=a*b*2",) for item in plan.tables)

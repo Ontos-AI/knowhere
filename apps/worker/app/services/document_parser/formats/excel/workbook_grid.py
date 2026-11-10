@@ -157,13 +157,6 @@ def display_value(cell: GridCell | None) -> object:
     return None
 
 
-def sheet_display_value(sheet: SheetGrid, row: int, col: int) -> object:
-    merge = merge_at(sheet, row, col)
-    if merge is not None:
-        return display_value(sheet.cells.get((merge[0], merge[1])))
-    return display_value(sheet.cells.get((row, col)))
-
-
 def cell_has_value_or_formula(sheet: SheetGrid, row: int, col: int) -> bool:
     cell = sheet.cells.get((row, col))
     return cell is not None and (cell.value is not None or cell.formula is not None)

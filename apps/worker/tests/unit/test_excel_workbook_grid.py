@@ -21,7 +21,6 @@ from app.services.document_parser.formats.excel.workbook_grid import (  # noqa: 
     display_value,
     expand_visual_grid,
     load_workbook_grid,
-    sheet_display_value,
 )
 
 
@@ -69,7 +68,6 @@ def test_expand_visual_grid_copies_merge_origin(tmp_path: Path) -> None:
     assert visual[0][0].colspan == 2
     assert visual[0][1] is not None
     assert visual[0][1].merge_origin == (1, 1)
-    assert sheet_display_value(sheet_grid, 1, 2) == "Title"
 
 
 def test_load_workbook_grid_reads_array_formula_and_table(tmp_path: Path) -> None:

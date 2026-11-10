@@ -17,10 +17,17 @@ from shared.services.ai.response_process_service import eval_response
 
 # Cell preview length from snap-fill ``build_multiline_rows_text``.
 _CELL_TEXT_PREVIEW_CHARS = 30
+# Rows shown to each header prompt, counted from the scan start; a vertical
+# merge crossing the last row extends the window to the merge bottom.
+_HEADER_SCAN_ROWS = 10
 _WHITESPACE_RE = re.compile(r"\s+")
 
 _SYSTEM_PROMPT = (
     "你是表格结构分析专家。你的任务是判断表格区域的行列头边界，只输出 JSON。"
+)
+_LOCATE_SYSTEM_PROMPT = (
+    "你是表格结构分析专家。任务是在行文本摘要内定位列表区域的起始行（LIST-HEAD）。"
+    "名单列表与矩阵交叉表都算列表区域。只输出 JSON。"
 )
 
 
@@ -40,18 +47,32 @@ class TableRegion:
 
 @dataclass(frozen=True)
 class HeaderSpec:
+    """Header layout of one region; row counts are relative to the region.
+
+    ``header_start_row`` is the first column-header row (snap-fill LIST_HEAD);
+    rows above it are not part of the rendered table body.
+    """
+
+    header_start_row: int
     header_row_count: int
     row_header_col_count: int
     column_headers: tuple[str, ...]
     caption: str | None
-    data_end_row: int
+
+
+@dataclass(frozen=True)
+class HeaderStart:
+    """Phase 0 answer: ``row`` is None when the region has no column header."""
+
+    row: int | None
 
 
 class SpreadsheetHeaderDetector(Protocol):
-    def detect_spreadsheet_headers(
-        self, rows_text: str, rowspan_hint: int
-    ) -> tuple[int, int, int] | None:
-        """Return ``(header_row_count, row_header_col_count, data_end_row)`` or None."""
+    def locate_header_start(self, rows_text: str) -> HeaderStart | None:
+        """Return the Phase 0 answer, or None when the call fails."""
+
+    def detect_spreadsheet_headers(self, rows_text: str) -> tuple[int, int] | None:
+        """Return ``(header_row_count, row_header_col_count)`` or None."""
 
 
 def build_region_visual(
@@ -98,13 +119,12 @@ def build_region_visual(
 
 def render_region_rows_text(
     visual: Sequence[Sequence[VisualCell | None]],
-) -> tuple[str, int]:
+) -> str:
     """Port of snap-fill ``build_multiline_rows_text`` onto a region's visual cells."""
     if not visual:
-        return "", 1
+        return ""
 
     max_cols = len(visual[0])
-    rowspan_hint = 1
     lines: list[str] = []
     for rel_idx, row in enumerate(visual):
         cells_info: list[str] = []
@@ -113,8 +133,6 @@ def render_region_rows_text(
             if cell is None:
                 cells_info.append('""')
                 continue
-            if rel_idx == 0 and col_idx == 0:
-                rowspan_hint = cell.rowspan
             is_colspan_continuation = col_idx > 0 and _same_origin(
                 cell, row[col_idx - 1] if col_idx - 1 < len(row) else None
             )
@@ -139,7 +157,7 @@ def render_region_rows_text(
         lines.append(
             f"Row {rel_idx} ({max_cols} cells, U): {' | '.join(cells_info)}"
         )
-    return "\n".join(lines), rowspan_hint
+    return "\n".join(lines)
 
 
 def expand_column_headers(
@@ -173,73 +191,157 @@ def detect_headers(
     region: TableRegion,
     *,
     llm: SpreadsheetHeaderDetector | None = None,
-    caption: str | None = None,
 ) -> HeaderSpec:
+    """snap-fill header flow: Phase 0 start row, Rule A, Phase 0.5 counts."""
     visual = region.visual
     n_rows = len(visual)
     n_cols = len(visual[0]) if visual else 0
-    last_row = max(n_rows - 1, 0)
     if n_rows == 0:
         return HeaderSpec(
+            header_start_row=0,
             header_row_count=0,
             row_header_col_count=0,
             column_headers=(),
-            caption=caption,
-            data_end_row=0,
+            caption=None,
         )
 
     detector = llm if llm is not None else TextClientSpreadsheetHeaderDetector()
-    rows_text, rowspan_hint = render_region_rows_text(visual)
-    triple: tuple[int, int, int] | None = None
-    if rows_text:
-        triple = detector.detect_spreadsheet_headers(rows_text, rowspan_hint)
-    if triple is not None:
-        header_row_count, row_header_col_count, data_end_row = triple
+    locate_end = _scan_window_end(visual, 0)
+    answer = detector.locate_header_start(
+        render_region_rows_text(visual[: locate_end + 1])
+    )
+    start_row = 0
+    if answer is not None and answer.row is None:
+        return HeaderSpec(
+            header_start_row=0,
+            header_row_count=0,
+            row_header_col_count=0,
+            column_headers=(),
+            caption=None,
+        )
+    if answer is not None and answer.row is not None and answer.row <= locate_end:
+        start_row = _expand_start_by_first_column_merge(visual, answer.row)
+
+    count_end = _scan_window_end(visual, start_row)
+    header_visual = visual[start_row:]
+    pair = detector.detect_spreadsheet_headers(
+        render_region_rows_text(visual[start_row : count_end + 1])
+    )
+    if pair is not None:
+        header_row_count, row_header_col_count = pair
         if header_row_count == 0:
             row_header_col_count = 0
-        triple = (header_row_count, row_header_col_count, data_end_row)
-    triple = _validated_triple(triple, n_rows=n_rows, n_cols=n_cols)
-    if triple is None:
-        triple = (1, 0, last_row)
+        pair = (header_row_count, row_header_col_count)
+    pair = _validated_pair(pair, n_rows=count_end - start_row + 1, n_cols=n_cols)
+    if pair is None:
+        pair = (1, 0)
 
-    header_row_count, row_header_col_count, data_end_row = triple
-    column_headers = tuple(expand_column_headers(visual, header_row_count))
+    header_row_count, row_header_col_count = pair
+    if header_row_count > 0:
+        row_header_col_count = max(
+            row_header_col_count,
+            _first_column_label_colspan(visual, start_row),
+        )
+    column_headers = tuple(expand_column_headers(header_visual, header_row_count))
     return HeaderSpec(
+        header_start_row=start_row,
         header_row_count=header_row_count,
         row_header_col_count=row_header_col_count,
         column_headers=column_headers,
-        caption=caption,
-        data_end_row=data_end_row,
+        caption=None,
     )
 
 
+def _scan_window_end(
+    visual: Sequence[Sequence[VisualCell | None]], start_row: int
+) -> int:
+    """Last row of a header prompt window starting at ``start_row``.
+
+    The window holds ``_HEADER_SCAN_ROWS`` rows and grows to the bottom of any
+    merge that crosses its last row, so a merged header is never cut in half.
+    """
+    last_row = len(visual) - 1
+    end_row = min(last_row, start_row + _HEADER_SCAN_ROWS - 1)
+    while True:
+        merge_bottom = max(
+            (
+                cell.origin_row + cell.rowspan - 1
+                for cell in visual[end_row]
+                if cell is not None
+            ),
+            default=end_row,
+        )
+        if merge_bottom <= end_row:
+            return end_row
+        end_row = min(last_row, merge_bottom)
+        if end_row == last_row:
+            return end_row
+
+
+def _expand_start_by_first_column_merge(
+    visual: Sequence[Sequence[VisualCell | None]], start_row: int
+) -> int:
+    """snap-fill Rule A: a first-column merge ending on the start row lifts it.
+
+    When the model picks the leaf row of a multi-level header, the left-column
+    label (e.g. ``序号``) spans from the parent row down to that leaf row; the
+    start moves up to the top of that merge. It never moves down.
+    """
+    cell = visual[start_row][0] if visual[start_row] else None
+    if cell is None:
+        return start_row
+    merge_bottom = cell.origin_row + cell.rowspan - 1
+    if cell.origin_row < start_row and merge_bottom == start_row:
+        return max(cell.origin_row, 0)
+    return start_row
+
+
+def _first_column_label_colspan(
+    visual: Sequence[Sequence[VisualCell | None]], start_row: int
+) -> int:
+    """snap-fill region label: a vertically merged first-column label at the
+    header start counts its full width as row-header columns."""
+    cell = visual[start_row][0] if visual[start_row] else None
+    if cell is None or not cell.text or cell.rowspan < 2:
+        return 0
+    if cell.origin_row != start_row or cell.origin_col != 0:
+        return 0
+    return cell.colspan
+
+
 class TextClientSpreadsheetHeaderDetector:
-    def detect_spreadsheet_headers(
-        self, rows_text: str, rowspan_hint: int
-    ) -> tuple[int, int, int] | None:
-        try:
-            client, _ = get_text_client()
-            raw = client.chat_completion(
-                messages=[
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": _spreadsheet_header_user_prompt(
-                            rows_text, rowspan_hint
-                        ),
-                    },
-                ],
-                timeout=60,
-                usage_task="parser.excel.detect_spreadsheet_headers",
-            )
-            parsed = eval_response(raw)
-        except Exception as exc:
-            logger.warning(
-                "Spreadsheet header detection LLM failed: {}",
-                exc,
-            )
-            return None
-        return _parse_header_triple(parsed)
+    def locate_header_start(self, rows_text: str) -> HeaderStart | None:
+        parsed = _ask_json(
+            system_prompt=_LOCATE_SYSTEM_PROMPT,
+            user_prompt=_header_start_user_prompt(rows_text),
+            usage_task="parser.excel.locate_header_start",
+        )
+        return _parse_header_start(parsed)
+
+    def detect_spreadsheet_headers(self, rows_text: str) -> tuple[int, int] | None:
+        parsed = _ask_json(
+            system_prompt=_SYSTEM_PROMPT,
+            user_prompt=_spreadsheet_header_user_prompt(rows_text),
+            usage_task="parser.excel.detect_spreadsheet_headers",
+        )
+        return _parse_header_pair(parsed)
+
+
+def _ask_json(*, system_prompt: str, user_prompt: str, usage_task: str) -> object:
+    try:
+        client, _ = get_text_client()
+        raw = client.chat_completion(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            timeout=60,
+            usage_task=usage_task,
+        )
+        return eval_response(raw)
+    except Exception as exc:
+        logger.warning("Spreadsheet header LLM call {} failed: {}", usage_task, exc)
+        return None
 
 
 def _visual_cell_text(value: object) -> str:
@@ -254,37 +356,40 @@ def _same_origin(left: VisualCell | None, right: VisualCell | None) -> bool:
     return left.origin_row == right.origin_row and left.origin_col == right.origin_col
 
 
-def _parse_header_triple(parsed: object) -> tuple[int, int, int] | None:
+def _parse_header_start(parsed: object) -> HeaderStart | None:
+    if not isinstance(parsed, dict) or "list_head_row" not in parsed:
+        return None
+    raw = parsed["list_head_row"]
+    if raw is None:
+        return HeaderStart(row=None)
+    row = _non_negative_int(raw)
+    if row is None:
+        return None
+    return HeaderStart(row=row)
+
+
+def _parse_header_pair(parsed: object) -> tuple[int, int] | None:
     if not isinstance(parsed, dict):
         return None
     header_row_count = _non_negative_int(parsed.get("header_row_count"))
     row_header_col_count = _non_negative_int(parsed.get("row_header_col_count"))
-    data_end_row = _non_negative_int(parsed.get("data_end_row"))
-    if (
-        header_row_count is None
-        or row_header_col_count is None
-        or data_end_row is None
-    ):
+    if header_row_count is None or row_header_col_count is None:
         return None
-    return header_row_count, row_header_col_count, data_end_row
+    return header_row_count, row_header_col_count
 
 
-def _validated_triple(
-    triple: tuple[int, int, int] | None,
+def _validated_pair(
+    pair: tuple[int, int] | None,
     *,
     n_rows: int,
     n_cols: int,
-) -> tuple[int, int, int] | None:
-    if triple is None:
+) -> tuple[int, int] | None:
+    if pair is None:
         return None
-    header_row_count, row_header_col_count, data_end_row = triple
+    header_row_count, row_header_col_count = pair
     if header_row_count > n_rows or row_header_col_count > n_cols:
         return None
-    if data_end_row >= n_rows:
-        return None
-    if header_row_count >= 1 and data_end_row < header_row_count - 1:
-        return None
-    return triple
+    return pair
 
 
 def _non_negative_int(value: object) -> int | None:
@@ -293,27 +398,16 @@ def _non_negative_int(value: object) -> int | None:
     return None
 
 
-def _spreadsheet_header_user_prompt(rows_text: str, rowspan_hint: int) -> str:
-    rowspan_section = ""
-    if rowspan_hint > 1:
-        rowspan_section = f"""
-        ## Rowspan 辅助信号
-        第一列单元格的 rowspan = {rowspan_hint}，这意味着该单元格从第 0 行开始跨越 {rowspan_hint} 行。
-        这通常表示：
-        - 第一列是行表头 (row header)
-        - 数据区的最后一行 = 第 0 行 + {rowspan_hint} - 1 = 第 {rowspan_hint - 1} 行
-        请将此作为 data_end_row 的**强参考信号**（但以实际结构为准）。
-        """
-
+def _spreadsheet_header_user_prompt(rows_text: str) -> str:
     return f"""# 🎯 任务目标
         你是表格结构分析专家。以下是一个表格区域的行文本摘要。
-        请分析并确定该区域的精确边界。
+        请分析并确定该区域的行列表头。
 
         # 行文本摘要
         ```
         {rows_text}
         ```
-        {rowspan_section}
+
         # 🔍 判断步骤
 
         ## Step 0. 前置判断：是否存在独立的列表头
@@ -325,7 +419,7 @@ def _spreadsheet_header_user_prompt(rows_text: str, rowspan_hint: int) -> str:
         - **不存在独立列表头**：整块区域是若干条**并列的同构记录**，
           每一行形式和结构一致，只有取值在不同行之间变化
           字段名以**内嵌提示**的形式散落在每一行内部（即每一行自己就带着字段名/提示词）
-          → 确认 `header_row_count = 0` 且 `row_header_col_count = 0`，跳过 Step 1 / Step 2，只继续判定 Step 3 的 `data_end_row`。
+          → 确认 `header_row_count = 0` 且 `row_header_col_count = 0`，跳过 Step 1 / Step 2。
 
         ## Step 1. header_row_count（列表头行数，仅在Step0判断存在独立列表头时给出，否则=0）
         从第 0 行开始，连续多少行属于**列表头**（即列名/字段名行）。
@@ -342,20 +436,59 @@ def _spreadsheet_header_user_prompt(rows_text: str, rowspan_hint: int) -> str:
         - 序号列（1, 2, 3...）一般算行表头
         - 左侧 rowspan 区域标签、以及数据行里左侧的角色/分组标签，都计入行表头列，而不是列表头行
 
-        ## Step 3. data_end_row（数据区最后一行的行号，始终需要给出）
-        从第 0 行开始计数，数据区（取值记录行）的最后一行行号。
-        - `header_row_count >= 1` 时，数据区从列表头之后开始；数据行特征：值列主要是已填的具体值（数字、名称、日期等），而不是新的列名
-        - `header_row_count = 0` 时，数据区就是整个候选区域，每一行都是一条数据记录；
-          `data_end_row` = 最后一条同构记录的行号（下一行若出现不同结构的 KV / 说明，则在它之前收尾）
-        - 非数据行的特征：有和本区域结构明显不同的标签字段，或 cell 数量与前面数据行明显不同
-
         # 📤 输出格式
-        返回 JSON 对象，必须包含下面三个字段：
+        返回 JSON 对象，必须包含下面两个字段：
         ```json
         {{
             "header_row_count": 1,
-            "row_header_col_count": 1,
-            "data_end_row": 4
+            "row_header_col_count": 1
         }}
+        ```
+        只返回 JSON，不要其他内容。"""
+
+
+def _header_start_user_prompt(rows_text: str) -> str:
+    """Port of snap-fill ``classify_list_head_flags_batch`` for one region."""
+    return f"""# 概念定义
+        **列表区域**：有一行共享列约束（LIST-HEAD），其下连续多行按同一组列填写。
+        下列两类都是列表区域。
+
+        ## 类型 A · 名单列表（每行一条同类记录）
+        LIST-HEAD = 列名行；其下每行一条同类记录。
+
+        ## 类型 B · 矩阵交叉表（列头 × 行头）
+        LIST-HEAD = 列名行（第 0 格常是角落标签）；其下第 0 列为行标签，其余为交叉格。
+        **不要因为第 0 列有字就否决。**
+
+        共用：LIST-HEAD 是起始行（纯列名，或列名与首条记录混排）；整块是共享列约束下的连续区域。
+
+        不属于列表区域：
+        - 横向一问一答（标签|值|标签|值），纵向不共享同一组列重复
+        - 自由描述、问句、说明、贯穿整表的标题/长文格
+
+        # 任务目标
+        找出下面行文本摘要中列表区域的 LIST-HEAD 行号（即 `Row N` 的 N）。
+        LIST-HEAD 可能是第 0 行，也可能在中间。
+
+        # 行文本摘要
+        `[colspan-continued]` / `[rowspan-covered]` 表示被左侧或上方合并单元格覆盖的格；
+        `cs=` / `rs=` 为合并单元格的列跨度 / 行跨度。
+        ```
+        {rows_text}
+        ```
+
+        # 判断规则
+        - 类型 A / B 都返回列头行的行号；矩阵表不要返回 null
+        - 仅当这些行里确实不是列表区域时返回 `list_head_row: null`
+        - `list_head_row` 必须是摘要中某个 `Row N` 的 N
+
+        # 输出格式
+        返回 JSON 对象：
+        ```json
+        {{"list_head_row": 3}}
+        ```
+        或
+        ```json
+        {{"list_head_row": null}}
         ```
         只返回 JSON，不要其他内容。"""

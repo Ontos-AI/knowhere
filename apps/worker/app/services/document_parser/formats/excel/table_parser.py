@@ -1,4 +1,3 @@
-# pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportOptionalSubscript=false, reportReturnType=false
 from __future__ import annotations
 
 import json
@@ -207,14 +206,14 @@ def _write_excel_table_asset(
 
     return write_table_asset(
         TableAssetInput(
-            html=table_html_string,
+            html=table_html_string,  # pyright: ignore[reportArgumentType]  # prettify() without encoding returns str
             output_dir=request.output_dir,
             table_name=table_name,
             summary=table_summary,
             keywords=keywords,
             know_id=know_id,
             addtime=time_stamp,
-            tokens=table_tokens,
+            tokens=table_tokens,  # pyright: ignore[reportArgumentType]  # list like docx parser; TableAssetInput.tokens is typed str
             path=_build_excel_table_path(
                 request=request,
                 sheet_name=table.sheet_name,
@@ -234,7 +233,7 @@ def _keywords_from_column_headers(column_headers: tuple[str, ...]) -> str:
     seen: set[str] = set()
     for header in column_headers:
         text = header.strip()
-        if not text or text == "nan" or "Unnamed" in text:
+        if not text:
             continue
         if text in seen:
             continue

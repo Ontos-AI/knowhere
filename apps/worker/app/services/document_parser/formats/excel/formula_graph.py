@@ -10,6 +10,7 @@ from openpyxl.utils.cell import ABSOLUTE_RE, SHEETRANGE_RE, range_boundaries
 from app.services.document_parser.formats.excel.workbook_grid import (
     DefinedNameDef,
     ExcelTableDef,
+    Region,
     WorkbookGrid,
 )
 
@@ -31,10 +32,20 @@ class FormulaNode:
     row: int
     col: int
     formula: str
-    functions: tuple[str, ...]
     refs: tuple[CellRange, ...]
     unresolved: bool
-    cached_value: object
+
+
+def range_hits_region(ref: CellRange, sheet_name: str, region: Region) -> bool:
+    """Whether a formula reference intersects ``region`` on ``sheet_name``."""
+    if ref.sheet != sheet_name:
+        return False
+    return not (
+        ref.max_row < region.min_row
+        or region.max_row < ref.min_row
+        or ref.max_col < region.min_col
+        or region.max_col < ref.min_col
+    )
 
 
 def build_formula_graph(workbook: WorkbookGrid) -> list[FormulaNode]:
@@ -46,7 +57,7 @@ def build_formula_graph(workbook: WorkbookGrid) -> list[FormulaNode]:
         for cell in sheet.cells.values():
             if not cell.formula:
                 continue
-            functions, refs, unresolved = _analyze_formula(
+            refs, unresolved = _analyze_formula(
                 cell.formula,
                 current_sheet=sheet.name,
                 names=names,
@@ -59,10 +70,8 @@ def build_formula_graph(workbook: WorkbookGrid) -> list[FormulaNode]:
                     row=cell.row,
                     col=cell.col,
                     formula=cell.formula,
-                    functions=functions,
                     refs=refs,
                     unresolved=unresolved,
-                    cached_value=cell.value,
                 )
             )
     return nodes
@@ -76,7 +85,7 @@ def parse_formula_refs(
     tables: Sequence[ExcelTableDef] = (),
     sheet_bounds: Mapping[str, tuple[int, int]] | None = None,
 ) -> tuple[CellRange, ...]:
-    _functions, refs, _unresolved = _analyze_formula(
+    refs, _unresolved = _analyze_formula(
         formula,
         current_sheet=current_sheet,
         names=names,
@@ -93,24 +102,20 @@ def _analyze_formula(
     names: Sequence[DefinedNameDef],
     tables: Sequence[ExcelTableDef],
     sheet_bounds: Mapping[str, tuple[int, int]],
-) -> tuple[tuple[str, ...], tuple[CellRange, ...], bool]:
+) -> tuple[tuple[CellRange, ...], bool]:
     try:
         tokens = Tokenizer(formula).items
     except Exception:
-        return (), (), True
+        return (), True
 
-    functions: list[str] = []
     refs: list[CellRange] = []
     unresolved = False
     seen: set[tuple[str, int, int, int, int]] = set()
 
     for token in tokens:
         if token.type == Token.FUNC and token.subtype == Token.OPEN:
-            function_name = _function_name(token.value)
-            if function_name:
-                functions.append(function_name)
-                if function_name.upper() in _UNRESOLVED_FUNCTIONS:
-                    unresolved = True
+            if _function_name(token.value).upper() in _UNRESOLVED_FUNCTIONS:
+                unresolved = True
             continue
         if token.type == Token.OPERAND and token.subtype == Token.ERROR:
             unresolved = True
@@ -133,7 +138,7 @@ def _analyze_formula(
                 continue
             seen.add(key)
             refs.append(item)
-    return tuple(functions), tuple(refs), unresolved
+    return tuple(refs), unresolved
 
 
 def _resolve_operand(
