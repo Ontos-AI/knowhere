@@ -59,6 +59,35 @@ def enrich_page_memory_scope(
 @celery_app.task(
     bind=True,
     base=ScopeEnrichmentBaseTask,
+    name="app.core.tasks.enrichment_tasks.enrich_sheet_group_scope",
+    ignore_result=True,
+)
+def enrich_sheet_group_scope(
+    self: Any,
+    job_result_id: str,
+    scope_id: str,
+) -> dict[str, Any]:
+    """Refine one coarse spreadsheet sheet group of a progressive revision."""
+    from app.services.document_ingestion.sheet_enrichment_service import (
+        execute_sheet_group_enrichment,
+    )
+
+    with log_context(task_id=self.request.id):
+        result = execute_sheet_group_enrichment(
+            job_result_id=str(job_result_id),
+            scope_id=str(scope_id),
+        )
+        logger.bind(event=LogEvent.WORKER_TASK_COMPLETE.value).info(
+            "Task completed: enrich_sheet_group_scope "
+            f"job_result_id={job_result_id} scope_id={scope_id} "
+            f"status={result.get('status')}"
+        )
+        return result
+
+
+@celery_app.task(
+    bind=True,
+    base=ScopeEnrichmentBaseTask,
     name="app.core.tasks.enrichment_tasks.build_page_memory_structure",
     ignore_result=True,
 )

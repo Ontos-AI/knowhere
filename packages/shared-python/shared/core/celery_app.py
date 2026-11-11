@@ -116,6 +116,9 @@ celery_app.conf.update(
         "app.core.tasks.enrichment_tasks.enrich_page_memory_scope": {
             "queue": "document_ingestion_high"
         },
+        "app.core.tasks.enrichment_tasks.enrich_sheet_group_scope": {
+            "queue": "document_ingestion_high"
+        },
         "app.core.tasks.enrichment_tasks.recover_progressive_revision": {
             "queue": "document_ingestion_low"
         },

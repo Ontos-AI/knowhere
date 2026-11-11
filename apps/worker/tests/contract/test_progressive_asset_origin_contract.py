@@ -247,6 +247,7 @@ def test_another_worker_packages_inherited_baseline_assets_with_published_assets
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, has_immutable_origin: bool
 ) -> None:
     from app.services.page_memory import scope_enrichment_service as service
+    from app.services.document_ingestion import scope_refinement as refinement
     from shared.services.storage.result_storage import JobResultStorage
 
     objects: MemoryObjects = MemoryObjects()
@@ -279,7 +280,7 @@ def test_another_worker_packages_inherited_baseline_assets_with_published_assets
             ),
         },
     )
-    monkeypatch.setattr(service, "enrich_doc_nav_summaries", lambda *args, **kwargs: {})
+    monkeypatch.setattr(refinement, "enrich_doc_nav_summaries", lambda *args, **kwargs: {})
     published_chunks: list[dict[str, object]] = [
         {
             "chunk_id": "page",
@@ -300,14 +301,15 @@ def test_another_worker_packages_inherited_baseline_assets_with_published_assets
         },
     ]
     monkeypatch.setattr(
-        service, "_load_published_package_chunks", lambda **kwargs: published_chunks
+        refinement, "load_published_package_chunks", lambda **kwargs: published_chunks
     )
-    snapshot, _size = service._regenerate_and_upload_full_package(
+    snapshot, _size = refinement.regenerate_and_upload_full_package(
         job_result_id="result",
         target=target,
         storage=JobResultStorage(results_bucket="test", storage_adapter=objects),
         workspace_dir=str(tmp_path),
         snapshot_id="final",
+        package_refs=service._page_package_refs(target),
     )
     assert snapshot is not None
     final_prefix: str = "results/job/snapshots/final/"
@@ -331,13 +333,14 @@ def test_another_worker_packages_inherited_baseline_assets_with_published_assets
         from shared.core.exceptions.domain_exceptions import StorageServiceException
 
         with pytest.raises(StorageServiceException):
-            service._regenerate_and_upload_full_package(
+            refinement.regenerate_and_upload_full_package(
                 job_result_id="result",
                 target=target,
                 storage=JobResultStorage(
                     results_bucket="test", storage_adapter=objects
                 ),
                 workspace_dir=str(tmp_path / "another-worker"),
+                package_refs=service._page_package_refs(target),
                 snapshot_id="final-retry",
             )
         assert not any("final-retry" in key for key in objects.uploaded)
@@ -367,7 +370,7 @@ def test_partial_fine_assets_are_readable_without_mutating_baseline_snapshot(
             "metadata": {"file_path": "tables/table.html"},
         },
     ]
-    output = service._freeze_scope_artifacts(
+    output = service.freeze_scope_artifacts(
         output=service.ScopeRefinementOutput(
             scope_id="scope",
             dataframe=pd.DataFrame(),
@@ -390,7 +393,7 @@ def test_partial_fine_assets_are_readable_without_mutating_baseline_snapshot(
     storage: JobResultStorage = JobResultStorage(
         results_bucket="test", storage_adapter=objects
     )
-    service._upload_scope_artifacts(
+    service.upload_scope_artifacts(
         storage=storage,
         job_id="job",
         raw_prefix="results/job/",

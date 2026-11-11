@@ -84,7 +84,7 @@ def test_worker_publishes_progressive_stages_to_opensearch(
             assert target is not None
             assert page_service._publish_coarse_structure_and_write_scopes(
                 job_result_id=revision_id, target=target,
-                publication_scope=page_service._build_publication_scope(target=target, job_result_id=revision_id),
+                publication_scope=page_service.build_publication_scope(target=target, job_result_id=revision_id),
                 chunks=[{"chunk_id": "coarse", "type": "page", "content": "cedarcoarse",
                     "path": f"{filename}/Coarse", "metadata": {
                         "scope_id": "p1-1", "page_nums": [1], "enrichment_state": "coarse",
@@ -95,7 +95,7 @@ def test_worker_publishes_progressive_stages_to_opensearch(
             assert coarse_build != baseline_build
             _, chapter = page_service._claim_and_validate_scope(job_result_id=revision_id, scope_id="p1-1")
             assert chapter is not None
-            assert page_service._publish_and_mark_refined(
+            assert page_service.publish_and_mark_refined(
                 job_result_id=revision_id, scope_id="p1-1", target=chapter,
                 output=page_service.ScopeRefinementOutput(
                     scope_id="p1-1", dataframe=pd.DataFrame(), section_summaries={}, artifact_refs=set(),
@@ -106,7 +106,7 @@ def test_worker_publishes_progressive_stages_to_opensearch(
             )
             assert search_stage("orchidrefined", "cedarcoarse") != coarse_build
         else:
-            claim = page_service._claim_progressive_stage(job_result_id=revision_id, stage_name="finalization")
+            claim = page_service.claim_progressive_stage(job_result_id=revision_id, stage_name="finalization")
             assert claim is not None
             target = chunk_service._ChunkFinalTarget(document_id=document_id, job_id=job_id, user_id=owner_id,
                 namespace=namespace, source_file_name=filename, s3_key="uploads/report.md",

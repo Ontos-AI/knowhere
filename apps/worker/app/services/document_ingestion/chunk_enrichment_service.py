@@ -38,14 +38,13 @@ from app.services.document_parser.formats.docx.baseline import (
 from app.services.document_parser.formats.docx.page_attribution import (
     attribute_pages_to_leaves,
 )
-from app.services.document_parser.orchestration.parse_session import _resolve_output_paths
+from app.services.document_parser.orchestration.parse_session import (
+    _resolve_output_paths,
+    llm_parameters_from_job_metadata,
+)
 from app.services.document_parser.orchestration.postprocess import apply_parse_postprocess
 from app.services.document_parser.support.internal_parse_name import (
     prepare_internal_parse_input,
-)
-from app.services.page_memory.scope_enrichment_service import (
-    _claim_progressive_stage,
-    _finish_progressive_stage,
 )
 from shared.core.config import settings
 from shared.core.database_sync import get_sync_db_context
@@ -67,6 +66,10 @@ from shared.services.ai.token_tracking import (
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox, WebhookOutboxEvent
 from shared.services.jobs.progressive_completion import commit_final_completion
+from shared.services.jobs.progressive_stages import (
+    claim_progressive_stage,
+    finish_progressive_stage,
+)
 from shared.services.jobs.progressive_ingestion import (
     read_progressive_state,
     write_progressive_state,
@@ -110,7 +113,7 @@ def execute_chunk_final_enrichment(
     if target is None:
         return {"status": "aborted", "job_result_id": job_result_id}
 
-    claim_token = _claim_progressive_stage(
+    claim_token = claim_progressive_stage(
         job_result_id=job_result_id,
         stage_name="finalization",
     )
@@ -191,7 +194,7 @@ def execute_chunk_final_enrichment(
             "snapshot_id": snapshot.snapshot_id,
         }
     except Exception as exc:
-        _finish_progressive_stage(
+        finish_progressive_stage(
             job_result_id=job_result_id,
             stage_name="finalization",
             claim_generation=claim_token,
@@ -355,7 +358,7 @@ def _run_full_chunk_parse(
     )
     if full_output_dir != add_dir:
         add_dir = full_output_dir
-    llm_paras = _base_llm_paras(target.job_metadata)
+    llm_paras = llm_parameters_from_job_metadata(target.job_metadata)
     if extension in {".md", ".txt"}:
         parsed_df = _parse_markdown_or_text(
             source_path=source_path,
@@ -689,45 +692,3 @@ def _build_section_summaries(
         logger.warning(f"doc_nav enrichment failed during chunk final (non-fatal): {exc}")
         return {}
 
-
-def _base_llm_paras(job_metadata: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "llm_histories": 5,
-        "smart_title_parse": JobMetadataHelper.get_parsing_param(
-            job_metadata,
-            "smart_title_parse",
-            True,
-        ),
-        "summary_image": JobMetadataHelper.get_parsing_param(
-            job_metadata,
-            "summary_image",
-            True,
-        ),
-        "summary_table": JobMetadataHelper.get_parsing_param(
-            job_metadata,
-            "summary_table",
-            True,
-        ),
-        "summary_txt": JobMetadataHelper.get_parsing_param(
-            job_metadata,
-            "summary_txt",
-            True,
-        ),
-        "stopwords": JobMetadataHelper.get_parsing_param(
-            job_metadata,
-            "stopwords",
-            None,
-        ),
-        "doc_type": JobMetadataHelper.get_parsing_param(
-            job_metadata,
-            "doc_type",
-            "auto",
-        ),
-        "frag_desc": JobMetadataHelper.get_parsing_param(
-            job_metadata,
-            "add_frag_desc",
-            "",
-        ),
-        "model_name": settings.NORMOL_MODEL,
-        "hierarchy_model_name": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
-    }

@@ -17,8 +17,8 @@ os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
 def test_late_failure_does_not_change_a_newer_running_claim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from app.services.page_memory import scope_enrichment_service as service
     from shared.models.database.document import DocumentScopeEnrichment
+    from shared.services.jobs.lifecycle import scope_enrichments as service
 
     engine = create_engine("sqlite://")
     DocumentScopeEnrichment.__table__.create(engine)
@@ -45,7 +45,7 @@ def test_late_failure_does_not_change_a_newer_running_claim(
             db.commit()
 
     monkeypatch.setattr(service, "get_sync_db_context", database)
-    service._mark_scope_failed(
+    service.mark_scope_enrichment_failed(
         job_result_id="result", scope_id="p1-2", claim_generation="old"
     )
     with Session(engine) as db:
@@ -227,8 +227,8 @@ def test_publication_cache_version_changes_only_after_sql_commit(
 def test_stage_claims_are_bounded_and_late_completion_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from app.services.page_memory import scope_enrichment_service as service
     from shared.models.database.job_result import JobResult
+    from shared.services.jobs import progressive_stages as service
 
     engine = create_engine("sqlite://")
     from shared.models.database.job import Job
@@ -262,12 +262,12 @@ def test_stage_claims_are_bounded_and_late_completion_is_rejected(
             db.commit()
 
     monkeypatch.setattr(service, "get_sync_db_context", database)
-    token = service._claim_progressive_stage(
+    token = service.claim_progressive_stage(
         job_result_id="result", stage_name="finalization"
     )
     assert token
     assert (
-        service._finish_progressive_stage(
+        service.finish_progressive_stage(
             job_result_id="result",
             stage_name="finalization",
             claim_generation="obsolete",
@@ -276,7 +276,7 @@ def test_stage_claims_are_bounded_and_late_completion_is_rejected(
         is False
     )
     assert (
-        service._finish_progressive_stage(
+        service.finish_progressive_stage(
             job_result_id="result",
             stage_name="finalization",
             claim_generation=token,
@@ -285,7 +285,7 @@ def test_stage_claims_are_bounded_and_late_completion_is_rejected(
         is True
     )
     assert (
-        service._claim_progressive_stage(
+        service.claim_progressive_stage(
             job_result_id="result", stage_name="finalization"
         )
         is None
@@ -380,7 +380,7 @@ def test_scope_attempt_assets_are_isolated_and_all_published_references_follow_t
         section_summaries={},
         artifact_refs=set(files),
     )
-    frozen = service._freeze_scope_artifacts(
+    frozen = service.freeze_scope_artifacts(
         output=output, workspace_dir=str(tmp_path), claim_generation="claim-new"
     )
     assert len(frozen.artifact_refs) == 3
@@ -484,7 +484,7 @@ def test_late_structure_upload_cannot_replace_committed_phase_b_input_bytes(
     storage = Storage()
     selected = {"phase_b/manifest.json": "phase_b/new/manifest.json"}
     source.write_bytes(b"committed manifest")
-    service._upload_scope_artifacts(
+    service.upload_scope_artifacts(
         storage=storage,
         job_id="job",
         raw_prefix="results/job/",
@@ -493,7 +493,7 @@ def test_late_structure_upload_cannot_replace_committed_phase_b_input_bytes(
         artifact_mapping=selected,
     )
     source.write_bytes(b"late stale manifest")
-    service._upload_scope_artifacts(
+    service.upload_scope_artifacts(
         storage=storage,
         job_id="job",
         raw_prefix="results/job/",

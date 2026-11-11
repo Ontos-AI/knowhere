@@ -148,8 +148,8 @@ This is the typed `ParseOutput` entry for all file types. The parser flow:
 | `.docx` | `formats.docx.parser.parse_docx` + `convert_doc2dics` | OXML iteration → heading detection → hierarchical tree |
 | `.doc` | `conversion.legacy_converter.doc_to_docx` → `.docx` pipeline | LibreOffice headless conversion first |
 | `.pptx` | `page_memory.normalizer.normalize_to_pdf` → page-memory | PPTX→PDF then the same page-memory pipeline as PDF. |
-| `.xlsx` | `formats.excel.table_parser.parse_xlsx` | Sheet-by-sheet HTML table extraction |
-| `.xls` | `conversion.legacy_converter.xls_to_xlsx` → `.xlsx` pipeline | LibreOffice conversion first |
+| `.xlsx` | `formats.excel.table_parser.parse_xlsx` | `parse_track=sheet`. Sheets are grouped by resolved cross-sheet formulas; each group is LUNA-split, header-detected and formula-linked as one unit. Progressive: `formats.excel.baseline` publishes one coarse table per sheet (no LLM) and a retrieval hit refines its whole sheet group (`enrich_sheet_group_scope`) |
+| `.xls` / `.csv` / `.tsv` | `formats.excel.normalize.normalize_table_source` → `.xlsx` pipeline | LibreOffice / delimited-text conversion first |
 | `.md` | `formats.markdown.parser.parse_md` | Markdown heading parsing + LLM summaries |
 | `.txt` | `formats.text.parser.parse_texts` → Markdown parser | Read lines then route to MD parser |
 | `.png/.jpg` | `formats.image.parser.parse_image` | VLM image description + OCR |

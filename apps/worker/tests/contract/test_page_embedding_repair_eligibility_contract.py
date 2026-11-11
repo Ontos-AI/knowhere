@@ -410,7 +410,7 @@ def test_empty_probe_cannot_complete_when_a_missing_owner_arrives_before_settlem
                 job_metadata=dict(job.job_metadata or {}),
                 source_file_name="doc.pdf",
             )
-        finish = service._finish_progressive_stage
+        finish = service.finish_progressive_stage
         added: list[bool] = []
 
         def add_owner_then_finish(**arguments):
@@ -431,7 +431,7 @@ def test_empty_probe_cannot_complete_when_a_missing_owner_arrives_before_settlem
             added.append(True)
             return finish(**arguments)
 
-        monkeypatch.setattr(service, "_finish_progressive_stage", add_owner_then_finish)
+        monkeypatch.setattr(service, "finish_progressive_stage", add_owner_then_finish)
 
         def reject_provider(**_arguments):
             pytest.fail("The empty initial coverage probe must not call the provider")
@@ -473,7 +473,7 @@ def test_vector_settlement_cannot_update_an_archived_document(
                 pending_pages=[2],
                 is_structure_running=False,
             )
-        token = service._claim_progressive_stage(
+        token = service.claim_progressive_stage(
             job_result_id=scope.job_result_id, stage_name="vector_repair"
         )
         assert token is not None
@@ -481,7 +481,7 @@ def test_vector_settlement_cannot_update_an_archived_document(
             document = db.get(Document, scope.document_id)
             document.status = "archived"
             db.commit()
-        assert not service._finish_progressive_stage(
+        assert not service.finish_progressive_stage(
             job_result_id=scope.job_result_id,
             stage_name="vector_repair",
             claim_generation=token,

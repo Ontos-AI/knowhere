@@ -83,7 +83,7 @@ class PublicationTrace:
         document_id: str | None = None,
         scope_fingerprint: str | None = None,
         job_type: Literal["document_ingestion", "demo_materialization"] | None = None,
-        parse_track: Literal["chunk", "page_memory"] | None = None,
+        parse_track: Literal["chunk", "page_memory", "sheet"] | None = None,
     ) -> None:
         self._attempt_ref = self._validate_identifier(attempt_ref)
         self._job_id = self._validate_identifier(job_id)
@@ -98,7 +98,7 @@ class PublicationTrace:
             raise ValueError("publication owner must be sync or async")
         if job_type not in (None, "document_ingestion", "demo_materialization"):
             raise ValueError("unsupported publication job type")
-        if parse_track not in (None, "chunk", "page_memory"):
+        if parse_track not in (None, "chunk", "page_memory", "sheet"):
             raise ValueError("unsupported publication parse track")
         self._owner = owner
         self._job_type = job_type
@@ -125,7 +125,7 @@ class PublicationTrace:
         document_id: str | None = None,
         scope_fingerprint: str | None = None,
         job_type: Literal["document_ingestion", "demo_materialization"] | None = None,
-        parse_track: Literal["chunk", "page_memory"] | None = None,
+        parse_track: Literal["chunk", "page_memory", "sheet"] | None = None,
     ) -> PublicationTrace:
         """Start a trace at the transaction owner boundary."""
         return cls(
@@ -206,7 +206,7 @@ class PublicationTrace:
     def bind_parse_track(self, parse_track: str) -> None:
         """Bind a known parser track without retaining arbitrary metadata."""
         self._validate_active()
-        if parse_track not in ("chunk", "page_memory"):
+        if parse_track not in ("chunk", "page_memory", "sheet"):
             raise ValueError("unsupported publication parse track")
         self._parse_track = parse_track
 

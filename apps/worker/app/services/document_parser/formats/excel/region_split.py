@@ -171,7 +171,7 @@ def _split_sheet_recursive(
     *,
     claimed: Sequence[Region],
 ) -> list[Region]:
-    effective = _find_effective_range(sheet, row_range, col_range, claimed=claimed)
+    effective = find_effective_range(sheet, row_range, col_range, claimed=claimed)
     if effective is None:
         return []
     (effective_row_start, effective_row_end), (
@@ -264,7 +264,7 @@ def _split_sheet_recursive(
     ]
 
 
-def _find_effective_range(
+def find_effective_range(
     sheet: SheetGrid,
     row_range: tuple[int, int],
     col_range: tuple[int, int],
