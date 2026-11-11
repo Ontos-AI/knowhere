@@ -193,7 +193,7 @@ class DocumentIngestionCreationService:
             job_metadata=scope.job_metadata,
         )
 
-        logger.info(f"Job {job_id} upload_url returned to client: {upload_url}")
+        logger.info("Issued upload URL for job {} (expires in {} seconds)", job_id, expires_in)
         return _build_job_response(
             job_id=job_id,
             job=job,

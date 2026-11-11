@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from loguru import logger
 from pytest import MonkeyPatch
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -384,7 +385,12 @@ async def test_should_create_a_v2_page_memory_job_for_pdf_uploads(
     }
 
     async with developer_api_client_factory() as api_client:
-        response = await api_client.post("/api/v2/jobs", json=payload)
+        creation_logs: list[str] = []
+        sink_id = logger.add(creation_logs.append, level="INFO", format="{message}")
+        try:
+            response = await api_client.post("/api/v2/jobs", json=payload)
+        finally:
+            logger.remove(sink_id)
 
         assert response.status_code == 200
 
@@ -399,6 +405,11 @@ async def test_should_create_a_v2_page_memory_job_for_pdf_uploads(
     assert response_json["namespace"] == payload["namespace"]
     assert response_json["data_id"] == payload["data_id"]
     assert response_json["upload_headers"] == {"Content-Type": "application/pdf"}
+    upload_url = response_json["upload_url"]
+    assert isinstance(upload_url, str) and upload_url
+    assert not any(upload_url in message for message in creation_logs), (
+        "Job creation logged the signed upload URL"
+    )
     assert list_response.status_code == 200
     assert read_response.status_code == 200
     listed_jobs = cast(list[dict[str, object]], list_response.json()["jobs"])
