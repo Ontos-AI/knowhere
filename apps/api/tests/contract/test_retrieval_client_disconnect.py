@@ -18,7 +18,7 @@ def make_api() -> FastAPI:
     app.dependency_overrides[retrieval.with_current_user] = lambda: SimpleNamespace(
         user_id="test-user"
     )
-    app.dependency_overrides[get_db] = lambda: object()
+    app.dependency_overrides[get_db] = object
     return app
 
 
