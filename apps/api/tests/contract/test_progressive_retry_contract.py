@@ -96,7 +96,11 @@ def test_retry_is_authorized_fenced_and_idempotent(
         assert job is not None
         job.status = "done"
         job.page_count = 4
-        job.job_metadata = {**(job.job_metadata or {}), "page_count": 4}
+        job.job_metadata = {
+            **(job.job_metadata or {}),
+            "page_count": 4,
+            "source_size_bytes": 7_654,
+        }
         job.credits_charged = 123
         job.billing_status = "charged"
         db.add_all(
@@ -148,6 +152,7 @@ def test_retry_is_authorized_fenced_and_idempotent(
                 )
                 payload = projection.model_dump(mode="json")
                 assert payload["page_count"] == 4
+                assert payload["source_size_bytes"] == 7_654
                 assert payload["enhancement"]["status"] == "pending"
                 assert payload["current_snapshot_id"] == "retry-baseline"
                 assert payload["snapshots"][0]["result_url"]

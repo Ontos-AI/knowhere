@@ -46,10 +46,14 @@ class WorkerUrlUploadContract:
     def allow_private_url_sources(self, monkeypatch: MonkeyPatch) -> None:
         monkeypatch.setattr(self.settings, "ENVIRONMENT", "development")
 
-    def create_url_job(self, *, source_url: str) -> dict[str, str]:
+    def create_url_job(
+        self, *, source_url: str, source_file_name: str = "contract-source.pdf"
+    ) -> dict[str, str]:
         user_id = f"worker-url-contract-user-{uuid4().hex[:12]}"
         job_id = f"job_url_upload_{uuid4().hex[:12]}"
-        s3_key = self.storage.build_upload_key(job_id=job_id, file_extension=".pdf")
+        s3_key = self.storage.build_upload_key(
+            job_id=job_id, file_extension=Path(source_file_name).suffix
+        )
 
         with self.engine.begin() as connection:
             insert_contract_user(connection, user_id=user_id)
@@ -64,7 +68,7 @@ class WorkerUrlUploadContract:
                     "namespace": "worker-contract",
                     "source_type": "url",
                     "source_url": source_url,
-                    "source_file_name": "contract-source.pdf",
+                    "source_file_name": source_file_name,
                 },
             )
 

@@ -16,8 +16,15 @@ finish using their original scope-publication protocol.
 It also exposes the known `page_count` so status consumers do not download a
 result archive to recover a count already persisted by ingestion.
 
+Both full and progressive job reads expose a top-level `source_size_bytes`
+integer once ingestion records the source size. It counts the bytes in the
+directly uploaded file or the file downloaded from the source URL before
+normalization. Subsequent reads return the stored count. The field is omitted
+when no count was recorded, including older jobs that predate source measurement.
+
 ```json
 {
+  "source_size_bytes": 7654,
   "enhancement": {
     "status": "pending",
     "can_retry": false,

@@ -895,6 +895,7 @@ def test_parse_task_should_parse_macro_content_type_docx_after_compat_conversion
 
     assert celery_result.successful()
     observed = contract.observe_successful_job(job["job_id"])
+    assert observed["job"]["job_metadata"]["source_size_bytes"] == variant_docx.stat().st_size
     document_chunks = observed["document_chunks"]
     assert any(
         _COMPAT_BODY_MARKER in str(row["content"]) for row in document_chunks

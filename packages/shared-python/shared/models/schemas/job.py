@@ -219,6 +219,12 @@ class JobResultResponse(BaseModel):
     page_count: Optional[int] = Field(
         default=None, ge=1, exclude_if=lambda value: value is None
     )
+    source_size_bytes: int | None = Field(
+        default=None,
+        ge=0,
+        description="Size in bytes of the uploaded or downloaded file before normalization, when recorded",
+        exclude_if=lambda value: value is None,
+    )
 
     job_id: str = Field(..., description="Job ID")
     parsing_status: Literal["pending", "running", "completed", "failed"] = "pending"
