@@ -224,6 +224,49 @@ class OpenSearchLexicalIndex:
                     "mappings": {"dynamic": "strict", "properties": properties},
                 }
 
+    @property
+    def manifestIndexName(self) -> str:
+        return f"{self._indexPrefix}-published-manifests"
+
+    def createManifestIndex(self) -> None:
+        try:
+            response: _Acknowledgment = _Acknowledgment.model_validate(self._request(
+                "PUT", f"/{self.manifestIndexName}", payload={
+                    "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+                    "mappings": {"dynamic": "strict", "properties": {
+                        "scope": {"type": "keyword"},
+                        "buildIds": {"type": "keyword", "index": False, "doc_values": False},
+                    }},
+                },
+            ))
+        except LexicalIndexError as error:
+            statusError = error.__cause__
+            if isinstance(statusError, httpx.HTTPStatusError) and statusError.response.status_code == 400:
+                body = statusError.response.json()
+                details = body.get("error") if isinstance(body, dict) else None
+                if isinstance(details, dict) and details.get("type") == "resource_already_exists_exception":
+                    return
+            raise
+        if not response.acknowledged or not response.shards_acknowledged:
+            raise LexicalIndexError("Manifest index creation has an uncertain outcome", isRetryable=True)
+
+    def writePublishedManifest(self, *, manifestId: str, scopeId: str, buildIds: tuple[str, ...]) -> None:
+        response: object = self._request("PUT", f"/{self.manifestIndexName}/_create/{manifestId}",
+            payload={"scope": scopeId, "buildIds": buildIds})
+        if not isinstance(response, dict) or response.get("_id") != manifestId or response.get("result") != "created":
+            raise LexicalIndexError("Native manifest creation did not confirm the candidate", isRetryable=True)
+
+    def deletePublishedManifest(self, manifestId: str) -> None:
+        try:
+            response: object = self._request("DELETE", f"/{self.manifestIndexName}/_doc/{manifestId}")
+        except LexicalIndexError as error:
+            statusError = error.__cause__
+            if isinstance(statusError, httpx.HTTPStatusError) and statusError.response.status_code == 404:
+                return
+            raise
+        if not isinstance(response, dict) or response.get("_id") != manifestId or response.get("result") != "deleted":
+            raise LexicalIndexError("Native manifest deletion was not confirmed", isRetryable=True)
+
     def getIndexUuid(self) -> str:
         response: _SettingsResponse = _SettingsResponse.model_validate(
             self._request("GET", f"/{self.indexName}/_settings?flat_settings=true")

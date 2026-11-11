@@ -8,7 +8,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select, true
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,7 +41,7 @@ async def capture_revision_pins(
 ) -> RetrievalRevisionPins:
     """Capture active document revisions in one database read transaction."""
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
-    generationQuery = (
+    generation_query = (
         select(corpusStorage.RetrievalNamespaceGeneration.generation)
         .where(
             corpusStorage.RetrievalNamespaceGeneration.user_id
@@ -50,20 +50,18 @@ async def capture_revision_pins(
         )
         .scalar_subquery()
     )
-    statement = (
+    active_revisions = (
         select(
             corpusStorage.Document.document_id,
             corpusStorage.Document.current_job_result_id,
-            func.coalesce(generationQuery, 0),
         )
         .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
         .where(corpusStorage.Document.namespace == namespace)
         .where(corpusStorage.Document.status == "active")
         .where(corpusStorage.Document.current_job_result_id.is_not(None))
-        .order_by(corpusStorage.Document.document_id)
     )
     if corpusStorage.is_demo:
-        statement = statement.join(
+        active_revisions = active_revisions.join(
             corpusStorage.DocumentMapUnitIndex,
             (
                 corpusStorage.DocumentMapUnitIndex.document_id
@@ -74,28 +72,24 @@ async def capture_revision_pins(
                 == corpusStorage.Document.current_job_result_id
             ),
         )
-    capturedRows = (await db.execute(statement)).all()
-    generation_row = (
-        capturedRows[0][2]
-        if capturedRows
-        else await db.scalar(
-            select(corpusStorage.RetrievalNamespaceGeneration.generation)
-            .where(
-                corpusStorage.RetrievalNamespaceGeneration.user_id
-                == corpusStorage.resolve_owner(user_id)
-            )
-            .where(corpusStorage.RetrievalNamespaceGeneration.namespace == namespace)
-        )
+    # The generation row anchors the result even when the active scope is
+    # empty, so a first publication cannot split the generation and revisions.
+    generation = select(func.coalesce(generation_query, 0).label("generation")).subquery()
+    scope = active_revisions.subquery()
+    statement = (
+        select(scope.c.document_id, scope.c.current_job_result_id, generation.c.generation)
+        .select_from(generation.outerjoin(scope, true()))
+        .order_by(scope.c.document_id)
     )
-    rows = [(identity, revision) for identity, revision, _generation in capturedRows]
+    captured_rows = (await db.execute(statement)).all()
     revisions = {
         str(document_id): str(job_result_id)
-        for document_id, job_result_id in rows
+        for document_id, job_result_id, _generation in captured_rows
         if document_id and job_result_id
     }
     return RetrievalRevisionPins(
         revisions=revisions,
-        generation=int(generation_row) if generation_row is not None else 0,
+        generation=int(captured_rows[0].generation),
     )
 
 

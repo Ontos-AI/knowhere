@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
-from contextlib import AbstractAsyncContextManager
+from collections.abc import AsyncIterator, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from dataclasses import dataclass, replace
+from typing import Any, Literal
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.core.config import settings
+from shared.services.retrieval.execution.postgresql_snapshot import (
+    open_postgresql_snapshot,
+    validate_postgresql_snapshot,
+)
 from shared.services.retrieval.execution.reference_resolver import (
     resolve_workflow_references,
 )
@@ -19,7 +26,9 @@ from shared.services.retrieval.hydration.evidence_compose import (
     group_evidence_units,
 )
 from shared.services.retrieval.hydration.result_assembly import (
+    RetrievalResultRows,
     assemble_retrieval_results,
+    load_retrieval_result_rows,
 )
 from shared.services.retrieval.routing import config as query_router_config
 from shared.services.retrieval.routing.classifier import classify_query_mode
@@ -35,7 +44,18 @@ from shared.services.ai.retrieval_ledger import (
     get_current_retrieval_ledger,
     init_retrieval_ledger,
 )
-from shared.services.retrieval.search.visual_discovery import hybrid_discovery
+from shared.services.retrieval.search.visual_discovery import (
+    VisualQueryEmbedding,
+    has_visual_query_embeddings,
+    hybrid_discovery,
+)
+
+
+@dataclass(frozen=True)
+class _ClassicRead:
+    rows: list[dict[str, Any]]
+    router_used: Literal["classic_topk", "small_corpus_all"]
+    has_unhydrated_hits: bool
 
 
 def open_fresh_database_context() -> AbstractAsyncContextManager[AsyncSession]:
@@ -84,11 +104,17 @@ def _evidence_fields(rows: list[dict]) -> dict:
 async def run_retrieval_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
+    from shared.services.retrieval.lexical.reader import PublishedLexicalRead
+
     init_retrieval_ledger()
     try:
-        small_corpus_outcome = await _try_run_small_corpus_route(context)
-        if small_corpus_outcome is not None:
-            return small_corpus_outcome
+        if settings.KNOWHERE_LEXICAL_BACKEND == "postgresql" and context.use_agentic is False:
+            return await _run_postgresql_classic_route(context, try_small_corpus=True)
+
+        if getattr(PublishedLexicalRead.current(), "manifestId", None) is None:
+            small_corpus_outcome = await _try_run_small_corpus_route(context)
+            if small_corpus_outcome is not None:
+                return small_corpus_outcome
 
         use_agentic = context.use_agentic
         decision: RouterDecision | None = None
@@ -130,6 +156,36 @@ async def _resolve_auto_route(
 async def _try_run_small_corpus_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome | None:
+    loaded_rows: RetrievalResultRows | None = None
+    if settings.KNOWHERE_LEXICAL_BACKEND == "postgresql":
+        async with _open_classic_snapshot(context) as snapshot:
+            read = await _read_small_corpus_route(snapshot)
+            if read is not None:
+                loaded_rows = await _load_classic_rows(snapshot, read)
+    else:
+        read = await _read_small_corpus_route(context)
+    if read is None:
+        return None
+    return await _finish_classic_route(context, read, loaded_rows=loaded_rows)
+
+
+@asynccontextmanager
+async def _open_classic_snapshot(
+    context: RetrievalRouteContext,
+) -> AsyncIterator[RetrievalRouteContext]:
+    async with open_postgresql_snapshot(context.db) as snapshot:
+        await validate_postgresql_snapshot(
+            snapshot,
+            user_id=context.user_id,
+            namespace=context.namespace,
+            pins=context.revision_pins,
+        )
+        yield replace(context, db=snapshot)
+
+
+async def _read_small_corpus_route(
+    context: RetrievalRouteContext,
+) -> _ClassicRead | None:
     total_chunk_count = await count_scoped_chunks(
         context.db,
         user_id=context.user_id,
@@ -166,45 +222,65 @@ async def _try_run_small_corpus_route(
     )
     if len(all_rows) > context.top_k:
         return None
-    assembled_rows = await assemble_retrieval_results(
-        db=context.db,
+    return _ClassicRead(
         rows=all_rows,
-        exclude_document_ids=context.exclude_document_ids,
-        document_scope=context.document_scope,
-        exclude_sections=context.exclude_sections,
-        allowed_chunk_types=context.allowed_chunk_types,
-        revision_pins=context.revision_pins,
-        skip_locked_chunk_final=True,
-    )
-    results = assembled_rows
-    response = {
-        "namespace": context.namespace,
-        "query": context.query,
-        "router_used": "small_corpus_all",
-        **_evidence_fields(results),
-        "answer_text": "",
-        "results": results,
-    }
-    outcome = RetrievalRouteOutcome(
-        response=response,
-        hit_stats_results=results,
-        completion_label="Small corpus",
-        completion_count=len(results),
-        completion_detail="results",
+        router_used="small_corpus_all",
         has_unhydrated_hits=total_chunk_count > 0 and not all_rows,
     )
-    await _persist_retrieval_usage_run(
-        db=context.db,
-        context=context,
-        router_used="small_corpus_all",
-        ranked_rows=results,
-    )
-    return outcome
 
 
 async def _run_classic_topk_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
+    if settings.KNOWHERE_LEXICAL_BACKEND == "postgresql":
+        return await _run_postgresql_classic_route(context, try_small_corpus=False)
+    read: _ClassicRead = await _read_classic_topk_route(context)
+    return await _finish_classic_route(context, read)
+
+
+async def _run_postgresql_classic_route(
+    context: RetrievalRouteContext,
+    *,
+    try_small_corpus: bool,
+) -> RetrievalRouteOutcome:
+    read: _ClassicRead | None = None
+    loaded_rows: RetrievalResultRows
+    async with _open_classic_snapshot(context) as snapshot:
+        if try_small_corpus:
+            read = await _read_small_corpus_route(snapshot)
+        if read is None and not await has_visual_query_embeddings(
+            snapshot.db,
+            user_id=context.user_id,
+            namespace=context.namespace,
+            query=context.query,
+            top_k=context.effective_recall_k,
+            exclude_document_ids=context.exclude_document_ids,
+            document_scope=context.document_scope,
+            chunk_types=context.allowed_chunk_types,
+            revision_pins=context.revision_pins,
+        ):
+            read = await _read_classic_topk_route(snapshot, use_visual=False)
+        if read is not None:
+            loaded_rows = await _load_classic_rows(snapshot, read)
+
+    if read is None:
+        # The first snapshot established the need for visual search. Resolve the
+        # vector before reopening the same publication for the full read.
+        embedding = VisualQueryEmbedding(context.query.strip())
+        await embedding.get()
+        async with _open_classic_snapshot(context) as snapshot:
+            read = await _read_classic_topk_route(snapshot, query_embedding=embedding)
+            loaded_rows = await _load_classic_rows(snapshot, read)
+
+    return await _finish_classic_route(context, read, loaded_rows=loaded_rows)
+
+
+async def _read_classic_topk_route(
+    context: RetrievalRouteContext,
+    *,
+    use_visual: bool = True,
+    query_embedding: VisualQueryEmbedding | None = None,
+) -> _ClassicRead:
     discovery_result = await hybrid_discovery(
         context.db,
         user_id=context.user_id,
@@ -218,6 +294,8 @@ async def _run_classic_topk_route(
         signal_paths=context.signal_paths,
         filter_mode=context.filter_mode,
         revision_pins=context.revision_pins,
+        use_visual=use_visual,
+        query_embedding=query_embedding,
     )
 
     fused_rows = list(discovery_result.payload.get("fused_rows") or [])
@@ -232,40 +310,65 @@ async def _run_classic_topk_route(
         revision_pins=context.revision_pins,
     )
 
-    assembled_rows = await assemble_retrieval_results(
-        db=context.db,
+    return _ClassicRead(
         rows=ranked_rows,
+        router_used="classic_topk",
+        has_unhydrated_hits=discovery_result.has_unhydrated_hits,
+    )
+
+
+async def _load_classic_rows(
+    context: RetrievalRouteContext, read: _ClassicRead,
+) -> RetrievalResultRows:
+    return await load_retrieval_result_rows(
+        db=context.db,
+        rows=read.rows,
+        exclude_document_ids=context.exclude_document_ids,
+        document_scope=context.document_scope,
+        exclude_sections=context.exclude_sections,
+        revision_pins=context.revision_pins,
+    )
+
+
+async def _finish_classic_route(
+    context: RetrievalRouteContext,
+    read: _ClassicRead,
+    *,
+    loaded_rows: RetrievalResultRows | None = None,
+) -> RetrievalRouteOutcome:
+    results = await assemble_retrieval_results(
+        db=context.db,
+        rows=read.rows,
         exclude_document_ids=context.exclude_document_ids,
         document_scope=context.document_scope,
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
         revision_pins=context.revision_pins,
         skip_locked_chunk_final=True,
+        loaded_rows=loaded_rows,
     )
-    results = assembled_rows
     response = {
         "namespace": context.namespace,
         "query": context.query,
-        "router_used": "classic_topk",
+        "router_used": read.router_used,
         **_evidence_fields(results),
         "answer_text": "",
         "results": results,
     }
-    outcome = RetrievalRouteOutcome(
-        response=response,
-        hit_stats_results=results,
-        completion_label="CLASSIC TOP-K",
-        completion_count=len(results),
-        completion_detail="results",
-        has_unhydrated_hits=discovery_result.has_unhydrated_hits,
-    )
     await _persist_retrieval_usage_run(
         db=context.db,
         context=context,
-        router_used="classic_topk",
+        router_used=read.router_used,
         ranked_rows=results,
     )
-    return outcome
+    return RetrievalRouteOutcome(
+        response=response,
+        hit_stats_results=results,
+        completion_label="Small corpus" if read.router_used == "small_corpus_all" else "CLASSIC TOP-K",
+        completion_count=len(results),
+        completion_detail="results",
+        has_unhydrated_hits=read.has_unhydrated_hits,
+    )
 
 
 async def _run_agent_explore_route(

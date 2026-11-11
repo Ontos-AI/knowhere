@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
@@ -154,7 +155,7 @@ def _copy_matched_page_nums(target: dict[str, Any], source: Mapping[str, Any]) -
         target["matched_page_nums"] = pages
 
 
-class _QueryEmbedding:
+class VisualQueryEmbedding:
     """Resolve one vector lazily for the visual searches in this request."""
 
     def __init__(self, query: str) -> None:
@@ -175,6 +176,141 @@ class _QueryEmbedding:
         return self._vector
 
 
+@dataclass(frozen=True)
+class _VisualDocumentScope:
+    storage: CorpusStorage
+    documents: DocumentScope
+    revision_join: str
+    revision_clause: str
+    document_clause: str
+    parameters: dict[str, Any]
+    has_inline_build_pins: bool
+
+
+def _resolve_visual_document_scope(
+    *,
+    user_id: str,
+    namespace: str,
+    exclude_document_ids: list[str],
+    document_scope: DocumentScope,
+    revision_pins: Mapping[str, str] | None,
+) -> _VisualDocumentScope:
+    from shared.services.retrieval.lexical.reader import PublishedLexicalRead
+
+    storage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
+    documents: DocumentScope = document_scope.excluding(exclude_document_ids)
+    revision_join, revision_clause, revision_parameters = _build_visual_revision_scope(
+        revision_pins
+    )
+    document_clause, document_parameters = documents.sql()
+    native_read = PublishedLexicalRead.current()
+    has_inline_build_pins: bool = False
+    if (
+        native_read is not None
+        and native_read.scope.namespace == namespace
+        and native_read.scope.ownerId == storage.resolve_owner(user_id)
+        and native_read.manifestId is None
+    ):
+        has_inline_build_pins = True
+        # Inline native builds can still be searched after PostgreSQL publishes
+        # a replacement. Score visual pages only while their build is current.
+        document_clause += """
+            AND (d.document_id, d.current_indexing_build_id) IN (
+                SELECT * FROM unnest(
+                    CAST(:visual_document_ids AS varchar[]),
+                    CAST(:visual_build_ids AS varchar[])
+                )
+            )
+        """
+        build_pins: dict[str, str] = {
+            document_id: build_id
+            for document_id, build_id in native_read.builds.items()
+            if documents.allows(document_id)
+        }
+        document_parameters = {
+            **document_parameters,
+            "visual_document_ids": list(build_pins),
+            "visual_build_ids": list(build_pins.values()),
+        }
+    return _VisualDocumentScope(
+        storage=storage,
+        documents=documents,
+        revision_join=revision_join,
+        revision_clause=revision_clause,
+        document_clause=document_clause,
+        parameters={
+            "user_id": storage.resolve_owner(user_id),
+            "namespace": namespace,
+            **revision_parameters,
+            **document_parameters,
+        },
+        has_inline_build_pins=has_inline_build_pins,
+    )
+
+
+def _can_search_visual_pages(
+    query: str, top_k: int, chunk_types: set[str] | None,
+    revision_pins: Mapping[str, str] | None,
+) -> bool:
+    return (
+        bool(settings.VISUAL_RETRIEVAL_ENABLED)
+        and bool(query.strip())
+        and top_k > 0
+        and (revision_pins is None or bool(revision_pins))
+        and (
+            chunk_types is None
+            or "page" in chunk_types
+            or chunk_types.issubset(ASSET_CHUNK_TYPES)
+        )
+    )
+
+
+async def _has_visual_embeddings(db: AsyncSession, scope: _VisualDocumentScope) -> bool:
+    statement: str = f"""
+        SELECT EXISTS (
+            SELECT 1
+            FROM document_page_embeddings dpe
+            JOIN documents d
+                ON d.document_id = dpe.document_id
+                {scope.revision_join}
+            WHERE d.user_id = :user_id
+                AND d.namespace = :namespace
+                AND d.status = 'active'
+                {scope.revision_clause}
+                {scope.document_clause}
+        )
+    """
+    result = await db.execute(text(scope.storage.compile_sql(statement)), scope.parameters)
+    return bool(result.scalar())
+
+
+async def has_visual_query_embeddings(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    namespace: str,
+    query: str,
+    top_k: int,
+    exclude_document_ids: list[str],
+    document_scope: DocumentScope,
+    chunk_types: set[str] | None,
+    revision_pins: Mapping[str, str] | None,
+) -> bool:
+    """Check whether the visual channel needs a query vector in this read view."""
+    if not _can_search_visual_pages(query, top_k, chunk_types, revision_pins):
+        return False
+    return await _has_visual_embeddings(
+        db,
+        _resolve_visual_document_scope(
+            user_id=user_id,
+            namespace=namespace,
+            exclude_document_ids=exclude_document_ids,
+            document_scope=document_scope,
+            revision_pins=revision_pins,
+        ),
+    )
+
+
 async def visual_page_discovery(
     db: AsyncSession | None,
     *,
@@ -190,66 +326,29 @@ async def visual_page_discovery(
     filter_mode: str = "delete",
     revision_pins: Mapping[str, str] | None = None,
     section_targets: list[tuple[str, str | None]] | None = None,
-    query_embedding: _QueryEmbedding | None = None,
+    query_embedding: VisualQueryEmbedding | None = None,
 ) -> DiscoveryResult:
     """Rank persisted page embeddings via pgvector cosine similarity."""
     if db is None:
         raise ValueError("database session required for visual_page_discovery")
-    if not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)):
-        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
     normalized_query = str(query or "").strip()
-    if not normalized_query or top_k <= 0:
-        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
-    if revision_pins is not None and not revision_pins:
-        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
-
-    if (
-        chunk_types is not None
-        and "page" not in chunk_types
-        and not chunk_types.issubset(ASSET_CHUNK_TYPES)
-    ):
+    if not _can_search_visual_pages(normalized_query, top_k, chunk_types, revision_pins):
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
 
     t0 = time.monotonic()
-    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     exclude_doc_list = list(exclude_document_ids or [])
     exclude_sec_list = list(exclude_sections or [])
-
-    revision_join, revision_clause, revision_params = _build_visual_revision_scope(
-        revision_pins
+    scope: _VisualDocumentScope = _resolve_visual_document_scope(
+        user_id=user_id,
+        namespace=namespace,
+        exclude_document_ids=exclude_doc_list,
+        document_scope=document_scope,
+        revision_pins=revision_pins,
     )
-    scoped_docs = document_scope.excluding(exclude_doc_list)
-    document_scope_clause, document_scope_params = scoped_docs.sql()
-    params: dict[str, Any] = {
-        "user_id": corpusStorage.resolve_owner(user_id),
-        "namespace": namespace,
-        **revision_params,
-        **document_scope_params,
-    }
-
-    exists_sql = f"""
-        SELECT EXISTS (
-            SELECT 1
-            FROM document_page_embeddings dpe
-            JOIN documents d
-                ON d.document_id = dpe.document_id
-                {revision_join}
-            WHERE d.user_id = :user_id
-                AND d.namespace = :namespace
-                AND d.status = 'active'
-                {revision_clause}
-                {document_scope_clause}
-        )
-    """
-    has_embeddings = bool(
-        (
-            await db.execute(text(corpusStorage.compile_sql(exists_sql)), params)
-        ).scalar()
-    )
-    if not has_embeddings:
+    if not await _has_visual_embeddings(db, scope):
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
 
-    embedding = query_embedding or _QueryEmbedding(normalized_query)
+    embedding = query_embedding or VisualQueryEmbedding(normalized_query)
     vector_literal = HalfVector(await embedding.get()).to_text()
 
     signal_clause, signal_params = _build_signal_clause(
@@ -262,7 +361,7 @@ async def visual_page_discovery(
         exclude_sec_list
     )
     query_params: dict[str, Any] = {
-        **params,
+        **scope.parameters,
         **signal_params,
         **section_params,
         **exclude_params,
@@ -283,6 +382,7 @@ async def visual_page_discovery(
                 dc.chunk_metadata,
                 dc.job_result_id,
                 dc.sort_order,
+                d.current_indexing_build_id AS visual_build_id,
                 ds.section_path,
                 d.source_file_name,
                 jr.job_id,
@@ -298,8 +398,8 @@ async def visual_page_discovery(
             WHERE d.user_id = :user_id
                 AND d.namespace = :namespace
                 AND d.status = 'active'
-                { "AND d.current_job_result_id = dc.job_result_id" if revision_pins is None else revision_clause.replace("dpe.", "dc.") }
-                {document_scope_clause}
+                { "AND d.current_job_result_id = dc.job_result_id" if revision_pins is None else scope.revision_clause.replace("dpe.", "dc.") }
+                {scope.document_clause}
                 {signal_clause}
                 {section_clause}
                 {exclude_clause}
@@ -353,6 +453,7 @@ async def visual_page_discovery(
             sc.chunk_metadata,
             sc.job_result_id,
             sc.sort_order,
+            sc.visual_build_id,
             sc.section_path,
             sc.source_file_name,
             sc.job_id,
@@ -372,10 +473,14 @@ async def visual_page_discovery(
                  sc.chunk_id ASC
     """
     result = await db.execute(
-        text(corpusStorage.compile_sql(search_sql)), query_params
+        text(scope.storage.compile_sql(search_sql)), query_params
     )
 
     primaries = _aggregate_visual_page_hits(result.all())
+    if scope.has_inline_build_pins:
+        for primary in primaries:
+            primary["build_id"] = primary["visual_build_id"]
+            primary["uses_inline_build"] = True
 
     if chunk_types is not None and chunk_types.issubset(ASSET_CHUNK_TYPES):
         connected = await hydrate_connected_target_rows(
@@ -383,32 +488,34 @@ async def visual_page_discovery(
             rows=primaries,
             exclude_document_ids=exclude_doc_list,
             exclude_sections=exclude_sec_list,
-            document_scope=scoped_docs,
+            document_scope=scope.documents,
             revision_pins=revision_pins,
         )
         connected_by_id = {
-            str(row.get("chunk_id") or ""): row
+            (row.get("build_id"), str(row["chunk_id"])): row
             for row in connected
             if row.get("chunk_id")
         }
         asset_rows: list[dict[str, Any]] = []
-        seen_ids: set[str] = set()
+        seen_ids: set[tuple[str | None, str]] = set()
         for primary in primaries:
             score = float(primary.get("score") or 0.0)
             for target_id in iter_connected_target_ids(primary):
-                target = connected_by_id.get(target_id)
+                key: tuple[str | None, str] = (primary.get("build_id"), target_id)
+                target = connected_by_id.get(key)
                 if target is None:
                     continue
-                cid = str(target.get("chunk_id") or "")
                 if (
-                    not cid
-                    or cid in seen_ids
+                    key in seen_ids
                     or normalize_chunk_type(target.get("chunk_type")) not in chunk_types
                 ):
                     continue
-                seen_ids.add(cid)
+                seen_ids.add(key)
                 item = dict(target)
                 item["score"] = score
+                if scope.has_inline_build_pins:
+                    item["visual_build_id"] = primary["build_id"]
+                    item["uses_inline_build"] = True
                 asset_rows.append(item)
         fused_rows = asset_rows[:top_k]
     else:
@@ -443,7 +550,7 @@ async def light_unrefined_section_pages(
     rows: list[dict[str, Any]],
     document_scope: DocumentScope = DocumentScope(),
     revision_pins: Mapping[str, str] | None = None,
-    query_embedding: _QueryEmbedding | None = None,
+    query_embedding: VisualQueryEmbedding | None = None,
 ) -> None:
     """Populate ``matched_page_nums`` on unrefined page rows via section-scoped visual discovery."""
     if (
@@ -477,8 +584,8 @@ async def light_unrefined_section_pages(
     if not pending or not targets:
         return
 
-    embedding = query_embedding or _QueryEmbedding(str(query or '').strip())
-    pages_by_chunk: dict[tuple[str, str], list[int]] = {}
+    embedding = query_embedding or VisualQueryEmbedding(str(query or '').strip())
+    pages_by_chunk: dict[tuple[str, str], tuple[str | None, list[int]]] = {}
     for document_id, section_path in targets:
         discovery = await visual_page_discovery(
             db,
@@ -498,15 +605,18 @@ async def light_unrefined_section_pages(
             chunk_id = str(vis_row.get("chunk_id") or "").strip()
             pages = coerce_page_nums(vis_row.get("matched_page_nums"))
             if doc_id and chunk_id and pages:
-                pages_by_chunk[(doc_id, chunk_id)] = pages
+                pages_by_chunk[(doc_id, chunk_id)] = (vis_row.get("visual_build_id"), pages)
 
     for row in pending:
         key = (
             str(row.get("document_id") or "").strip(),
             str(row.get("chunk_id") or "").strip(),
         )
-        pages = pages_by_chunk.get(key)
-        if pages:
+        match = pages_by_chunk.get(key)
+        if match is None:
+            continue
+        visual_build_id, pages = match
+        if row.get("build_id") is None or row["build_id"] == visual_build_id:
             apply_matched_page_nums(row, pages)
 
 
@@ -526,8 +636,12 @@ async def hybrid_discovery(
     revision_pins: Mapping[str, str] | None = None,
     publish_index_readiness: bool = True,
     section_targets: list[tuple[str, str | None]] | None = None,
+    use_visual: bool = True,
+    query_embedding: VisualQueryEmbedding | None = None,
 ) -> DiscoveryResult:
     """Fuse persisted lexical map-unit BM25 discovery with visual page discovery via RRF."""
+    from shared.services.retrieval.lexical.reader import PublishedLexicalRead
+
     exclude_doc_list = list(exclude_document_ids or [])
     exclude_sec_list = list(exclude_sections or [])
 
@@ -547,10 +661,14 @@ async def hybrid_discovery(
         publish_index_readiness=publish_index_readiness,
         section_targets=section_targets,
     )
-    if not bool(getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)):
+    if (
+        not use_visual
+        or not settings.VISUAL_RETRIEVAL_ENABLED
+        or getattr(PublishedLexicalRead.current(), "manifestId", None) is not None
+    ):
         return lexical_result
 
-    embedding = _QueryEmbedding(str(query or '').strip())
+    embedding = query_embedding or VisualQueryEmbedding(str(query or '').strip())
     visual_result = await visual_page_discovery(
         db,
         user_id=user_id,
@@ -569,7 +687,16 @@ async def hybrid_discovery(
     )
 
     lexical_rows = list(lexical_result.payload.get("fused_rows") or [])
-    visual_rows = list(visual_result.payload.get("fused_rows") or [])
+    lexical_builds: dict[str, str] = {
+        row["document_id"]: row["build_id"]
+        for row in lexical_rows
+        if row.get("build_id")
+    }
+    visual_rows = [
+        row for row in visual_result.payload.get("fused_rows") or []
+        if row.get("document_id") not in lexical_builds
+        or row.get("visual_build_id") == lexical_builds[row["document_id"]]
+    ]
 
     if not visual_rows:
         return lexical_result

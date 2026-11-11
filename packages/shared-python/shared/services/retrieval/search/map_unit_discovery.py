@@ -29,6 +29,9 @@ from sqlalchemy import text
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.retrieval.execution.postgresql_snapshot import (
+    open_postgresql_snapshot,
+)
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.row_utils import (
     iter_connected_target_ids,
@@ -241,8 +244,6 @@ async def map_unit_discovery(
     **_kwargs: Any,
 ) -> DiscoveryResult:
     """Score the whole in-scope corpus via the persisted map-unit BM25 scorer."""
-    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
-    t0 = time.monotonic()
     if db is None:
         raise ValueError("database session required for map_unit_discovery")
     from shared.core.config import settings
@@ -258,6 +259,46 @@ async def map_unit_discovery(
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
     if revision_pins is not None and not revision_pins:
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+    async with open_postgresql_snapshot(db) as snapshot:
+        return await _discover_postgresql(
+            snapshot,
+            user_id=user_id,
+            namespace=namespace,
+            query=query,
+            query_tokens=query_tokens,
+            top_k=top_k,
+            exclude_document_ids=exclude_document_ids,
+            exclude_sections=exclude_sections,
+            document_scope=document_scope,
+            chunk_types=chunk_types,
+            signal_paths=signal_paths,
+            filter_mode=filter_mode,
+            revision_pins=revision_pins,
+            publish_index_readiness=publish_index_readiness,
+            section_targets=section_targets,
+        )
+
+
+async def _discover_postgresql(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    namespace: str,
+    query: str,
+    query_tokens: list[str],
+    top_k: int,
+    exclude_document_ids: list[str],
+    exclude_sections: list[dict[str, str]],
+    document_scope: DocumentScope,
+    chunk_types: set[str] | None,
+    signal_paths: list[str] | None,
+    filter_mode: str,
+    revision_pins: Mapping[str, str] | None,
+    publish_index_readiness: bool,
+    section_targets: list[tuple[str, str | None]] | None,
+) -> DiscoveryResult:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
+    t0: float = time.monotonic()
     query_token_hashes = [
         sha256(token.encode("utf-8")).digest() for token in query_tokens
     ]
@@ -730,12 +771,6 @@ async def map_unit_discovery(
     )
 
     rows_by_unit_id = {row["map_unit_id"]: row for row in unit_rows}
-    # The unfiltered projection had already found matching tokens. Publication
-    # can replace those postings before the separate frequency query runs.
-    has_disappearing_matches: bool = is_unfiltered_scope and any(
-        not any((unit_id, channel) in frequencies for channel in _MAP_SCORE_CHANNELS)
-        for unit_id in rows_by_unit_id
-    )
     ranked_unit_ids = sorted(
         (unit_id for unit_id, score in scores_by_unit.items() if score > 0.0),
         key=lambda unit_id: scores_by_unit[unit_id],
@@ -780,7 +815,7 @@ async def map_unit_discovery(
         status="discovery_done",
         payload={"fused_rows": fused_rows},
         latency_ms=latency,
-        has_unhydrated_hits=has_unhydrated_hits or has_disappearing_matches,
+        has_unhydrated_hits=has_unhydrated_hits,
     )
 
 

@@ -18,6 +18,7 @@ class LexicalNamespaceIndex(Base):
     indexName: Mapped[str] = mapped_column("index_name", String(128), nullable=False, unique=True)
     indexUuid: Mapped[str | None] = mapped_column("index_uuid", String(64), nullable=True)
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="uncreated")
+    publishedManifestId: Mapped[str | None] = mapped_column("published_manifest_id", String(100))
     operationId: Mapped[str | None] = mapped_column("operation_id", String(36), nullable=True)
     lastUsedAt: Mapped[datetime] = mapped_column("last_used_at", DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     nextMaintenanceAt: Mapped[datetime | None] = mapped_column("next_maintenance_at", DateTime(timezone=True), nullable=True)

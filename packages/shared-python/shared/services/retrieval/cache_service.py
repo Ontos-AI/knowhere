@@ -82,6 +82,10 @@ def _cache_shape_digest(
     include_document_ids: list[str] | None = None,
     corpus_generation: int | None = None,
     revision_digest: str | None = None,
+    lexical_backend: str | None = None,
+    backend_epoch: int | None = None,
+    lexical_ranking_profile: str | None = None,
+    published_manifest_id: str | None = None,
 ) -> str:
     normalized_excludes = sorted(exclude_document_ids)
     normalized_sections = _normalize_exclude_sections(exclude_sections)
@@ -101,6 +105,8 @@ def _cache_shape_digest(
             str(harness or ""),
             str(corpus_generation),
             str(revision_digest or ""),
+            str(lexical_backend or ""), str(backend_epoch),
+            str(lexical_ranking_profile or ""), str(published_manifest_id or ""),
         ]
     )
     payload = f"{query}|{top_k}|{'|'.join(normalized_excludes)}|{'|'.join(normalized_sections)}|{extra}"

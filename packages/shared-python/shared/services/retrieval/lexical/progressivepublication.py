@@ -23,6 +23,7 @@ from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
 from shared.services.redis.distributed_lock import RedisJobLock
 from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.hydration.build_snapshot import BuildSnapshot
 from shared.services.retrieval.demo_authorization import authorize_demo_transaction
 from shared.services.retrieval.lexical.compilation_checkpoint import CompilationCheckpoint
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
@@ -33,6 +34,9 @@ from shared.services.retrieval.lexical.input_budget import LexicalInputBudget
 from shared.services.retrieval.lexical.input_retention import LexicalInputRetention
 from shared.services.retrieval.lexical.legacy import LegacyLexicalCopy
 from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+from shared.services.retrieval.lexical.manifest_publication import (
+    ManifestPublication, ManifestPublicationAdvanced, PreparedManifest,
+)
 from shared.services.retrieval.lexical.preparation import LexicalPreparation
 from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.lexical.storage import LexicalInputStorage
@@ -83,6 +87,11 @@ class ProgressivePublication:
         storage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
         lexicalScope: LexicalScope = LexicalScope(ownerId=storage.resolve_owner(scope.user_id),
             namespace=scope.namespace, corpusKind="demo" if storage.is_demo else "private")
+        if settings.KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS:
+            try:
+                return self._publish(scope, update, storage=storage, lexicalScope=lexicalScope)
+            except _ProgressiveBuildAdvanced:
+                return self._publish(scope, update, storage=storage, lexicalScope=lexicalScope)
         lock = RedisJobLock(SyncRedisServiceFactory.get_service(),
             f"progressive-publication:{lexicalScope.fingerprint}:{scope.document_id}")
         queuedAt: float = monotonic()
@@ -153,51 +162,76 @@ class ProgressivePublication:
                 if native.getIndexUuid() != indexUuid:
                     raise LexicalIndexError("Native index changed before progressive publication")
 
-            with self._transaction(deadline) as db:
-                document, previous, result, generation = self._lockPublication(
-                    db, scope, storage, lexicalScope, indexUuid, epoch)
-                if previous.id != candidate.previousBuildId:
-                    raise _ProgressiveBuildAdvanced("Another progressive stage published first", isRetryable=True)
-                build = db.get(LexicalBuild, candidate.buildId, with_for_update=True)
-                lease = db.get(LexicalLease, candidate.leaseId, with_for_update=True)
-                now = self.coordination.getDatabaseTime(db)
-                if (build is None or build.state != "writing" or lease is None or lease.state != "active"
-                    or lease.expiresAt <= now or lease.ownerToken != build.ownerToken or lease.backendEpoch != epoch):
-                    raise LexicalIndexError("Progressive publication lost its build authority", isRetryable=True)
-                # A copy queued for the previous build may still be running.
-                db.execute(select(func.pg_advisory_xact_lock(LegacyLexicalCopy.getRevisionLockIdentity(scope.job_result_id))))
-                generationBefore = generation.generation
-                outcome = update(db, scope)
-                if generation.generation == generationBefore or self._readSource(db, scope, storage) != candidate.source:
-                    raise LexicalIndexError("Progressive content changed after index preparation", isRetryable=True)
-                if not scope.prepare_pg_tokens:
-                    persist_unit_metadata(db, storage=storage, document_id=scope.document_id,
-                        revision_id=scope.job_result_id, payload=payload, replace_existing=True)
-                LexicalInputRetention.assertRetained(db, result, key=key)
-                result.indexing_input_key = key
-                result.indexing_input_checksum = checksum
-                result.indexing_input_compiler = payload.compilerFingerprint
-                result.indexing_input_bytes = byteCount
-                document.current_indexing_build_id = build.id
-                previous.state = "retired"
-                previous.retirementGeneration = generation.generation
-                previous.cleanupState = "pending"
-                if previous.legacyCopyState == "pending":
-                    previous.legacyCopyState = "skipped"
-                build.state = "published"
-                build.unitCount = len(payload.units)
-                build.activationGeneration = generation.generation
-                build.cleanupState = "not_started"
-                build.legacyCopyState = "completed" if scope.prepare_pg_tokens else "skipped"
-                build.nextMaintenanceAt = None
-                lease.state = "released"
-            return outcome
+            publication = ManifestPublication(self.sessions)
+            for _ in range(8):
+                with deadline.enforce():
+                    prepared = publication.prepare(scope=lexicalScope, documentId=scope.document_id,
+                        buildId=candidate.buildId, native=native)
+                try:
+                    return self._activate(scope, update, storage, lexicalScope, indexUuid, epoch,
+                        candidate, payload, key, checksum, byteCount, deadline, prepared)
+                except ManifestPublicationAdvanced:
+                    continue
+            raise ManifestPublicationAdvanced("Namespace manifest kept advancing during refinement", isRetryable=True)
         except Exception as error:
             if candidate is not None:
                 self._abandon(candidate, isUncertain=isWriting and isinstance(error, LexicalIndexError) and error.hasUnknownOutcome)
             raise
         finally:
             native.close()
+
+    def _activate(
+        self, scope: DocumentPublicationScope, update: Callable[[Session, DocumentPublicationScope], _Result],
+        storage: CorpusStorage, lexicalScope: LexicalScope, indexUuid: str, epoch: int,
+        candidate: _Candidate, payload: LexicalInput, key: str, checksum: str, byteCount: int,
+        deadline: IndexingDeadline, prepared: PreparedManifest | None,
+    ) -> _Result:
+        with self._transaction(deadline) as db:
+            document, previous, result, generation = self._lockPublication(
+                db, scope, storage, lexicalScope, indexUuid, epoch)
+            if previous.id != candidate.previousBuildId:
+                raise _ProgressiveBuildAdvanced("Another progressive stage published first", isRetryable=True)
+            build = db.get(LexicalBuild, candidate.buildId, with_for_update=True)
+            lease = db.get(LexicalLease, candidate.leaseId, with_for_update=True)
+            now = self.coordination.getDatabaseTime(db)
+            if (build is None or build.state != "writing" or lease is None or lease.state != "active"
+                or lease.expiresAt <= now or lease.ownerToken != build.ownerToken or lease.backendEpoch != epoch):
+                raise LexicalIndexError("Progressive publication lost its build authority", isRetryable=True)
+            if prepared is not None:
+                BuildSnapshot.capture(db, scope=lexicalScope, buildId=previous.id)
+            # A copy queued for the previous build may still be running.
+            db.execute(select(func.pg_advisory_xact_lock(LegacyLexicalCopy.getRevisionLockIdentity(scope.job_result_id))))
+            generationBefore = generation.generation
+            outcome = update(db, scope)
+            if generation.generation == generationBefore or self._readSource(db, scope, storage) != candidate.source:
+                raise LexicalIndexError("Progressive content changed after index preparation", isRetryable=True)
+            if not scope.prepare_pg_tokens:
+                persist_unit_metadata(db, storage=storage, document_id=scope.document_id,
+                    revision_id=scope.job_result_id, payload=payload, replace_existing=True)
+            LexicalInputRetention.assertRetained(db, result, key=key)
+            result.indexing_input_key = key
+            result.indexing_input_checksum = checksum
+            result.indexing_input_compiler = payload.compilerFingerprint
+            result.indexing_input_bytes = byteCount
+            document.current_indexing_build_id = build.id
+            previous.state = "retired"
+            previous.retirementGeneration = generation.generation
+            previous.cleanupState = "pending"
+            previous.retainForManifestReads = prepared is not None
+            if previous.legacyCopyState == "pending":
+                previous.legacyCopyState = "skipped"
+            build.state = "published"
+            if prepared is not None:
+                BuildSnapshot.capture(db, scope=lexicalScope, buildId=build.id)
+            ManifestPublication.activate(db, prepared, previousGeneration=generationBefore,
+                publishedGeneration=generation.generation)
+            build.unitCount = len(payload.units)
+            build.activationGeneration = generation.generation
+            build.cleanupState = "not_started"
+            build.legacyCopyState = "completed" if scope.prepare_pg_tokens else "skipped"
+            build.nextMaintenanceAt = None
+            lease.state = "released"
+        return outcome
 
     def _lockPublication(
         self, db: Session, scope: DocumentPublicationScope, storage: CorpusStorage,

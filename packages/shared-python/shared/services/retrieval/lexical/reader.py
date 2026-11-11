@@ -45,6 +45,7 @@ class PublishedLexicalRead:
         self.pins: RetrievalRevisionPins = RetrievalRevisionPins({})
         self.builds: Mapping[str, str] = MappingProxyType({})
         self.epoch: int = 0
+        self.manifestId: str | None = None
         self.isClassic: bool = isClassic
         self.progressiveRevisions: Mapping[str, str] = MappingProxyType({})
         self._indexUuid: str | None = None

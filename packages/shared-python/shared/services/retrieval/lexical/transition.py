@@ -16,6 +16,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from shared.core.config import settings
+from shared.models.database.lexicalpublishedmanifest import LexicalPublishedManifest
 from shared.models.database.indexing import IndexingAttempt
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
@@ -31,6 +32,7 @@ from shared.services.retrieval.lexical.input import LexicalInput
 from shared.services.retrieval.lexical.input_retention import LexicalInputRetention
 from shared.services.retrieval.lexical.legacy import LegacyLexicalCopy
 from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+from shared.services.retrieval.lexical.manifest_publication import ManifestPublication
 from shared.services.retrieval.lexical.nativestate import NativeLifecycleSnapshot
 from shared.services.retrieval.lexical.pgpublication import PostgresqlPublication
 from shared.services.retrieval.lexical.preparation import LexicalPreparation
@@ -216,6 +218,7 @@ class LexicalTransition:
             "gate",
             "settle",
             "backfill",
+            "seed-manifests",
             "verify",
             "resume",
             "abort",
@@ -242,6 +245,10 @@ class LexicalTransition:
                 changed["backfilledRevisions"] = self._backfill(
                     target, cast(int, expectedEpoch), limit, documentsPerSecond
                 )
+            elif verb == "seed-manifests":
+                if target != "opensearch":
+                    raise LexicalIndexError("Manifest seeding requires OpenSearch")
+                changed["seededNamespaces"] = self._seedManifests(cast(int, expectedEpoch), limit)
             elif verb in ("resume", "abort"):
                 activationCoverage = self._resume(target, cast(int, expectedEpoch))
         control, bindings = self._capture()
@@ -745,6 +752,12 @@ class LexicalTransition:
                 raise LexicalIndexError(
                     "Settle unfinished indexing before backend activation"
                 )
+            for manifest, registry in db.execute(select(LexicalPublishedManifest, LexicalNamespaceIndex)
+                .join(LexicalNamespaceIndex,
+                    LexicalNamespaceIndex.publishedManifestId == LexicalPublishedManifest.id)).tuples():
+                manifest.state = "retired"
+                manifest.cleanupAfter = None
+                registry.publishedManifestId = None
             seenScopes: set[str] = set()
             for binding in current:
                 storage: CorpusStorage = CorpusStorage.resolve_namespace(
@@ -775,6 +788,41 @@ class LexicalTransition:
             control.mode = "serving"
             control.epoch += 1
         return {**coverage, "verifiedAtActivation": True}
+
+    def _seedManifests(self, epoch: int, limit: int) -> int:
+        control, bindings = self._capture()
+        if control["epoch"] != epoch or control["backend"] != "opensearch" or control["mode"] != "serving":
+            raise LexicalIndexError("Manifest seeding requires the exact serving OpenSearch epoch")
+        scopes: dict[str, LexicalScope] = {binding.scope.fingerprint: binding.scope for binding in bindings}
+        with self.sessions.begin() as db:
+            ready: set[str] = set()
+            for scopeId, scope in scopes.items():
+                generation = CorpusStorage.resolve_namespace(scope.namespace).RetrievalNamespaceGeneration
+                current = select(generation.generation).where(generation.user_id == scope.ownerId,
+                    generation.namespace == scope.namespace).scalar_subquery()
+                existing = db.scalar(select(LexicalNamespaceIndex.id).join(LexicalPublishedManifest,
+                    LexicalPublishedManifest.id == LexicalNamespaceIndex.publishedManifestId).where(
+                    LexicalNamespaceIndex.id == scopeId, LexicalPublishedManifest.state == "active",
+                    LexicalPublishedManifest.generation == func.coalesce(current, 0)))
+                if existing:
+                    ready.add(existing)
+        seeded: int = 0
+        publisher = ManifestPublication(self.sessions)
+        for scopeId, scope in scopes.items():
+            if scopeId in ready:
+                continue
+            if seeded >= limit:
+                break
+            native = self._createNative(scope)
+            try:
+                if control["cluster_uuid"] and native.getClusterUuid() != control["cluster_uuid"]:
+                    raise LexicalIndexError("Manifest seeding resolved a different native cluster")
+                native.createManifestIndex()
+                publisher.seed(scope=scope, native=native)
+                seeded += 1
+            finally:
+                native.close()
+        return seeded
 
     def _backfill(self, target: _Backend, epoch: int, limit: int, rate: float) -> int:
         control, bindings = self._capture()
