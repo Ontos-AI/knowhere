@@ -11,10 +11,25 @@ from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.progressive_ingestion import StoredSnapshot
-from shared.services.jobs.progressive_ingestion import initialize_baseline_state, write_progressive_state
+from shared.services.jobs.lifecycle.scope_enrichments import (
+    write_coarse_sheet_group_scopes,
+)
+from shared.services.jobs.progressive_ingestion import (
+    initialize_baseline_state,
+    initialize_sheet_baseline_state,
+    write_progressive_state,
+)
 from shared.services.jobs.lifecycle.post_commit_effects import PostCommitEffectPlan
 from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
 from shared.utils.json_utils import remove_nul_characters
+
+
+# Job ``enrichment_status`` the worker records on a progressive baseline.
+_BASELINE_ENRICHMENT_STATUS_BY_TRACK: dict[str, str] = {
+    "page_memory": "text",
+    "chunk": "text",
+    "sheet": "coarse",
+}
 
 
 @dataclass(frozen=True)
@@ -113,13 +128,15 @@ class SyncJobSuccessFinalizer:
             trace.bind_result_id(job_result.id)
             if document_id is not None:
                 trace.bind_document_id(document_id)
-            if parse_track in ("chunk", "page_memory"):
+            if parse_track in ("chunk", "page_memory", "sheet"):
                 trace.bind_parse_track(parse_track)
+        baseline_enrichment_status = _BASELINE_ENRICHMENT_STATUS_BY_TRACK.get(parse_track)
         if (
             document_id is None
-            or parse_track not in {"page_memory", "chunk"}
+            or baseline_enrichment_status is None
             or JobMetadataHelper.get_ingestion_mode(job_metadata) != "progressive"
-            or str(job_metadata.get("enrichment_status") or "").strip().lower() != "text"
+            or str(job_metadata.get("enrichment_status") or "").strip().lower()
+            != baseline_enrichment_status
         ):
             return finalization
 
@@ -135,6 +152,15 @@ class SyncJobSuccessFinalizer:
             checksum=checksum,
             archive_key=result_s3_key,
         )
+        if parse_track == "sheet":
+            job_result.document_metadata = write_progressive_state(
+                job_result.document_metadata,
+                initialize_sheet_baseline_state(snapshot=baseline_snapshot),
+            )
+            write_coarse_sheet_group_scopes(
+                db, document_id=document_id, job_result_id=job_result.id
+            )
+            return finalization
         raw_pages: object = job_metadata.get("progressive_missing_embedding_pages")
         missing_pages: list[int] = (
             [page for page in raw_pages if isinstance(page, int) and not isinstance(page, bool)]

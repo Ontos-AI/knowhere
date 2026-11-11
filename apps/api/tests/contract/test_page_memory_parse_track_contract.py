@@ -196,7 +196,7 @@ def test_public_job_create_schemas_do_not_advertise_parse_track() -> None:
     assert v2_schema["additionalProperties"] is False
 
 
-def test_v2_progressive_ingestion_mode_rejected_for_non_page_memory_formats() -> None:
+def test_v2_progressive_ingestion_mode_rejected_for_unsupported_formats() -> None:
     import asyncio
     from unittest.mock import AsyncMock
 
@@ -207,13 +207,13 @@ def test_v2_progressive_ingestion_mode_rejected_for_non_page_memory_formats() ->
 
     payload = _build_job_create_v2(
         source_type="file",
-        file_name="policy.xlsx",
+        file_name="policy.png",
         ingestion_mode="progressive",
     )
     meta = JobMetadataHelper.create_from_request(payload, api_version="v2")
     assert JobMetadataHelper.get_ingestion_mode(meta) == "progressive"
     assert JobMetadataHelper.get_ingestion_mode({}) == "full"
-    assert allows_progressive_ingestion(parse_track="chunk", file_extension=".xlsx") is False
+    assert allows_progressive_ingestion(parse_track="chunk", file_extension=".png") is False
 
     svc = DocumentIngestionService(
         creation_service=AsyncMock(),
@@ -362,4 +362,35 @@ def test_guest_route_policy_allows_v2_jobs_documents_and_retrieval(path: str) ->
             limit_identifier=path,
         ),
         user_tier="guest",
+    )
+
+
+@pytest.mark.parametrize("file_extension", [".xlsx", ".xls", ".csv", ".tsv"])
+@pytest.mark.parametrize("ingestion_mode", ["full", "progressive"])
+def test_spreadsheets_resolve_to_sheet_track(
+    file_extension: str,
+    ingestion_mode: str,
+) -> None:
+    from app.services.document_ingestion.command import (
+        allows_progressive_ingestion,
+        build_v2_ingestion_command,
+    )
+
+    payload = _build_job_create_v2(
+        source_type="file",
+        file_name=f"budget{file_extension}",
+        ingestion_mode=ingestion_mode,
+    )
+    command = build_v2_ingestion_command(
+        payload=payload,
+        file_extension=file_extension,
+    )
+
+    assert command.parse_track == "sheet"
+    assert command.processing_generation == "legacy_chunk"
+    assert command.page_memory_config is None
+    assert command.ingestion_mode == ingestion_mode
+    assert allows_progressive_ingestion(
+        parse_track=command.parse_track,
+        file_extension=file_extension,
     )

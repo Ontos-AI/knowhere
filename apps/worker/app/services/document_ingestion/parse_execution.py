@@ -71,6 +71,15 @@ def execute_document_parse(
                     prepared_source=prepared_source,
                     output_dir=output_dir,
                 )
+            elif (
+                parse_track == "sheet"
+                and JobMetadataHelper.get_ingestion_mode(job_context.job_metadata)
+                == "progressive"
+            ):
+                parse_output = _execute_sheet_baseline_parse(
+                    prepared_source=prepared_source,
+                    output_dir=output_dir,
+                )
             elif JobMetadataHelper.get_ingestion_mode(job_context.job_metadata) == "progressive":
                 parse_output = _execute_chunk_baseline_parse(
                     prepared_source=prepared_source,
@@ -158,6 +167,38 @@ def _execute_page_memory_parse(
         )
     )
     return ParseOutput(output_dir=page_output_dir, parsed_df=parsed_df)
+
+
+def _execute_sheet_baseline_parse(
+    *,
+    prepared_source: PreparedSourceFile,
+    output_dir: str,
+) -> ParseOutput:
+    from app.services.document_parser.formats.excel.baseline import (
+        parse_excel_baseline,
+    )
+    from app.services.document_parser.formats.excel.normalize import (
+        normalize_table_source,
+    )
+
+    relative_root, full_output_dir = _resolve_output_paths(
+        filename=prepared_source.source_file_name,
+        internal_output_filename=prepared_source.internal_parse_name,
+        output_dir=output_dir,
+    )
+    os.makedirs(full_output_dir, exist_ok=True)
+    work_xlsx = normalize_table_source(
+        prepared_source.local_file_path,
+        prepared_source.source_file_name,
+        full_output_dir,
+    )
+    parsed_df = parse_excel_baseline(
+        work_xlsx,
+        file_name=prepared_source.source_file_name,
+        output_dir=full_output_dir,
+        relative_root=relative_root,
+    )
+    return ParseOutput(output_dir=full_output_dir, parsed_df=parsed_df)
 
 
 def _execute_chunk_baseline_parse(

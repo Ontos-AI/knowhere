@@ -480,7 +480,7 @@ def test_background_probe_precedes_toc_and_claim_anatomy_reaches_fine_asset_extr
         for reference in phase_b_refs
         if reference.startswith("phase_b/") and reference != PHASE_B_BLACKBOARD_REL
     }
-    enrichment_service._upload_scope_artifacts(
+    enrichment_service.upload_scope_artifacts(
         storage=storage,
         job_id=target.job_id,
         raw_prefix=target.raw_prefix,
