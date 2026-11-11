@@ -13,6 +13,7 @@ from app.services.document_parser.support.stage_profiler import stage_timer
 from loguru import logger
 
 from shared.core.config import settings
+from shared.models.schemas.job_metadata import JobMetadataHelper
 
 
 @dataclass(frozen=True)
@@ -131,3 +132,47 @@ def _resolve_output_paths(
 
     logger.debug(f"internal_output_root: {internal_filename_segment}")
     return relative_root, resolved_full_output_dir
+
+
+def llm_parameters_from_job_metadata(job_metadata: dict[str, Any]) -> dict[str, Any]:
+    """Parser LLM parameters a background parse rebuilds from the job request."""
+    return {
+        "llm_histories": 5,
+        "smart_title_parse": JobMetadataHelper.get_parsing_param(
+            job_metadata,
+            "smart_title_parse",
+            True,
+        ),
+        "summary_image": JobMetadataHelper.get_parsing_param(
+            job_metadata,
+            "summary_image",
+            True,
+        ),
+        "summary_table": JobMetadataHelper.get_parsing_param(
+            job_metadata,
+            "summary_table",
+            True,
+        ),
+        "summary_txt": JobMetadataHelper.get_parsing_param(
+            job_metadata,
+            "summary_txt",
+            True,
+        ),
+        "stopwords": JobMetadataHelper.get_parsing_param(
+            job_metadata,
+            "stopwords",
+            None,
+        ),
+        "doc_type": JobMetadataHelper.get_parsing_param(
+            job_metadata,
+            "doc_type",
+            "auto",
+        ),
+        "frag_desc": JobMetadataHelper.get_parsing_param(
+            job_metadata,
+            "add_frag_desc",
+            "",
+        ),
+        "model_name": settings.NORMOL_MODEL,
+        "hierarchy_model_name": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
+    }

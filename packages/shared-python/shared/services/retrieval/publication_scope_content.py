@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING, Any, cast
 from sqlalchemy import delete, event, select
 from sqlalchemy.orm import Session
 
-from shared.models.database.document import DocumentChunk, DocumentSection
+from shared.models.database.document import (
+    SHEET_GROUP_SCOPE_PREFIX,
+    DocumentChunk,
+    DocumentSection,
+)
 from shared.services.chunks.chunk_connections import merge_connections
 from shared.services.retrieval.cache_service import (
     bump_retrieval_namespace_cache_version_sync,
@@ -50,6 +54,9 @@ if TYPE_CHECKING:
     from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
 
 _SCOPE_ID_RE = re.compile(r"^p([1-9]\d*)-([1-9]\d*)$")
+_SHEET_GROUP_SCOPE_ID_RE = re.compile(
+    rf"^{re.escape(SHEET_GROUP_SCOPE_PREFIX)}([1-9]\d*)$"
+)
 _REFINED_ENRICHMENT_STATE = "refined"
 
 
@@ -500,6 +507,9 @@ def _scope_sort_key(metadata: Any) -> tuple[int, int, int]:
         matched = _SCOPE_ID_RE.fullmatch(scope_id)
         if matched is not None:
             return (0, int(matched.group(1)), int(matched.group(2)))
+        sheet_group = _SHEET_GROUP_SCOPE_ID_RE.fullmatch(scope_id)
+        if sheet_group is not None:
+            return (0, int(sheet_group.group(1)), 0)
     return (1, 0, 0)
 
 

@@ -364,9 +364,7 @@ def test_generic_recovery_discovers_actionable_stages_and_preserves_fresh_claims
     is_refined: bool,
     should_send: bool,
 ) -> None:
-    from app.services.page_memory.scope_enrichment_service import (
-        _claim_progressive_stage,
-    )
+    from shared.services.jobs.progressive_stages import claim_progressive_stage
 
     stages = completed_required_stages()
     stage: EnhancementStage = {"status": status, "attempts": attempts}
@@ -390,7 +388,7 @@ def test_generic_recovery_discovers_actionable_stages_and_preserves_fresh_claims
     )
     if attempts >= 3:
         assert (
-            _claim_progressive_stage(job_result_id=revision, stage_name=stage_name)
+            claim_progressive_stage(job_result_id=revision, stage_name=stage_name)
             is None
         )
         with Session(recovery.engine) as db:

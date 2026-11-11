@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from openpyxl.utils import get_column_letter
 from loguru import logger
 
-from app.services.document_parser.formats.excel.formula_graph import build_formula_graph
+from app.services.document_parser.formats.excel.formula_graph import FormulaNode
 from app.services.document_parser.formats.excel.header_detect import (
     HeaderSpec,
     TableRegion,
@@ -75,20 +75,19 @@ class ExcelStructureResult:
 
 def parse_excel_structure(
     workbook: WorkbookGrid,
-    include_hidden_sheets: bool = False,
+    *,
+    graph: Sequence[FormulaNode],
+    sheet_names: Sequence[str],
 ) -> ExcelStructureResult:
+    """Parse one formula-closed sheet group against the whole-workbook graph."""
     try:
         sheets = workbook.sheet_by_name()
-        graph = build_formula_graph(workbook)
+        unknown = set(sheet_names).difference(sheets)
+        if unknown:
+            raise ValueError(f"Sheets are not in the workbook: {sorted(unknown)}")
         sheet_regions = {}
-        for sheet in workbook.sheets:
-            selected_sheet_name = sheet.name
-            if not include_hidden_sheets and sheet.hidden:
-                logger.info(f"Sheet '{selected_sheet_name}' is hidden, skipping")
-                continue
-            if sheet.max_row == 0 or sheet.max_col == 0:
-                logger.debug(f"Sheet '{selected_sheet_name}' is empty, skipping")
-                continue
+        for selected_sheet_name in sheet_names:
+            sheet = sheets[selected_sheet_name]
             classified = split_sheet_regions(
                 sheet,
                 formula_nodes=graph,

@@ -9,6 +9,7 @@ from uuid import uuid4
 from pgvector.sqlalchemy import HALFVEC
 from sqlalchemy import (
     JSON,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -149,8 +150,18 @@ class DocumentSection(Base):
     )
 
 
+SCOPE_KIND_PAGE_RANGE = "page_range"
+SCOPE_KIND_SHEET_GROUP = "sheet_group"
+# ``sheet_group`` scope ids are ``sheets:<ordinal of the group's first sheet>``.
+SHEET_GROUP_SCOPE_PREFIX = "sheets:"
+
+
 class DocumentScopeEnrichment(Base):
-    """Per-scope Phase B enrichment state for one published page-memory revision."""
+    """Per-scope on-demand enrichment state for one published progressive revision.
+
+    ``page_range`` scopes cover a page-memory page span; ``sheet_group`` scopes
+    cover the spreadsheet sheets connected by formula references.
+    """
 
     __tablename__ = "document_scope_enrichments"
 
@@ -166,8 +177,17 @@ class DocumentScopeEnrichment(Base):
         String(36), ForeignKey("job_results.id", ondelete="CASCADE"), nullable=False
     )
     scope_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    page_start: Mapped[int] = mapped_column(Integer, nullable=False)
-    page_end: Mapped[int] = mapped_column(Integer, nullable=False)
+    scope_kind: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=SCOPE_KIND_PAGE_RANGE,
+        server_default=SCOPE_KIND_PAGE_RANGE,
+    )
+    page_start: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    page_end: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    sheet_names: Mapped[Optional[List[str]]] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="coarse")
     priority: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -186,6 +206,15 @@ class DocumentScopeEnrichment(Base):
             "job_result_id",
             "scope_id",
             name="uq_document_scope_enrichments_revision_scope",
+        ),
+        CheckConstraint(
+            f"(scope_kind = '{SCOPE_KIND_PAGE_RANGE}'"
+            " AND page_start IS NOT NULL AND page_end IS NOT NULL"
+            " AND sheet_names IS NULL)"
+            f" OR (scope_kind = '{SCOPE_KIND_SHEET_GROUP}'"
+            " AND page_start IS NULL AND page_end IS NULL"
+            " AND sheet_names IS NOT NULL)",
+            name="ck_document_scope_enrichments_kind_payload",
         ),
     )
 
