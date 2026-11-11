@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any
 
 from loguru import logger
@@ -49,8 +50,8 @@ async def record_retrieval_index_readiness(
     )
 
 
-def _normalize_exclude_sections(exclude_sections: list[dict[str, str]]) -> list[str]:
-    normalized: list[str] = []
+def _normalize_exclude_sections(exclude_sections: list[dict[str, str]]) -> list[tuple[str, str]]:
+    normalized: list[tuple[str, str]] = []
     for item in exclude_sections:
         if not isinstance(item, dict):
             continue
@@ -58,7 +59,7 @@ def _normalize_exclude_sections(exclude_sections: list[dict[str, str]]) -> list[
         section_path = str(item.get("section_path") or "").strip()
         if not document_id or not section_path:
             continue
-        normalized.append(f"{document_id}:{section_path}")
+        normalized.append((document_id, section_path))
     return sorted(set(normalized))
 
 
@@ -82,31 +83,19 @@ def _cache_shape_digest(
     include_document_ids: list[str] | None = None,
     corpus_generation: int | None = None,
     revision_digest: str | None = None,
+    lexical_backend: str | None = None,
+    backend_epoch: int | None = None,
+    lexical_ranking_profile: str | None = None,
+    published_manifest_id: str | None = None,
 ) -> str:
-    normalized_excludes = sorted(exclude_document_ids)
-    normalized_sections = _normalize_exclude_sections(exclude_sections)
-    chunk_types_str = ",".join(sorted(chunk_types)) if chunk_types else ""
-    extra = "|".join(
-        [
-            chunk_types_str,
-            ",".join(sorted(signal_paths or [])),
-            filter_mode,
-            str(rerank),
-            str(threshold),
-            str(internal_recall_k),
-            str(use_agentic),
-            str(agent_explore_model or ""),
-            str(llm_text_model or ""),
-            str(llm_vision_model or ""),
-            str(harness or ""),
-            str(corpus_generation),
-            str(revision_digest or ""),
-        ]
-    )
-    payload = f"{query}|{top_k}|{'|'.join(normalized_excludes)}|{'|'.join(normalized_sections)}|{extra}"
-    payload += "|document_scope_v1|" + repr(
-        None if include_document_ids is None else sorted(set(include_document_ids))
-    )
+    payload: str = json.dumps([
+        query, top_k, sorted(set(exclude_document_ids)), _normalize_exclude_sections(exclude_sections),
+        sorted(chunk_types or []), sorted(set(signal_paths or [])), filter_mode, rerank,
+        threshold, internal_recall_k, use_agentic, agent_explore_model, llm_text_model,
+        llm_vision_model, harness, corpus_generation, revision_digest, lexical_backend,
+        backend_epoch, lexical_ranking_profile, published_manifest_id,
+        None if include_document_ids is None else sorted(set(include_document_ids)),
+    ], ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -129,7 +118,9 @@ def _query_cache_key(
         exclude_sections=exclude_sections,
         **extra_params,
     )
-    return f"retrieval:query:{user_id}:{namespace}:v{version}:{digest}"
+    scope: str = json.dumps([user_id, namespace, version, digest], ensure_ascii=False, separators=(",", ":"))
+    scoped_digest: str = hashlib.sha256(scope.encode("utf-8")).hexdigest()
+    return f"retrieval:query:{user_id}:{namespace}:v{version}:{scoped_digest}"
 
 
 async def get_retrieval_namespace_cache_version(*, user_id: str, namespace: str) -> int:

@@ -258,8 +258,9 @@ def _verifyEmptyShadow(client: httpx.Client, control: LexicalBackendControl,
             _readNative(client, OpenSearchLexicalIndex.buildLifecyclePath("", isExact=False)))
         if (live.cluster_uuid, live.getIncarnation()) != (control.clusterUuid, control.nodeIncarnation):
             raise LexicalIndexError("Empty shadow recovery lost the exact native cluster identity")
+        auxiliaryNames: set[str] = {f"{indexPrefix}-deployment-probe", f"{indexPrefix}-published-manifests"}
         names: set[str] = {name for name in live.metadata.indices
-            if name.startswith(indexPrefix + "-") and name != indexPrefix + "-deployment-probe"}
+            if name.startswith(indexPrefix + "-") and name not in auxiliaryNames}
         if names != {row.indexName for row in rows}:
             raise LexicalIndexError("Empty shadow recovery native and SQL index catalogs differ")
         for row in rows:

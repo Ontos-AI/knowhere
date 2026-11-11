@@ -18,6 +18,7 @@ _FILES: dict[str, bytes] = {
         "uv.lock", "pyproject.toml", "apps/api/main.py", "apps/api/alembic/env.py",
         "apps/worker/worker.py", "deploy/docker/Dockerfile.api", "deploy/docker/Dockerfile.worker",
         "scripts/probes/prepared-completion-task.py", "scripts/probes/opensearch-workload.py",
+        "packages/shared-python/shared/services/retrieval/lexical/sourcehash.py",
         "packages/shared-python/shared/services/retrieval/lexical/stage_observer.py",
         "packages/shared-python/shared/services/retrieval/lexical/transition.py",
     )
@@ -120,6 +121,15 @@ def test_archive_payload_cannot_differ_from_reviewed_files(tmp_path: Path) -> No
     source: tuple[Path, Path] = createSource(tmp_path, _FILES, changedFile="apps/worker/worker.py")
     with pytest.raises(ValueError, match="manifest"):
         render(source, output)
+    assert not output.exists()
+
+
+def test_archive_requires_the_source_hash_module(tmp_path: Path) -> None:
+    files: dict[str, bytes] = dict(_FILES)
+    del files["packages/shared-python/shared/services/retrieval/lexical/sourcehash.py"]
+    output: Path = tmp_path / "context"
+    with pytest.raises(ValueError, match="runtime closure"):
+        render(createSource(tmp_path, files), output)
     assert not output.exists()
 
 

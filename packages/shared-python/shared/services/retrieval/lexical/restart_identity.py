@@ -89,8 +89,9 @@ class LexicalRestartIdentity:
             control: LexicalBackendControl = checkCurrent(database, lock=True)
             rows: list[LexicalNamespaceIndex] = list(database.scalars(select(LexicalNamespaceIndex).order_by(LexicalNamespaceIndex.id).with_for_update()))
             known: set[str] = {row.indexName for row in rows}
-            actual: set[str] = {name for name in native.metadata.indices if name.startswith(self.indexPrefix + "-")}
-            if actual - known:
+            observedNames: set[str] = {name for name in native.metadata.indices if name.startswith(self.indexPrefix + "-")}
+            namespaceNames: set[str] = observedNames - {f"{self.indexPrefix}-published-manifests"}
+            if namespaceNames - known:
                 raise LexicalIndexError("Native restart observed managed index names outside the authoritative registry")
             uncertain: list[str] = []
             for row in rows:
@@ -105,11 +106,11 @@ class LexicalRestartIdentity:
                     row.state = "uncertain"
                     uncertain.append(row.indexName)
             charged: set[str] = {row.indexName for row in rows if row.state in ("open", "opening", "closing", "uncertain")}
-            charged.update(name for name in actual if native.isOpen(name))
+            charged.update(name for name in observedNames if native.isOpen(name))
             if len(charged) > 400:
                 raise LexicalIndexError("Native restart would exceed the 400-slot authoritative union")
             control.nodeIncarnation = expected.new_incarnation
             return {"status": "reconciled", "errors": [], "control": {"backend": control.backend,
                 "mode": control.mode, "epoch": control.epoch, "cluster_uuid": control.clusterUuid,
                 "node_incarnation": control.nodeIncarnation}, "charged_slots": len(charged), "uncertain_indices": uncertain,
-                "catalog_indices": len(actual), "native_requests_mutated": False, "service_restored": False}
+                "catalog_indices": len(namespaceNames), "native_requests_mutated": False, "service_restored": False}

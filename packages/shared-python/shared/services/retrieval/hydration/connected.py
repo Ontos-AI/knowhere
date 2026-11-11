@@ -11,11 +11,14 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.job_result import JobResult
+from shared.services.retrieval.hydration.build_snapshot import BuildSnapshot
 from shared.services.retrieval.hydration.row_utils import (
     filter_excluded_rows,
     iter_connected_target_ids,
     normalize_chunk_type,
 )
+from shared.services.retrieval.lexical.error import LexicalIndexError
+from shared.services.retrieval.lexical.scope import LexicalScope
 
 
 async def hydrate_connected_target_rows(
@@ -26,12 +29,65 @@ async def hydrate_connected_target_rows(
     exclude_sections: list[dict[str, str]],
     document_scope: DocumentScope = DocumentScope(),
     revision_pins: Mapping[str, str] | None = None,
+    lexicalScope: LexicalScope | None = None,
 ) -> list[dict[str, Any]]:
-    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(str(rows[0].get('document_id') or '') if rows else '')
-    if db is None:
+    if db is None or not rows:
         return []
 
     document_scope = document_scope.excluding(exclude_document_ids)
+    buildRows: list[dict[str, Any]] = [row for row in rows if row.get('build_id')]
+    revisionRows: list[dict[str, Any]] = [row for row in rows if not row.get('build_id')]
+    hydratedRows: list[dict[str, Any]] = await _hydrateBuildTargets(db, buildRows, lexicalScope)
+    if revisionRows:
+        hydratedRows.extend(await _hydrateRevisionTargets(
+            db, revisionRows, document_scope=document_scope, revision_pins=revision_pins,
+        ))
+    return filter_excluded_rows(
+        hydratedRows,
+        exclude_document_ids=exclude_document_ids,
+        exclude_sections=exclude_sections,
+        document_scope=document_scope,
+    )
+
+
+async def _hydrateBuildTargets(
+    db: AsyncSession, rows: list[dict[str, Any]], scope: LexicalScope | None,
+) -> list[dict[str, Any]]:
+    existingKeys: set[tuple[str, str]] = {
+        (str(row['build_id']), str(row['chunk_id'])) for row in rows if row.get('chunk_id')
+    }
+    targets: dict[tuple[str, str], tuple[object, object]] = {
+        (str(row['build_id']), targetId): (row.get('document_id'), row.get('job_result_id'))
+        for row in rows if normalize_chunk_type(row.get('chunk_type')) in ('text', 'page', 'table')
+        for targetId in iter_connected_target_ids(row)
+        if (str(row['build_id']), targetId) not in existingKeys
+    }
+    if not targets:
+        return []
+    if scope is None:
+        from shared.services.retrieval.lexical.reader import PublishedLexicalRead
+
+        reader: PublishedLexicalRead | None = PublishedLexicalRead.current()
+        if reader is None:
+            raise LexicalIndexError('Build-addressed connected hydration requires a published read scope')
+        scope = reader.scope
+    loadedRows: list[dict[str, object]] = await BuildSnapshot.loadRows(
+        db, scope=scope, chunkKeys=tuple(targets),
+        allowCurrent=any(row.get('uses_inline_build') for row in rows),
+    )
+    for row in loadedRows:
+        key: tuple[str, str] = (str(row['build_id']), str(row['chunk_id']))
+        if targets.get(key) != (row['document_id'], row['job_result_id']):
+            raise LexicalIndexError('Connected chunk escaped its published build')
+        row['score'] = 0.0
+    return loadedRows
+
+
+async def _hydrateRevisionTargets(
+    db: AsyncSession, rows: list[dict[str, Any]], *, document_scope: DocumentScope,
+    revision_pins: Mapping[str, str] | None,
+) -> list[dict[str, Any]]:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(str(rows[0].get('document_id') or ''))
 
     existing_chunk_ids = {
         str(row.get('chunk_id') or '').strip()
@@ -126,9 +182,4 @@ async def hydrate_connected_target_rows(
             }
         )
 
-    return filter_excluded_rows(
-        hydrated_rows,
-        exclude_document_ids=exclude_document_ids,
-        exclude_sections=exclude_sections,
-        document_scope=document_scope,
-    )
+    return hydrated_rows

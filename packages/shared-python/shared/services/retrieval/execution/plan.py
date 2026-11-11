@@ -43,6 +43,7 @@ from shared.services.retrieval.execution.response_projection import (
 )
 from shared.services.retrieval.execution.query_request import RetrievalQuery
 from shared.services.retrieval.execution.native_failure import NativeFailureState
+from shared.services.retrieval.execution.postgresql_snapshot import PostgreSQLServingGenerationChanged
 from shared.services.retrieval.lexical.asyncread import AsyncPublishedLexicalRead
 from shared.services.retrieval.lexical.error import LexicalIndexError
 from shared.services.retrieval.lexical.reader import PublishedLexicalRead
@@ -119,7 +120,7 @@ class RetrievalExecutionPlan:
                 except _NativeServingGenerationChanged:
                     logger.warning("Progressive publication changed native retrieval generation; retrying once")
                     try:
-                        return await self._execute_native(request)
+                        return await self._execute_native(request, can_retry_classic=False)
                     except _NativeServingGenerationChanged:
                         raise self._serving_generation_conflict() from None
             if request.query:
@@ -151,7 +152,9 @@ class RetrievalExecutionPlan:
             raise LexicalIndexError("PostgreSQL retrieval is gated or another backend is selected", isRetryable=True)
         return epoch
 
-    async def _execute_native(self, request: RetrievalQuery) -> dict[str, Any]:
+    async def _execute_native(
+        self, request: RetrievalQuery, *, can_retry_classic: bool = True,
+    ) -> dict[str, Any]:
         reader: AsyncPublishedLexicalRead | None = None
         failureState: NativeFailureState = NativeFailureState()
         try:
@@ -161,11 +164,20 @@ class RetrievalExecutionPlan:
             reader = AsyncPublishedLexicalRead(userId=request.user_id,
                 namespace=request.namespace, bind=bind, isClassic=request.use_agentic is False,
                 preferContentCoverage=request.use_agentic is False and request.include_document_ids is not None)
-            await reader.startAsync()
+            admittedManifest: bool = (
+                settings.KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP and reader.isClassic
+                and reader.scope.corpusKind == "private" and not request.signal_paths
+                and await reader.startManifestAsync(documentScope=request.build_route_context().document_scope,
+                    chunkTypes=request.resolve_allowed_chunk_types(), topK=request.top_k)
+            )
+            if not admittedManifest:
+                await reader.startAsync()
             with reader.bind(), failureState.bind():
                 async with AsyncSession(bind=bind, expire_on_commit=False) as ownedDb:
                     ownedDb.info["lexical_read_owned"] = True
-                    response = await self._execute_with_overrides(replace(request, db=ownedDb))
+                    response = await self._execute_with_overrides(
+                        replace(request, db=ownedDb), can_retry_classic=can_retry_classic,
+                    )
                     failureState.raiseIfFailed()
                     if reader.isClassic:
                         await reader.finishAsync(ownedDb)
@@ -209,7 +221,9 @@ class RetrievalExecutionPlan:
             request.db, user_id=request.user_id, namespace=request.namespace, pins=pins, strict=True,
         )
 
-    async def _execute_with_overrides(self, request: RetrievalQuery) -> dict[str, Any]:
+    async def _execute_with_overrides(
+        self, request: RetrievalQuery, *, can_retry_classic: bool = True,
+    ) -> dict[str, Any]:
         # TODO(intent-step): Insert Intent Understanding step here.
         # Before any retrieval runs, parse `request.query` with LLM +
         # KG overview + section tree to extract structured navigation
@@ -259,13 +273,17 @@ class RetrievalExecutionPlan:
         native_read: PublishedLexicalRead | None = PublishedLexicalRead.current()
         is_demo: bool = CorpusStorage.resolve_namespace(request.namespace).is_demo
         captured_pins: RetrievalRevisionPins | None = (
-            native_read.pins if native_read is not None else None
+            native_read.pins if native_read is not None and native_read.manifestId is None else None
         )
         cache_extra = request.build_cache_extra()
-        if is_demo and captured_pins is None:
+        isPostgresqlClassic: bool = self._postgresqlEpoch is not None and request.use_agentic is not True
+        if (is_demo or isPostgresqlClassic) and captured_pins is None:
+            ownedCapture: bool = isPostgresqlClassic and not request.db.in_transaction()
             captured_pins = await capture_revision_pins(
                 request.db, user_id=request.user_id, namespace=request.namespace
             )
+            if ownedCapture:
+                await request.db.rollback()
         if is_demo:
             assert captured_pins is not None
             await validate_demo_query_scope(
@@ -281,6 +299,7 @@ class RetrievalExecutionPlan:
         if native_read is not None:
             cache_extra["lexical_backend"] = "opensearch"
             cache_extra["backend_epoch"] = native_read.epoch
+            cache_extra["published_manifest_id"] = native_read.manifestId
             if (
                 isinstance(native_read, AsyncPublishedLexicalRead)
                 and native_read.preferContentCoverage
@@ -308,72 +327,89 @@ class RetrievalExecutionPlan:
         )
 
         route_context = request.build_route_context()
-        for attempt in range(2):
-            revision_pins: RetrievalRevisionPins | None = (
-                captured_pins if attempt == 0 else None
-            )
-            if revision_pins is None:
-                revision_pins = await capture_revision_pins(
-                    request.db,
-                    user_id=request.user_id,
-                    namespace=request.namespace,
+        if native_read is not None and native_read.manifestId is not None:
+            outcome = await run_retrieval_route(route_context)
+        else:
+            for attempt in range(2):
+                revision_pins: RetrievalRevisionPins | None = (
+                    captured_pins if attempt == 0 else None
                 )
-            if is_demo and attempt > 0:
-                await validate_demo_query_scope(
-                    request.db,
-                    include_document_ids=request.include_document_ids,
-                    pins=revision_pins,
-                )
-                cache_extra["corpus_generation"] = revision_pins.generation
-                cache_extra["revision_digest"] = sha256(
-                    repr(sorted(revision_pins.items())).encode()
-                ).hexdigest()
-            try:
-                with CorpusRevisionContext.bind(revision_pins):
-                    outcome = await run_retrieval_route(
-                        replace(
-                            route_context,
-                            revision_pins=revision_pins,
-                            document_scope=route_context.document_scope.narrow(
-                                list(revision_pins)
-                            ),
-                        )
+                if revision_pins is None:
+                    ownedCapture = isPostgresqlClassic and not request.db.in_transaction()
+                    revision_pins = await capture_revision_pins(
+                        request.db,
+                        user_id=request.user_id,
+                        namespace=request.namespace,
                     )
-            except (
-                CursorRetrievalException,
-                RequiredQueryEmbeddingException,
-                LexicalIndexError,
-            ):
-                raise
-            except Exception:
-                if await self._is_serving_read_stable(
-                    request, revision_pins, native_read, route_context.document_scope,
+                    if ownedCapture:
+                        await request.db.rollback()
+                if is_demo and attempt > 0:
+                    await validate_demo_query_scope(
+                        request.db,
+                        include_document_ids=request.include_document_ids,
+                        pins=revision_pins,
+                    )
+                if (is_demo or isPostgresqlClassic) and attempt > 0:
+                    cache_extra["corpus_generation"] = revision_pins.generation
+                    cache_extra["revision_digest"] = sha256(
+                        repr(sorted(revision_pins.items())).encode()
+                    ).hexdigest()
+                try:
+                    with CorpusRevisionContext.bind(revision_pins):
+                        outcome = await run_retrieval_route(
+                            replace(
+                                route_context,
+                                revision_pins=revision_pins,
+                                document_scope=route_context.document_scope.narrow(
+                                    list(revision_pins)
+                                ),
+                            )
+                        )
+                except (
+                    CursorRetrievalException,
+                    RequiredQueryEmbeddingException,
+                    LexicalIndexError,
                 ):
                     raise
-            else:
-                if await self._is_serving_read_stable(
-                    request, revision_pins, native_read, route_context.document_scope,
-                ):
-                    break
-            if native_read is not None:
-                # Retry with a fresh native read, cache key, and SQL session.
-                raise _NativeServingGenerationChanged
-            if attempt == 1:
-                raise self._serving_generation_conflict()
-            # Agent tools intentionally use short-lived sessions across LLM waits.
-            # Validate the whole episode instead of retaining a long DB snapshot.
-            await request.db.rollback()
-            discard_cached_manifest_payloads(request.db)
-            logger.warning(
-                "Retrieval serving generation changed; retrying once user={} namespace={}",
-                request.user_id,
-                request.namespace,
-            )
+                except PostgreSQLServingGenerationChanged:
+                    pass
+                except Exception:
+                    if await self._is_serving_read_stable(
+                        request, revision_pins, native_read, route_context.document_scope,
+                    ):
+                        raise
+                else:
+                    is_classic: bool = outcome.response.get("router_used") in {
+                        "classic_topk", "small_corpus_all",
+                    }
+                    if is_classic and (
+                        outcome.completion_count or not outcome.has_unhydrated_hits
+                        or attempt > 0 or not can_retry_classic
+                    ):
+                        break
+                    if await self._is_serving_read_stable(
+                        request, revision_pins, native_read, route_context.document_scope,
+                    ):
+                        break
+                if native_read is not None:
+                    # Retry with a fresh native read, cache key, and SQL session.
+                    raise _NativeServingGenerationChanged
+                if attempt == 1:
+                    raise self._serving_generation_conflict()
+                # Agent tools intentionally use short-lived sessions across LLM waits.
+                # Validate the whole episode instead of retaining a long DB snapshot.
+                await request.db.rollback()
+                discard_cached_manifest_payloads(request.db)
+                logger.warning(
+                    "Retrieval serving generation changed; retrying once user={} namespace={}",
+                    request.user_id,
+                    request.namespace,
+                )
         NativeFailureState.raiseCurrent()
         if outcome.response.get("router_used") == "small_corpus_all":
             StageObserver.record("bypass", "small_corpus")
 
-        if cache_version is not None:
+        if cache_version is not None and not outcome.has_unhydrated_hits:
             await _write_cached_response(
                 user_id=request.user_id,
                 namespace=request.namespace,

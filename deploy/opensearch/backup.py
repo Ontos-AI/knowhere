@@ -28,7 +28,10 @@ def _inventory(client: httpx.Client, indexPrefix: str) -> list[dict[str, object]
     response: httpx.Response = client.get(f"/_cat/indices/{indexPrefix}-*?format=json&h=index,uuid,status,pri&expand_wildcards=all")
     response.raise_for_status()
     rows: list[dict[str, str]] = response.json()
-    return [{"name": row["index"], "uuid": row["uuid"], "state": "closed" if row["status"] == "close" else "open", "primary_shards": int(row["pri"])} for row in rows]
+    # Published manifests are rebuilt from SQL on restore.
+    manifestIndex: str = f"{indexPrefix}-published-manifests"
+    return [{"name": row["index"], "uuid": row["uuid"], "state": "closed" if row["status"] == "close" else "open", "primary_shards": int(row["pri"])}
+        for row in rows if row["index"] != manifestIndex]
 
 
 class BackupOperations:

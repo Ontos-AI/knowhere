@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from shared.core.database import Base
@@ -25,5 +25,7 @@ class LexicalBuild(Base):
     cleanupState: Mapped[str] = mapped_column("cleanup_state", String(32), nullable=False, default="not_started")
     legacyCopyState: Mapped[str] = mapped_column("legacy_copy_state", String(32), nullable=False, default="not_started")
     nextMaintenanceAt: Mapped[datetime | None] = mapped_column("next_maintenance_at", DateTime(timezone=True), nullable=True)
+    retainForManifestReads: Mapped[bool] = mapped_column("retain_for_manifest_reads", Boolean, default=False)
+    manifestCleanupAfter: Mapped[datetime | None] = mapped_column("manifest_cleanup_after", DateTime(timezone=True))
     createdAt: Mapped[datetime] = mapped_column("created_at", DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     __table_args__ = (Index("idx_lexical_build_scope", "namespace_index_id", "state"),)

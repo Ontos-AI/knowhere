@@ -97,8 +97,11 @@ class AsyncOpenSearchLexicalIndex:
 
     async def search(self, *, buildIds: tuple[str, ...], queryTokens: tuple[str, ...],
                      limit: int, unitIds: tuple[str, ...] | None = None,
-                     sectionIds: tuple[str, ...] | None = None) -> tuple[LexicalHit, ...]:
-        if not buildIds or not queryTokens or limit <= 0 or unitIds == () or sectionIds == ():
+                     sectionIds: tuple[str, ...] | None = None,
+                     buildLookup: dict[str, str] | None = None,
+                     extraFilters: tuple[dict[str, object], ...] = (),
+                     exclusions: tuple[dict[str, object], ...] = ()) -> tuple[LexicalHit, ...]:
+        if (not buildIds and buildLookup is None) or not queryTokens or limit <= 0 or unitIds == () or sectionIds == ():
             return ()
 
         async def queryChannel(channel: str) -> object:
@@ -107,7 +110,8 @@ class AsyncOpenSearchLexicalIndex:
                 f"/{self.indexName}/_search?allow_partial_search_results=false&ignore_unavailable=false",
                 payload=NativeSearchPlan.buildPayload(channel, buildIds=buildIds,
                     queryTokens=queryTokens, limit=limit, unitIds=unitIds,
-                    preferContentCoverage=self._preferContentCoverage, sectionIds=sectionIds))
+                    preferContentCoverage=self._preferContentCoverage, sectionIds=sectionIds,
+                    buildLookup=buildLookup, extraFilters=extraFilters, exclusions=exclusions))
 
         tasks: tuple[asyncio.Task[object], asyncio.Task[object]] = (
             asyncio.create_task(queryChannel("pathTokens")),
@@ -129,7 +133,14 @@ class AsyncOpenSearchLexicalIndex:
         for body in bodies:
             if isinstance(body, BaseException):
                 raise body
-        return NativeSearchPlan.fuseChannels((bodies[0], bodies[1]), buildIds=buildIds, limit=limit)
+        return NativeSearchPlan.fuseChannels((bodies[0], bodies[1]),
+            buildIds=buildIds if buildLookup is None else None, limit=limit)
+
+    async def writePublishedManifest(self, *, manifestId: str, scopeId: str, buildIds: tuple[str, ...]) -> None:
+        response: object = await self._request("PUT", f"/{self._indexPrefix}-published-manifests/_create/{manifestId}",
+            payload={"scope": scopeId, "buildIds": buildIds})
+        if not isinstance(response, dict) or response.get("_id") != manifestId or response.get("result") != "created":
+            raise LexicalIndexError("Native manifest creation did not confirm the candidate", isRetryable=True)
 
     async def writeBuild(self, *, buildId: str, units: tuple[LexicalUnit, ...],
                          beforeBatch: Callable[[], Awaitable[None]] | None = None) -> None:

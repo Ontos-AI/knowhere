@@ -14,7 +14,7 @@ import sys
 from threading import Event, get_ident
 from types import SimpleNamespace
 from uuid import uuid4
-from typing import ParamSpec, TypeVar
+from typing import Any, Literal, ParamSpec, TypeVar
 
 import httpx
 import pytest
@@ -1483,7 +1483,9 @@ def classicRuntime(
         engine.dispose()
 
 
-async def _queryClassic(namespace: str) -> dict[str, object]:
+async def _queryClassic(
+    namespace: str, *, top_k: int = 1, use_agentic: bool | None = False,
+) -> dict[str, object]:
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
     from shared.services.retrieval.execution.plan import run_retrieval_query
 
@@ -1491,11 +1493,123 @@ async def _queryClassic(namespace: str) -> dict[str, object]:
     try:
         async with AsyncSession(database) as session:
             return await run_retrieval_query(db=session, user_id="native-contract-user", namespace=namespace,
-                query="工程验收计划", top_k=1, use_agentic=False, exclude_document_ids=[], exclude_sections=[])
+                query="工程验收计划", top_k=top_k, use_agentic=use_agentic, exclude_document_ids=[], exclude_sections=[])
     finally:
         from shared.services.retrieval.lexical.asyncruntime import AsyncOpenSearchRuntime
         await AsyncOpenSearchRuntime.closeCurrent()
         await database.dispose()
+
+
+@pytest.mark.parametrize("boundary", ("native-hits", "small-count", "small-admission"))
+def test_native_fallback_keeps_one_publication(
+    classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
+    boundary: str,
+) -> None:
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.orm import sessionmaker
+
+    from shared.models.database.document import Document
+    from shared.services.retrieval.execution import plan, routes
+    from shared.services.retrieval.execution.route_types import RetrievalRouteContext, RetrievalRouteOutcome
+    from shared.services.retrieval.hydration.build_snapshot import BuildSnapshot
+    from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.hit import LexicalHit
+    from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
+    from shared.services.retrieval.lexical.reader import PublishedLexicalRead
+    from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.publication_models import DocumentPublicationScope
+    from shared.services.retrieval.publication_scope_content import replace_document_scope_content
+    from shared.services.retrieval.routing.types import QueryMode, RouterDecision
+
+    engine, namespace = classicRuntime
+    sessions = sessionmaker(engine, expire_on_commit=False)
+    with sessions.begin() as db:
+        document = db.scalars(select(Document)).one()
+        assert document.current_job_result_id and document.current_indexing_build_id
+        scope = DocumentPublicationScope(
+            user_id=document.user_id, namespace=namespace, document_id=document.document_id,
+            job_result_id=document.current_job_result_id, source_file_name="report.pdf",
+        )
+        if boundary == "native-hits":
+            BuildSnapshot.capture(
+                db, scope=LexicalScope(ownerId=scope.user_id, namespace=namespace),
+                buildId=document.current_indexing_build_id,
+            )
+
+    published: bool = False
+    generations: list[int | None] = []
+
+    def replace_selected_body(db: Session, staged: DocumentPublicationScope) -> None:
+        replace_document_scope_content(db, scope=staged, scope_id="*", chunks=[
+            {"chunk_id": "classic-first", "type": "text", "content": "工程验收计划 新正文", "path": "report.pdf/工程验收", "metadata": {}},
+            {"chunk_id": "classic-second", "type": "text", "content": "项目质量管理程序", "path": "report.pdf/质量管理", "metadata": {}},
+        ])
+
+    def publish_once() -> None:
+        nonlocal published
+        if not published:
+            ProgressivePublication(sessionFactory=sessions).publish(scope=scope, update=replace_selected_body)
+            published = True
+
+    if boundary == "native-hits":
+        search = AsyncOpenSearchLexicalIndex.search
+
+        async def search_then_publish(
+            index: AsyncOpenSearchLexicalIndex, **options: Any,
+        ) -> tuple[LexicalHit, ...]:
+            hits = await search(index, **options)
+            assert hits
+            publish_once()
+            return hits
+
+        async def classify(_query: str) -> RouterDecision:
+            return RouterDecision(
+                mode=QueryMode.CLASSIC, reason="contract", source="llm",
+                model_name="fixture", tokens_used=0,
+            )
+
+        monkeypatch.setattr(AsyncOpenSearchLexicalIndex, "search", search_then_publish)
+        monkeypatch.setattr(routes.query_router_config, "QUERY_ROUTER_ENABLED", True)
+        monkeypatch.setattr(routes, "classify_query_mode", classify)
+    elif boundary == "small-count":
+        count = routes.count_scoped_chunks
+
+        async def count_then_publish(db: AsyncSession, **options: Any) -> int:
+            count_result: int = await count(db, **options)
+            publish_once()
+            return count_result
+
+        monkeypatch.setattr(routes, "count_scoped_chunks", count_then_publish)
+    else:
+        run_route = plan.run_retrieval_route
+
+        async def publish_before_snapshot(context: RetrievalRouteContext) -> RetrievalRouteOutcome:
+            reader = PublishedLexicalRead.current()
+            assert reader is not None
+            generations.append(reader.pins.generation)
+            publish_once()
+            return await run_route(context)
+
+        monkeypatch.setattr(plan, "run_retrieval_route", publish_before_snapshot)
+
+    query_options: dict[str, Any] = (
+        {"top_k": 1, "use_agentic": None} if boundary == "native-hits"
+        else {"top_k": 2, "use_agentic": True}
+    )
+    response: dict[str, object] = asyncio.run(_queryClassic(namespace, **query_options))
+    results: object = response["results"]
+    assert isinstance(results, list)
+    assert published
+    bodies: list[str] = [row["content"] for row in results if row["chunk_id"] == "classic-first"]
+    if boundary == "small-admission":
+        assert len(generations) == 2 and generations[0] != generations[1]
+        assert bodies == ["工程验收计划 新正文"]
+    else:
+        assert bodies == ["工程验收计划"]
+        fresh_results: object = asyncio.run(_queryClassic(namespace, **query_options))["results"]
+        assert isinstance(fresh_results, list)
+        assert [row["content"] for row in fresh_results if row["chunk_id"] == "classic-first"] == ["工程验收计划 新正文"]
+    assert response["router_used"] == ("classic_topk" if boundary == "native-hits" else "small_corpus_all")
 
 
 def _captureNativeSearchHits(response: httpx.Response, *, hasTokens: bool) -> str:
@@ -1796,15 +1910,18 @@ def test_classic_read_returns_evidence_while_chunk_final_claim_is_locked(
 
 
 @pytest.mark.parametrize("publication_count", [0, 1, 2])
-def test_progressive_native_read_retries_once_when_publication_crosses_retrieval(
+@pytest.mark.parametrize("boundary", ["assembled", "hydration"])
+def test_progressive_native_read_returns_available_evidence(
     classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch, publication_count: int,
+    boundary: Literal["assembled", "hydration"],
 ) -> None:
-    from shared.core.exceptions.domain_exceptions import ConflictException
     from shared.models.database.document import Document
     from shared.models.database.job_result import JobResult
     from shared.services.retrieval.execution import plan
     from shared.services.retrieval.execution.route_types import RetrievalRouteContext, RetrievalRouteOutcome
+    from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
     from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
+    from shared.services.retrieval.lexical.hit import LexicalHit
     from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
     from shared.services.retrieval.lexical.worker import IndexingWorker
     from shared.services.retrieval.publication_models import DocumentPublicationScope
@@ -1822,17 +1939,32 @@ def test_progressive_native_read_retries_once_when_publication_crosses_retrieval
 
     original = plan.run_retrieval_route
     read_generations: list[int | None] = []
+    publications: list[int] = []
     revised_content: str = "工程验收计划 细化内容"
     sessions = sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(LegacyCopyDispatch, "submit", staticmethod(lambda identity: False))
 
     def publish_refinement(db: Session, staged_scope: DocumentPublicationScope) -> None:
+        chapter = f"细化{len(publications)}" if boundary == "hydration" else "工程验收"
         replace_document_scope_content(db, scope=staged_scope, scope_id="*", chunks=[
             {"chunk_id": "refined-first", "type": "text", "content": revised_content,
-                "path": "report.pdf/工程验收", "metadata": {}},
+                "path": f"report.pdf/{chapter}", "metadata": {}},
             {"chunk_id": "classic-second", "type": "text", "content": "项目质量管理程序",
                 "path": "report.pdf/质量管理", "metadata": {}},
         ])
+
+    def publish_once() -> None:
+        publications.append(len(publications) + 1)
+        ProgressivePublication(sessionFactory=sessions).publish(scope=scope, update=publish_refinement)
+
+    original_search = AsyncOpenSearchLexicalIndex.search
+
+    async def publish_before_hydration(self: AsyncOpenSearchLexicalIndex, **options: Any) -> tuple[LexicalHit, ...]:
+        hits = await original_search(self, **options)
+        if len(publications) < publication_count:
+            assert hits
+            publish_once()
+        return hits
 
     async def publish_after_retrieval(context: RetrievalRouteContext) -> RetrievalRouteOutcome:
         outcome = await original(context)
@@ -1842,24 +1974,28 @@ def test_progressive_native_read_retries_once_when_publication_crosses_retrieval
         if publication_count == 0 and len(read_generations) == 1:
             replacement_id = _stageReplacement(engine, namespace)
             assert IndexingWorker(sessionFactory=sessions).run(replacement_id) == "completed"
-        elif len(read_generations) <= publication_count:
-            ProgressivePublication(sessionFactory=sessions).publish(scope=scope, update=publish_refinement)
+        elif boundary == "assembled" and len(publications) < publication_count:
+            publish_once()
         return outcome
 
     monkeypatch.setattr(plan, "run_retrieval_route", publish_after_retrieval)
-    if publication_count == 2:
-        with pytest.raises(ConflictException):
-            asyncio.run(_queryClassic(namespace))
-    else:
-        response = asyncio.run(_queryClassic(namespace))
-        results: object = response["results"]
-        assert isinstance(results, list) and results
-        assert results[0]["content"] == ("工程验收计划" if publication_count == 0 else revised_content)
-    if publication_count == 0:
+    if boundary == "hydration":
+        monkeypatch.setattr(AsyncOpenSearchLexicalIndex, "search", publish_before_hydration)
+    response = asyncio.run(_queryClassic(namespace))
+    results: object = response["results"]
+    assert isinstance(results, list)
+    if boundary == "assembled" or publication_count == 0:
         assert len(read_generations) == 1
-        return
-    assert len(read_generations) == 2
-    assert read_generations[0] is not None and read_generations[1] == read_generations[0] + 1
+        assert results and results[0]["content"] == "工程验收计划"
+        assert results[0]["source"]["job_result_id"] == scope.job_result_id
+    else:
+        assert len(read_generations) == 2
+        assert read_generations[0] is not None and read_generations[1] == read_generations[0] + 1
+        if publication_count == 1:
+            assert results and results[0]["content"] == revised_content
+            assert results[0]["source"]["job_result_id"] == scope.job_result_id
+        else:
+            assert results == []
 
 
 def test_classic_read_reopens_a_closed_index_through_normal_admission(
@@ -2439,3 +2575,187 @@ def test_document_filtered_search_prefers_distinct_query_terms_to_repetition(
         assert response.status_code in (200, 404)
         native.close()
         engine.dispose()
+
+
+def test_manifest_query_keeps_the_body_from_the_selected_build(
+    classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy.orm import sessionmaker
+
+    from shared.core.config import settings
+    from shared.models.database.document import Document
+    from shared.models.database.lexicalbuild import LexicalBuild
+    from shared.models.database.lexicalhydrationsnapshot import LexicalHydrationSnapshot
+    from shared.models.database.lexicalpublishedmanifest import LexicalPublishedManifest
+    from shared.services.retrieval.lexical.cleanup import LexicalCleanup
+    from shared.services.retrieval.lexical.manifest_maintenance import collectPublishedManifests
+    from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.hit import LexicalHit
+    from shared.services.retrieval.lexical.manifest_publication import ManifestPublication
+    from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
+    from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.publication_models import DocumentPublicationScope
+    from shared.services.retrieval.publication_scope_content import replace_document_scope_content
+
+    engine, namespace = classicRuntime
+    sessions = sessionmaker(engine, expire_on_commit=False)
+    with sessions.begin() as session:
+        document = session.scalars(select(Document)).one()
+        assert document.current_job_result_id is not None and document.current_indexing_build_id is not None
+        oldBuild = document.current_indexing_build_id
+        scope = DocumentPublicationScope(user_id=document.user_id, namespace=namespace,
+            document_id=document.document_id, job_result_id=document.current_job_result_id, source_file_name="report.pdf")
+    lexicalScope = LexicalScope(ownerId=scope.user_id, namespace=namespace)
+    native = OpenSearchLexicalIndex(endpoint=_getNativeEndpoint(), scope=lexicalScope,
+        indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX)
+    native.createManifestIndex()
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS", True)
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP", True)
+    firstManifest = ManifestPublication(sessions).seed(scope=lexicalScope, native=native)
+    original = AsyncOpenSearchLexicalIndex.search
+    observed: list[str] = []
+
+    def publish(db: Session, staged: DocumentPublicationScope) -> None:
+        replace_document_scope_content(db, scope=staged, scope_id="*", chunks=[
+            {"chunk_id": "new-first", "type": "text", "content": "工程验收计划 新正文", "path": "report.pdf/工程验收", "metadata": {}},
+            {"chunk_id": "classic-second", "type": "text", "content": "项目质量管理程序", "path": "report.pdf/质量管理", "metadata": {}},
+        ])
+
+    async def refineAfterSearch(self: AsyncOpenSearchLexicalIndex, **options: Any) -> tuple[LexicalHit, ...]:
+        lookup = options["buildLookup"]
+        hits = await original(self, **options)
+        assert hits
+        observed.append(lookup["id"])
+        if len(observed) == 1:
+            ProgressivePublication(sessionFactory=sessions).publish(scope=scope, update=publish)
+        return hits
+
+    monkeypatch.setattr(AsyncOpenSearchLexicalIndex, "search", refineAfterSearch)
+    try:
+        before = asyncio.run(_queryClassic(namespace))
+        after = asyncio.run(_queryClassic(namespace))
+        assert isinstance(before["results"], list) and before["results"][0]["content"] == "工程验收计划"
+        assert isinstance(after["results"], list) and after["results"][0]["content"] == "工程验收计划 新正文"
+        assert observed[0] == firstManifest and observed[1] != firstManifest
+        cleanup = LexicalCleanup(sessionFactory=sessions)
+        assert not cleanup.collect(oldBuild)
+        assert collectPublishedManifests(sessions) == 0
+        with sessions.begin() as session:
+            build = session.get(LexicalBuild, oldBuild)
+            manifest = session.get(LexicalPublishedManifest, firstManifest)
+            assert build is not None and build.manifestCleanupAfter is not None
+            assert manifest is not None and manifest.cleanupAfter is not None
+            due = build.manifestCleanupAfter - timedelta(minutes=5)
+            build.manifestCleanupAfter = due
+            manifest.cleanupAfter = due
+        assert cleanup.collect(oldBuild)
+        assert collectPublishedManifests(sessions) == 1
+        with sessions.begin() as session:
+            assert session.get(LexicalHydrationSnapshot, oldBuild) is not None
+            assert session.get(LexicalPublishedManifest, firstManifest) is None
+    finally:
+        native.close()
+        response = httpx.delete(f"{_getNativeEndpoint()}/{native.manifestIndexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
+
+
+def test_parallel_document_refinements_rebase_the_published_manifest(
+    classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from threading import Barrier, Lock
+
+    from sqlalchemy.orm import sessionmaker
+
+    from shared.core.config import settings
+    from shared.models.database.document import Document
+    from shared.models.database.job import Job
+    from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
+    from shared.services.jobs.lifecycle.success_finalizer import SyncJobSuccessFinalizer
+    from shared.services.retrieval.lexical.manifest_publication import ManifestPublication, PreparedManifest
+    from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
+    from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.lexical.worker import IndexingWorker
+    from shared.services.retrieval.publication_models import DocumentPublicationScope
+    from shared.services.retrieval.publication_scope_content import replace_document_scope_content
+
+    engine, namespace = classicRuntime
+    sessions = sessionmaker(engine, expire_on_commit=False)
+    userId = "native-contract-user"
+    lexicalScope = LexicalScope(ownerId=userId, namespace=namespace)
+    native = OpenSearchLexicalIndex(endpoint=_getNativeEndpoint(), scope=lexicalScope,
+        indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX)
+    native.createManifestIndex()
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS", True)
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND", True)
+    firstManifest = ManifestPublication(sessions).seed(scope=lexicalScope, native=native)
+    secondJob = "native-contract-second"
+    try:
+        with sessions.begin() as session:
+            session.add(Job(job_id=secondJob, user_id=userId, job_type="document_ingestion",
+                source_type="file", status="running", job_metadata={
+                    "document_id": "doc_native_second", "namespace": namespace, "source_file_name": "report.pdf",
+                }))
+        with sessions.begin() as session:
+            finalized = SyncJobSuccessFinalizer().finalize(session, job_id=secondJob,
+                result_s3_key="results/second.zip", checksum="second", zip_size=10,
+                chunks=[{"chunk_id": "second-original", "type": "text", "content": "second baseline",
+                    "path": "report.pdf/Chapter", "metadata": {}}], stored_count=1,
+                delivery_mode="url", section_summaries=None)
+            assert finalized.response.should_commit()
+        assert IndexingWorker(sessionFactory=sessions).run(secondJob) == "completed"
+        with sessions.begin() as session:
+            documents = list(session.scalars(select(Document).where(Document.namespace == namespace)))
+            assert len(documents) == 2
+            previousBuilds = {document.document_id: document.current_indexing_build_id for document in documents}
+            scopes = [DocumentPublicationScope(user_id=userId, namespace=namespace,
+                document_id=document.document_id, job_result_id=str(document.current_job_result_id),
+                source_file_name="report.pdf") for document in documents]
+
+        barrier = Barrier(2, timeout=10)
+        guard = Lock()
+        attempts: list[tuple[str | None, int]] = []
+        prepare = ManifestPublication.prepare
+
+        def synchronize(self: ManifestPublication, **options: Any) -> PreparedManifest | None:
+            candidate = prepare(self, **options)
+            assert candidate is not None
+            with guard:
+                attempts.append((candidate.previousId, candidate.generation))
+                isFirstRound = len(attempts) <= 2
+            if isFirstRound:
+                barrier.wait()
+            return candidate
+
+        def publish(scope: DocumentPublicationScope) -> None:
+            def update(db: Session, staged: DocumentPublicationScope) -> None:
+                replace_document_scope_content(db, scope=staged, scope_id="*", chunks=[
+                    {"chunk_id": "refined-" + scope.document_id, "type": "text",
+                     "content": "工程验收计划", "path": "report.pdf/Refined", "metadata": {}},
+                ])
+            ProgressivePublication(sessionFactory=sessions).publish(scope=scope, update=update)
+
+        monkeypatch.setattr(ManifestPublication, "prepare", synchronize)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            list(executor.map(publish, scopes))
+        assert len(attempts) == 3 and attempts[0] == attempts[1] and attempts[1] != attempts[2]
+        with sessions.begin() as session:
+            registry = session.get(LexicalNamespaceIndex, lexicalScope.fingerprint)
+            assert registry is not None and registry.publishedManifestId is not None
+            currentManifest = registry.publishedManifestId
+            currentBuilds = {
+                document.document_id: document.current_indexing_build_id
+                for document in session.scalars(select(Document).where(Document.namespace == namespace))
+            }
+        assert currentBuilds.keys() == previousBuilds.keys()
+        assert all(build != previousBuilds[document] for document, build in currentBuilds.items())
+        response = httpx.get(f"{_getNativeEndpoint()}/{native.manifestIndexName}/_doc/{currentManifest}",
+            timeout=15, trust_env=False).raise_for_status().json()
+        assert set(response["_source"]["buildIds"]) == set(currentBuilds.values())
+        assert httpx.get(f"{_getNativeEndpoint()}/{native.manifestIndexName}/_doc/{firstManifest}",
+            timeout=15, trust_env=False).status_code == 200
+    finally:
+        native.close()
+        response = httpx.delete(f"{_getNativeEndpoint()}/{native.manifestIndexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)

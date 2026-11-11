@@ -309,12 +309,28 @@ class OpenSearchOperations:
     @staticmethod
     def _renderRoles(installation: _Installation, *, isIndependent: bool = False) -> dict[str, object]:
         clusterRead: list[str] = ["cluster:monitor/main", "cluster:monitor/state", "cluster:monitor/health"]
-        indexRead: list[str] = ["indices:data/read/search*", "indices:admin/get", "indices:monitor/settings/get", "indices:monitor/stats"]
+        search: str = "indices:data/read/search*"
+        indexRead: list[str] = [search, "indices:admin/get", "indices:monitor/settings/get", "indices:monitor/stats"]
         publication: list[str] = ["indices:admin/create", "indices:admin/open", "indices:admin/close", "indices:data/write/bulk*", "indices:data/write/index", "indices:data/read/count"]
         scoped: str = installation.index_prefix + "-*"
+        # Namespace indexes use a 48-character fingerprint. Keep their actions off the manifest index.
+        namespacePattern: str = f"/{installation.index_prefix}-[a-f0-9]{{48}}/"
+        manifestIndex: str = f"{installation.index_prefix}-published-manifests"
+        # OpenSearch authorizes _create through the same index action as _doc.
+        manifestActions: list[str] = ["indices:admin/create", "indices:data/read/get", "indices:data/write/index"]
+        deploymentProbe: str = f"{installation.index_prefix}-deployment-probe"
+        applicationCluster: list[str] = [*clusterRead, "indices:data/write/bulk"]
         roles: dict[str, object] = {"_meta": {"type": "roles", "config_version": 2},
-            "knowhere_api": {"cluster_permissions": clusterRead, "index_permissions": [{"index_patterns": [scoped], "allowed_actions": [*indexRead, *publication]}]},
-            "knowhere_worker": {"cluster_permissions": clusterRead, "index_permissions": [{"index_patterns": [scoped], "allowed_actions": [*indexRead, *publication, "indices:data/write/delete/byquery"]}]},
+            "knowhere_api": {"cluster_permissions": applicationCluster, "index_permissions": [
+                {"index_patterns": [namespacePattern], "allowed_actions": [*indexRead, *publication]},
+                {"index_patterns": [manifestIndex], "allowed_actions": manifestActions},
+                {"index_patterns": [deploymentProbe], "allowed_actions": [search]},
+            ]},
+            "knowhere_worker": {"cluster_permissions": applicationCluster, "index_permissions": [
+                {"index_patterns": [namespacePattern], "allowed_actions": [*indexRead, *publication, "indices:data/write/delete/byquery"]},
+                {"index_patterns": [manifestIndex], "allowed_actions": [*manifestActions, "indices:data/write/delete"]},
+                {"index_patterns": [deploymentProbe], "allowed_actions": [search]},
+            ]},
             "knowhere_backup": {"cluster_permissions": [*clusterRead, "cluster:admin/snapshot/create", "cluster:admin/snapshot/get", "cluster:admin/snapshot/status*", "cluster:admin/snapshot/delete", "cluster:admin/repository/get"], "index_permissions": [{"index_patterns": [scoped], "allowed_actions": ["indices:admin/get", "indices:monitor/settings/get", "indices:monitor/stats"]}]},
             "knowhere_monitor": {"cluster_permissions": [*clusterRead, "cluster:monitor/nodes/stats", "cluster:admin/snapshot/get"], "index_permissions": [{"index_patterns": [scoped], "allowed_actions": ["indices:monitor/stats", "indices:monitor/settings/get"]}]},
         }

@@ -14,22 +14,31 @@ from shared.services.retrieval.lexical.cleanup import LexicalCleanup
 from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
 from shared.services.retrieval.lexical.input_collector import LexicalInputCollector
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
+from shared.services.retrieval.lexical.manifest_maintenance import collectPublishedManifests
 
 
 @celery_app.task(name="shared.services.retrieval.lexical.maintenance.maintainLexical")
 def maintainLexical() -> int:
-    if settings.KNOWHERE_LEXICAL_BACKEND != "opensearch":
+    isNativeServing: bool = settings.KNOWHERE_LEXICAL_BACKEND == "opensearch"
+    if not isNativeServing and not settings.KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS:
         return 0
     sessions = get_sync_session_factory()
     with sessions.begin() as db:
         control: LexicalBackendControl | None = db.get(
             LexicalBackendControl, 1, with_for_update={"read": True},
         )
-        if control is None or control.backend != "opensearch" or control.mode != "serving":
+        if control is None or control.backend != settings.KNOWHERE_LEXICAL_BACKEND or control.mode != "serving":
+            return 0
+        if not isNativeServing and control.clusterUuid is None:
             return 0
         now = LexicalCoordination.getDatabaseTime(db)
+        pending = (or_(LexicalBuild.legacyCopyState == "pending", LexicalBuild.cleanupState == "pending")
+            if isNativeServing else (
+                (LexicalBuild.state == "retired") & (LexicalBuild.cleanupState == "pending")
+                & LexicalBuild.retainForManifestReads.is_(True)
+            ))
         rows = list(db.scalars(select(LexicalBuild)
-                .where(or_(LexicalBuild.legacyCopyState == "pending", LexicalBuild.cleanupState == "pending"))
+                .where(pending)
                 .where(or_(LexicalBuild.nextMaintenanceAt.is_(None), LexicalBuild.nextMaintenanceAt <= now))
                 .order_by(LexicalBuild.nextMaintenanceAt.asc().nullsfirst(), LexicalBuild.createdAt, LexicalBuild.id)
                 .limit(20).with_for_update(skip_locked=True)))
@@ -38,7 +47,7 @@ def maintainLexical() -> int:
             row.nextMaintenanceAt = now + timedelta(minutes=5)
     completed: int = 0
     for identity, copyState, cleanupState in identities:
-        if copyState == "pending":
+        if isNativeServing and copyState == "pending":
             try:
                 completed += int(LegacyCopyDispatch.submit(identity))
             except Exception as error:
@@ -48,14 +57,19 @@ def maintainLexical() -> int:
                 completed += int(LexicalCleanup(sessionFactory=sessions).collect(identity))
             except Exception as error:
                 logger.error("Lexical build cleanup deferred: build_id={}, error_type={}", identity, type(error).__name__)
+    if isNativeServing:
+        try:
+            completed += LexicalInputCollector(sessionFactory=sessions).run()
+        except Exception as error:
+            logger.error("Indexing input maintenance deferred: error_type={}", type(error).__name__)
+        try:
+            completed += LexicalCleanup(sessionFactory=sessions).closeEmptyNamespaces()
+        except Exception as error:
+            logger.error("Empty namespace maintenance deferred: error_type={}", type(error).__name__)
     try:
-        completed += LexicalInputCollector(sessionFactory=sessions).run()
+        completed += collectPublishedManifests(sessions)
     except Exception as error:
-        logger.error("Indexing input maintenance deferred: error_type={}", type(error).__name__)
-    try:
-        completed += LexicalCleanup(sessionFactory=sessions).closeEmptyNamespaces()
-    except Exception as error:
-        logger.error("Empty namespace maintenance deferred: error_type={}", type(error).__name__)
+        logger.error("Manifest maintenance deferred: error_type={}", type(error).__name__)
     with sessions.begin() as db:
         pendingCopies, oldestCopy = db.execute(select(func.count(), func.min(LexicalBuild.createdAt))
             .where(LexicalBuild.legacyCopyState == "pending")).one()

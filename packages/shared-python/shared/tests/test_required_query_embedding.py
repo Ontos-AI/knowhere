@@ -126,3 +126,118 @@ async def test_hybrid_reuses_one_query_vector_across_coarse_sections(
         f"p{page}": [page] for page in range(1, 6)
     }
     embed.assert_called_once_with("q", usage_task="retrieval.query_embed")
+
+
+async def test_hybrid_keeps_lexical_pages_when_visual_hit_uses_another_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.search.map_unit_discovery import DiscoveryResult
+
+    lexical_row: dict[str, object] = {
+        "document_id": "document",
+        "chunk_id": "shared-chunk",
+        "build_id": "captured-build",
+        "chunk_type": "page",
+        "chunk_metadata": {"enrichment_state": "refined"},
+        "matched_page_nums": [2],
+        "score": 0.7,
+    }
+    visual_row: dict[str, object] = {
+        "document_id": "document",
+        "chunk_id": "shared-chunk",
+        "visual_build_id": "later-build",
+        "matched_page_nums": [7],
+    }
+    monkeypatch.setattr(visual_discovery.settings, "VISUAL_RETRIEVAL_ENABLED", True)
+    monkeypatch.setattr(
+        visual_discovery, "map_unit_discovery",
+        AsyncMock(return_value=DiscoveryResult(
+            status="discovery_done", payload={"fused_rows": [lexical_row]},
+        )),
+    )
+    monkeypatch.setattr(
+        visual_discovery, "visual_page_discovery",
+        AsyncMock(return_value=DiscoveryResult(
+            status="discovery_done", payload={"fused_rows": [visual_row]},
+        )),
+    )
+
+    result = await visual_discovery.hybrid_discovery(
+        Mock(), user_id="u", namespace="n", query="q", top_k=1,
+    )
+
+    assert result.payload["fused_rows"] == [lexical_row]
+
+
+async def test_section_lighting_does_not_copy_pages_from_another_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.search.map_unit_discovery import DiscoveryResult
+
+    lexical_row = {
+        "document_id": "document",
+        "chunk_id": "shared-chunk",
+        "build_id": "captured-build",
+        "chunk_type": "page",
+        "section_path": "Root / Section",
+        "chunk_metadata": {"enrichment_state": "coarse"},
+    }
+    monkeypatch.setattr(visual_discovery.settings, "VISUAL_RETRIEVAL_ENABLED", True)
+    monkeypatch.setattr(
+        visual_discovery, "visual_page_discovery",
+        AsyncMock(return_value=DiscoveryResult(status="discovery_done", payload={
+            "fused_rows": [{
+                "document_id": "document",
+                "chunk_id": "shared-chunk",
+                "visual_build_id": "later-build",
+                "matched_page_nums": [7],
+            }],
+        })),
+    )
+
+    await visual_discovery.light_unrefined_section_pages(
+        Mock(), user_id="u", namespace="n", query="q", rows=[lexical_row],
+    )
+
+    assert "matched_page_nums" not in lexical_row
+
+
+async def test_inline_visual_assets_hydrate_against_the_scored_page_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.lexical.reader import PublishedLexicalRead
+
+    reader = Mock(
+        scope=Mock(namespace="n", ownerId="u"),
+        manifestId=None,
+        builds={"d": "captured-build"},
+    )
+    database = Mock(execute=AsyncMock(side_effect=[
+        Mock(scalar=Mock(return_value=True)),
+        Mock(all=Mock(return_value=[Mock(_mapping={
+            "document_id": "d",
+            "chunk_id": "page",
+            "chunk_type": "page",
+            "visual_build_id": "captured-build",
+            "chunk_metadata": {"connect_to": [{"target": "chart"}]},
+            "page_num": 3,
+            "similarity": 0.8,
+        })])),
+    ]))
+    connected = AsyncMock(return_value=[{
+        "document_id": "d", "chunk_id": "chart", "chunk_type": "image",
+        "build_id": "captured-build",
+    }])
+    monkeypatch.setattr(PublishedLexicalRead, "current", lambda: reader)
+    monkeypatch.setattr(visual_discovery.settings, "VISUAL_RETRIEVAL_ENABLED", True)
+    monkeypatch.setattr(visual_discovery, "embed_query", Mock(return_value=[0.25, 0.5]))
+    monkeypatch.setattr(visual_discovery, "hydrate_connected_target_rows", connected)
+
+    result = await visual_discovery.visual_page_discovery(
+        database, user_id="u", namespace="n", query="q", top_k=1, chunk_types={"image"},
+    )
+
+    page = connected.await_args.kwargs["rows"][0]
+    assert page["build_id"] == "captured-build"
+    assert page["uses_inline_build"] is True
+    assert result.payload["fused_rows"][0]["visual_build_id"] == "captured-build"

@@ -29,6 +29,9 @@ from sqlalchemy import text
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.retrieval.execution.postgresql_snapshot import (
+    open_postgresql_snapshot,
+)
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.row_utils import (
     iter_connected_target_ids,
@@ -129,6 +132,7 @@ class DiscoveryResult:
     payload: dict[str, Any] = field(default_factory=dict)
     latency_ms: int = 0
     error: str | None = None
+    has_unhydrated_hits: bool = False
 
 
 def _build_revision_scope(
@@ -240,8 +244,6 @@ async def map_unit_discovery(
     **_kwargs: Any,
 ) -> DiscoveryResult:
     """Score the whole in-scope corpus via the persisted map-unit BM25 scorer."""
-    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
-    t0 = time.monotonic()
     if db is None:
         raise ValueError("database session required for map_unit_discovery")
     from shared.core.config import settings
@@ -257,6 +259,46 @@ async def map_unit_discovery(
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
     if revision_pins is not None and not revision_pins:
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+    async with open_postgresql_snapshot(db) as snapshot:
+        return await _discover_postgresql(
+            snapshot,
+            user_id=user_id,
+            namespace=namespace,
+            query=query,
+            query_tokens=query_tokens,
+            top_k=top_k,
+            exclude_document_ids=exclude_document_ids,
+            exclude_sections=exclude_sections,
+            document_scope=document_scope,
+            chunk_types=chunk_types,
+            signal_paths=signal_paths,
+            filter_mode=filter_mode,
+            revision_pins=revision_pins,
+            publish_index_readiness=publish_index_readiness,
+            section_targets=section_targets,
+        )
+
+
+async def _discover_postgresql(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    namespace: str,
+    query: str,
+    query_tokens: list[str],
+    top_k: int,
+    exclude_document_ids: list[str],
+    exclude_sections: list[dict[str, str]],
+    document_scope: DocumentScope,
+    chunk_types: set[str] | None,
+    signal_paths: list[str] | None,
+    filter_mode: str,
+    revision_pins: Mapping[str, str] | None,
+    publish_index_readiness: bool,
+    section_targets: list[tuple[str, str | None]] | None,
+) -> DiscoveryResult:
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
+    t0: float = time.monotonic()
     query_token_hashes = [
         sha256(token.encode("utf-8")).digest() for token in query_tokens
     ]
@@ -736,8 +778,10 @@ async def map_unit_discovery(
     )[:top_k]
 
     stage_started = time.monotonic()
-    fused_rows = await _hydrate_winning_units(
+    fused_rows, has_unhydrated_hits = await _hydrate_winning_units(
         db,
+        user_id=user_id,
+        namespace=namespace,
         ranked_unit_ids=ranked_unit_ids,
         rows_by_unit_id=rows_by_unit_id,
         scores_by_unit=scores_by_unit,
@@ -771,6 +815,7 @@ async def map_unit_discovery(
         status="discovery_done",
         payload={"fused_rows": fused_rows},
         latency_ms=latency,
+        has_unhydrated_hits=has_unhydrated_hits,
     )
 
 
@@ -786,6 +831,8 @@ def _as_metadata_dict(value: object) -> dict[str, Any]:
 async def _hydrate_winning_units(
     session: AsyncSession,
     *,
+    user_id: str,
+    namespace: str,
     ranked_unit_ids: list[str],
     rows_by_unit_id: dict[str, dict[str, Any]],
     scores_by_unit: dict[str, float],
@@ -794,11 +841,11 @@ async def _hydrate_winning_units(
     exclude_sections: list[dict[str, str]],
     document_scope: DocumentScope = DocumentScope(),
     revision_pins: Mapping[str, str] | None,
-) -> list[dict[str, Any]]:
-    """Map each winning leaf to its one chunk; asset requests follow connect_to."""
-    corpusStorage: CorpusStorage = CorpusStorage.resolve_document(str(next(iter(rows_by_unit_id.values()), {}).get("document_id") or ""))
+) -> tuple[list[dict[str, Any]], bool]:
+    """Hydrate authorized hits and report hits whose primary chunk disappeared."""
     if not ranked_unit_ids:
-        return []
+        return [], False
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
 
     document_ids = sorted(
         {rows_by_unit_id[unit_id]["document_id"] for unit_id in ranked_unit_ids}
@@ -823,12 +870,15 @@ async def _hydrate_winning_units(
             "LEFT JOIN document_sections ds ON ds.section_id = dc.section_id "
             "LEFT JOIN job_results jr ON jr.id = dc.job_result_id "
             "LEFT JOIN jobs j ON j.job_id = jr.job_id "
-            "WHERE dc.document_id = ANY(:document_ids) "
+            "WHERE d.user_id = :user_id AND d.namespace = :namespace AND d.status = 'active' "
+            "AND dc.document_id = ANY(:document_ids) "
             "AND dc.job_result_id = ANY(:job_result_ids) "
             "AND dc.section_id = ANY(:section_ids) "
             "ORDER BY dc.sort_order, dc.chunk_id")
         ),
         {
+            "user_id": corpusStorage.resolve_owner(user_id),
+            "namespace": namespace,
             "document_ids": document_ids,
             "job_result_ids": job_result_ids,
             "section_ids": section_ids,
@@ -856,8 +906,9 @@ async def _hydrate_winning_units(
         fused["score"] = scores_by_unit.get(unit_id, 0.0)
         primaries.append(fused)
 
+    has_unhydrated_hits: bool = len(primaries) < len(ranked_unit_ids)
     if chunk_types is None or not chunk_types.issubset(ASSET_CHUNK_TYPES):
-        return primaries
+        return primaries, has_unhydrated_hits
 
     connected = await hydrate_connected_target_rows(
         db=session,
@@ -899,4 +950,4 @@ async def _hydrate_winning_units(
             fused = dict(candidate)
             fused["score"] = score
             fused_rows.append(fused)
-    return fused_rows
+    return fused_rows, has_unhydrated_hits
