@@ -7,7 +7,6 @@ from datetime import timedelta
 from hashlib import sha256
 import json
 from math import isclose
-from pathlib import Path
 import time
 from typing import Literal, cast
 from uuid import uuid4
@@ -16,6 +15,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from shared.core.config import settings
+from shared.models.database.lexicalpublishedmanifest import LexicalPublishedManifest
 from shared.models.database.indexing import IndexingAttempt
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
@@ -31,9 +31,10 @@ from shared.services.retrieval.lexical.input import LexicalInput
 from shared.services.retrieval.lexical.input_retention import LexicalInputRetention
 from shared.services.retrieval.lexical.legacy import LegacyLexicalCopy
 from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+from shared.services.retrieval.lexical.manifest_publication import ManifestPublication
 from shared.services.retrieval.lexical.nativestate import NativeLifecycleSnapshot
 from shared.services.retrieval.lexical.pgpublication import PostgresqlPublication
-from shared.services.retrieval.lexical.preparation import LexicalPreparation
+from shared.services.retrieval.lexical.sourcehash import getSourceHash
 from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.lexical.settlement import IndexingSettlement
 from shared.services.retrieval.lexical.storage import LexicalInputStorage
@@ -86,120 +87,7 @@ class LexicalTransition:
 
     @staticmethod
     def getSourceHash() -> str:
-        repository: Path = Path(__file__).resolve().parents[6]
-        digest = sha256()
-        # Bind dependent token builders, publication configuration, migrations,
-        # runtime and checked-in qualification fixtures to the reviewed source.
-        # External frozen corpora/inventories have their own receipt hashes.
-        roots: tuple[str, ...] = (
-            "packages/shared-python/shared",
-            "apps/api/app",
-            "apps/worker/app",
-            "apps/api/alembic",
-            "apps/api/tests",
-            "apps/worker/tests",
-            "scripts/probes",
-            "deploy",
-        )
-        suffixes: frozenset[str] = frozenset(
-            {
-                ".py",
-                ".mjs",
-                ".json",
-                ".txt",
-                ".toml",
-                ".yaml",
-                ".yml",
-                ".sh",
-                ".sql",
-                ".service",
-                ".timer",
-                ".example",
-                ".template",
-                ".j2",
-                ".jinja",
-                ".jinja2",
-                ".conf",
-                ".ini",
-                ".cfg",
-                ".properties",
-                ".mako",
-            }
-        )
-        names: frozenset[str] = frozenset(
-            {"Dockerfile", "Containerfile", "Makefile", "Procfile", ".dockerignore"}
-        )
-        excluded: frozenset[str] = frozenset(
-            {
-                "__pycache__",
-                ".git",
-                ".venv",
-                "node_modules",
-                ".pytest_cache",
-                ".mypy_cache",
-                ".ruff_cache",
-                "build",
-                "dist",
-                "logs",
-            }
-        )
-        operatorOutputs: frozenset[str] = frozenset(
-            {
-                "secrets",
-                "credentials",
-                "runtime",
-                "state",
-                "receipts",
-                "artifacts",
-                "output",
-                "outputs",
-            }
-        )
-
-        def shouldInclude(source: Path) -> bool:
-            parts: tuple[str, ...] = source.relative_to(repository).parts
-            return (
-                source.is_file()
-                and (source.suffix in suffixes or source.name in names
-                     or source.name.startswith(("Dockerfile.", "Containerfile.")))
-                and not excluded.intersection(parts[:-1])
-                and not (
-                    parts[0] == "deploy" and operatorOutputs.intersection(parts[1:-1])
-                )
-            )
-
-        sources: set[Path] = {
-            source
-            for root in roots
-            for source in (repository / root).rglob("*")
-            if shouldInclude(source)
-        }
-        for application in ("apps/api", "apps/worker"):
-            sources.update(
-                source
-                for source in (repository / application).glob("*")
-                if shouldInclude(source)
-            )
-        sources.update(
-            repository / name
-            for name in (
-                "pyproject.toml",
-                "uv.lock",
-                ".python-version",
-                "Makefile",
-                "packages/shared-python/pyproject.toml",
-                "apps/api/pyproject.toml",
-                "apps/worker/pyproject.toml",
-            )
-            if (repository / name).exists()
-        )
-        for source in sorted(sources):
-            data: bytes = source.read_bytes()
-            digest.update(str(source.relative_to(repository)).encode() + b"\0")
-            digest.update(len(data).to_bytes(8, "big"))
-            digest.update(data)
-        digest.update(LexicalPreparation.getCompilerFingerprint().encode())
-        return digest.hexdigest()
+        return getSourceHash()
 
     def run(
         self,
@@ -216,6 +104,7 @@ class LexicalTransition:
             "gate",
             "settle",
             "backfill",
+            "seed-manifests",
             "verify",
             "resume",
             "abort",
@@ -242,6 +131,10 @@ class LexicalTransition:
                 changed["backfilledRevisions"] = self._backfill(
                     target, cast(int, expectedEpoch), limit, documentsPerSecond
                 )
+            elif verb == "seed-manifests":
+                if target != "opensearch":
+                    raise LexicalIndexError("Manifest seeding requires OpenSearch")
+                changed["seededNamespaces"] = self._seedManifests(cast(int, expectedEpoch), limit)
             elif verb in ("resume", "abort"):
                 activationCoverage = self._resume(target, cast(int, expectedEpoch))
         control, bindings = self._capture()
@@ -745,6 +638,12 @@ class LexicalTransition:
                 raise LexicalIndexError(
                     "Settle unfinished indexing before backend activation"
                 )
+            for manifest, registry in db.execute(select(LexicalPublishedManifest, LexicalNamespaceIndex)
+                .join(LexicalNamespaceIndex,
+                    LexicalNamespaceIndex.publishedManifestId == LexicalPublishedManifest.id)).tuples():
+                manifest.state = "retired"
+                manifest.cleanupAfter = None
+                registry.publishedManifestId = None
             seenScopes: set[str] = set()
             for binding in current:
                 storage: CorpusStorage = CorpusStorage.resolve_namespace(
@@ -775,6 +674,42 @@ class LexicalTransition:
             control.mode = "serving"
             control.epoch += 1
         return {**coverage, "verifiedAtActivation": True}
+
+    def _seedManifests(self, epoch: int, limit: int) -> int:
+        control, bindings = self._capture()
+        if control["epoch"] != epoch or control["backend"] != "opensearch" or control["mode"] != "serving":
+            raise LexicalIndexError("Manifest seeding requires the exact serving OpenSearch epoch")
+        scopes: dict[str, LexicalScope] = {binding.scope.fingerprint: binding.scope for binding in bindings}
+        with self.sessions.begin() as db:
+            ready: set[str] = set()
+            for scopeId, scope in scopes.items():
+                generation = CorpusStorage.resolve_namespace(scope.namespace).RetrievalNamespaceGeneration
+                current = select(generation.generation).where(generation.user_id == scope.ownerId,
+                    generation.namespace == scope.namespace).scalar_subquery()
+                existing = db.scalar(select(LexicalNamespaceIndex.id).join(LexicalPublishedManifest,
+                    LexicalPublishedManifest.id == LexicalNamespaceIndex.publishedManifestId).where(
+                    LexicalNamespaceIndex.id == scopeId, LexicalPublishedManifest.state == "active",
+                    LexicalPublishedManifest.generation == func.coalesce(current, 0)))
+                if existing:
+                    ready.add(existing)
+        seeded: int = 0
+        publisher = ManifestPublication(self.sessions)
+        native = OpenSearchLexicalIndex(endpoint=settings.KNOWHERE_OPENSEARCH_URL, scope=None,
+            indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX)
+        try:
+            if control["cluster_uuid"] and native.getClusterUuid() != control["cluster_uuid"]:
+                raise LexicalIndexError("Manifest seeding resolved a different native cluster")
+            native.createManifestIndex()
+            for scopeId, scope in scopes.items():
+                if scopeId in ready:
+                    continue
+                if seeded >= limit:
+                    break
+                publisher.seed(scope=scope, native=native, expectedEpoch=epoch)
+                seeded += 1
+        finally:
+            native.close()
+        return seeded
 
     def _backfill(self, target: _Backend, epoch: int, limit: int, rate: float) -> int:
         control, bindings = self._capture()

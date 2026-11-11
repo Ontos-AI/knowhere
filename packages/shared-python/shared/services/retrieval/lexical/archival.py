@@ -13,7 +13,7 @@ from shared.services.retrieval.corpus_storage import CorpusStorage
 
 class IndexingArchival:
     def finalize(self, db: Session, *, userId: str, documentId: str,
-                 namespace: str, generation: int) -> str | None:
+                 namespace: str, generation: int, retainForManifestReads: bool = False) -> str | None:
         storage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
         document = db.scalars(select(storage.Document).where(
             storage.Document.document_id == documentId,
@@ -24,6 +24,7 @@ class IndexingArchival:
                 previous.state = "retired"
                 previous.retirementGeneration = generation
                 previous.cleanupState = "pending"
+                previous.retainForManifestReads = retainForManifestReads
             document.current_indexing_build_id = None
         if not document.accepted_job_id:
             return None

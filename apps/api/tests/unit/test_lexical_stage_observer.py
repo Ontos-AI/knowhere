@@ -22,10 +22,10 @@ from shared.services.retrieval.lexical.stage_observer import StageObserver
 @pytest.fixture
 def observer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     from shared.core.config import settings
-    from shared.services.retrieval.lexical.transition import LexicalTransition
+    from shared.services.retrieval.lexical import sourcehash
     monkeypatch.setattr(settings, "ENVIRONMENT", "staging")
     monkeypatch.setattr(settings, "APP_ENV", "staging")
-    monkeypatch.setattr(LexicalTransition, "getSourceHash", staticmethod(lambda: "a" * 64))
+    monkeypatch.setattr(sourcehash, "getSourceHash", lambda: "a" * 64)
     monkeypatch.setattr(StageObserver, "_configuration", None)
     path: Path = tmp_path / "observer.json"
     journal: Path = tmp_path / "stages.private.jsonl"

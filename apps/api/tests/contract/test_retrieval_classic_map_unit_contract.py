@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import Engine, event, select
+from sqlalchemy.engine import Result
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import DocumentMapUnit
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
@@ -24,6 +27,119 @@ from tests.support.contract_database import ContractDatabase
 from tests.support.retrieval_snapshot_support import contract_db_session
 
 _USER_ID = "local-dev-user"
+
+
+@pytest.mark.parametrize(
+    "pause_after",
+    ("SELECT DISTINCT scoped_units.*", "SELECT matching_tokens.map_unit_id"),
+    ids=("candidate-filtering", "term-frequencies"),
+)
+async def test_postgresql_discovery_keeps_selected_content_during_refinement(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+    pause_after: str,
+) -> None:
+    identifier: str = uuid4().hex[:8]
+    row_identity_seed: UUID = uuid4()
+    namespace: str = f"classic-refinement-{identifier}"
+    source_file_name: str = "publication.pdf"
+    old_chunk: dict[str, Any] = {
+        "chunk_id": f"coarse-{identifier}",
+        "type": "text",
+        "content": "quasar calibration coarse observation",
+        "path": f"{source_file_name}/Root/Section/body",
+        "order": 1,
+        "metadata": {"page_nums": [2, 3]},
+    }
+    new_chunk: dict[str, Any] = {
+        **old_chunk,
+        "chunk_id": f"refined-{identifier}",
+        "content": "nebula classification refined explanation",
+        "metadata": {"page_nums": [7]},
+    }
+    filler_chunks: list[dict[str, Any]] = [
+        {
+            "chunk_id": f"filler-{index}-{identifier}",
+            "type": "text",
+            "content": content,
+            "path": f"{source_file_name}/Root/Section/filler-{index}",
+            "order": index + 2,
+            "metadata": {},
+        }
+        for index, content in enumerate(("astronomy reference", "arithmetic tutorial"))
+    ]
+    has_published: bool = False
+    execute = AsyncSession.execute
+
+    async with developer_api_client_factory():
+        published: dict[str, str] = await _publish_document(
+            namespace=namespace,
+            source_file_name=source_file_name,
+            chunks=[old_chunk, *filler_chunks],
+            row_identity_seed=row_identity_seed,
+        )
+        scope = DocumentPublicationScope(
+            user_id=_USER_ID,
+            namespace=namespace,
+            document_id=published["document_id"],
+            job_result_id=published["job_result_id"],
+            source_file_name=source_file_name,
+            row_identity_seed=row_identity_seed,
+        )
+
+        async def execute_then_refine(
+            session: AsyncSession, statement: Any, *args: Any, **kwargs: Any,
+        ) -> Result[Any]:
+            nonlocal has_published
+            result: Result[Any] = await execute(session, statement, *args, **kwargs)
+            if not has_published and pause_after in str(statement):
+                has_published = True
+                async with asyncio.timeout(10):
+                    async with contract_db_session() as writer:
+                        await writer.run_sync(
+                            lambda sync_db: _publish_revision_with_generation_lock(
+                                sync_db, scope=scope, chunks=[new_chunk, *filler_chunks],
+                            )
+                        )
+                        await writer.commit()
+            return result
+
+        monkeypatch.setattr(AsyncSession, "execute", execute_then_refine)
+        async with contract_db_session() as db:
+            in_flight: DiscoveryResult = await map_unit_discovery(
+                db,
+                user_id=_USER_ID,
+                namespace=namespace,
+                query="quasar calibration",
+                top_k=1,
+                exclude_document_ids=[],
+                exclude_sections=[],
+                publish_index_readiness=False,
+            )
+        async with contract_db_session() as db:
+            next_read: DiscoveryResult = await map_unit_discovery(
+                db,
+                user_id=_USER_ID,
+                namespace=namespace,
+                query="nebula classification",
+                top_k=1,
+                exclude_document_ids=[],
+                exclude_sections=[],
+                publish_index_readiness=False,
+            )
+
+    assert has_published
+    assert [
+        (row["chunk_id"], row["content"], row["chunk_metadata"]["page_nums"])
+        for row in in_flight.payload["fused_rows"]
+    ] == [(old_chunk["chunk_id"], old_chunk["content"], [2, 3])]
+    assert in_flight.has_unhydrated_hits is False
+    assert [
+        (row["chunk_id"], row["content"], row["chunk_metadata"]["page_nums"])
+        for row in next_read.payload["fused_rows"]
+    ] == [(new_chunk["chunk_id"], new_chunk["content"], [7])]
 
 
 async def test_classic_route_maps_winning_unit_to_one_chunk(
@@ -1117,6 +1233,7 @@ async def _publish_document(
     namespace: str,
     source_file_name: str,
     chunks: list[dict[str, Any]],
+    row_identity_seed: UUID | None = None,
 ) -> dict[str, str]:
     document_id = f"doc_{uuid4().hex[:12]}"
     job_id = f"job_{uuid4().hex[:12]}"
@@ -1177,6 +1294,7 @@ async def _publish_document(
         document_id=document_id,
         job_result_id=job_result_id,
         source_file_name=source_file_name,
+        row_identity_seed=row_identity_seed,
     )
     async with contract_db_session() as db:
         await db.run_sync(

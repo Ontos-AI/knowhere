@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 from types import ModuleType
@@ -27,7 +28,8 @@ def loadWorkflow() -> type:
     return cast(type, module.BackupWorkflow)
 
 
-def test_completed_snapshot_without_restored_payload_receipt_cannot_qualify_point() -> None:
+@pytest.mark.parametrize("extraIndex", [None, "knowhere-published-manifests", "knowhere-published-manifests-extra"])
+def test_completed_snapshot_without_restored_payload_receipt_cannot_qualify_point(extraIndex: str | None) -> None:
     workflow: type = loadWorkflow()
     calls: list[str] = []
     exported: dict[str, object] = createExport()
@@ -43,11 +45,15 @@ def test_completed_snapshot_without_restored_payload_receipt_cannot_qualify_poin
     def respond(request: httpx.Request) -> httpx.Response:
         calls.append(request.method + " " + request.url.path)
         if request.url.path.startswith("/_cluster/state/metadata"):
-            return httpx.Response(200, json={"metadata": {"indices": {"knowhere-one": {"state": "close",
-                "settings": {"index": {"uuid": "old-one", "number_of_shards": "1"}}}}}})
+            indices: dict[str, object] = {"knowhere-one": {"state": "close",
+                "settings": {"index": {"uuid": "old-one", "number_of_shards": "1"}}}}
+            if extraIndex is not None:
+                indices[extraIndex] = {"state": "open", "settings": {"index": {"uuid": "extra", "number_of_shards": "1"}}}
+            return httpx.Response(200, json={"metadata": {"indices": indices}})
         if request.url.path.startswith("/_cluster/state/nodes"):
             return httpx.Response(200, json={"cluster_uuid": "source", "nodes": {"source": {"ephemeral_id": "source-node"}}})
         if request.method == "PUT":
+            assert json.loads(request.content)["indices"] == ["knowhere-one"]
             return httpx.Response(200, json={"accepted": True})
         if request.url.path.endswith("/_status"):
             return httpx.Response(200, json={"snapshots": [{"snapshot": "full-one", "uuid": "snapshot-one", "state": "SUCCESS", "indices": {"knowhere-one": {"shards": {"0": {"stage": "DONE"}}}}}]})
@@ -57,9 +63,17 @@ def test_completed_snapshot_without_restored_payload_receipt_cannot_qualify_poin
             "start_time_in_millis": 2_000, "end_time_in_millis": 3_000}]})
 
     with httpx.Client(base_url="http://127.0.0.1:19200", transport=httpx.MockTransport(respond)) as sourceClient:
-        result = workflow.run(Source(), sourceClient, indexPrefix="knowhere", snapshotName="full-one", expectedEpoch=4,
-            expectedClusterUuid="source", expectedIncarnation="source-node", state={}, timeoutSeconds=10,
-            verifyIndependent=lambda *_arguments: {"data_verified": False, "status": "incomplete"}, persist=lambda _value: None)
+        def run() -> dict[str, object]:
+            return workflow.run(Source(), sourceClient, indexPrefix="knowhere", snapshotName="full-one", expectedEpoch=4,
+                expectedClusterUuid="source", expectedIncarnation="source-node", state={}, timeoutSeconds=10,
+                verifyIndependent=lambda *_arguments: {"data_verified": False, "status": "incomplete"}, persist=lambda _value: None)
+
+        if extraIndex == "knowhere-published-manifests-extra":
+            with pytest.raises(ValueError, match="Authoritative source catalog differs"):
+                run()
+            assert all(not call.startswith("PUT ") for call in calls)
+            return
+        result: dict[str, object] = run()
     assert result["data_verified"] is False
     assert result["coverage_verified"] is False
     assert result["status"] == "awaiting-independent-verification"

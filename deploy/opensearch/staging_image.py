@@ -21,6 +21,7 @@ _REQUIRED: frozenset[str] = frozenset({
     "deploy/docker/Dockerfile.api", "deploy/docker/Dockerfile.worker",
     "deploy/ecs/task-definition-api.staging.json", "deploy/ecs/task-definition-worker.staging.json",
     "scripts/probes/prepared-completion-task.py", "scripts/probes/opensearch-workload.py",
+    "packages/shared-python/shared/services/retrieval/lexical/sourcehash.py",
     "packages/shared-python/shared/services/retrieval/lexical/stage_observer.py",
     "packages/shared-python/shared/services/retrieval/lexical/transition.py",
 })

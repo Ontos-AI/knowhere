@@ -43,7 +43,11 @@ def _catalog(client: httpx.Client, prefix: str) -> list[dict[str, object]]:
         "metadata.indices.*.settings.index.uuid,metadata.indices.*.settings.index.number_of_shards"))
     rows: dict[str, object] = _object(_object(state.get("metadata")).get("indices"))
     catalog: list[dict[str, object]] = []
+    manifestIndex: str = f"{prefix}-published-manifests"
     for name, metadata in rows.items():
+        if name == manifestIndex:
+            # Published manifests are rebuilt from SQL on restore.
+            continue
         row: dict[str, object] = _object(metadata)
         settings: dict[str, object] = _object(_object(row.get("settings")).get("index"))
         if not name.startswith(prefix + "-") or row.get("state") not in ("open", "close"):

@@ -528,7 +528,7 @@ def test_refresh_cannot_authorize_unreceipted_or_foreign_transition(
         _refresh(authority, token, transition)
 
 
-@pytest.mark.parametrize("unsafe", ["active", "stale", "wrong-index", "written", "lifecycle", "gated", None])
+@pytest.mark.parametrize("unsafe", ["active", "stale", "wrong-index", "written", "lifecycle", "gated", "manifest-lookalike", None])
 def test_release_empty_shadow_while_postgresql_serves(
     issuerRuntime: tuple[Engine, sessionmaker[Session]], unsafe: str | None
 ) -> None:
@@ -545,6 +545,7 @@ def test_release_empty_shadow_while_postgresql_serves(
     authority.finish(invocationToken=token, hostIdentity=_HOST, operationId="restore-operation", isKnownOutcome=False)
     indexName = "knowhere-prod-lexical-v1-" + "a" * 48
     probeName = "knowhere-prod-lexical-v1-deployment-probe"
+    manifestName: str = "knowhere-prod-lexical-v1-published-manifests"
     with factory.begin() as db:
         control = db.get(LexicalBackendControl, 1)
         assert control is not None
@@ -569,12 +570,16 @@ def test_release_empty_shadow_while_postgresql_serves(
         assert request.method == "GET"
         requests.append(request.url.path)
         if request.url.path.startswith("/_cluster/state/"):
+            indices: dict[str, object] = {
+                indexName: {"state": "open", "settings": {"index": {"uuid": "uuid-other" if unsafe == "wrong-index" else "uuid-one"}}},
+                probeName: {"state": "open", "settings": {"index": {"uuid": "probe"}}},
+                manifestName: {"state": "open", "settings": {"index": {"uuid": "manifest"}}},
+                "knowhere-staging-lexical-v1-other": {"state": "open", "settings": {"index": {"uuid": "staging"}}},
+            }
+            if unsafe == "manifest-lookalike":
+                indices[f"{manifestName}-extra"] = {"state": "open", "settings": {"index": {"uuid": "unowned"}}}
             return httpx.Response(200, json={"cluster_uuid": "cluster-one", "nodes": {"node": {"ephemeral_id": "node-one"}},
-                "metadata": {"indices": {
-                    indexName: {"state": "open", "settings": {"index": {"uuid": "uuid-other" if unsafe == "wrong-index" else "uuid-one"}}},
-                    probeName: {"state": "open", "settings": {"index": {"uuid": "probe"}}},
-                    "knowhere-staging-lexical-v1-other": {"state": "open", "settings": {"index": {"uuid": "staging"}}},
-                }},
+                "metadata": {"indices": indices},
                 "routing_table": {"indices": {indexName: {"shards": {"0": [{"primary": True, "state": "STARTED"}]}}}},
             })
         assert request.url.path == f"/{indexName}/_stats/docs"
@@ -600,6 +605,7 @@ def test_release_empty_shadow_while_postgresql_serves(
         else:
             receipt = release()
             assert receipt["status"] == "released"
+            assert receipt["native_indexes"] == {indexName: "uuid-one"}
             assert len(requests) == 2
             with pytest.raises(LexicalIndexError):
                 release()

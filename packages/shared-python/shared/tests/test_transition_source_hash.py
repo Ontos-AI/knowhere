@@ -64,19 +64,19 @@ def test_source_hash_changes_when_dependent_runtime_or_qualification_changes(
 def test_source_hash_binds_migrations_runtime_and_operator_resources(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str
 ) -> None:
-    from shared.services.retrieval.lexical import transition
+    from shared.services.retrieval.lexical import sourcehash
 
     repository: Path = tmp_path / "repository"
     module: Path = (
         repository
-        / "packages/shared-python/shared/services/retrieval/lexical/transition.py"
+        / "packages/shared-python/shared/services/retrieval/lexical/sourcehash.py"
     )
     module.parent.mkdir(parents=True)
     module.write_text("# reviewed source\n")
     resource: Path = repository / relative
     resource.parent.mkdir(parents=True, exist_ok=True)
     resource.write_text("reviewed dependency\n")
-    monkeypatch.setattr(transition, "__file__", str(module))
+    monkeypatch.setattr(sourcehash, "__file__", str(module))
     before: str = LexicalTransition.getSourceHash()
     resource.write_text("changed dependency\n")
     assert LexicalTransition.getSourceHash() != before
@@ -95,19 +95,19 @@ def test_source_hash_binds_migrations_runtime_and_operator_resources(
 def test_source_hash_excludes_private_material_and_generated_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str
 ) -> None:
-    from shared.services.retrieval.lexical import transition
+    from shared.services.retrieval.lexical import sourcehash
 
     repository: Path = tmp_path / "repository"
     module: Path = (
         repository
-        / "packages/shared-python/shared/services/retrieval/lexical/transition.py"
+        / "packages/shared-python/shared/services/retrieval/lexical/sourcehash.py"
     )
     module.parent.mkdir(parents=True)
     module.write_text("# reviewed source\n")
     material: Path = repository / relative
     material.parent.mkdir(parents=True, exist_ok=True)
     material.write_text("synthetic private or generated data\n")
-    monkeypatch.setattr(transition, "__file__", str(module))
+    monkeypatch.setattr(sourcehash, "__file__", str(module))
     before: str = LexicalTransition.getSourceHash()
     material.write_text("rotated synthetic private or generated data\n")
     assert LexicalTransition.getSourceHash() == before

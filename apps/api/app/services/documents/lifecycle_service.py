@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -21,6 +22,13 @@ from shared.services.retrieval.cache_service import (
     invalidate_retrieval_cache_namespaces,
 )
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
+from shared.services.retrieval.hydration.build_snapshot import BuildSnapshot
+from shared.services.retrieval.lexical.asyncdatabase import AsyncLexicalDatabase
+from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
+from shared.services.retrieval.lexical.manifest_publication import (
+    ManifestPublication, ManifestPublicationAdvanced, PreparedManifest,
+)
+from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.namespace_map_snapshot import (
     remove_document_from_namespace_map_snapshot,
 )
@@ -579,10 +587,58 @@ class DocumentService:
         user_id: str,
         document_id: str,
     ) -> dict[str, Any] | None:
+        from shared.core.config import settings
+
+        if settings.KNOWHERE_LEXICAL_BACKEND != "opensearch" or not settings.KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS:
+            return await self._archive_document(db, user_id=user_id, document_id=document_id)
+        if db.bind is None:
+            raise RuntimeError("Document archival requires a database bind")
+        database = AsyncLexicalDatabase(db.bind)
+        for _ in range(8):
+            async with AsyncSession(database.engine) as preview:
+                document = await self._repository.get_document(preview, user_id=user_id, document_id=document_id)
+                if document is None:
+                    return None
+                if document.status == "archived":
+                    return document_payload(document)
+                namespace = document.namespace
+                hasPublishedBuild = document.current_indexing_build_id is not None
+            storage = CorpusStorage.resolve_namespace(namespace)
+            scope = LexicalScope(ownerId=storage.resolve_owner(user_id), namespace=namespace,
+                corpusKind="demo" if storage.is_demo else "private")
+            prepared: PreparedManifest | None = None
+            if hasPublishedBuild:
+                publication = ManifestPublication(database.sessions)
+                prepared = await database.run(partial(publication.prepareMetadata, scope=scope,
+                    documentId=document_id, buildId=None))
+                if prepared is not None:
+                    native = AsyncOpenSearchLexicalIndex(endpoint=settings.KNOWHERE_OPENSEARCH_URL,
+                        scope=scope, indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX)
+                    try:
+                        await native.writePublishedManifest(manifestId=prepared.id, scopeId=prepared.scopeId,
+                            buildIds=prepared.buildIds)
+                    finally:
+                        native.close()
+            try:
+                return await self._archive_document(db, user_id=user_id, document_id=document_id,
+                    manifestScope=scope, prepared=prepared)
+            except ManifestPublicationAdvanced:
+                await db.rollback()
+        raise ManifestPublicationAdvanced("Namespace manifest kept advancing during archival", isRetryable=True)
+
+    async def _archive_document(
+        self, db: AsyncSession, *, user_id: str, document_id: str,
+        manifestScope: LexicalScope | None = None, prepared: PreparedManifest | None = None,
+    ) -> dict[str, Any] | None:
         if CorpusStorage.resolve_document(document_id).is_demo:
             await db.run_sync(lambda session: authorize_demo_transaction(session, user_id=user_id))
-        # Progressive publication owns Document before the namespace generation.
-        # Match that order so archive cannot hold generation while waiting for it.
+        from shared.core.config import settings
+        from shared.services.retrieval.lexical.coordination import LexicalCoordination
+        lockedGeneration = None
+        if manifestScope is not None:
+            await db.run_sync(LexicalCoordination.lockControl)
+            lockedGeneration = await db.run_sync(lambda session: lock_namespace_generation(
+                session, user_id=user_id, namespace=manifestScope.namespace))
         document = await self._repository.get_document(
             db,
             user_id=user_id,
@@ -596,17 +652,19 @@ class DocumentService:
             return document_payload(document)
 
         previous_namespace = document.namespace
-        from shared.core.config import settings
-        from shared.services.retrieval.lexical.coordination import LexicalCoordination
-        if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch":
-            await db.run_sync(LexicalCoordination.lockControl)
-        await db.run_sync(
-            lambda sync_db: lock_namespace_generation(
-                sync_db,
-                user_id=user_id,
-                namespace=previous_namespace,
-            )
-        )
+        if manifestScope is not None:
+            if previous_namespace != manifestScope.namespace or (document.current_indexing_build_id and prepared is None):
+                raise ManifestPublicationAdvanced("Document publication changed during archival", isRetryable=True)
+            assert lockedGeneration is not None
+            generationBefore: int = lockedGeneration.generation
+            buildId = document.current_indexing_build_id
+            if buildId is not None:
+                await db.run_sync(lambda session: BuildSnapshot.capture(session, scope=manifestScope, buildId=buildId))
+        else:
+            if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch":
+                await db.run_sync(LexicalCoordination.lockControl)
+            await db.run_sync(lambda session: lock_namespace_generation(
+                session, user_id=user_id, namespace=previous_namespace))
         await self._repository.archive_document(db, document=document)
         await db.run_sync(
             lambda sync_db: remove_document_from_namespace_map_snapshot(
@@ -623,11 +681,15 @@ class DocumentService:
                 namespace=previous_namespace,
             )
         )
+        if prepared is not None and lockedGeneration is not None:
+            await db.run_sync(lambda session: ManifestPublication.activate(session, prepared,
+                previousGeneration=generationBefore, publishedGeneration=generation))
         eventId: str | None = None
         if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch":
             from shared.services.retrieval.lexical.archival import IndexingArchival
             eventId = await db.run_sync(lambda session: IndexingArchival().finalize(session,
-                userId=user_id, documentId=document_id, namespace=previous_namespace, generation=generation))
+                userId=user_id, documentId=document_id, namespace=previous_namespace, generation=generation,
+                retainForManifestReads=prepared is not None))
         await db.run_sync(
             lambda sync_db: self._graph_service.remove_document_graph(
                 sync_db,

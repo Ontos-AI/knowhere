@@ -3,13 +3,25 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from fnmatch import fnmatchcase
 import importlib.util
 from pathlib import Path
+import re
 import sys
 from types import ModuleType
-from typing import cast
+from typing import TypedDict, cast
 
 import pytest
+
+
+class _IndexPermission(TypedDict):
+    index_patterns: list[str]
+    allowed_actions: list[str]
+
+
+class _Role(TypedDict):
+    cluster_permissions: list[str]
+    index_permissions: list[_IndexPermission]
 
 
 def loadOperations() -> type:
@@ -78,6 +90,77 @@ def test_renders_request_durability_remote_state_security_and_independent_full_b
     assert repository["remote_store_index_shallow_copy"] is False
     assert repository["shallow_snapshot_v2"] is False
     assert "cluster:admin/snapshot/restore" not in str(bundle["roles.yml"]["knowhere_api"])
+
+
+@pytest.mark.parametrize(
+    ("environment", "prefix", "otherPrefix"),
+    [
+        ("staging", "knowhere-staging-lexical-v1", "knowhere-prod-lexical-v1"),
+        ("production", "knowhere-prod-lexical-v1", "knowhere-staging-lexical-v1"),
+    ],
+)
+@pytest.mark.parametrize("roleName", ["knowhere_api", "knowhere_worker"])
+def test_scopes_manifest_document_permissions_to_the_environment_index(
+    environment: str, prefix: str, otherPrefix: str, roleName: str
+) -> None:
+    operations: type = loadOperations()
+    bundle: dict[str, object] = operations.renderBundle({
+        **createManifest(), "environment": environment, "index_prefix": prefix,
+    })
+    role: _Role = cast(dict[str, _Role], bundle["roles.yml"])[roleName]
+    manifestIndex: str = f"{prefix}-published-manifests"
+    expectedManifestActions: set[str] = {
+        "indices:admin/create", "indices:data/read/get", "indices:data/write/index",
+    }
+    if roleName == "knowhere_worker":
+        expectedManifestActions.add("indices:data/write/delete")
+
+    exactActions: list[set[str]] = [
+        set(permission["allowed_actions"])
+        for permission in role["index_permissions"]
+        if permission["index_patterns"] == [manifestIndex]
+    ]
+    assert exactActions == [expectedManifestActions]
+    assert getIndexActions(role, manifestIndex) == expectedManifestActions
+    assert getIndexActions(role, f"{otherPrefix}-published-manifests") == set()
+    assert getIndexActions(role, f"{manifestIndex}-other") == set()
+
+
+@pytest.mark.parametrize("roleName", ["knowhere_api", "knowhere_worker"])
+def test_preserves_namespace_publication_and_deployment_probe_search(roleName: str) -> None:
+    operations: type = loadOperations()
+    prefix: str = "knowhere-staging-lexical-v1"
+    bundle: dict[str, object] = operations.renderBundle({**createManifest(), "index_prefix": prefix})
+    role: _Role = cast(dict[str, _Role], bundle["roles.yml"])[roleName]
+    namespaceSuffix: str = "0123456789abcdef" * 3
+    expectedNamespaceActions: set[str] = {
+        "indices:data/read/search*", "indices:admin/get", "indices:monitor/settings/get",
+        "indices:monitor/stats", "indices:admin/create", "indices:admin/open", "indices:admin/close",
+        "indices:data/write/bulk*", "indices:data/write/index", "indices:data/read/count",
+    }
+    if roleName == "knowhere_worker":
+        expectedNamespaceActions.add("indices:data/write/delete/byquery")
+
+    assert getIndexActions(role, f"{prefix}-{namespaceSuffix}") == expectedNamespaceActions
+    assert getIndexActions(role, f"{prefix}-deployment-probe") == {"indices:data/read/search*"}
+    assert getIndexActions(role, f"knowhere-prod-lexical-v1-{namespaceSuffix}") == set()
+    assert set(role["cluster_permissions"]) == {
+        "cluster:monitor/main", "cluster:monitor/state", "cluster:monitor/health", "indices:data/write/bulk",
+    }
+
+
+def getIndexActions(role: _Role, index: str) -> set[str]:
+    return {
+        action
+        for permission in role["index_permissions"]
+        if any(
+            re.fullmatch(pattern[1:-1], index) is not None
+            if pattern.startswith("/") and pattern.endswith("/")
+            else fnmatchcase(index, pattern)
+            for pattern in permission["index_patterns"]
+        )
+        for action in permission["allowed_actions"]
+    }
 
 
 def test_refuses_overlapping_repository_prefixes_and_unpinned_artifacts() -> None:

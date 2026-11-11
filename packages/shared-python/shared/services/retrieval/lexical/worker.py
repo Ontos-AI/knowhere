@@ -26,6 +26,7 @@ from shared.models.database.lexicallease import LexicalLease
 from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
 from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.hydration.build_snapshot import BuildSnapshot
 from shared.services.retrieval.demo_job_scope import validate_job_corpus
 from shared.services.retrieval.demo_authorization import authorize_demo_transaction
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
@@ -36,6 +37,9 @@ from shared.services.retrieval.lexical.input import LexicalInput
 from shared.services.retrieval.lexical.input_retention import LexicalInputRetention
 from shared.services.retrieval.lexical.input_budget import LexicalInputBudget
 from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+from shared.services.retrieval.lexical.manifest_publication import (
+    ManifestPublication, ManifestPublicationAdvanced, PreparedManifest,
+)
 from shared.services.retrieval.lexical.preparation import LexicalPreparation
 from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.lexical.settlement import IndexingSettlement
@@ -145,7 +149,7 @@ class IndexingWorker:
                 self._assertClaim(claim)
                 if native.getIndexUuid() != claim.indexUuid:
                     raise LexicalIndexError("Native index changed before publication")
-                outcome: Literal["completed"] = self._activate(claim)
+                outcome: Literal["completed"] = self._publishVisibleBuild(claim, native)
                 isKnown = True
                 return outcome
         except Exception as error:
@@ -466,14 +470,28 @@ class IndexingWorker:
             user_id=context.scope.ownerId, namespace=context.scope.namespace, document_id=context.documentId,
             job_result_id=context.revisionId, source_file_name=str((job.job_metadata or {}).get("source_file_name") or "")))
 
-    def _activate(self, claim: _Claim) -> Literal["completed"]:
+    def _publishVisibleBuild(self, claim: _Claim, native: OpenSearchLexicalIndex) -> Literal["completed"]:
+        publication = ManifestPublication(self.sessions)
+        for _ in range(8):
+            prepared = publication.prepare(scope=claim.context.scope, documentId=claim.context.documentId,
+                buildId=claim.buildId, native=native)
+            try:
+                return self._activate(claim) if prepared is None else self._activate(claim, prepared)
+            except ManifestPublicationAdvanced:
+                continue
+        raise ManifestPublicationAdvanced("Namespace manifest kept advancing during publication", isRetryable=True)
+
+    def _activate(self, claim: _Claim, prepared: PreparedManifest | None = None) -> Literal["completed"]:
         eventId: str | None = None
         deferCopy: bool = settings.KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND
         with self._transaction() as db:
             locked: _LockedClaim = self._lockClaim(db, claim)
+            generationBefore: int = locked.generation.generation
             context: _Context = claim.context
             metadata: dict[str, object] = dict(locked.job.job_metadata or {})
             oldBuildId: str | None = locked.document.current_indexing_build_id
+            if prepared is not None and oldBuildId is not None:
+                BuildSnapshot.capture(db, scope=context.scope, buildId=oldBuildId)
             locked.document.current_job_result_id = context.revisionId
             locked.document.current_indexing_build_id = claim.buildId
             locked.document.source_file_name = str(metadata.get("source_file_name") or locked.document.source_file_name or "")
@@ -497,7 +515,12 @@ class IndexingWorker:
                     old.state = "retired"
                     old.retirementGeneration = generation.generation
                     old.cleanupState = "pending"
+                    old.retainForManifestReads = prepared is not None
             locked.build.state = "published"
+            if prepared is not None:
+                BuildSnapshot.capture(db, scope=context.scope, buildId=claim.buildId)
+            ManifestPublication.activate(db, prepared, previousGeneration=generationBefore,
+                publishedGeneration=generation.generation)
             locked.build.activationGeneration = generation.generation
             locked.build.legacyCopyState = "skipped" if deferCopy else "pending"
             locked.attempt.state = "succeeded"

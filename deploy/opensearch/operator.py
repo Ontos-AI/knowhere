@@ -1,4 +1,4 @@
-"""Run reviewed backup, existing-host recovery and release integrations.
+"""Run reviewed backup, existing-host recovery, release and manifest seeding.
 
 Dry-run is the default. Execution requires a bound plan, cost/operation approval,
 one physical issuer systemd unit, an existing maintenance DB role and actual
@@ -13,8 +13,10 @@ from datetime import datetime, timezone
 import fcntl
 from hashlib import sha256
 import json
+from math import isfinite
 from pathlib import Path
 import ssl
+import subprocess
 import sys
 import time
 from typing import cast
@@ -409,11 +411,58 @@ def _reconcileRestart(arguments: argparse.Namespace, plan: dict[str, object], au
     return receipt
 
 
+def _prepareManifestSeed(arguments: argparse.Namespace, manifest: dict[str, object], plan: dict[str, object],
+        sourceReceipt: Path) -> tuple[list[str], float]:
+    from shared.core.config import settings
+
+    driver: Path = _ROOT / "scripts/probes/manage-opensearch-transition.py"
+    if sha256(driver.read_bytes()).hexdigest() != plan.get("transition_script_sha256"):
+        raise ValueError("Manifest seed transition script differs from its reviewed binding")
+    if (settings.KNOWHERE_LEXICAL_BACKEND != "opensearch" or not settings.KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS
+            or settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX != manifest["index_prefix"]
+            or settings.KNOWHERE_OPENSEARCH_URL.rstrip("/") != f"https://{manifest['endpoint_host']}:9200"):
+        raise ValueError("Manifest seeding requires its approved OpenSearch endpoint, index prefix and publication setting")
+    limit: object = plan.get("batch_limit")
+    timeout: float = float(str(plan.get("maximum_step_seconds")))
+    if type(limit) is not int or limit < 1 or not isfinite(timeout) or timeout <= 0 or sourceReceipt.exists():
+        raise ValueError("Manifest seeding requires a positive batch limit, bounded duration and new source receipt")
+    command: list[str] = [sys.executable, str(driver), "seed-manifests", "--target-backend", "opensearch",
+        "--epoch", str(arguments.epoch), "--expected-source-hash", arguments.source_hash,
+        "--limit", str(limit), "--receipt", str(sourceReceipt), "--execute"]
+    return command, timeout
+
+
+def _seedManifests(command: list[str], timeout: float, sourceReceipt: Path, authority: OperatorAuthority,
+        issuer: _Issuer, persist: Callable[[dict[str, object]], None]) -> dict[str, object]:
+    persist({"status": "manifest-seed-intent", "source_receipt": sourceReceipt.name})
+    authority.beforeMutation()
+    execution: subprocess.CompletedProcess[bytes] = OperationExecution.run([*command, *authority.getCommandArguments()],
+        cwd=_ROOT, timeoutSeconds=timeout, issuer=issuer)
+    if execution.returncode != 0 or not sourceReceipt.is_file():
+        raise ValueError("Manifest seeding did not return an acknowledged source result")
+    sourceReceipt.chmod(0o600)
+    receipt: dict[str, object] = _requireObject(_readJson(sourceReceipt))
+    control: dict[str, object] = _requireObject(receipt.get("control"))
+    sourceIssuer: dict[str, object] = _requireObject(receipt.get("issuer"))
+    if (receipt.get("verb") != "seed-manifests" or receipt.get("targetBackend") != "opensearch"
+            or receipt.get("execute") is not True or receipt.get("errors") != []
+            or receipt.get("sourceHash") != authority.sourceHash or receipt.get("expectedSourceHash") != authority.sourceHash
+            or (control.get("epoch"), control.get("cluster_uuid"), control.get("backend"), control.get("mode"))
+                != (authority.epoch, authority.clusterUuid, "opensearch", "serving")
+            or sourceIssuer.get("invocation_token") != authority.token or sourceIssuer.get("status") != "active"
+            or type(receipt.get("seededNamespaces")) is not int):
+        raise ValueError("Manifest seed result differs from the admitted source and serving epoch")
+    authority.assertCurrent()
+    result: dict[str, object] = {**receipt, "status": "manifests-seeded", "source_receipt": sourceReceipt.name}
+    persist(result)
+    return result
+
+
 def _main() -> int:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=(
         "fence-host", "reconcile-fence", "release-empty-shadow", "recover-process", "recover-volume",
-        "reconcile-restart", "backup", "release",
+        "reconcile-restart", "backup", "release", "seed-manifests",
     ))
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--plan", required=True, type=Path)
@@ -438,7 +487,7 @@ def _main() -> int:
         print(json.dumps({"mode": "dry-run", "operation": arguments.operation, "binding": binding,
             "creates_cloud_resources": False, "formal_acceptance": False, "journal": str(arguments.journal)}))
         return 0
-    purpose: str = {"backup": "backup", "release": "release"}.get(arguments.operation, "recovery")
+    purpose: str = arguments.operation if arguments.operation in ("backup", "release", "seed-manifests") else "recovery"
     _validateApproval(arguments.approval, manifestSha256=str(installation["manifest_sha256"]), purpose=purpose)
     assert arguments.approval is not None
     approval: dict[str, object] = _requireObject(_readJson(arguments.approval))
@@ -474,6 +523,12 @@ def _main() -> int:
             result: dict[str, object] = execute(arguments, manifest, plan, progress, persist)
             _writeJson(arguments.output, result)
         return 0
+    sourceReceipt: Path = arguments.output.with_name(arguments.output.stem + "-source.json")
+    seedInvocation: tuple[list[str], float] | None = None
+    if arguments.operation == "seed-manifests":
+        if progress:
+            raise ValueError("Manifest seed already has a journal; inspect its outcome before issuing another batch")
+        seedInvocation = _prepareManifestSeed(arguments, manifest, plan, sourceReceipt)
     with OperatorAuthority.fromArguments(arguments, manifest, operationId=arguments.operation_id,
             sourceHash=arguments.source_hash, epoch=arguments.epoch) as authority:
         with OperationExecution.claim(arguments.operation_state_directory,
@@ -486,6 +541,9 @@ def _main() -> int:
                 result = _backup(arguments, manifest, plan, authority, progress, persist)
             elif arguments.operation == "release":
                 result = _release(arguments, manifest, plan, authority, issuer, progress, persist)
+            elif seedInvocation is not None:
+                seedCommand, seedTimeout = seedInvocation
+                result = _seedManifests(seedCommand, seedTimeout, sourceReceipt, authority, issuer, persist)
             elif arguments.operation == "reconcile-restart":
                 if progress:
                     raise ValueError("A restart reconciliation intent already exists; inspect before repeating")
@@ -520,7 +578,7 @@ def _main() -> int:
                 authority.complete()
     print(json.dumps({"mode": "actual", "status": result.get("status"), "receipt": str(arguments.output)}))
     return 0 if result.get("status") in ("verified", "not-due", "snapshot-in-progress", "recovered-host",
-        "serving-smoke-passed", "PG-compatible-shadow-prepared", "rehearsal-forward-gated", "reconciled") else 1
+        "serving-smoke-passed", "PG-compatible-shadow-prepared", "rehearsal-forward-gated", "reconciled", "manifests-seeded") else 1
 
 
 if __name__ == "__main__":

@@ -277,12 +277,14 @@ def test_resource_samples_actual_sql_and_native_gauges_without_filling_missing_b
 def test_observer_measures_actual_async_postgresql_pool_wait(
     workloadRuntime: tuple[Engine, dict[str, object]], monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
+    from shared.services.retrieval.lexical import sourcehash
     from shared.services.retrieval.lexical.stage_observer import StageObserver
     config: Path = tmp_path / "pool-observer.json"
     journal: Path = tmp_path / "pool-stages.jsonl"
     config.write_text(json.dumps({"schema_version": "opensearch-stage-observer-v1", "campaign_id": "actual-campaign",
         "source_hash": "a" * 64, "journal_path": str(journal), "maximum_journal_bytes": 65536}))
     config.chmod(0o600)
+    monkeypatch.setattr(sourcehash, "getSourceHash", lambda: "a" * 64)
     monkeypatch.setattr(StageObserver, "_configuration", None)
     monkeypatch.setenv("KNOWHERE_WORKLOAD_OBSERVER_CONFIG", str(config))
     StageObserver.install()

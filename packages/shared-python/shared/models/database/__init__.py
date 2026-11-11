@@ -34,6 +34,10 @@ from .indexing import IndexingAttempt
 from .lexicalcontrol import LexicalBackendControl
 from .lexicalnamespace import LexicalNamespaceIndex
 from .lexicalbuild import LexicalBuild
+from .lexicalpublishedmanifest import LexicalPublishedManifest
+from .lexicalhydrationsnapshot import LexicalHydrationSnapshot
+from .lexicalhydrationpayload import LexicalHydrationPayload
+from .lexicalhydrationrow import LexicalHydrationRow
 from .lexicallease import LexicalLease
 from .lexicalinputinventory import LexicalInputInventory
 from .lexicaloperatorissuer import LexicalOperatorIssuer
