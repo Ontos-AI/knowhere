@@ -15,6 +15,7 @@ from shared.core.exceptions.domain_exceptions import (
 )
 from shared.core.state_machine.service import AsyncStateMachineService
 from shared.core.state_machine.states import JobStatus
+from shared.services.jobs.upload_parse_dispatch import UploadParseOutbox
 
 _DOCUMENT_PARSE_JOB_TYPE = "document_ingestion"
 _LEGACY_DOCUMENT_PARSE_JOB_TYPE = "kb_management"
@@ -60,9 +61,7 @@ class DocumentIngestionHandoffService:
                 violations=[
                     {
                         "field": "job_type",
-                        "description": (
-                            f"Job type '{job.job_type}' is not supported"
-                        ),
+                        "description": f"Job type '{job.job_type}' is not supported",
                     }
                 ],
             )
@@ -78,44 +77,58 @@ class DocumentIngestionHandoffService:
             )
             return
 
+        job_id = job.job_id
         outcome = await self._state_machine.transition_outcome(
             db,
-            job.job_id,
+            job_id,
             JobStatus.PENDING.value,
             trigger,
-            None,
-            "system",
+            auto_commit=False,
+            expected_from_state=JobStatus.WAITING_FILE.value,
         )
         if not outcome.succeeded:
-            # A concurrent handoff may have won the CAS transition after this
-            # caller loaded the waiting-file snapshot.  The state machine
-            # reports the winner's state as ``from_state``; treat that result
-            # as an idempotent no-op and do not enqueue another task.
+            await db.rollback()
+            # A concurrent trigger may have advanced the job after our read.
             if outcome.reason == "invalid_transition" and outcome.from_state != (
                 JobStatus.WAITING_FILE.value
             ):
                 logger.info(
                     "Upload handoff won by another trigger: "
-                    f"job_id={job.job_id}, status={outcome.from_state}"
+                    f"job_id={job_id}, status={outcome.from_state}"
                 )
                 return
             logger.warning(
                 "Upload handoff transition rejected: "
-                f"job_id={job.job_id}, reason={outcome.reason}"
+                f"job_id={job_id}, reason={outcome.reason}"
             )
             raise UnavailableException(
                 internal_message=(
-                    f"Could not advance uploaded job {job.job_id} to pending: "
+                    f"Could not advance uploaded job {job_id} to pending: "
                     f"{outcome.reason}"
                 ),
                 retry_after=settings.DOCUMENT_INGESTION_TASK_RETRY_COUNTDOWN,
                 user_message="Job state is still settling. Retrying shortly.",
             )
 
-        await self._worker_dispatcher.start_uploaded_file_parse(
-            job_id=job.job_id,
-            user_id=user_id,
+        claim = await db.run_sync(
+            UploadParseOutbox.stage, job_id=job_id, user_id=user_id
         )
+        await db.commit()
+        await self._state_machine.publish_status_cache(job_id, JobStatus.PENDING.value)
+
+        published = False
+        try:
+            await self._worker_dispatcher.start_uploaded_file_parse(
+                job_id=job_id, user_id=user_id
+            )
+            published = True
+        except Exception as exc:
+            logger.warning(
+                f"Upload parse publication will be retried: job_id={job_id}, error={exc}"
+            )
+
+        await db.run_sync(UploadParseOutbox.finish, claim, published=published)
+        await db.commit()
 
     async def mark_upload_expired(
         self,

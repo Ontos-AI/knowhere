@@ -5,6 +5,7 @@ import os
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 from uuid import uuid4
 from xml.etree import ElementTree
 
@@ -51,6 +52,9 @@ def test_parse_task_should_process_uploaded_file_through_real_contract_boundarie
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    from app.services.document_ingestion import processing_run
+    from shared.services.jobs.lifecycle.service import SyncJobLifecycleService
+
     contract = WorkerParseContract.create()
     contract.use_workspace_root(monkeypatch, tmp_path)
     contract.use_billing(monkeypatch, is_enabled=False)
@@ -64,10 +68,45 @@ def test_parse_task_should_process_uploaded_file_through_real_contract_boundarie
         s3_key=job["s3_key"],
     )
 
-    celery_result = contract.enqueue_parse_task(
-        job_id=job["job_id"],
-        user_id=job["user_id"],
-    )
+    original_parse = processing_run._run_parse_job
+    parse_started = Event()
+    allow_parse_to_finish = Event()
+
+    def _pause_first_parse(
+        *,
+        job_id: str,
+        job_context: processing_run.ParseJobContext,
+        lifecycle_service: SyncJobLifecycleService,
+        task_workspace: processing_run.TemporaryParseWorkspace,
+    ) -> dict[str, object]:
+        parse_started.set()
+        assert allow_parse_to_finish.wait(timeout=10)
+        return original_parse(
+            job_id=job_id,
+            job_context=job_context,
+            lifecycle_service=lifecycle_service,
+            task_workspace=task_workspace,
+        )
+
+    monkeypatch.setattr(processing_run, "_run_parse_job", _pause_first_parse)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        first_delivery = executor.submit(
+            contract.enqueue_parse_task, job_id=job["job_id"], user_id=job["user_id"]
+        )
+        try:
+            assert parse_started.wait(timeout=10)
+            duplicate = contract.enqueue_parse_task(
+                job_id=job["job_id"], user_id=job["user_id"]
+            )
+            assert duplicate.successful()
+            assert duplicate.result == {
+                "status": "skipped",
+                "job_id": job["job_id"],
+                "reason": "job_already_processing",
+            }
+        finally:
+            allow_parse_to_finish.set()
+        celery_result = first_delivery.result(timeout=15)
 
     assert celery_result.successful()
     assert celery_result.result["status"] == "success"
