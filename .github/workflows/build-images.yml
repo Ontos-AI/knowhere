@@ -19,8 +19,6 @@ on:
           - worker
 
 env:
-  ACR_REGISTRY: ${{ secrets.ALIYUN_ACR_REGISTRY }}
-  ACR_NAMESPACE: ${{ secrets.ALIYUN_ACR_NAMESPACE }}
   ECR_REGISTRY: 107424103509.dkr.ecr.us-east-1.amazonaws.com
   ECR_REPOSITORY: knowhere
   AWS_ECS_STAGING_CLUSTER_NAME: knowhere-fargate
@@ -161,16 +159,6 @@ jobs:
           echo "local_image=${image_name}:${image_tag}" >> "$GITHUB_OUTPUT"
 
           if [ "${{ steps.context.outputs.should_push }}" = "true" ] && \
-             [ -n "${{ env.ACR_REGISTRY }}" ] && \
-             [ -n "${{ env.ACR_NAMESPACE }}" ] && \
-             [ -n "${{ secrets.ALIYUN_ACR_USERNAME }}" ] && \
-             [ -n "${{ secrets.ALIYUN_ACR_PASSWORD }}" ]; then
-            acr_namespace="$(echo "${{ env.ACR_NAMESPACE }}" | tr '[:upper:]' '[:lower:]')"
-            echo "acr_image=${{ env.ACR_REGISTRY }}/${acr_namespace}/${image_name}:${image_tag}" >> "$GITHUB_OUTPUT"
-            echo "acr_latest=${{ env.ACR_REGISTRY }}/${acr_namespace}/${image_name}:${latest_tag}" >> "$GITHUB_OUTPUT"
-          fi
-
-          if [ "${{ steps.context.outputs.should_push }}" = "true" ] && \
              [ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ] && \
              [ -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
             echo "ecr_image=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}/${{ matrix.ecr_repo_name }}:${image_tag}" >> "$GITHUB_OUTPUT"
@@ -189,11 +177,6 @@ jobs:
               echo "${{ steps.images.outputs.local_image }}"
             fi
 
-            if [ -n "${{ steps.images.outputs.acr_image }}" ]; then
-              echo "${{ steps.images.outputs.acr_image }}"
-              echo "${{ steps.images.outputs.acr_latest }}"
-            fi
-
             if [ -n "${{ steps.images.outputs.ecr_image }}" ]; then
               echo "${{ steps.images.outputs.ecr_image }}"
               echo "${{ steps.images.outputs.ecr_latest }}"
@@ -205,14 +188,6 @@ jobs:
       - name: Set up Docker Buildx
         if: steps.context.outputs.should_build == 'true'
         uses: docker/setup-buildx-action@v3
-
-      - name: Login to ACR
-        if: steps.context.outputs.should_build == 'true' && steps.images.outputs.acr_image != ''
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.ACR_REGISTRY }}
-          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
-          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
 
       - name: Configure AWS credentials
         if: steps.context.outputs.should_build == 'true' && steps.images.outputs.ecr_image != ''
