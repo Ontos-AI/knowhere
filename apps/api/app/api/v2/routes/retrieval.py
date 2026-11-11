@@ -76,7 +76,6 @@ async def query_retrieval(
         )
         if query in completed:
             return await query
-        await disconnect
         raise HTTPException(status_code=499, detail="Client disconnected")
     finally:
         for task in (query, disconnect):
