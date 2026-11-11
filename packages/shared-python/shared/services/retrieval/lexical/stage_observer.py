@@ -63,13 +63,13 @@ class StageObserver:
             return
         try:
             from shared.core.config import settings
-            from shared.services.retrieval.lexical.transition import LexicalTransition
+            from shared.services.retrieval.lexical.sourcehash import getSourceHash
             metadata: os.stat_result = Path(path).stat()
             if (settings.ENVIRONMENT != "staging" or settings.APP_ENV != "staging"
                 or not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & 0o077 or metadata.st_size > 65536):
                 raise ValueError("Campaign observer requires private bounded staging configuration")
             configuration = _Configuration.model_validate_json(Path(path).read_bytes())
-            if configuration.source_hash != LexicalTransition.getSourceHash():
+            if configuration.source_hash != getSourceHash():
                 raise ValueError("Campaign observer source differs from reviewed source")
             cls._configuration = configuration
             from shared.services.retrieval.lexical.stage_pool_observer import installPoolObservers
