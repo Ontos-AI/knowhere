@@ -133,16 +133,19 @@ Verify the decision on both backends:
    settings default to disabled.
 2. Seed each namespace list from its current published builds. Check the
    namespace generation at activation so a concurrent publication or archive
-   cannot make the seeded list stale. Reuse the current indexes. Run
-   `manage-opensearch-transition.py seed-manifests` with the exact serving
-   epoch and `KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS=true` for the operator
-   process. Reseed manifests from PostgreSQL after native restore.
+   cannot make the seeded list stale. Reuse the current indexes. Use the
+   reviewed `launch-issuer.py --kind operator` path to run `seed-manifests`
+   at the exact serving epoch with
+   `KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS=true` for the operator process.
+   Use the `seed-manifests` approval purpose and bind the transition script
+   digest, namespace batch limit, and step timeout in the operator plan.
+   Reseed manifests from PostgreSQL after native restore.
 3. Enable manifest publication in the API and worker, then set
    `KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP=true` on the staging API after coverage
    and scoped credentials pass verification. Initial lookup covers explicit
-   classic private retrieval without visual candidates. Small corpora and
-   other routes retain their existing search selection. Run the same queries
-   through the real API at concurrency 25 while publishing refinements.
-   Compare latency, evidence, page citations,
-   and visibility after archive and across accounts. Exercise the inline
+   classic private retrieval without visual candidates or signal-path filters.
+   Small corpora and other routes retain their existing search selection. Run
+   the same queries through the real API at concurrency 25 while publishing
+   refinements. Compare latency, evidence, page citations, and visibility after
+   archive and across accounts. Exercise the inline
    filter fallback and the separate PostgreSQL rollback on staging.

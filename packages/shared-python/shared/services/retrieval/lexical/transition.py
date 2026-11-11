@@ -808,20 +808,21 @@ class LexicalTransition:
                     ready.add(existing)
         seeded: int = 0
         publisher = ManifestPublication(self.sessions)
-        for scopeId, scope in scopes.items():
-            if scopeId in ready:
-                continue
-            if seeded >= limit:
-                break
-            native = self._createNative(scope)
-            try:
-                if control["cluster_uuid"] and native.getClusterUuid() != control["cluster_uuid"]:
-                    raise LexicalIndexError("Manifest seeding resolved a different native cluster")
-                native.createManifestIndex()
-                publisher.seed(scope=scope, native=native)
+        native = OpenSearchLexicalIndex(endpoint=settings.KNOWHERE_OPENSEARCH_URL, scope=None,
+            indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX)
+        try:
+            if control["cluster_uuid"] and native.getClusterUuid() != control["cluster_uuid"]:
+                raise LexicalIndexError("Manifest seeding resolved a different native cluster")
+            native.createManifestIndex()
+            for scopeId, scope in scopes.items():
+                if scopeId in ready:
+                    continue
+                if seeded >= limit:
+                    break
+                publisher.seed(scope=scope, native=native, expectedEpoch=epoch)
                 seeded += 1
-            finally:
-                native.close()
+        finally:
+            native.close()
         return seeded
 
     def _backfill(self, target: _Backend, epoch: int, limit: int, rate: float) -> int:

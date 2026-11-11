@@ -86,7 +86,7 @@ class ManifestPublication:
                 + timedelta(seconds=settings.KNOWHERE_PG_INDEXING_TIMEOUT_SECONDS)))
         return prepared
 
-    def seed(self, *, scope: LexicalScope, native: OpenSearchLexicalIndex) -> str:
+    def seed(self, *, scope: LexicalScope, native: OpenSearchLexicalIndex, expectedEpoch: int | None = None) -> str:
         """Seed an already indexed namespace before enabling manifest reads."""
         prepared = self.prepareMetadata(scope=scope, documentId=None, buildId=None)
         if prepared is None:
@@ -96,7 +96,9 @@ class ManifestPublication:
                 BuildSnapshot.capture(db, scope=scope, buildId=buildId)
         native.writePublishedManifest(manifestId=prepared.id, scopeId=prepared.scopeId, buildIds=prepared.buildIds)
         with self.sessions.begin() as db:
-            LexicalCoordination.lockControl(db)
+            control = LexicalCoordination.lockControl(db)
+            if expectedEpoch is not None and control.epoch != expectedEpoch:
+                raise LexicalIndexError("OpenSearch epoch changed during manifest seeding", isRetryable=True)
             generation = lock_namespace_generation(db, user_id=scope.ownerId, namespace=scope.namespace)
             self.activate(db, prepared, previousGeneration=generation.generation, publishedGeneration=generation.generation)
         return prepared.id

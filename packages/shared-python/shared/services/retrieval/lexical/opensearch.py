@@ -72,7 +72,7 @@ class OpenSearchLexicalIndex:
         self,
         *,
         endpoint: str,
-        scope: LexicalScope,
+        scope: LexicalScope | None,
         indexPrefix: str = "knowhere-lexical-v1",
         timeoutSeconds: float = 30,
         maximumBulkBytes: int = 4 * 1024 * 1024,
@@ -82,9 +82,9 @@ class OpenSearchLexicalIndex:
             raise ValueError("Lexical index prefix must be a lowercase identifier")
         if maximumBulkBytes <= 0:
             raise ValueError("Lexical bulk byte limit must be positive")
-        self.indexName: str = f"{indexPrefix}-{scope.fingerprint[:48]}"
         self._endpoint: str = endpoint
         self._indexPrefix: str = indexPrefix
+        self.indexName: str = self.manifestIndexName if scope is None else f"{indexPrefix}-{scope.fingerprint[:48]}"
         self._timeoutSeconds: float = timeoutSeconds
         self._maximumBulkBytes: int = maximumBulkBytes
         self._deadline: IndexingDeadline | None = deadline
