@@ -75,3 +75,47 @@ containing `enhancement`, `snapshots`, `current_snapshot_id`, and internal
 stage/repair claims. Persisted snapshots store `archive_key` instead of a URL.
 Workers upload immutable ZIP keys before committing descriptors. No second
 JobResult or ingestion charge is created.
+
+## Verified source uploads
+
+`POST /v2/jobs` accepts optional `source_integrity` for `source_type: "file"`.
+Pass `size_bytes` as a nonnegative integer up to the configured upload limit
+and `sha256` as the 64 lowercase hexadecimal digits of the original file's
+SHA-256 digest. Existing unguarded file uploads and URL imports keep their
+current contracts.
+
+Persist the returned `job_id` before sending bytes. Use a single PUT to the
+returned `upload_url`, with all returned `upload_headers`. The S3 Signature
+Version 4 URL signs `Content-Type` determined from `file_name`, `Content-Length`
+as a decimal byte count, `If-None-Match: *`, and `x-amz-checksum-sha256` as
+standard base64 of the raw 32-byte digest.
+
+Send the Knowhere API bearer only to Knowhere. If a PUT result is unknown or
+S3 returns a conditional `409` or `412`, check the saved job and confirm it
+before retrying the PUT. `POST /v2/jobs/{job_id}/upload-url` renews the same
+guarded key for its owner while the job is `waiting-file` and within its upload
+lifetime. `expires_in` can be shorter than that lifetime because the signature
+is also limited by the storage credential's expiry.
+
+`POST /v2/jobs/{job_id}/confirm-upload` takes an empty body or `{}`. An absent
+object returns `400 INVALID_ARGUMENT` with a `file` violation. A mismatch or
+missing stored SHA-256 returns `400 INVALID_ARGUMENT` with a `source_integrity`
+violation. An expired waiting job returns `409 ABORTED` and is marked `failed`
+with `UPLOAD_EXPIRED`. A replay after the job advances can return `200` even
+for a failed job, so poll the saved job for the outcome. Storage notifications
+verify the same length and SHA-256 before handoff. The worker verifies the
+downloaded original again before normalization and parsing.
+
+This mode requires S3 with conditional PUT and checksum-enabled HEAD. The
+API's role needs access to read object checksums and identify an absent key.
+For S3, a missing object returns `404` when the caller also has `s3:ListBucket`.
+KMS-encrypted buckets also need the permissions required for checksum retrieval.
+Storage verification failures return retryable `503` responses.
+[Amazon S3 PutObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html)
+and [Amazon S3 HeadObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html)
+describe these storage requirements.
+
+Use the saved job ID as the authority for retry. A lost create response can
+leave a waiting job until expiry. An explicit existing document can return an
+active-ingestion `409 ABORTED` whose details identify the document. Recovery
+requires the ID from the original accepted create response.

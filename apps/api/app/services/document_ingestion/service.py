@@ -43,7 +43,7 @@ from shared.core.exceptions.domain_exceptions import (
     ValidationException,
 )
 from shared.core.exceptions.webhook_exceptions import WebhookConfigException
-from shared.models.schemas.job import ConfirmUploadRequest, JobCreateBase, JobResponse
+from shared.models.schemas.job import ConfirmUploadRequest, JobCreateBase, JobCreateV2, JobResponse
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.http.url_file_type import resolve_file_extension_async
 from shared.services.http.url_security import validate_http_url_and_resolve_ip_async
@@ -205,6 +205,8 @@ class DocumentIngestionService:
             raise
         except UnavailableException:
             raise
+        except ConflictException:
+            raise
         except ValidationException:
             raise
         except Exception as exc:
@@ -220,6 +222,19 @@ class DocumentIngestionService:
         api_version: ApiVersion,
     ) -> str:
         _validate_public_mode_selector_fields(payload, api_version=api_version)
+
+        if (
+            isinstance(payload, JobCreateV2)
+            and payload.source_integrity is not None
+            and payload.source_integrity.size_bytes > settings.MAX_FILE_SIZE
+        ):
+            raise ValidationException(
+                user_message="The expected source size exceeds the upload size limit",
+                violations=[{
+                    "field": "source_integrity.size_bytes",
+                    "description": f"Expected at most {settings.MAX_FILE_SIZE} bytes",
+                }],
+            )
 
         if payload.source_type == "file" and not payload.file_name:
             raise ValidationException(

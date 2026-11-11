@@ -10,6 +10,8 @@ from app.services.document_ingestion.handoff_service import (
 from loguru import logger
 
 from shared.core.database import get_db_context
+from shared.core.exceptions.domain_exceptions import ConflictException, ValidationException
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.s3_event import S3Event
 
 
@@ -54,17 +56,27 @@ async def process_upload_events(s3_event: S3Event) -> None:
                 from shared.core.config import settings
                 from shared.core.state_machine.states import is_job_expired
 
-                if is_job_expired(job.updated_at, settings.JOB_WAITING_EXPIRE_SECONDS):
+                protected = JobMetadataHelper.get_source_integrity(job.job_metadata) is not None
+                if protected and job.s3_key != s3_key:
+                    logger.warning("Ignoring storage event for a different object on job {}", job_id)
+                    continue
+                if not protected and is_job_expired(job.updated_at, settings.JOB_WAITING_EXPIRE_SECONDS):
                     logger.warning(f"Job {job_id} upload expired, marking failed")
                     await handoff_service.mark_upload_expired(db, job=job)
                     continue
 
-                await handoff_service.start_uploaded_file_workflow(
-                    db=db,
-                    job=job,
-                    user_id=str(job.user_id),
-                    trigger="s3_upload_completed",
-                )
+                try:
+                    await handoff_service.start_uploaded_file_workflow(
+                        db=db,
+                        job=job,
+                        user_id=str(job.user_id),
+                        trigger="s3_upload_completed",
+                    )
+                except (ValidationException, ConflictException):
+                    if not protected:
+                        raise
+                    logger.warning("Guarded upload event was rejected for job {}", job_id)
+                    continue
 
                 logger.info(f"Triggered processing for job {job_id}")
 

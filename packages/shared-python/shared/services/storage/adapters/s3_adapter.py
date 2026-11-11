@@ -1,6 +1,6 @@
 """S3 storage adapter implementation for AWS S3 and MinIO."""
 
-from typing import Any, BinaryIO, Dict, Iterator, Optional
+from typing import Any, BinaryIO, Dict, Iterator, Literal, Optional
 
 from botocore.client import BaseClient
 from botocore.exceptions import ClientError
@@ -27,6 +27,31 @@ class S3StorageAdapter(StorageAdapter):
 
     def close(self) -> None:
         self.s3_client.close()
+
+    def verify_upload_integrity(
+        self, key: str, bucket: str, *, size_bytes: int, checksum_sha256: str
+    ) -> Literal["matched", "missing", "mismatch"]:
+        """Read the S3-validated checksum and length of a single PUT object."""
+        try:
+            result = self.s3_client.head_object(
+                Bucket=bucket, Key=key, ChecksumMode="ENABLED"
+            )
+        except ClientError as error:
+            code = error.response.get("Error", {}).get("Code")
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                return "missing"
+            raise StorageServiceException(
+                internal_message=f"S3 upload verification failed ({code})",
+                operation="verify_upload_integrity",
+                original_exception=error,
+            ) from error
+        if (
+            result.get("ContentLength") == size_bytes
+            and result.get("ChecksumSHA256") == checksum_sha256
+            and result.get("ChecksumType") != "COMPOSITE"
+        ):
+            return "matched"
+        return "mismatch"
 
     def _get_bucket(self, bucket: Optional[str] = None) -> str:
         """Get the effective bucket name."""

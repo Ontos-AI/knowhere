@@ -19,13 +19,14 @@ from loguru import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import (
     JobOperationException,
     ValidationException,
 )
 from shared.core.state_machine.states import JobStatus
 from shared.models.database.job import Job
-from shared.models.schemas.job import JobCreateBase, JobResponse
+from shared.models.schemas.job import JobCreateBase, JobCreateV2, JobResponse
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.redis import JobInfoRedisService, RedisServiceFactory
 from shared.services.redis.job_metadata_service import JobMetadataService
@@ -163,6 +164,16 @@ class DocumentIngestionCreationService:
             scope.job_metadata,
             source_file_name=payload.file_name,
         )
+        source_integrity = payload.source_integrity if isinstance(payload, JobCreateV2) else None
+        upload_info = None
+        if source_integrity is not None:
+            scope.job_metadata["source_integrity"] = source_integrity.model_dump()
+            upload_info = await self._file_upload_service.generate_verified_upload_url(
+                storage_key=s3_key,
+                file_extension=file_extension,
+                source_integrity=source_integrity,
+                expiration=settings.JOB_WAITING_EXPIRE_SECONDS,
+            )
 
         job = await self._create_waiting_job(
             db,
@@ -176,10 +187,8 @@ class DocumentIngestionCreationService:
             document_id=scope.document_id,
         )
 
-        upload_info = await self._file_upload_service.generate_upload_url(
-            job_id,
-            file_extension,
-        )
+        if upload_info is None:
+            upload_info = await self._file_upload_service.generate_upload_url(job_id, file_extension)
         upload_url = cast(str, upload_info["upload_url"])
         upload_headers = cast(UploadHeaders, upload_info["upload_headers"])
         expires_in = cast(int, upload_info["expires_in"])

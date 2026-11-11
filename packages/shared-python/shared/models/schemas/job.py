@@ -10,6 +10,7 @@ from shared.models.schemas.progressive_ingestion import (
     EnhancementProgress,
     PublishedSnapshot,
 )
+from shared.models.schemas.source_integrity import SourceIntegrity
 
 IngestionMode = Literal["full", "progressive"]
 WebhookEventType = Literal[
@@ -135,6 +136,16 @@ class JobCreate(JobCreateBase):
 
 class JobCreateV2(JobCreateBase):
     """Public v2 request payload for creating a job."""
+
+    source_integrity: SourceIntegrity | None = Field(
+        None, description="Bind a file upload to its exact original bytes on S3"
+    )
+
+    @model_validator(mode="after")
+    def validate_source_integrity(self) -> Self:
+        if self.source_integrity is not None and self.source_type != "file":
+            raise ValueError("source_integrity requires source_type='file'")
+        return self
 
     ingestion_mode: IngestionMode = Field(
         "full",
