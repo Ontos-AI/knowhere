@@ -158,7 +158,7 @@ class SyncJobPublicationFinalizer:
         metadata = raw_metadata or {}
         if trace is not None:
             parse_track = JobMetadataHelper.get_parse_track(metadata)
-            if parse_track in ("chunk", "page_memory"):
+            if parse_track in ("chunk", "page_memory", "sheet"):
                 trace.bind_parse_track(parse_track)
         if published_document_state is None or published_document_state.document_id is None:
             return None

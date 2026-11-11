@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,7 +14,20 @@ from app.services.document_parser.formats.excel.structure_parser import (
     ParsedExcelTable,
     parse_excel_structure,
 )
-from app.services.document_parser.formats.excel.workbook_grid import load_workbook_grid
+from app.services.document_parser.formats.excel.formula_graph import (
+    FormulaNode,
+    build_formula_graph,
+)
+from app.services.document_parser.formats.excel.sheet_groups import (
+    INCLUDE_HIDDEN_SHEETS,
+    SheetGroup,
+    parseable_sheet_names,
+    plan_sheet_groups,
+)
+from app.services.document_parser.formats.excel.workbook_grid import (
+    WorkbookGrid,
+    load_workbook_grid,
+)
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import ParsedRow, ParsedRowsBuilder
 from app.services.document_parser.support.path_helpers import remove_spaces
@@ -55,13 +69,13 @@ def parse_xlsx(
     output_dir: str,
     base_llm_paras: dict[str, Any] | None = None,
     relative_root: str | None = None,
-    include_hidden_sheets: bool = False,
+    include_hidden_sheets: bool = INCLUDE_HIDDEN_SHEETS,
 ) -> pd.DataFrame:
     request = ExcelWorkbookParseRequest(
         file_path=file_path,
         file_name=file_name,
         output_dir=output_dir,
-        base_llm_paras=_normalise_llm_parameters(base_llm_paras),
+        base_llm_paras=normalise_excel_llm_parameters(base_llm_paras),
         relative_root=relative_root,
         include_hidden_sheets=include_hidden_sheets,
     )
@@ -69,18 +83,49 @@ def parse_xlsx(
 
 
 def parse_excel_workbook(request: ExcelWorkbookParseRequest) -> pd.DataFrame:
+    """Full parse: structure-parse every formula-closed sheet group, in group order."""
     time_stamp = get_str_time()
     os.makedirs(os.path.join(request.output_dir, "tables"), exist_ok=True)
     logger.info("Parsing spreadsheet grid, Luna regions, and formula satellites")
     workbook = load_workbook_grid(request.file_path)
-    structure = parse_excel_structure(
+    graph = build_formula_graph(workbook)
+    groups = plan_sheet_groups(
         workbook,
-        include_hidden_sheets=request.include_hidden_sheets,
+        parseable_sheet_names(
+            workbook, include_hidden_sheets=request.include_hidden_sheets
+        ),
+        graph,
     )
-    return _rows_to_dataframe(_emit_tables(request, structure, time_stamp))
+    rows: list[ParsedRow] = []
+    for group in groups:
+        rows.extend(
+            parse_sheet_group(
+                request, workbook=workbook, graph=graph, group=group, time_stamp=time_stamp
+            )
+        )
+    return excel_rows_to_dataframe(rows)
 
 
-def _normalise_llm_parameters(
+def parse_sheet_group(
+    request: ExcelWorkbookParseRequest,
+    *,
+    workbook: WorkbookGrid,
+    graph: Sequence[FormulaNode],
+    group: SheetGroup,
+    time_stamp: str,
+) -> list[ParsedRow]:
+    """Structure-parse one sheet group and emit its table rows.
+
+    Table labels carry the group ordinal (``table-[<group>-<n>]``) so a group
+    refined on its own never reuses another group's label.
+    """
+    structure = parse_excel_structure(
+        workbook, graph=graph, sheet_names=group.sheet_names
+    )
+    return _emit_tables(request, structure, time_stamp, group_ordinal=group.ordinal)
+
+
+def normalise_excel_llm_parameters(
     base_llm_paras: dict[str, Any] | None,
 ) -> dict[str, Any]:
     llm_parameters = dict(base_llm_paras or {})
@@ -93,10 +138,12 @@ def _emit_tables(
     request: ExcelWorkbookParseRequest,
     structure: ExcelStructureResult,
     time_stamp: str,
+    *,
+    group_ordinal: int,
 ) -> list[ParsedRow]:
     know_ids = {
         table.table_key: gen_str_codes(
-            table.html + str(_table_label(sheet_name=table.sheet_name, subtable_title=table.subtable_title))
+            table.html + str(excel_table_label(sheet_name=table.sheet_name, subtable_title=table.subtable_title))
         )
         for table in structure.tables
     }
@@ -109,7 +156,7 @@ def _emit_tables(
                     request=request,
                     table=table,
                     time_stamp=time_stamp,
-                    table_index=table_seq + 1,
+                    table_index=f"{group_ordinal}-{table_seq + 1}",
                     know_id=know_ids[table.table_key],
                     connectto=_connectto_json(
                         table.table_key, structure.links, know_ids
@@ -167,7 +214,7 @@ def _write_excel_table_asset(
     request: ExcelWorkbookParseRequest,
     table: ParsedExcelTable,
     time_stamp: str,
-    table_index: int,
+    table_index: str,
     know_id: str,
     connectto: str,
 ) -> ParsedRow:
@@ -182,7 +229,7 @@ def _write_excel_table_asset(
         mechanical_keywords=mechanical_keywords,
         llm_parameters=request.base_llm_paras,
     )
-    table_label = _table_label(
+    table_label = excel_table_label(
         sheet_name=table.sheet_name, subtable_title=table.subtable_title
     )
     table_index_label = build_asset_index_label(ASSET_KIND_TABLE, table_index)
@@ -214,8 +261,8 @@ def _write_excel_table_asset(
             know_id=know_id,
             addtime=time_stamp,
             tokens=table_tokens,  # pyright: ignore[reportArgumentType]  # list like docx parser; TableAssetInput.tokens is typed str
-            path=_build_excel_table_path(
-                request=request,
+            path=build_excel_table_path(
+                document_root=str(request.relative_root or request.file_name),
                 sheet_name=table.sheet_name,
                 subtable_title=table.subtable_title,
             ),
@@ -242,17 +289,16 @@ def _keywords_from_column_headers(column_headers: tuple[str, ...]) -> str:
     return ";".join(keywords)
 
 
-def _table_label(*, sheet_name: str, subtable_title: str) -> str:
+def excel_table_label(*, sheet_name: str, subtable_title: str) -> str:
     return f"{sheet_name}-{subtable_title}" if subtable_title else sheet_name
 
 
-def _build_excel_table_path(
+def build_excel_table_path(
     *,
-    request: ExcelWorkbookParseRequest,
+    document_root: str,
     sheet_name: str,
     subtable_title: str,
 ) -> str:
-    document_root = str(request.relative_root or request.file_name).strip()
     parts = [
         _clean_path_segment(document_root),
         _clean_path_segment(sheet_name),
@@ -296,7 +342,7 @@ def _summarize_excel_table(
     return None, mechanical_keywords, None, ""
 
 
-def _rows_to_dataframe(parsed_rows: list[ParsedRow]) -> pd.DataFrame:
+def excel_rows_to_dataframe(parsed_rows: list[ParsedRow]) -> pd.DataFrame:
     rows_builder = ParsedRowsBuilder()
     for row in parsed_rows:
         rows_builder.append(row)

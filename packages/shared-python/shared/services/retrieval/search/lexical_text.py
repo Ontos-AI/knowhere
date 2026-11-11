@@ -11,6 +11,9 @@ from shared.services.chunks.document_path import split_document_path
 from shared.services.chunks.path_segments import split_escaped_document_path
 from shared.services.retrieval.publication_preparation_cache import PublicationPreparationCache
 
+# Coarse spreadsheet tables carry their deduplicated text cells here until the
+# sheet group is refined (the refined tables replace the coarse chunk).
+COARSE_SEARCH_TEXT_KEY = "coarse_search_text"
 _SAME_AS_RE = re.compile(r"\[SAME-AS [^\]]+\]")
 
 
@@ -245,5 +248,6 @@ def _table_search_source_text(chunk: dict[str, Any]) -> str:
         str(metadata.get("asset_title") or chunk.get("asset_title") or "").strip(),
         keyword_text,
         str(metadata.get("caption") or chunk.get("caption") or "").strip(),
+        str(metadata.get(COARSE_SEARCH_TEXT_KEY) or "").strip(),
     ]
     return " ".join(part for part in parts if part)

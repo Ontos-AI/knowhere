@@ -135,7 +135,7 @@ def test_directory_event_commits_with_initial_outline_once_and_dispatches_after_
         arguments = {
             "job_result_id": revision_id,
             "target": target,
-            "publication_scope": service._build_publication_scope(
+            "publication_scope": service.build_publication_scope(
                 target=target, job_result_id=revision_id
             ),
             "chunks": [],
@@ -241,7 +241,7 @@ def test_directory_event_rejects_stale_publication(
         published: bool = service._publish_coarse_structure_and_write_scopes(
             job_result_id=revision_id,
             target=target,
-            publication_scope=service._build_publication_scope(
+            publication_scope=service.build_publication_scope(
                 target=target, job_result_id=revision_id
             ),
             chunks=[],
@@ -997,7 +997,7 @@ def test_zip_regeneration_failure_does_not_mark_job_complete(
     worker_contract_environment: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from app.services.page_memory import scope_enrichment_service as ses_mod
+    from app.services.document_ingestion import scope_refinement
     from app.services.page_memory.scope_enrichment_service import (
         execute_scope_enrichment,
     )
@@ -1005,8 +1005,8 @@ def test_zip_regeneration_failure_does_not_mark_job_complete(
     del worker_contract_environment
     _install_fake_scope_pipeline(monkeypatch)
     monkeypatch.setattr(
-        ses_mod,
-        "_regenerate_and_upload_full_package",
+        scope_refinement,
+        "regenerate_and_upload_full_package",
         lambda **_kw: (_ for _ in ()).throw(RuntimeError("zip boom")),
     )
 
@@ -1640,6 +1640,7 @@ def test_final_upload_failure_recovers_without_reparsing_completed_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.services.page_memory import scope_enrichment_service as service
+    from app.services.document_ingestion import scope_refinement
     from shared.models.schemas.progressive_ingestion import StoredSnapshot
     from shared.services.jobs.progressive_ingestion import (
         initialize_baseline_state,
@@ -1699,9 +1700,12 @@ def test_final_upload_failure_recovers_without_reparsing_completed_scopes(
                 archive_key="immutable/final.zip",
             ), 10
 
-        monkeypatch.setattr(service, "_regenerate_and_upload_full_package", package)
-        service._finalize_all_scopes_refined(
-            job_result_id=revision, target=target, storage=storage, workspace_dir="/tmp"
+        monkeypatch.setattr(
+            scope_refinement, "regenerate_and_upload_full_package", package
+        )
+        scope_refinement.finalize_all_scopes_refined(
+            job_result_id=revision, target=target, storage=storage, workspace_dir="/tmp",
+            package_refs=service._page_package_refs(target),
         )
         with Session(engine) as db:
             state = read_progressive_state(
@@ -1709,11 +1713,13 @@ def test_final_upload_failure_recovers_without_reparsing_completed_scopes(
             )
             assert state.stages["finalization"]["status"] == "failed"
             assert state.current_snapshot_id == "baseline"
-        service._finalize_all_scopes_refined(
-            job_result_id=revision, target=target, storage=storage, workspace_dir="/tmp"
+        scope_refinement.finalize_all_scopes_refined(
+            job_result_id=revision, target=target, storage=storage, workspace_dir="/tmp",
+            package_refs=service._page_package_refs(target),
         )
-        service._finalize_all_scopes_refined(
-            job_result_id=revision, target=target, storage=storage, workspace_dir="/tmp"
+        scope_refinement.finalize_all_scopes_refined(
+            job_result_id=revision, target=target, storage=storage, workspace_dir="/tmp",
+            package_refs=service._page_package_refs(target),
         )
         with Session(engine) as db:
             state = read_progressive_state(
@@ -1747,6 +1753,7 @@ def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors
     has_initial_vectors: bool,
 ) -> None:
     from types import SimpleNamespace
+    from app.services.document_ingestion import scope_refinement
     from app.services.page_memory import (
         scope_enrichment_service as service,
         page_renderer,
@@ -1850,11 +1857,12 @@ def test_vector_repair_retries_only_remaining_pages_and_keeps_successful_vectors
                 workspace_dir=str(tmp_path),
             )
             if attempt == 0:
-                service._finalize_all_scopes_refined(
+                scope_refinement.finalize_all_scopes_refined(
                     job_result_id=revision,
                     target=target,
                     storage=storage,
                     workspace_dir=str(tmp_path),
+                    package_refs=service._page_package_refs(target),
                 )
                 assert storage.uploaded_zips == [], (
                     "Missing required vectors must withhold final publication"
@@ -1956,7 +1964,7 @@ def test_late_scope_publication_does_not_overwrite_a_recovered_claim(
             job_result_id=revision, scope_id="p1-2"
         )
         called: list[bool] = []
-        result = service._publish_and_mark_refined(
+        result = service.publish_and_mark_refined(
             job_result_id=revision,
             scope_id="p1-2",
             target=first,
@@ -2041,7 +2049,7 @@ def test_structure_publication_rejects_an_exhausted_stage_generation(
         published = service._publish_coarse_structure_and_write_scopes(
             job_result_id=revision,
             target=target,
-            publication_scope=service._build_publication_scope(
+            publication_scope=service.build_publication_scope(
                 target=target, job_result_id=revision
             ),
             chunks=[],

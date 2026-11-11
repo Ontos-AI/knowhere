@@ -380,7 +380,7 @@ def test_scope_attempt_assets_are_isolated_and_all_published_references_follow_t
         section_summaries={},
         artifact_refs=set(files),
     )
-    frozen = service._freeze_scope_artifacts(
+    frozen = service.freeze_scope_artifacts(
         output=output, workspace_dir=str(tmp_path), claim_generation="claim-new"
     )
     assert len(frozen.artifact_refs) == 3
@@ -484,7 +484,7 @@ def test_late_structure_upload_cannot_replace_committed_phase_b_input_bytes(
     storage = Storage()
     selected = {"phase_b/manifest.json": "phase_b/new/manifest.json"}
     source.write_bytes(b"committed manifest")
-    service._upload_scope_artifacts(
+    service.upload_scope_artifacts(
         storage=storage,
         job_id="job",
         raw_prefix="results/job/",
@@ -493,7 +493,7 @@ def test_late_structure_upload_cannot_replace_committed_phase_b_input_bytes(
         artifact_mapping=selected,
     )
     source.write_bytes(b"late stale manifest")
-    service._upload_scope_artifacts(
+    service.upload_scope_artifacts(
         storage=storage,
         job_id="job",
         raw_prefix="results/job/",

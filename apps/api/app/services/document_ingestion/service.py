@@ -131,14 +131,16 @@ class DocumentIngestionService:
                 raise ValidationException(
                     user_message=(
                         "Progressive ingestion is only supported for page-memory "
-                        "formats (.pdf, .pptx) and chunk formats (.docx, .md, .txt)"
+                        "formats (.pdf, .pptx), spreadsheets (.xlsx, .xls, .csv, .tsv) "
+                        "and chunk formats (.docx, .md, .txt)"
                     ),
                     violations=[
                         {
                             "field": "ingestion_mode",
                             "description": (
                                 "ingestion_mode=progressive requires .pdf/.pptx "
-                                "(page_memory) or .docx/.md/.txt (chunk)"
+                                "(page_memory), .xlsx/.xls/.csv/.tsv (sheet) or "
+                                ".docx/.md/.txt (chunk)"
                             ),
                         }
                     ],

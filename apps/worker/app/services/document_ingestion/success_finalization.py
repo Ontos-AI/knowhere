@@ -308,6 +308,13 @@ def _upload_result_package(
         and ingestion_mode == "progressive"
         else []
     )
+    sheet_progressive_refs = (
+        existing_sheet_progressive_artifact_refs(add_dir)
+        if add_dir
+        and parse_track == "sheet"
+        and ingestion_mode == "progressive"
+        else []
+    )
     if parse_track == "page_memory" and ingestion_mode == "progressive":
         artifact_refs.update(phase_b_refs)
     metadata_updates: dict[str, object] = {}
@@ -315,7 +322,7 @@ def _upload_result_package(
     if (
         job_context is not None
         and ingestion_mode == "progressive"
-        and parse_track in {"page_memory", "chunk"}
+        and parse_track in {"page_memory", "chunk", "sheet"}
     ):
         snapshot_id: str = f"snapshot_{uuid4().hex}"
         snapshot_options["snapshot_id"] = snapshot_id
@@ -351,9 +358,11 @@ def _upload_result_package(
     working_raw_prefix: str = result_bundle.raw_prefix
     if snapshot_options:
         working_raw_prefix = f"results/{storage_identity}/"
-        working_refs: list[str] = (
-            phase_b_refs if parse_track == "page_memory" else chunk_progressive_refs
-        )
+        working_refs: list[str] = {
+            "page_memory": phase_b_refs,
+            "chunk": chunk_progressive_refs,
+            "sheet": sheet_progressive_refs,
+        }[parse_track]
         with (
             logfire.span("Upload progressive working inputs for {job_id}", job_id=job_id) as working_span,
             stage_timer("worker.result.working_inputs_upload", job_id=job_id),
@@ -401,6 +410,15 @@ def _upload_result_package(
         metadata_updates["enrichment_status"] = "text"
     if (
         job_context is not None
+        and parse_track == "sheet"
+        and ingestion_mode == "progressive"
+    ):
+        if snapshot_options:
+            metadata_updates["result_serving_raw_prefix"] = result_bundle.raw_prefix
+        metadata_updates["sheet_progressive_artifact_refs"] = list(sheet_progressive_refs)
+        metadata_updates["enrichment_status"] = "coarse"
+    if (
+        job_context is not None
         and job_context.job_metadata.get("corpus_target") == "DEMO"
     ):
         metadata_updates["demo_asset_manifest"] = sorted(result_bundle.raw_files)
@@ -411,6 +429,12 @@ def _upload_result_package(
             metadata_updates=metadata_updates,
         )
     return result_bundle.zip_key
+
+
+def existing_sheet_progressive_artifact_refs(add_dir: str) -> list[str]:
+    from app.services.document_parser.formats.excel.baseline import WORKBOOK_REL
+
+    return [WORKBOOK_REL] if os.path.isfile(os.path.join(add_dir, WORKBOOK_REL)) else []
 
 
 def existing_chunk_progressive_artifact_refs(

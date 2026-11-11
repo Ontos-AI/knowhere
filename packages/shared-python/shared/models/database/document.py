@@ -152,6 +152,8 @@ class DocumentSection(Base):
 
 SCOPE_KIND_PAGE_RANGE = "page_range"
 SCOPE_KIND_SHEET_GROUP = "sheet_group"
+# ``sheet_group`` scope ids are ``sheets:<ordinal of the group's first sheet>``.
+SHEET_GROUP_SCOPE_PREFIX = "sheets:"
 
 
 class DocumentScopeEnrichment(Base):

@@ -33,6 +33,18 @@ def initialize_baseline_state(
     )
 
 
+def initialize_sheet_baseline_state(
+    *,
+    snapshot: StoredSnapshot,
+) -> ProgressiveIngestionState:
+    """Sheet-group scopes need no revision stage before finalization."""
+    return ProgressiveIngestionState(
+        snapshots=[snapshot],
+        current_snapshot_id=snapshot.snapshot_id,
+        stages={"finalization": {"status": "pending", "attempts": 0}},
+    )
+
+
 def read_progressive_state(
     metadata: Mapping[str, object] | None,
 ) -> ProgressiveIngestionState | None:
