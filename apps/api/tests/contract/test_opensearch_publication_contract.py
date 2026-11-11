@@ -2461,3 +2461,165 @@ def test_document_filtered_search_prefers_distinct_query_terms_to_repetition(
         assert response.status_code in (200, 404)
         native.close()
         engine.dispose()
+
+
+def test_manifest_query_keeps_the_body_from_the_selected_build(
+    classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy.orm import sessionmaker
+
+    from shared.core.config import settings
+    from shared.models.database.document import Document
+    from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.hit import LexicalHit
+    from shared.services.retrieval.lexical.manifest_publication import ManifestPublication
+    from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
+    from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.publication_models import DocumentPublicationScope
+    from shared.services.retrieval.publication_scope_content import replace_document_scope_content
+
+    engine, namespace = classicRuntime
+    sessions = sessionmaker(engine, expire_on_commit=False)
+    with sessions.begin() as session:
+        document = session.scalars(select(Document)).one()
+        assert document.current_job_result_id is not None
+        scope = DocumentPublicationScope(user_id=document.user_id, namespace=namespace,
+            document_id=document.document_id, job_result_id=document.current_job_result_id, source_file_name="report.pdf")
+    lexicalScope = LexicalScope(ownerId=scope.user_id, namespace=namespace)
+    native = OpenSearchLexicalIndex(endpoint=_getNativeEndpoint(), scope=lexicalScope,
+        indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX)
+    native.createManifestIndex()
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS", True)
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP", True)
+    firstManifest = ManifestPublication(sessions).seed(scope=lexicalScope, native=native)
+    original = AsyncOpenSearchLexicalIndex.search
+    observed: list[str] = []
+
+    def publish(db: Session, staged: DocumentPublicationScope) -> None:
+        replace_document_scope_content(db, scope=staged, scope_id="*", chunks=[
+            {"chunk_id": "new-first", "type": "text", "content": "工程验收计划 新正文", "path": "report.pdf/工程验收", "metadata": {}},
+            {"chunk_id": "classic-second", "type": "text", "content": "项目质量管理程序", "path": "report.pdf/质量管理", "metadata": {}},
+        ])
+
+    async def refineAfterSearch(self: AsyncOpenSearchLexicalIndex, **options: Any) -> tuple[LexicalHit, ...]:
+        lookup = options["buildLookup"]
+        hits = await original(self, **options)
+        assert hits
+        observed.append(lookup["id"])
+        if len(observed) == 1:
+            ProgressivePublication(sessionFactory=sessions).publish(scope=scope, update=publish)
+        return hits
+
+    monkeypatch.setattr(AsyncOpenSearchLexicalIndex, "search", refineAfterSearch)
+    try:
+        before = asyncio.run(_queryClassic(namespace))
+        after = asyncio.run(_queryClassic(namespace))
+        assert isinstance(before["results"], list) and before["results"][0]["content"] == "工程验收计划"
+        assert isinstance(after["results"], list) and after["results"][0]["content"] == "工程验收计划 新正文"
+        assert observed[0] == firstManifest and observed[1] != firstManifest
+    finally:
+        native.close()
+        response = httpx.delete(f"{_getNativeEndpoint()}/{native.manifestIndexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
+
+
+def test_parallel_document_refinements_rebase_the_published_manifest(
+    classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from threading import Barrier, Lock
+
+    from sqlalchemy.orm import sessionmaker
+
+    from shared.core.config import settings
+    from shared.models.database.document import Document
+    from shared.models.database.job import Job
+    from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
+    from shared.services.jobs.lifecycle.success_finalizer import SyncJobSuccessFinalizer
+    from shared.services.retrieval.lexical.manifest_publication import ManifestPublication, PreparedManifest
+    from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
+    from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.lexical.worker import IndexingWorker
+    from shared.services.retrieval.publication_models import DocumentPublicationScope
+    from shared.services.retrieval.publication_scope_content import replace_document_scope_content
+
+    engine, namespace = classicRuntime
+    sessions = sessionmaker(engine, expire_on_commit=False)
+    userId = "native-contract-user"
+    lexicalScope = LexicalScope(ownerId=userId, namespace=namespace)
+    native = OpenSearchLexicalIndex(endpoint=_getNativeEndpoint(), scope=lexicalScope,
+        indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX)
+    native.createManifestIndex()
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS", True)
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND", True)
+    firstManifest = ManifestPublication(sessions).seed(scope=lexicalScope, native=native)
+    secondJob = "native-contract-second"
+    try:
+        with sessions.begin() as session:
+            session.add(Job(job_id=secondJob, user_id=userId, job_type="document_ingestion",
+                source_type="file", status="running", job_metadata={
+                    "document_id": "doc_native_second", "namespace": namespace, "source_file_name": "report.pdf",
+                }))
+        with sessions.begin() as session:
+            finalized = SyncJobSuccessFinalizer().finalize(session, job_id=secondJob,
+                result_s3_key="results/second.zip", checksum="second", zip_size=10,
+                chunks=[{"chunk_id": "second-original", "type": "text", "content": "second baseline",
+                    "path": "report.pdf/Chapter", "metadata": {}}], stored_count=1,
+                delivery_mode="url", section_summaries=None)
+            assert finalized.response.should_commit()
+        assert IndexingWorker(sessionFactory=sessions).run(secondJob) == "completed"
+        with sessions.begin() as session:
+            documents = list(session.scalars(select(Document).where(Document.namespace == namespace)))
+            assert len(documents) == 2
+            previousBuilds = {document.document_id: document.current_indexing_build_id for document in documents}
+            scopes = [DocumentPublicationScope(user_id=userId, namespace=namespace,
+                document_id=document.document_id, job_result_id=str(document.current_job_result_id),
+                source_file_name="report.pdf") for document in documents]
+
+        barrier = Barrier(2, timeout=10)
+        guard = Lock()
+        attempts: list[tuple[str | None, int]] = []
+        prepare = ManifestPublication.prepare
+
+        def synchronize(self: ManifestPublication, **options: Any) -> PreparedManifest | None:
+            candidate = prepare(self, **options)
+            assert candidate is not None
+            with guard:
+                attempts.append((candidate.previousId, candidate.generation))
+                isFirstRound = len(attempts) <= 2
+            if isFirstRound:
+                barrier.wait()
+            return candidate
+
+        def publish(scope: DocumentPublicationScope) -> None:
+            def update(db: Session, staged: DocumentPublicationScope) -> None:
+                replace_document_scope_content(db, scope=staged, scope_id="*", chunks=[
+                    {"chunk_id": "refined-" + scope.document_id, "type": "text",
+                     "content": "工程验收计划", "path": "report.pdf/Refined", "metadata": {}},
+                ])
+            ProgressivePublication(sessionFactory=sessions).publish(scope=scope, update=update)
+
+        monkeypatch.setattr(ManifestPublication, "prepare", synchronize)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            list(executor.map(publish, scopes))
+        assert len(attempts) == 3 and attempts[0] == attempts[1] and attempts[1] != attempts[2]
+        with sessions.begin() as session:
+            registry = session.get(LexicalNamespaceIndex, lexicalScope.fingerprint)
+            assert registry is not None and registry.publishedManifestId is not None
+            currentManifest = registry.publishedManifestId
+            currentBuilds = {
+                document.document_id: document.current_indexing_build_id
+                for document in session.scalars(select(Document).where(Document.namespace == namespace))
+            }
+        assert currentBuilds.keys() == previousBuilds.keys()
+        assert all(build != previousBuilds[document] for document, build in currentBuilds.items())
+        response = httpx.get(f"{_getNativeEndpoint()}/{native.manifestIndexName}/_doc/{currentManifest}",
+            timeout=15, trust_env=False).raise_for_status().json()
+        assert set(response["_source"]["buildIds"]) == set(currentBuilds.values())
+        assert httpx.get(f"{_getNativeEndpoint()}/{native.manifestIndexName}/_doc/{firstManifest}",
+            timeout=15, trust_env=False).status_code == 200
+    finally:
+        native.close()
+        response = httpx.delete(f"{_getNativeEndpoint()}/{native.manifestIndexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)

@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
-from typing import Literal
+from typing import Any, Literal
 
 import pytest
 from sqlalchemy import create_engine, event, select
-from sqlalchemy.engine import Connection, Engine, ExecutionContext, make_url
+from sqlalchemy.engine import Connection, Engine, ExecutionContext, Result, make_url
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import Document
@@ -61,13 +62,13 @@ def build_chunks(stage: str) -> list[dict[str, object]]:
 
 @pytest.mark.parametrize(
     "boundary",
-    ["units", "hydration", "agent", "assembled", "partial", "no_hits", "small_growth", "small_archive"],
+    ["before_read", "units", "hydration", "agent", "assembled", "partial", "no_hits", "small_growth", "small_archive"],
 )
 @pytest.mark.parametrize("mutation_count", [0, 1, 2])
 def test_query_handles_final_publication_crossing_a_serving_read(
     monkeypatch: pytest.MonkeyPatch,
     postgresql_proc: PostgreSQLProcess,
-    boundary: Literal["units", "hydration", "agent", "assembled", "partial", "no_hits", "small_growth", "small_archive"],
+    boundary: Literal["before_read", "units", "hydration", "agent", "assembled", "partial", "no_hits", "small_growth", "small_archive"],
     mutation_count: int,
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
@@ -164,7 +165,7 @@ def test_query_handles_final_publication_crossing_a_serving_read(
             else "FROM document_map_unit_indexes AS indexes"
         )
         if (
-            is_small_corpus or boundary in ("agent", "assembled", "no_hits")
+            is_small_corpus or boundary in ("before_read", "agent", "assembled", "no_hits")
             or connection.dialect.driver != "asyncpg"
             or marker not in statement
             or len(published_during_read) >= mutation_count
@@ -178,26 +179,52 @@ def test_query_handles_final_publication_crossing_a_serving_read(
     if is_small_corpus:
         count_scoped_chunks = routes.count_scoped_chunks
 
-        async def publish_after_count(*args: object, **kwargs: object) -> int:
-            count = await count_scoped_chunks(*args, **kwargs)
+        async def publish_after_count(db: AsyncSession, **kwargs: Any) -> int:
+            count = await count_scoped_chunks(db, **kwargs)
             if count == 1 and not published_during_read and mutation_count:
                 publish_final()
             return count
 
         monkeypatch.setattr(routes, "count_scoped_chunks", publish_after_count)
 
-    if boundary in ("assembled", "no_hits"):
+    if boundary in ("before_read", "assembled", "no_hits"):
         from shared.services.retrieval.execution.route_types import RetrievalRouteContext, RetrievalRouteOutcome
 
         original = plan.run_retrieval_route
 
-        async def publish_after_assembly(context: RetrievalRouteContext) -> RetrievalRouteOutcome:
+        async def publish_around_route(context: RetrievalRouteContext) -> RetrievalRouteOutcome:
+            if boundary == "before_read" and len(published_during_read) < mutation_count:
+                publish_final()
             outcome = await original(context)
-            if len(published_during_read) < mutation_count:
+            if boundary != "before_read" and len(published_during_read) < mutation_count:
                 publish_final()
             return outcome
 
-        monkeypatch.setattr(plan, "run_retrieval_route", publish_after_assembly)
+        monkeypatch.setattr(plan, "run_retrieval_route", publish_around_route)
+
+    if boundary == "assembled":
+        from shared.services.retrieval.hydration import result_assembly
+
+        execute = AsyncSession.execute
+        compose = result_assembly.compose_evidence_parts
+        snapshot_sessions: list[AsyncSession] = []
+
+        async def track_read_snapshot(
+            session: AsyncSession, statement: Any, *args: Any, **kwargs: Any,
+        ) -> Result[Any]:
+            result: Result[Any] = await execute(session, statement, *args, **kwargs)
+            if "ISOLATION LEVEL REPEATABLE READ, READ ONLY" in str(statement):
+                snapshot_sessions.append(session)
+            return result
+
+        def compose_after_snapshot(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+            # Composition may read citation images from object storage.
+            assert snapshot_sessions
+            assert all(not session.in_transaction() for session in snapshot_sessions)
+            return compose(*args, **kwargs)
+
+        monkeypatch.setattr(AsyncSession, "execute", track_read_snapshot)
+        monkeypatch.setattr(result_assembly, "compose_evidence_parts", compose_after_snapshot)
 
     if boundary == "agent":
         from shared.services.retrieval.agent_explore import harness
@@ -269,7 +296,7 @@ def test_query_handles_final_publication_crossing_a_serving_read(
             )
 
     try:
-        if boundary == "agent" and mutation_count == 2:
+        if boundary in ("agent", "before_read") and mutation_count == 2:
             with pytest.raises(ConflictException):
                 asyncio.run(query())
             assert published_during_read == [True, True]
@@ -279,30 +306,26 @@ def test_query_handles_final_publication_crossing_a_serving_read(
         assert isinstance(results, list)
         if is_small_corpus and mutation_count:
             assert published_during_read == [True]
-            assert len(results) == (1 if boundary == "small_growth" else 0)
+            assert response["router_used"] == "small_corpus_all"
+            assert [row["chunk_id"] for row in results] == ["baseline-1"]
+            assert results[0]["source"]["document_id"] == document_id
+            assert results[0]["source"]["page_nums"] == [1]
+            next_response = asyncio.run(query())
             if boundary == "small_growth":
-                assert response["router_used"] == "classic_topk"
-                assert results[0]["chunk_id"] == "final-1"
-                assert results[0]["source"]["document_id"] == document_id
+                assert next_response["router_used"] == "classic_topk"
+                next_results = next_response["results"]
+                assert isinstance(next_results, list)
+                assert [row["chunk_id"] for row in next_results] == ["final-1"]
+            else:
+                assert next_response["results"] == []
             return
         if boundary == "no_hits":
             assert published_during_read == [True] * min(mutation_count, 1)
             assert results == []
             return
-        if boundary in ("assembled", "partial") and mutation_count:
-            assert published_during_read == [True]
-            assert {row["chunk_id"] for row in results} == (
-                {"baseline-1"} if boundary == "assembled" else {"steady-2"}
-            )
-            assert results[0]["source"]["document_id"] == document_id
-            assert results[0]["source"]["job_result_id"] == scope.revision_ref
-            return
-        assert published_during_read == [True] * mutation_count
-        if boundary in ("hydration", "units") and mutation_count == 2:
-            assert results == []
-            return
+        assert published_during_read == [True] * min(mutation_count, 1)
         assert results, "Concurrent final publication must not silently lose all matching evidence"
-        expected_stage = "final" if mutation_count else "baseline"
+        expected_stage = "final" if boundary in ("agent", "before_read") and mutation_count else "baseline"
         expected_ids = {"baseline-1", "steady-2"} if boundary == "partial" else {f"{expected_stage}-1"}
         assert {row["chunk_id"] for row in results} == expected_ids
         if boundary == "partial":
@@ -421,6 +444,83 @@ def test_empty_namespace_with_an_existing_generation_remains_searchable(
     try:
         asyncio.run(query())
     finally:
+        engine.dispose()
+
+
+def test_empty_scope_capture_precedes_a_concurrent_first_publication(
+    monkeypatch: pytest.MonkeyPatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    from shared.services.retrieval.execution.revision_pins import (
+        RetrievalRevisionPins,
+        capture_revision_pins,
+    )
+
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    scope = PublicationScope(
+        user_ref="first-publication-capture",
+        namespace_ref="first-publication-capture",
+        source_file_name="first.pdf",
+        job_ref="first-publication-capture-job",
+        revision_ref="first-publication-capture-result",
+    )
+    engine: Engine = create_engine(
+        make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2")
+    )
+    document_id: str | None = None
+
+    def publish() -> str:
+        with Session(engine) as db:
+            seed_publication_fixture(db, scope=scope)
+            published = RetrievalPublicationService().publish_document_state(
+                db,
+                job_id=scope.job_ref,
+                job_result_id=scope.revision_ref,
+                chunks=build_chunks("baseline"),
+                update_namespace_snapshot=False,
+            )
+            assert published is not None and published.document_id is not None
+            assert advance_namespace_generation(
+                db, user_id=scope.user_ref, namespace=scope.namespace_ref,
+            ) == 1
+            db.commit()
+            return published.document_id
+
+    def publish_after_scope_select(
+        connection: Connection,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: ExecutionContext,
+        executemany: bool,
+    ) -> None:
+        nonlocal document_id
+        if (
+            document_id is None
+            and connection.dialect.driver == "asyncpg"
+            and "documents.current_job_result_id" in statement
+        ):
+            with ThreadPoolExecutor(max_workers=1) as writer:
+                document_id = writer.submit(publish).result(timeout=15)
+
+    async def capture() -> RetrievalRevisionPins:
+        async with contract_db_session() as db:
+            return await capture_revision_pins(
+                db, user_id=scope.user_ref, namespace=scope.namespace_ref,
+            )
+
+    event.listen(Engine, "after_cursor_execute", publish_after_scope_select)
+    try:
+        before: RetrievalRevisionPins = asyncio.run(capture())
+        after: RetrievalRevisionPins = asyncio.run(capture())
+        assert document_id is not None
+        assert dict(before) == {}
+        assert before.generation == 0
+        assert dict(after) == {document_id: scope.revision_ref}
+        assert after.generation == 1
+    finally:
+        event.remove(Engine, "after_cursor_execute", publish_after_scope_select)
         engine.dispose()
 
 

@@ -14,7 +14,7 @@ from test_lexical_operator_authority_contract import (
 )
 
 
-@pytest.mark.parametrize("scenario", ["matched", "foreign-cluster", "foreign-incarnation", "unknown-catalog", "serving"])
+@pytest.mark.parametrize("scenario", ["matched", "matched-manifest", "foreign-cluster", "foreign-incarnation", "unknown-catalog", "serving"])
 def test_gated_restart_matches_same_cluster_and_keeps_uncertain_charge(
         issuerRuntime: tuple[Engine, sessionmaker[Session]], scenario: str) -> None:
     from shared.models.database.lexicalcontrol import LexicalBackendControl
@@ -41,13 +41,16 @@ def test_gated_restart_matches_same_cluster_and_keeps_uncertain_charge(
     host: dict[str, object] = {"mode": "actual", "status": "recovered-host", "route": "healthy-volume",
         "host": {"active_state": "active", "main_pid": 55}, "fence": {"native_issuer_fenced": True}, "issuer": owner}
     calls: list[str] = []
+    canReconcile: bool = scenario in ("matched", "matched-manifest")
 
     def observe() -> NativeLifecycleSnapshot:
         calls.append("native-state")
         indices: dict[str, object] = {name: {"state": "close", "settings": {"index": {"uuid": identity}}}
             for name, identity in (("knowhere-first", "index-one"), ("knowhere-second", "index-two"))}
+        if scenario in ("matched-manifest", "unknown-catalog"):
+            indices["knowhere-published-manifests"] = {"state": "open", "settings": {"index": {"uuid": "manifest"}}}
         if scenario == "unknown-catalog":
-            indices["knowhere-foreign"] = {"state": "open", "settings": {"index": {"uuid": "unowned"}}}
+            indices["knowhere-published-manifests-extra"] = {"state": "open", "settings": {"index": {"uuid": "unowned"}}}
         return NativeLifecycleSnapshot.model_validate({"cluster_uuid": "foreign" if scenario == "foreign-cluster" else "cluster-one",
             "nodes": {"node": {"ephemeral_id": "foreign-node" if scenario == "foreign-incarnation" else "new-node"}},
             "metadata": {"indices": indices}, "blocks": {"indices": {name: {"4": {"levels": ["read", "write"]}} for name in indices}}})
@@ -58,10 +61,12 @@ def test_gated_restart_matches_same_cluster_and_keeps_uncertain_charge(
         return service.reconcile(inventory, expectedEpoch=7, expectedBackend="opensearch", sourceHash=_SOURCE_HASH,
             issuer=owner, hostReceipt=host, hostReceiptSha256="a" * 64, execute=True)
 
-    if scenario == "matched":
+    if canReconcile:
         result: dict[str, object] = run()
         assert result["status"] == "reconciled" and result["service_restored"] is False
-        assert result["charged_slots"] == 1 and result["uncertain_indices"] == ["knowhere-first"]
+        assert result["catalog_indices"] == 2
+        assert result["charged_slots"] == (2 if scenario == "matched-manifest" else 1)
+        assert result["uncertain_indices"] == ["knowhere-first"]
     else:
         with pytest.raises(LexicalIndexError):
             run()
@@ -71,7 +76,7 @@ def test_gated_restart_matches_same_cluster_and_keeps_uncertain_charge(
         first: LexicalNamespaceIndex = cast(LexicalNamespaceIndex, database.get(LexicalNamespaceIndex, "one"))
         second: LexicalNamespaceIndex = cast(LexicalNamespaceIndex, database.get(LexicalNamespaceIndex, "two"))
         assert control.epoch == 7 and control.clusterUuid == "cluster-one"
-        assert control.nodeIncarnation == ("new-node" if scenario == "matched" else "old-node")
-        assert first.state == ("uncertain" if scenario == "matched" else "closing")
+        assert control.nodeIncarnation == ("new-node" if canReconcile else "old-node")
+        assert first.state == ("uncertain" if canReconcile else "closing")
         assert first.operationId == "close-in-doubt" and first.indexUuid == "index-one"
         assert second.state == "closed" and second.indexUuid == "index-two"

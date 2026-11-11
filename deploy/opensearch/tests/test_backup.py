@@ -9,6 +9,7 @@ from types import ModuleType
 from typing import cast
 
 import httpx
+import pytest
 
 from test_operations import createInventory, createShardStatus, createSnapshot
 
@@ -26,22 +27,39 @@ def loadBackup() -> type:
     return cast(type, module.BackupOperations)
 
 
-def test_submits_closed_catalog_once_and_preserves_pending_identity() -> None:
+@pytest.mark.parametrize("extraIndex", [None, "knowhere-lexical-v1-published-manifests", "knowhere-lexical-v1-published-manifests-extra"])
+def test_submits_closed_catalog_once_and_preserves_pending_identity(extraIndex: str | None) -> None:
     backup: type = loadBackup()
     calls: list[httpx.Request] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
         calls.append(request)
         if request.url.path.startswith("/_cat/"):
-            return httpx.Response(200, json=[{"index": row["name"], "uuid": row["uuid"], "status": "close" if row["state"] == "closed" else "open", "pri": "1"} for row in createInventory()])
+            rows: list[dict[str, object]] = [{"index": row["name"], "uuid": row["uuid"],
+                "status": "close" if row["state"] == "closed" else "open", "pri": "1"} for row in createInventory()]
+            if extraIndex is not None:
+                rows.append({"index": extraIndex, "uuid": "extra", "status": "open", "pri": "1"})
+            return httpx.Response(200, json=rows)
         return httpx.Response(200, json={"accepted": True})
 
     with httpx.Client(base_url="http://127.0.0.1:19200", transport=httpx.MockTransport(respond)) as client:
-        result = backup.runCycle(client, indexPrefix="knowhere-lexical-v1", inventory=createInventory(), boundarySha256="d" * 64, state={}, nowMillis=1_000)
-    assert result["state"]["pending"]["snapshot"] == "hourly-1000"
-    assert result["state"]["points"] == []
+        def run() -> dict[str, object]:
+            return backup.runCycle(client, indexPrefix="knowhere-lexical-v1", inventory=createInventory(),
+                boundarySha256="d" * 64, state={}, nowMillis=1_000)
+
+        if extraIndex == "knowhere-lexical-v1-published-manifests-extra":
+            with pytest.raises(ValueError, match="Expected application catalog differs"):
+                run()
+            assert [request.method for request in calls] == ["GET"]
+            return
+        result: dict[str, object] = run()
+    state: object = result["state"]
+    assert isinstance(state, dict)
+    assert state["pending"]["snapshot"] == "hourly-1000"
+    assert state["points"] == []
     assert [request.method for request in calls] == ["GET", "PUT"]
     assert b"knowhere-lexical-v1-cold" in calls[1].content
+    assert b"published-manifests" not in calls[1].content
     assert result["coverage_verified"] is False
 
 

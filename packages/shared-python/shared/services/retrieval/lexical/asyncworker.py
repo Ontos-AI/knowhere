@@ -15,6 +15,7 @@ from shared.services.retrieval.lexical.asynccoordination import AsyncLexicalCoor
 from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
 from shared.services.retrieval.lexical.deadline import IndexingDeadline
 from shared.services.retrieval.lexical.error import LexicalIndexError
+from shared.services.retrieval.lexical.manifest_publication import ManifestPublication, ManifestPublicationAdvanced
 from shared.services.retrieval.lexical.input import LexicalInput
 from shared.services.retrieval.lexical.preparation import LexicalPreparation
 from shared.services.retrieval.lexical.settlement import IndexingSettlement
@@ -83,7 +84,7 @@ class AsyncIndexingWorker:
                 await self.database.run(partial(self.repository._assertClaim, claim))
                 if await native.getIndexUuid() != claim.indexUuid:
                     raise LexicalIndexError("Native index changed before publication")
-                outcome: Literal["completed"] = await self.database.run(partial(self.repository._activate, claim))
+                outcome: Literal["completed"] = await self._publishVisibleBuild(claim, native)
                 isKnown = True
                 return outcome
         except asyncio.CancelledError:
@@ -107,6 +108,22 @@ class AsyncIndexingWorker:
                 except Exception as error:
                     self.hasPendingSettlement = True
                     logger.error("Async indexing use remains unresolved: build_id={}, error_type={}", claim.buildId, type(error).__name__)
+
+    async def _publishVisibleBuild(self, claim: _Claim, native: AsyncOpenSearchLexicalIndex) -> Literal["completed"]:
+        publication = ManifestPublication(self.repository.sessions)
+        for _ in range(8):
+            prepared = await self.database.run(partial(publication.prepareMetadata, scope=claim.context.scope,
+                documentId=claim.context.documentId, buildId=claim.buildId))
+            if prepared is not None:
+                await native.writePublishedManifest(manifestId=prepared.id, scopeId=prepared.scopeId,
+                    buildIds=prepared.buildIds)
+            try:
+                activation = partial(self.repository._activate, claim) if prepared is None else partial(
+                    self.repository._activate, claim, prepared)
+                return await self.database.run(activation)
+            except ManifestPublicationAdvanced:
+                continue
+        raise ManifestPublicationAdvanced("Namespace manifest kept advancing during publication", isRetryable=True)
 
     async def _prepareInput(self, claim: _Claim) -> LexicalInput:
         source: _InputSource = await self.database.run(partial(self.repository._readInputSource, claim))

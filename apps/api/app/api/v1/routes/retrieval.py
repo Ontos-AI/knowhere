@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.core.config import settings
 from shared.core.database import get_db
 from shared.models.schemas.llm_config import LLMConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
@@ -202,6 +203,11 @@ async def execute_retrieval_query(
             "referenced_chunks": [],
             "results": [],
         }
+
+    if settings.KNOWHERE_LEXICAL_BACKEND == "postgresql" and db.in_transaction():
+        # Authentication and tier initialization commit their own writes.
+        # Return the connection used by admission reads before opening a snapshot.
+        await db.rollback()
 
     return await run_retrieval_query(
         db=db,

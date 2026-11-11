@@ -39,6 +39,7 @@ def _buildParser() -> argparse.ArgumentParser:
             "gate",
             "settle",
             "backfill",
+            "seed-manifests",
             "verify",
             "resume",
             "abort",

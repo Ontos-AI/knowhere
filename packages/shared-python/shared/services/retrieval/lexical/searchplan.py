@@ -40,8 +40,12 @@ class NativeSearchPlan:
     def buildPayload(channel: str, *, buildIds: tuple[str, ...], queryTokens: tuple[str, ...],
                      limit: int, unitIds: tuple[str, ...] | None,
                      preferContentCoverage: bool = False,
-                     sectionIds: tuple[str, ...] | None = None) -> dict[str, object]:
-        filters: list[dict[str, object]] = [{"terms": {"buildId": list(buildIds)}}]
+                     sectionIds: tuple[str, ...] | None = None,
+                     buildLookup: dict[str, str] | None = None,
+                     extraFilters: tuple[dict[str, object], ...] = (),
+                     exclusions: tuple[dict[str, object], ...] = ()) -> dict[str, object]:
+        buildFilter: dict[str, str] | list[str] = buildLookup if buildLookup is not None else list(buildIds)
+        filters: list[dict[str, object]] = [{"terms": {"buildId": buildFilter}}, *extraFilters]
         if unitIds is not None:
             filters.append({"terms": {"unitId": list(unitIds)}})
         if sectionIds is not None:
@@ -56,6 +60,8 @@ class NativeSearchPlan:
             "filter": filters,
             "must": [{"match": {channel: {"query": " ".join(queryTokens), "operator": "or"}}}],
         }
+        if exclusions:
+            query["must_not"] = exclusions
         if preferContentCoverage and channel == "contentTokens":
             terms: tuple[str, ...] = tuple(dict.fromkeys(queryTokens))
             if 2 <= len(terms) <= _MAXIMUM_COVERAGE_TERMS:
@@ -69,7 +75,7 @@ class NativeSearchPlan:
             "sort": [{"_score": "desc"}, {"documentId": "asc"}, {"sortOrder": "asc"}, {"unitId": "asc"}]}
 
     @staticmethod
-    def fuseChannels(bodies: tuple[object, object], *, buildIds: tuple[str, ...],
+    def fuseChannels(bodies: tuple[object, object], *, buildIds: tuple[str, ...] | None,
                      limit: int) -> tuple[LexicalHit, ...]:
         try:
             channels: tuple[_SearchResponse, ...] = tuple(_SearchResponse.model_validate(body) for body in bodies)
@@ -77,11 +83,11 @@ class NativeSearchPlan:
             raise LexicalIndexError("Native lexical response was invalid") from error
         if any(channel.timed_out or channel.shards.failed for channel in channels):
             raise LexicalIndexError("Lexical channel returned partial results", isRetryable=True)
-        allowedBuildIds: frozenset[str] = frozenset(buildIds)
+        allowedBuildIds: frozenset[str] | None = frozenset(buildIds) if buildIds is not None else None
         hits: dict[str, LexicalHit] = {}
         for channelNumber, channel in enumerate(channels):
             for rank, native in enumerate(channel.hits.hits):
-                if native.source.buildId not in allowedBuildIds:
+                if allowedBuildIds is not None and native.source.buildId not in allowedBuildIds:
                     raise LexicalIndexError(
                         "Native hit escaped its published build scope"
                     )

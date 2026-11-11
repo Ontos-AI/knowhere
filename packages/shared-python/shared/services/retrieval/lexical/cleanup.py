@@ -18,6 +18,7 @@ from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.demo_authorization import authorize_demo_transaction
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
 from shared.services.retrieval.lexical.error import LexicalIndexError
+from shared.services.retrieval.lexical.manifest_publication import MANIFEST_RETIREMENT_SECONDS
 from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
 from shared.services.retrieval.lexical.scope import LexicalScope
 
@@ -115,6 +116,14 @@ class LexicalCleanup:
             if build.state not in ("retired", "failed") or (
                 document is not None and document.current_indexing_build_id == buildId):
                 return False
+            if build.state == "retired" and build.retainForManifestReads:
+                if build.manifestCleanupAfter is None:
+                    build.manifestCleanupAfter = now + timedelta(seconds=MANIFEST_RETIREMENT_SECONDS)
+                    build.nextMaintenanceAt = build.manifestCleanupAfter
+                    return False
+                if build.manifestCleanupAfter > now:
+                    build.nextMaintenanceAt = build.manifestCleanupAfter
+                    return False
             if registry.state != "open" or registry.indexUuid is None:
                 return False
             indexUuid: str = registry.indexUuid

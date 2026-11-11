@@ -3,6 +3,7 @@ from __future__ import annotations
 from shared.services.retrieval.document_scope import DocumentScope
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,38 @@ from shared.services.retrieval.hydration.row_utils import (
 )
 
 
+@dataclass(frozen=True)
+class RetrievalResultRows:
+    primary: list[dict[str, Any]]
+    connected: list[dict[str, Any]]
+
+
+async def load_retrieval_result_rows(
+    *,
+    db: AsyncSession | None,
+    rows: list[dict[str, Any]],
+    exclude_document_ids: list[str],
+    exclude_sections: list[dict[str, str]],
+    document_scope: DocumentScope,
+    revision_pins: Mapping[str, str] | None,
+) -> RetrievalResultRows:
+    primary = filter_excluded_rows(
+        rows,
+        exclude_document_ids=exclude_document_ids,
+        exclude_sections=exclude_sections,
+        document_scope=document_scope,
+    )
+    connected = await hydrate_connected_target_rows(
+        db=db,
+        rows=primary,
+        exclude_document_ids=exclude_document_ids,
+        exclude_sections=exclude_sections,
+        document_scope=document_scope,
+        revision_pins=revision_pins,
+    )
+    return RetrievalResultRows(primary=primary, connected=connected)
+
+
 async def assemble_retrieval_results(
     *,
     db: AsyncSession | None = None,
@@ -32,41 +65,38 @@ async def assemble_retrieval_results(
     revision_pins: Mapping[str, str] | None = None,
     queried_tables: Mapping[tuple[str, str], str] | None = None,
     skip_locked_chunk_final: bool = False,
+    loaded_rows: RetrievalResultRows | None = None,
 ) -> list[dict[str, Any]]:
-    scoped_rows = filter_excluded_rows(
-        rows,
-        exclude_document_ids=exclude_document_ids,
-        exclude_sections=exclude_sections,
-        document_scope=document_scope,
-    )
-    hydrated_rows = await hydrate_connected_target_rows(
-        db=db,
-        rows=scoped_rows,
-        exclude_document_ids=exclude_document_ids,
-        exclude_sections=exclude_sections,
-        document_scope=document_scope,
-        revision_pins=revision_pins,
-    )
-    rows_by_chunk_id = {
-        str(row.get('chunk_id') or ''): row
-        for row in [*scoped_rows, *hydrated_rows]
-        if row.get('chunk_id')
-    }
+    if loaded_rows is None:
+        loaded_rows = await load_retrieval_result_rows(
+            db=db,
+            rows=rows,
+            exclude_document_ids=exclude_document_ids,
+            exclude_sections=exclude_sections,
+            document_scope=document_scope,
+            revision_pins=revision_pins,
+        )
+    rows_by_build: dict[str | None, dict[str, dict[str, Any]]] = {}
+    for row in [*loaded_rows.primary, *loaded_rows.connected]:
+        if row.get('chunk_id'):
+            rows_by_build.setdefault(row.get('build_id'), {})[str(row['chunk_id'])] = row
     filtered_rows = _filter_rows_by_allowed_chunk_types(
-        scoped_rows,
+        loaded_rows.primary,
         allowed_chunk_types=allowed_chunk_types,
-        rows_by_chunk_id=rows_by_chunk_id,
+        rows_by_build=rows_by_build,
     )
 
-    embedded_targets: set[str] = set()
+    embedded_targets: set[tuple[str | None, str]] = set()
     for row in filtered_rows:
+        build_id: str | None = row.get('build_id')
         for target_id in iter_connected_target_ids(row):
-            if target_id in rows_by_chunk_id:
-                embedded_targets.add(target_id)
+            if target_id in rows_by_build.get(build_id, {}):
+                embedded_targets.add((build_id, target_id))
 
     assembled: list[dict[str, Any]] = []
     for row in filtered_rows:
-        if row.get('chunk_id') in embedded_targets:
+        build_id: str | None = row.get('build_id')
+        if (build_id, row.get('chunk_id')) in embedded_targets:
             continue
         assembled_row = dict(row)
         base_content = str(row.get('content') or '')
@@ -94,7 +124,7 @@ async def assemble_retrieval_results(
             assembled_row['content_source'] = 'content'
         assembled_row['composed'] = compose_evidence_parts(
             assembled_row,
-            rows_by_chunk_id,
+            rows_by_build.get(build_id, {}),
             queried_tables=queried_tables,
         )
         if (
@@ -119,7 +149,7 @@ def _filter_rows_by_allowed_chunk_types(
     rows: list[dict[str, Any]],
     *,
     allowed_chunk_types: set[str] | None,
-    rows_by_chunk_id: Mapping[str, dict[str, Any]],
+    rows_by_build: Mapping[str | None, Mapping[str, dict[str, Any]]],
 ) -> list[dict[str, Any]]:
     if allowed_chunk_types is None:
         return rows
@@ -129,7 +159,7 @@ def _filter_rows_by_allowed_chunk_types(
         for row in rows
         if normalize_chunk_type(row.get('chunk_type')) in allowed_chunk_types
         or any(
-            normalize_chunk_type(rows_by_chunk_id.get(target_id, {}).get('chunk_type'))
+            normalize_chunk_type(rows_by_build.get(row.get('build_id'), {}).get(target_id, {}).get('chunk_type'))
             in allowed_chunk_types
             for target_id in iter_connected_target_ids(row)
         )
