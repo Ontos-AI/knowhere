@@ -99,8 +99,7 @@ class AsyncPublishedLexicalRead(PublishedLexicalRead):
 
     async def searchManifestAsync(
         self, *, queryTokens: tuple[str, ...], limit: int, documentScope: DocumentScope,
-        chunkTypes: set[str] | None, signalPaths: list[str], filterMode: str,
-        excludeSections: list[dict[str, str]],
+        chunkTypes: set[str] | None, excludeSections: list[dict[str, str]],
     ) -> tuple[LexicalHit, ...]:
         self.assertAlive()
         if self.manifestId is None or self._manifestDeadline is None or self._asyncNative is None:
@@ -108,7 +107,7 @@ class AsyncPublishedLexicalRead(PublishedLexicalRead):
         if documentScope.include == frozenset():
             return ()
         filters, exclusions = buildManifestFilters(scope=documentScope, chunkTypes=chunkTypes,
-            signalPaths=signalPaths, filterMode=filterMode, excludeSections=excludeSections)
+            excludeSections=excludeSections)
         lookup = {"index": f"{settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX}-published-manifests",
             "id": self.manifestId, "path": "buildIds"}
         LexicalRecency.recordAccess(self.scope.fingerprint)

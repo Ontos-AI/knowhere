@@ -111,7 +111,8 @@ async def run_retrieval_route(
         if settings.KNOWHERE_LEXICAL_BACKEND == "postgresql" and context.use_agentic is False:
             return await _run_postgresql_classic_route(context, try_small_corpus=True)
 
-        if getattr(PublishedLexicalRead.current(), "manifestId", None) is None:
+        native_read: PublishedLexicalRead | None = PublishedLexicalRead.current()
+        if native_read is None or native_read.manifestId is None:
             small_corpus_outcome = await _try_run_small_corpus_route(context)
             if small_corpus_outcome is not None:
                 return small_corpus_outcome
@@ -122,6 +123,8 @@ async def run_retrieval_route(
             use_agentic, decision = await _resolve_auto_route(context)
 
         if use_agentic is False:
+            if native_read is not None:
+                native_read.isClassic = True
             outcome = await _run_classic_topk_route(context)
         else:
             outcome = await _run_agent_explore_route(context)
@@ -156,35 +159,38 @@ async def _resolve_auto_route(
 async def _try_run_small_corpus_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome | None:
-    loaded_rows: RetrievalResultRows | None = None
-    if settings.KNOWHERE_LEXICAL_BACKEND == "postgresql":
-        async with _open_classic_snapshot(context) as snapshot:
-            read = await _read_small_corpus_route(snapshot)
-            if read is not None:
-                loaded_rows = await _load_classic_rows(snapshot, read)
-    else:
-        read = await _read_small_corpus_route(context)
-    if read is None:
-        return None
+    is_native: bool = settings.KNOWHERE_LEXICAL_BACKEND == "opensearch"
+    async with _open_classic_snapshot(context, validate_generation=not is_native) as snapshot:
+        read: _ClassicRead | None = await _read_small_corpus_route(
+            snapshot, validate_generation_after_count=is_native,
+        )
+        if read is None:
+            return None
+        loaded_rows: RetrievalResultRows = await _load_classic_rows(snapshot, read)
     return await _finish_classic_route(context, read, loaded_rows=loaded_rows)
 
 
 @asynccontextmanager
 async def _open_classic_snapshot(
     context: RetrievalRouteContext,
+    *,
+    validate_generation: bool = True,
 ) -> AsyncIterator[RetrievalRouteContext]:
     async with open_postgresql_snapshot(context.db) as snapshot:
-        await validate_postgresql_snapshot(
-            snapshot,
-            user_id=context.user_id,
-            namespace=context.namespace,
-            pins=context.revision_pins,
-        )
+        if validate_generation:
+            await validate_postgresql_snapshot(
+                snapshot,
+                user_id=context.user_id,
+                namespace=context.namespace,
+                pins=context.revision_pins,
+            )
         yield replace(context, db=snapshot)
 
 
 async def _read_small_corpus_route(
     context: RetrievalRouteContext,
+    *,
+    validate_generation_after_count: bool = False,
 ) -> _ClassicRead | None:
     total_chunk_count = await count_scoped_chunks(
         context.db,
@@ -200,6 +206,15 @@ async def _read_small_corpus_route(
     logger.info(f"\n  Total chunks in scope: {total_chunk_count}")
     if total_chunk_count > context.top_k:
         return None
+
+    if validate_generation_after_count:
+        # Only the shortcut reads mutable SQL evidence for an inline native read.
+        await validate_postgresql_snapshot(
+            context.db,
+            user_id=context.user_id,
+            namespace=context.namespace,
+            pins=context.revision_pins,
+        )
 
     logger.info(
         f"  Small corpus optimization: {total_chunk_count} chunks "

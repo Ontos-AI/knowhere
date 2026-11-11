@@ -7,13 +7,14 @@ from collections.abc import Mapping
 from functools import partial
 import time
 
-from sqlalchemy import and_, false, func, or_, select, true, tuple_
+from sqlalchemy import and_, false, func, or_, select, text, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import UnavailableException
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.document_scope import DocumentScope
+from shared.services.retrieval.execution.postgresql_snapshot import PostgreSQLServingGenerationChanged
 from shared.services.retrieval.hydration.build_snapshot import BuildSnapshot
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.row_utils import iter_connected_target_ids, normalize_chunk_type
@@ -65,7 +66,7 @@ async def discoverOpenSearch(
                 await db.commit()
             hits: tuple[LexicalHit, ...] = await reader.searchManifestAsync(
                 queryTokens=tokens, limit=topK, documentScope=scope, chunkTypes=chunkTypes,
-                signalPaths=signalPaths or [], filterMode=filterMode, excludeSections=excludeSections,
+                excludeSections=excludeSections,
             )
             rows, _ = await _hydrateBuildHits(db, reader=reader, hits=hits, documentScope=scope,
                 chunkTypes=chunkTypes, excludeSections=excludeSections, revisionPins=revisionPins)
@@ -77,7 +78,7 @@ async def discoverOpenSearch(
         buildIds: tuple[str, ...] = tuple(reader.builds[identity] for identity in selected)
         unitIds: tuple[str, ...] | None = None if selected else ()
         hasUnitFilters: bool = _hasUnitFilters(chunkTypes, signalPaths or [], excludeSections, sectionTargets)
-        useNativeFilters: bool = (reader.isClassic and not sectionTargets and hasUnitFilters
+        useNativeFilters: bool = (reader.isClassic and not sectionTargets and not signalPaths and hasUnitFilters
             and settings.KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP and isinstance(reader, AsyncPublishedLexicalRead))
         if selected and hasUnitFilters and not useNativeFilters:
             operation = partial(_filterUnits, reader, selected, chunkTypes,
@@ -90,7 +91,7 @@ async def discoverOpenSearch(
             if useNativeFilters:
                 # The inline build list already applies the request's document scope.
                 filters, exclusions = buildManifestFilters(scope=DocumentScope(), chunkTypes=chunkTypes,
-                    signalPaths=signalPaths or [], filterMode=filterMode, excludeSections=excludeSections)
+                    excludeSections=excludeSections)
                 hits = await reader.searchAsync(buildIds=buildIds, queryTokens=tokens, limit=topK, unitIds=unitIds,
                     extraFilters=filters, exclusions=exclusions)
             else:
@@ -230,6 +231,18 @@ def _filterUnits(
             or_(sections.section_path == path, sections.section_path.like(f"{path} / %")) if path else true())
             for identity, path in sectionTargets)))
     with reader.sessions.begin() as session:
+        if reader.isClassic:
+            session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+            pinned = [(identity, revision, reader.builds[identity]) for identity, revision in revisions.items()]
+            count = session.scalar(select(func.count()).select_from(documents).where(
+                documents.user_id == reader.scope.ownerId,
+                documents.namespace == reader.scope.namespace,
+                documents.status == "active",
+                tuple_(documents.document_id, documents.current_job_result_id,
+                    documents.current_indexing_build_id).in_(pinned),
+            ))
+            if count != len(pinned):
+                raise PostgreSQLServingGenerationChanged
         return tuple(row.unit_id for row in session.execute(statement)
             if not is_excluded_section(document_id=row.document_id,
                 section_path=row.section_path, exclude_sections=excludeSections))
