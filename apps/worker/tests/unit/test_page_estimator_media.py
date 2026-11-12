@@ -9,19 +9,26 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
+import importlib  # noqa: E402
+
 import pytest  # noqa: E402
 
 from app.services.document_ingestion.page_estimator import (  # noqa: E402
     MEDIA_MS_PER_PAGE,
     PageEstimator,
 )
-from app.services.document_parser.formats.media import probe as probe_module  # noqa: E402
 from shared.core.exceptions.domain_exceptions import ValidationException  # noqa: E402
 
 _MINUTE_MS = 60_000
 
 
+def _probe_module() -> object:
+    # Resolve at patch time: contract fixtures may reload app modules.
+    return importlib.import_module("app.services.document_parser.formats.media.probe")
+
+
 def _patch_duration(monkeypatch: pytest.MonkeyPatch, duration_ms: int) -> None:
+    probe_module = _probe_module()
     monkeypatch.setattr(
         probe_module,
         "probe_media",
@@ -71,7 +78,7 @@ def test_unreadable_media_falls_back_to_one_page_for_admission_to_reject(
             violations=[{"field": "file", "description": "unreadable"}],
         )
 
-    monkeypatch.setattr(probe_module, "probe_media", _unreadable)
+    monkeypatch.setattr(_probe_module(), "probe_media", _unreadable)
     estimate = PageEstimator.estimate_workload("/tmp/broken.mp3")
     assert estimate.method == "media_duration"
     assert estimate.page_count == 1

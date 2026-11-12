@@ -24,6 +24,7 @@ from app.services.document_parser.support.parser_log_utils import truncate_log_v
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import LLMServiceException
 from shared.core.exceptions.knowhere_exception import KnowhereException
+from shared.services.ai.token_tracking import record_tokens
 from shared.services.http.client_pool import get_sync_client
 from shared.services.quota.token_pool import BaseQuotaManager, TokenLease
 from shared.services.storage.job_file_storage import JobFileStorage
@@ -32,6 +33,7 @@ from shared.services.storage.job_file_storage import JobFileStorage
 _POLL_INTERVAL_SECONDS = 1.0
 _MAX_POLL_INTERVAL_SECONDS = 8.0
 _TERMINAL_FAILURE_STATUSES = frozenset({"FAILED", "CANCELED", "UNKNOWN"})
+ASR_USAGE_TASK = "parser.media.asr"
 
 
 @dataclass(frozen=True)
@@ -114,13 +116,13 @@ class FunAsrSpeechTranscriber:
                 job_id, AsrTaskRef(task_id=task_id, token_id=lease.token_id)
             )
             try:
-                job = _wait_for_task(
+                transcripts = _finish_task(
                     client,
                     api_root=api_root,
                     api_key=lease.api_key,
                     task_id=task_id,
+                    model=model,
                 )
-                transcripts = _download_transcripts(client, job)
             except (SoftTimeLimitExceeded, KnowhereException):
                 raise
             except Exception as exc:
@@ -152,13 +154,13 @@ class FunAsrSpeechTranscriber:
             return None
         logger.info(f"Resuming Fun-ASR task {ref.task_id} for job {job_id}")
         try:
-            job = _wait_for_task(
+            return _finish_task(
                 client,
                 api_root=api_root,
                 api_key=token.api_key,
                 task_id=ref.task_id,
+                model=settings.SPEECH_MODEL,
             )
-            return _download_transcripts(client, job)
         except SoftTimeLimitExceeded:
             raise
         except Exception as exc:
@@ -168,6 +170,44 @@ class FunAsrSpeechTranscriber:
                 exc,
             )
             return None
+
+
+def _finish_task(
+    client: httpx.Client,
+    *,
+    api_root: str,
+    api_key: str,
+    task_id: str,
+    model: str,
+) -> list[dict[str, Any]]:
+    """Wait for a submitted task, record its billed audio, and fetch transcripts."""
+    started = time.perf_counter()
+    job = _wait_for_task(client, api_root=api_root, api_key=api_key, task_id=task_id)
+    billed_seconds = billed_audio_seconds(job)
+    if billed_seconds is None:
+        logger.warning(
+            "Fun-ASR task {} reported no usage.duration; ASR seconds not recorded",
+            task_id,
+        )
+    else:
+        record_tokens(
+            {"audio_seconds": billed_seconds},
+            model=model,
+            task=ASR_USAGE_TASK,
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
+    return _download_transcripts(client, job)
+
+
+def billed_audio_seconds(job: dict[str, Any]) -> int | None:
+    """Read the billed audio seconds from a finished Fun-ASR task payload."""
+    usage = job.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    duration = usage.get("duration")
+    if isinstance(duration, int) and not isinstance(duration, bool) and duration >= 0:
+        return duration
+    return None
 
 
 def _submit_with_token_rotation(

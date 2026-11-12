@@ -116,6 +116,7 @@ def _transcribe_file_url(
 ) -> dict[str, Any]:
     from app.services.document_parser.formats.media.transcriber import (
         _download_transcripts,
+        billed_audio_seconds,
         _submit_transcription,
         _wait_for_task,
     )
@@ -178,7 +179,7 @@ def _transcribe_file_url(
         if sentences
         else False,
         "has_diarization": bool(speakers),
-        "billed_duration_s": _billed_duration_seconds(job),
+        "billed_duration_s": billed_audio_seconds(job),
         "content_duration_ms": _first_content_duration_ms(transcripts),
         "original_duration_ms": _first_original_duration_ms(transcripts),
         "sentences": sentences,
@@ -214,15 +215,6 @@ def _sentences_from_transcripts(transcripts: list[dict[str, Any]]) -> list[dict[
                     }
                 )
     return sentences
-
-
-def _billed_duration_seconds(job: dict[str, Any]) -> int | None:
-    usage = job.get("usage")
-    if isinstance(usage, dict):
-        duration = usage.get("duration")
-        if isinstance(duration, int) and not isinstance(duration, bool):
-            return duration
-    return None
 
 
 def _first_content_duration_ms(transcripts: list[dict[str, Any]]) -> int | None:

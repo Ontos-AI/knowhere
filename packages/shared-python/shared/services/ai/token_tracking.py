@@ -162,6 +162,11 @@ def _add_usage(
     bucket["prompt_tokens"] = bucket.get("prompt_tokens", 0) + usage.get("prompt_tokens", 0)
     bucket["completion_tokens"] = bucket.get("completion_tokens", 0) + usage.get("completion_tokens", 0)
     bucket["total_tokens"] = bucket.get("total_tokens", 0) + usage.get("total_tokens", 0)
+    if "audio_seconds" in usage:
+        # Speech providers bill audio duration instead of tokens.
+        bucket["audio_seconds"] = int(bucket.get("audio_seconds", 0) or 0) + int(
+            usage["audio_seconds"]
+        )
     bucket["calls"] = bucket.get("calls", 0) + 1
     bucket["duration_ms"] = int(bucket.get("duration_ms", 0) or 0) + max(int(duration_ms), 0)
 

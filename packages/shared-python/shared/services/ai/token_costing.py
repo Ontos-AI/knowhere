@@ -81,6 +81,17 @@ DEFAULT_TOKEN_PRICING_TABLE: dict[str, dict[str, Any]] = {
     "gemini-embedding-2": {
         "alias_of": "google/gemini-embedding-2",
     },
+    # China mainland DashScope Fun-ASR file transcription bills audio seconds.
+    "fun-asr": {
+        "currency": "USD",
+        "unit": "per_audio_second",
+        "audio_per_second": 0.000032,
+        "source": (
+            "Alibaba Model Studio fun-asr recorded file recognition, "
+            "China mainland $0.000032 per second (international $0.000035)"
+        ),
+        "effective_date": "2026-11-11",
+    },
 }
 
 
@@ -98,6 +109,7 @@ def build_token_cost_estimate(token_usage: dict[str, Any] | None) -> dict[str, A
     missing_models: list[str] = []
     total_input_cost = 0.0
     total_output_cost = 0.0
+    total_audio_cost = 0.0
 
     for model_name, usage in by_model_usage.items():
         if not isinstance(usage, dict):
@@ -113,18 +125,20 @@ def build_token_cost_estimate(token_usage: dict[str, Any] | None) -> dict[str, A
             continue
         total_input_cost += float(model_cost["input_cost"])
         total_output_cost += float(model_cost["output_cost"])
+        total_audio_cost += float(model_cost.get("audio_cost", 0.0))
 
     by_task_cost = _estimate_task_costs(
         token_usage.get("by_task"),
         pricing_table=pricing_table,
     )
 
-    total_cost = total_input_cost + total_output_cost
+    total_cost = total_input_cost + total_output_cost + total_audio_cost
     return {
         "currency": "USD",
         "pricing_version": _pricing_version(pricing_table),
         "total_input_cost": _round_cost(total_input_cost),
         "total_output_cost": _round_cost(total_output_cost),
+        "total_audio_cost": _round_cost(total_audio_cost),
         "total_cost": _round_cost(total_cost),
         "by_model": by_model_cost,
         "by_task": by_task_cost,
@@ -177,6 +191,7 @@ def _estimate_task_costs(
 
         task_input_cost = 0.0
         task_output_cost = 0.0
+        task_audio_cost = 0.0
         model_costs: dict[str, Any] = {}
         missing_models: list[str] = []
         for model_name, model_usage in models.items():
@@ -193,11 +208,15 @@ def _estimate_task_costs(
                 continue
             task_input_cost += float(model_cost["input_cost"])
             task_output_cost += float(model_cost["output_cost"])
+            task_audio_cost += float(model_cost.get("audio_cost", 0.0))
 
         by_task_cost[str(task_name)] = {
             "input_cost": _round_cost(task_input_cost),
             "output_cost": _round_cost(task_output_cost),
-            "total_cost": _round_cost(task_input_cost + task_output_cost),
+            "audio_cost": _round_cost(task_audio_cost),
+            "total_cost": _round_cost(
+                task_input_cost + task_output_cost + task_audio_cost
+            ),
             "models": model_costs,
             "missing_pricing_models": sorted(set(missing_models)),
         }
@@ -213,12 +232,17 @@ def _estimate_usage_cost(
     pricing = _resolve_pricing(model_name, pricing_table)
     input_tokens = int(usage.get("prompt_tokens") or 0)
     output_tokens = int(usage.get("completion_tokens") or 0)
+    audio_seconds = int(usage.get("audio_seconds") or 0)
     calls = int(usage.get("calls") or 0)
+    audio_fields: dict[str, Any] = (
+        {"audio_seconds": audio_seconds} if audio_seconds else {}
+    )
 
     if pricing is None:
         return {
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            **audio_fields,
             "calls": calls,
             "input_cost": 0.0,
             "output_cost": 0.0,
@@ -230,6 +254,16 @@ def _estimate_usage_cost(
     output_rate = float(pricing.get("output_per_1m") or 0)
     input_cost = input_tokens / 1_000_000 * input_rate
     output_cost = output_tokens / 1_000_000 * output_rate
+    audio_cost = 0.0
+    if audio_seconds:
+        audio_rate = float(pricing.get("audio_per_second") or 0)
+        audio_cost = audio_seconds * audio_rate
+        audio_fields.update(
+            {
+                "audio_rate_per_second": audio_rate,
+                "audio_cost": _round_cost(audio_cost),
+            }
+        )
     return {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
@@ -238,7 +272,8 @@ def _estimate_usage_cost(
         "output_rate_per_1m": output_rate,
         "input_cost": _round_cost(input_cost),
         "output_cost": _round_cost(output_cost),
-        "total_cost": _round_cost(input_cost + output_cost),
+        **audio_fields,
+        "total_cost": _round_cost(input_cost + output_cost + audio_cost),
         "pricing": _public_pricing_entry(pricing),
     }
 
@@ -270,6 +305,7 @@ def _public_pricing_entry(pricing: dict[str, Any]) -> dict[str, Any]:
             "unit",
             "input_per_1m",
             "output_per_1m",
+            "audio_per_second",
             "source",
             "effective_date",
         )
@@ -281,7 +317,13 @@ def _pricing_version(pricing_table: dict[str, dict[str, Any]]) -> str:
     version = {
         str(model): {
             key: entry.get(key)
-            for key in ("input_per_1m", "output_per_1m", "effective_date", "alias_of")
+            for key in (
+                "input_per_1m",
+                "output_per_1m",
+                "audio_per_second",
+                "effective_date",
+                "alias_of",
+            )
             if key in entry
         }
         for model, entry in pricing_table.items()

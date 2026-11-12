@@ -667,6 +667,7 @@ def _succeeded_task_handler(
             return httpx.Response(
                 200,
                 json={
+                    "usage": {"duration": 42},
                     "output": {
                         "task_status": status,
                         "results": [
@@ -867,3 +868,60 @@ def test_fun_asr_soft_time_limit_is_not_reported_as_transcription_failure(
                 diarize=True,
                 language_hint=None,
             )
+
+
+@pytest.mark.parametrize("stored_task", [False, True])
+def test_fun_asr_records_billed_audio_seconds_once_per_finished_task(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stored_task: bool,
+) -> None:
+    import httpx
+    from app.services.document_parser.formats.media import transcriber as transcriber_module
+    from app.services.document_parser.formats.media.asr_task_store import AsrTaskRef
+    from shared.core.config import settings
+    from shared.services.ai.token_tracking import (
+        cleanup_token_tracker,
+        init_token_tracker,
+    )
+
+    calls: list[str] = []
+    _patch_fun_asr_dependencies(monkeypatch, [])
+    store = _MemoryAsrTaskStore(
+        AsrTaskRef(task_id="task_old", token_id="tok1") if stored_task else None
+    )
+    audio_file = tmp_path / SOURCE_AUDIO_REL
+    audio_file.write_bytes(b"RIFF")
+
+    tracker = init_token_tracker()
+    try:
+        with httpx.Client(
+            transport=httpx.MockTransport(_succeeded_task_handler(calls))
+        ) as client:
+            transcriber_module.FunAsrSpeechTranscriber(
+                client=client, task_store=store
+            ).transcribe(
+                MediaAudio(path=str(audio_file), job_id="job_1"),
+                diarize=True,
+                language_hint=None,
+            )
+        usage = dict(tracker)
+    finally:
+        cleanup_token_tracker()
+
+    asr_usage = usage["by_task"][transcriber_module.ASR_USAGE_TASK]
+    assert asr_usage["audio_seconds"] == 42
+    assert asr_usage["calls"] == 1
+    assert asr_usage["total_tokens"] == 0
+    assert usage["by_model"][settings.SPEECH_MODEL]["audio_seconds"] == 42
+
+
+def test_billed_audio_seconds_requires_integer_usage_duration() -> None:
+    from app.services.document_parser.formats.media.transcriber import (
+        billed_audio_seconds,
+    )
+
+    assert billed_audio_seconds({"usage": {"duration": 3600}}) == 3600
+    assert billed_audio_seconds({"usage": {}}) is None
+    assert billed_audio_seconds({"usage": {"duration": True}}) is None
+    assert billed_audio_seconds({}) is None
