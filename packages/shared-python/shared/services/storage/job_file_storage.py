@@ -351,8 +351,6 @@ class JobFileStorage:
             ".mov": "video/quicktime",
             ".webm": "video/webm",
             ".mkv": "video/x-matroska",
-            ".srt": "application/x-subrip",
-            ".vtt": "text/vtt",
             ".zip": "application/zip",
             ".rar": "application/x-rar-compressed",
             ".7z": "application/x-7z-compressed",

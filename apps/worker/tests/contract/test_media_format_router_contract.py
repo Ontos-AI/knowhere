@@ -13,12 +13,10 @@ import pytest
 
 from app.services.document_parser.orchestration.format_adapters import (
     MediaParseAdapter,
-    SubtitleParseAdapter,
 )
 from app.services.document_ingestion.file_size_policy import max_source_file_bytes
 from app.services.document_parser.orchestration.format_router import (
     MEDIA_SOURCE_EXTENSIONS,
-    SUBTITLE_SOURCE_EXTENSIONS,
     DocumentFormat,
     get_document_parse_adapter,
     resolve_document_format,
@@ -33,16 +31,17 @@ def test_media_source_extensions_route_to_media_parse(extension: str) -> None:
     assert resolve_document_format(f"/tmp/talk{extension}") == DocumentFormat.MEDIA
 
 
-@pytest.mark.parametrize("extension", SUBTITLE_SOURCE_EXTENSIONS)
-def test_subtitle_source_extensions_route_to_subtitle_parse(extension: str) -> None:
-    assert resolve_document_format(f"/tmp/captions{extension}") == DocumentFormat.SUBTITLE
+@pytest.mark.parametrize("extension", (".srt", ".vtt"))
+def test_subtitle_extensions_are_not_routed_until_parser_exists(extension: str) -> None:
+    from shared.core.exceptions.domain_exceptions import ValidationException
+
+    with pytest.raises(ValidationException):
+        resolve_document_format(f"/tmp/captions{extension}")
 
 
-def test_media_and_subtitle_adapters_are_registered() -> None:
+def test_media_adapter_is_registered() -> None:
     media_adapter = get_document_parse_adapter(DocumentFormat.MEDIA)
-    subtitle_adapter = get_document_parse_adapter(DocumentFormat.SUBTITLE)
     assert isinstance(media_adapter, MediaParseAdapter)
-    assert isinstance(subtitle_adapter, SubtitleParseAdapter)
 
 
 @pytest.mark.parametrize(
@@ -53,8 +52,6 @@ def test_media_and_subtitle_adapters_are_registered() -> None:
         (".m4a", "audio/mp4"),
         (".mp4", "video/mp4"),
         (".mov", "video/quicktime"),
-        (".srt", "application/x-subrip"),
-        (".vtt", "text/vtt"),
     ],
 )
 def test_media_upload_content_types(extension: str, content_type: str) -> None:
@@ -74,14 +71,13 @@ def test_media_sources_use_media_file_size_cap(
     assert max_source_file_bytes(file_extension=extension) == 20
 
 
-def test_subtitle_and_document_sources_keep_document_file_size_cap(
+def test_document_sources_keep_document_file_size_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from shared.core.config import settings
 
     monkeypatch.setattr(settings, "MAX_FILE_SIZE", 10)
     monkeypatch.setattr(settings, "MAX_MEDIA_FILE_SIZE", 20)
-    assert max_source_file_bytes(file_extension=".srt") == 10
     assert max_source_file_bytes(file_extension=".pdf") == 10
 
 

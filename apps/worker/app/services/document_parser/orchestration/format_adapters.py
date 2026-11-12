@@ -207,21 +207,6 @@ class MediaParseAdapter:
         )
 
 
-@dataclass(frozen=True)
-class SubtitleParseAdapter:
-    document_format: object
-
-    def parse(self, session: ParseSession) -> ParseOutput:
-        from app.services.document_parser.formats.subtitle.parser import parse_subtitle
-
-        return parse_subtitle(
-            session.file_full_path,
-            filename=session.filename,
-            output_dir=session.full_output_dir,
-            relative_root=session.relative_root,
-        )
-
-
 def _parse_docx_path(
     docx_path: str,
     session: ParseSession,

@@ -20,7 +20,6 @@ from app.services.document_parser.formats.media.probe import (
     media_info_from_ffprobe_payload,
 )
 from app.services.document_parser.formats.media.toolchain import require_media_toolchain
-from app.services.document_parser.formats.subtitle.parser import parse_subtitle
 from shared.core.exceptions.domain_exceptions import (
     DependencyMissingException,
     ValidationException,
@@ -82,20 +81,9 @@ def test_admit_media_source_rejects_payload_without_audio(
         ),
     )
     with pytest.raises(ValidationException) as exc_info:
-        admit_media_source("/tmp/silent.mp4")
+        probe_module.admit_media_source("/tmp/silent.mp4")
     assert exc_info.value.internal_message == MEDIA_HAS_NO_AUDIO
     assert exc_info.value.details["violations"][0]["description"] == MEDIA_HAS_NO_AUDIO
-
-
-def test_parse_subtitle_fails_closed_until_cue_parser_exists() -> None:
-    with pytest.raises(ValidationException) as exc_info:
-        parse_subtitle(
-            "/tmp/captions.srt",
-            filename="captions.srt",
-            output_dir="/tmp/out",
-            relative_root="captions.srt",
-        )
-    assert "cannot be converted to transcript chunks yet" in exc_info.value.user_message
 
 
 def test_require_media_toolchain_fails_when_ffmpeg_is_missing(

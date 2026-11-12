@@ -59,14 +59,13 @@ def main() -> int:
     args = parser.parse_args()
 
     from app.services.document_parser.formats.media.transcriber import (
-        _DEFAULT_SPEECH_MODEL,
         _dashscope_api_v1_root,
     )
     from shared.core.config import settings
 
     api_key = _first_ali_api_key()
     api_root = _dashscope_api_v1_root(settings.ALI_URL)
-    model = (settings.SPEECH_MODEL or "").strip() or _DEFAULT_SPEECH_MODEL
+    model = settings.SPEECH_MODEL
     reports: list[dict[str, Any]] = []
     for file_url in args.file_urls:
         reports.append(

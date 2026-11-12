@@ -23,7 +23,6 @@ class DocumentFormat(str, Enum):
     JSON = "json"
     HTML = "html"
     MEDIA = "media"
-    SUBTITLE = "subtitle"
 
 
 IMAGE_SOURCE_EXTENSIONS: tuple[str, ...] = (
@@ -66,11 +65,6 @@ MEDIA_SOURCE_EXTENSIONS: tuple[str, ...] = (
     *VIDEO_SOURCE_EXTENSIONS,
 )
 
-SUBTITLE_SOURCE_EXTENSIONS: tuple[str, ...] = (
-    ".srt",
-    ".vtt",
-)
-
 SUPPORTED_FILE_TYPES: tuple[str, ...] = (
     ".txt",
     ".fragment",
@@ -85,7 +79,6 @@ SUPPORTED_FILE_TYPES: tuple[str, ...] = (
     ".htm",
     ".json",
     *MEDIA_SOURCE_EXTENSIONS,
-    *SUBTITLE_SOURCE_EXTENSIONS,
 )
 
 
@@ -115,8 +108,6 @@ def resolve_document_format(file_path: str) -> DocumentFormat:
         return DocumentFormat.HTML
     if extension in MEDIA_SOURCE_EXTENSIONS:
         return DocumentFormat.MEDIA
-    if extension in SUBTITLE_SOURCE_EXTENSIONS:
-        return DocumentFormat.SUBTITLE
 
     raise ValidationException(
         user_message=f"Unsupported file type: {extension}",
@@ -145,6 +136,5 @@ def get_document_parse_adapter(document_format: DocumentFormat) -> DocumentParse
         DocumentFormat.HTML: format_adapters.HtmlParseAdapter(document_format),
         DocumentFormat.JSON: format_adapters.JsonParseAdapter(document_format),
         DocumentFormat.MEDIA: format_adapters.MediaParseAdapter(document_format),
-        DocumentFormat.SUBTITLE: format_adapters.SubtitleParseAdapter(document_format),
     }
     return adapter_by_format[document_format]

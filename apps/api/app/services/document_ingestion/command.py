@@ -26,8 +26,6 @@ _MEDIA_PARSE_TRACK_EXTENSIONS: frozenset[str] = frozenset(
         ".mov",
         ".webm",
         ".mkv",
-        ".srt",
-        ".vtt",
     }
 )
 _CHUNK_PROGRESSIVE_EXTENSIONS: frozenset[str] = frozenset({".docx", ".md", ".txt"})

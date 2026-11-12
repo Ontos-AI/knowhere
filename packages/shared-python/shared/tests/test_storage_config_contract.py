@@ -52,7 +52,7 @@ def test_result_upload_concurrency_defaults_to_twenty() -> None:
     assert config.RESULT_UPLOAD_CONCURRENCY == 20
 
 
-def test_supported_extensions_include_media_and_subtitle_defaults() -> None:
+def test_supported_extensions_include_media_defaults() -> None:
     config: StorageConfig = create_storage_config()
     extensions = config.get_supported_extensions()
     for extension in (
@@ -67,10 +67,10 @@ def test_supported_extensions_include_media_and_subtitle_defaults() -> None:
         ".mov",
         ".webm",
         ".mkv",
-        ".srt",
-        ".vtt",
     ):
         assert extension in extensions
+    assert ".srt" not in extensions
+    assert ".vtt" not in extensions
 
 
 def test_media_file_size_defaults_to_document_file_size() -> None:

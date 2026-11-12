@@ -39,23 +39,51 @@ def test_speaker_label_maps_fun_asr_zero_based_ids() -> None:
     assert speaker_label(None) is None
 
 
-def test_multi_speaker_splits_on_speaker_change_not_silence_or_length() -> None:
-    long_turn = "A" * (int(3 * ProcessingConstants.POSTPROCESS_SUMMARY_LEN) + 10)
+def test_multi_speaker_splits_on_speaker_change_and_silence_gap() -> None:
+    gap = FASTER_WHISPER_MIN_SILENCE_DURATION_MS
     segments = segment_transcript(
         [
             _sentence(0, 100, "hello from one", "0"),
-            _sentence(
-                100 + FASTER_WHISPER_MIN_SILENCE_DURATION_MS + 50,
-                4000,
-                long_turn,
-                "1",
-            ),
-            _sentence(4500, 4600, "one again", "0"),
+            _sentence(150, 300, "hi from two", "1"),
+            _sentence(300 + gap, 2600, "two after a pause", "1"),
+            _sentence(2650, 2800, "one again", "0"),
         ]
     )
-    assert [segment.speakers for segment in segments] == [("S1",), ("S2",), ("S1",)]
-    assert segments[1].text.startswith("S2: ")
-    assert len(segments[1].text) > int(3 * ProcessingConstants.POSTPROCESS_SUMMARY_LEN)
+    assert [segment.speakers for segment in segments] == [
+        ("S1",),
+        ("S2",),
+        ("S2",),
+        ("S1",),
+    ]
+    assert [segment.text for segment in segments] == [
+        "S1: hello from one",
+        "S2: hi from two",
+        "S2: two after a pause",
+        "S1: one again",
+    ]
+
+
+def test_multi_speaker_long_turn_is_bounded_by_long_leaf_length() -> None:
+    max_threshold = int(3 * ProcessingConstants.POSTPROCESS_SUMMARY_LEN)
+    first = "A" * (max_threshold - 10)
+    second = "B" * ProcessingConstants.MIN_THRESHOLD
+    segments = segment_transcript(
+        [
+            _sentence(0, 100, "intro from one", "0"),
+            _sentence(150, 200, first, "1"),
+            _sentence(250, 300, second, "1"),
+        ]
+    )
+    assert [segment.text for segment in segments] == [
+        "S1: intro from one",
+        f"S2: {first}",
+        f"S2: {second}",
+    ]
+    assert [(segment.start_ms, segment.end_ms) for segment in segments] == [
+        (0, 100),
+        (150, 200),
+        (250, 300),
+    ]
 
 
 def test_single_speaker_splits_on_silence_gap() -> None:
@@ -99,7 +127,7 @@ def test_single_speaker_without_silence_uses_markdown_long_leaf_length() -> None
     assert segments[1].text == f"S1: {second}"
 
 
-def test_unlabeled_sentences_follow_single_speaker_cascade() -> None:
+def test_unlabeled_sentences_split_on_silence_gap() -> None:
     gap = FASTER_WHISPER_MIN_SILENCE_DURATION_MS
     segments = segment_transcript(
         [

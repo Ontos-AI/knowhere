@@ -54,6 +54,19 @@ class _FakeSpeechTranscriber:
         return self._transcript
 
 
+class _MemoryAsrTaskStore:
+    def __init__(self, ref: object | None = None) -> None:
+        self.ref = ref
+        self.saved: list[tuple[str, object]] = []
+
+    def load(self, job_id: str) -> object | None:
+        return self.ref
+
+    def save(self, job_id: str, ref: object) -> None:
+        self.saved.append((job_id, ref))
+        self.ref = ref
+
+
 def _audio_info() -> object:
     return media_info_from_ffprobe_payload(
         {
@@ -460,7 +473,9 @@ def test_fun_asr_transcriber_deletes_staged_audio_object_after_run(
     audio_file.write_bytes(b"RIFF")
 
     with httpx.Client(transport=httpx.MockTransport(_handler)) as client:
-        transcriber = transcriber_module.FunAsrSpeechTranscriber(client=client)
+        transcriber = transcriber_module.FunAsrSpeechTranscriber(
+            client=client, task_store=_MemoryAsrTaskStore()
+        )
         if fail_task:
             with pytest.raises(LLMServiceException):
                 transcriber.transcribe(
@@ -514,3 +529,341 @@ def test_parse_media_generated_tone_with_fake_transcriber(tmp_path: Path) -> Non
     assert parsed.rows_count == 1
     assert parsed.parsed_df is not None
     assert parsed.parsed_df.iloc[0]["content"] == "S1: tone"
+
+
+@pytest.mark.parametrize("rate_limited_action", ["submit", "poll"])
+def test_fun_asr_rate_limit_only_resubmits_before_a_task_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    rate_limited_action: str,
+) -> None:
+    from types import SimpleNamespace
+    import httpx
+    from app.services.document_parser.formats.media import transcriber as transcriber_module
+
+    class _FakeStorage:
+        results_bucket = "results-bucket"
+
+        def build_result_raw_prefix(self, *, job_id: str) -> str:
+            return f"results/{job_id}/"
+
+        def upload_local_file(
+            self, local_path: str, storage_key: str, *, bucket: str
+        ) -> dict[str, object]:
+            return {}
+
+        def generate_download_url(
+            self, storage_key: str, *, bucket: str
+        ) -> dict[str, str]:
+            return {"download_url": f"https://storage.example/{bucket}/{storage_key}"}
+
+        def delete_object(self, storage_key: str, *, bucket: str) -> bool:
+            return True
+
+    leases = iter(
+        [
+            SimpleNamespace(token_id="tok1", api_key="key1"),
+            SimpleNamespace(token_id="tok2", api_key="key2"),
+        ]
+    )
+    rate_limited_tokens: list[tuple[str, int]] = []
+
+    class _FakeQuotaManager:
+        def acquire_request(self, *, operation: str) -> object:
+            return next(leases)
+
+        def mark_rate_limited(self, token_id: str, retry_after: int) -> None:
+            rate_limited_tokens.append((token_id, retry_after))
+
+    submit_keys: list[str] = []
+    poll_keys: list[str] = []
+    sleeps: list[float] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        api_key = request.headers.get("Authorization", "").removeprefix("Bearer ")
+        if request.method == "POST":
+            submit_keys.append(api_key)
+            if rate_limited_action == "submit" and len(submit_keys) == 1:
+                return httpx.Response(429, headers={"Retry-After": "7"})
+            return httpx.Response(200, json={"output": {"task_id": "task_1"}})
+        if request.url.path.endswith("/tasks/task_1"):
+            poll_keys.append(api_key)
+            if rate_limited_action == "poll" and len(poll_keys) == 1:
+                return httpx.Response(429, headers={"Retry-After": "7"})
+            return httpx.Response(
+                200,
+                json={
+                    "output": {
+                        "task_status": "SUCCEEDED",
+                        "results": [
+                            {
+                                "subtask_status": "SUCCEEDED",
+                                "transcription_url": "https://dashscope.aliyuncs.com/transcript.json",
+                            }
+                        ],
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "transcripts": [
+                    {
+                        "sentences": [
+                            {"begin_time": 0, "end_time": 1000, "text": "hello", "speaker_id": 0}
+                        ]
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(transcriber_module, "JobFileStorage", _FakeStorage)
+    monkeypatch.setattr(transcriber_module.time, "sleep", sleeps.append)
+    monkeypatch.setattr(
+        "shared.services.ai.ali_quota_manager.get_ali_quota_manager",
+        lambda: _FakeQuotaManager(),
+    )
+    audio_file = tmp_path / SOURCE_AUDIO_REL
+    audio_file.write_bytes(b"RIFF")
+
+    with httpx.Client(transport=httpx.MockTransport(_handler)) as client:
+        result = transcriber_module.FunAsrSpeechTranscriber(
+            client=client, task_store=_MemoryAsrTaskStore()
+        ).transcribe(
+            MediaAudio(path=str(audio_file), job_id="job_1"),
+            diarize=True,
+            language_hint=None,
+        )
+
+    assert len(result.sentences) == 1
+    if rate_limited_action == "submit":
+        assert submit_keys == ["key1", "key2"]
+        assert rate_limited_tokens == [("tok1", 7)]
+        assert poll_keys == ["key2"]
+        assert sleeps == []
+    else:
+        assert submit_keys == ["key1"]
+        assert rate_limited_tokens == []
+        assert poll_keys == ["key1", "key1"]
+        assert sleeps == [7]
+
+
+def _succeeded_task_handler(
+    calls: list[str],
+    *,
+    resumed_status: str = "SUCCEEDED",
+) -> object:
+    import httpx
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        api_key = request.headers.get("Authorization", "").removeprefix("Bearer ")
+        if request.method == "POST":
+            calls.append(f"submit:{api_key}")
+            return httpx.Response(200, json={"output": {"task_id": "task_new"}})
+        if "/tasks/" in request.url.path:
+            task_id = request.url.path.rsplit("/", 1)[-1]
+            calls.append(f"poll:{task_id}:{api_key}")
+            status = resumed_status if task_id == "task_old" else "SUCCEEDED"
+            return httpx.Response(
+                200,
+                json={
+                    "output": {
+                        "task_status": status,
+                        "results": [
+                            {
+                                "subtask_status": "SUCCEEDED",
+                                "transcription_url": "https://dashscope.aliyuncs.com/transcript.json",
+                            }
+                        ],
+                    }
+                },
+            )
+        calls.append("download")
+        return httpx.Response(
+            200,
+            json={
+                "transcripts": [
+                    {
+                        "sentences": [
+                            {"begin_time": 0, "end_time": 1000, "text": "hello", "speaker_id": 0}
+                        ]
+                    }
+                ]
+            },
+        )
+
+    return _handler
+
+
+def _patch_fun_asr_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+    staged: list[str],
+) -> None:
+    from types import SimpleNamespace
+    from app.services.document_parser.formats.media import transcriber as transcriber_module
+
+    class _FakeStorage:
+        results_bucket = "results-bucket"
+
+        def build_result_raw_prefix(self, *, job_id: str) -> str:
+            return f"results/{job_id}/"
+
+        def upload_local_file(
+            self, local_path: str, storage_key: str, *, bucket: str
+        ) -> dict[str, object]:
+            staged.append(storage_key)
+            return {}
+
+        def generate_download_url(
+            self, storage_key: str, *, bucket: str
+        ) -> dict[str, str]:
+            return {"download_url": f"https://storage.example/{bucket}/{storage_key}"}
+
+        def delete_object(self, storage_key: str, *, bucket: str) -> bool:
+            return True
+
+    class _FakeQuotaManager:
+        tokens = [
+            SimpleNamespace(token_id="tok1", api_key="key1"),
+            SimpleNamespace(token_id="tok2", api_key="key2"),
+        ]
+
+        def acquire_request(self, *, operation: str) -> object:
+            return self.tokens[1]
+
+        def mark_rate_limited(self, token_id: str, retry_after: int) -> None:
+            raise AssertionError("no 429 expected")
+
+    monkeypatch.setattr(transcriber_module, "JobFileStorage", _FakeStorage)
+    monkeypatch.setattr(transcriber_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        "shared.services.ai.ali_quota_manager.get_ali_quota_manager",
+        lambda: _FakeQuotaManager(),
+    )
+
+
+def test_fun_asr_records_submitted_task_for_redelivery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import httpx
+    from app.services.document_parser.formats.media import transcriber as transcriber_module
+    from app.services.document_parser.formats.media.asr_task_store import AsrTaskRef
+
+    calls: list[str] = []
+    staged: list[str] = []
+    _patch_fun_asr_dependencies(monkeypatch, staged)
+    store = _MemoryAsrTaskStore()
+    audio_file = tmp_path / SOURCE_AUDIO_REL
+    audio_file.write_bytes(b"RIFF")
+
+    with httpx.Client(transport=httpx.MockTransport(_succeeded_task_handler(calls))) as client:
+        result = transcriber_module.FunAsrSpeechTranscriber(
+            client=client, task_store=store
+        ).transcribe(
+            MediaAudio(path=str(audio_file), job_id="job_1"),
+            diarize=True,
+            language_hint=None,
+        )
+
+    assert len(result.sentences) == 1
+    assert store.saved == [("job_1", AsrTaskRef(task_id="task_new", token_id="tok2"))]
+    assert calls == ["submit:key2", "poll:task_new:key2", "download"]
+    assert len(staged) == 1
+
+
+def test_fun_asr_redelivery_resumes_submitted_task_without_resubmitting(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import httpx
+    from app.services.document_parser.formats.media import transcriber as transcriber_module
+    from app.services.document_parser.formats.media.asr_task_store import AsrTaskRef
+
+    calls: list[str] = []
+    staged: list[str] = []
+    _patch_fun_asr_dependencies(monkeypatch, staged)
+    store = _MemoryAsrTaskStore(AsrTaskRef(task_id="task_old", token_id="tok1"))
+    audio_file = tmp_path / SOURCE_AUDIO_REL
+    audio_file.write_bytes(b"RIFF")
+
+    with httpx.Client(transport=httpx.MockTransport(_succeeded_task_handler(calls))) as client:
+        result = transcriber_module.FunAsrSpeechTranscriber(
+            client=client, task_store=store
+        ).transcribe(
+            MediaAudio(path=str(audio_file), job_id="job_1"),
+            diarize=True,
+            language_hint=None,
+        )
+
+    assert len(result.sentences) == 1
+    assert calls == ["poll:task_old:key1", "download"]
+    assert staged == []
+    assert store.saved == []
+
+
+def test_fun_asr_resubmits_when_the_resumed_task_failed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import httpx
+    from app.services.document_parser.formats.media import transcriber as transcriber_module
+    from app.services.document_parser.formats.media.asr_task_store import AsrTaskRef
+
+    calls: list[str] = []
+    staged: list[str] = []
+    _patch_fun_asr_dependencies(monkeypatch, staged)
+    store = _MemoryAsrTaskStore(AsrTaskRef(task_id="task_old", token_id="tok1"))
+    audio_file = tmp_path / SOURCE_AUDIO_REL
+    audio_file.write_bytes(b"RIFF")
+
+    handler = _succeeded_task_handler(calls, resumed_status="FAILED")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = transcriber_module.FunAsrSpeechTranscriber(
+            client=client, task_store=store
+        ).transcribe(
+            MediaAudio(path=str(audio_file), job_id="job_1"),
+            diarize=True,
+            language_hint=None,
+        )
+
+    assert len(result.sentences) == 1
+    assert calls == [
+        "poll:task_old:key1",
+        "submit:key2",
+        "poll:task_new:key2",
+        "download",
+    ]
+    assert store.saved == [("job_1", AsrTaskRef(task_id="task_new", token_id="tok2"))]
+
+
+def test_fun_asr_soft_time_limit_is_not_reported_as_transcription_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import httpx
+    from celery.exceptions import SoftTimeLimitExceeded
+    from app.services.document_parser.formats.media import transcriber as transcriber_module
+
+    def _running(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, json={"output": {"task_id": "task_new"}})
+        return httpx.Response(200, json={"output": {"task_status": "RUNNING"}})
+
+    def _soft_limit(_seconds: float) -> None:
+        raise SoftTimeLimitExceeded()
+
+    _patch_fun_asr_dependencies(monkeypatch, [])
+    monkeypatch.setattr(transcriber_module.time, "sleep", _soft_limit)
+    audio_file = tmp_path / SOURCE_AUDIO_REL
+    audio_file.write_bytes(b"RIFF")
+
+    with httpx.Client(transport=httpx.MockTransport(_running)) as client:
+        with pytest.raises(SoftTimeLimitExceeded):
+            transcriber_module.FunAsrSpeechTranscriber(
+                client=client, task_store=_MemoryAsrTaskStore()
+            ).transcribe(
+                MediaAudio(path=str(audio_file), job_id="job_1"),
+                diarize=True,
+                language_hint=None,
+            )

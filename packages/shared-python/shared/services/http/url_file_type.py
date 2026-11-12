@@ -56,8 +56,6 @@ CONTENT_TYPE_TO_EXTENSION: dict[str, str] = {
     "video/quicktime": ".mov",
     "video/webm": ".webm",
     "video/x-matroska": ".mkv",
-    "application/x-subrip": ".srt",
-    "text/vtt": ".vtt",
 }
 
 REDIRECT_STATUS_CODES: set[int] = {301, 302, 303, 307, 308}

@@ -410,8 +410,6 @@ def test_spreadsheets_resolve_to_sheet_track(
         ".mov",
         ".webm",
         ".mkv",
-        ".srt",
-        ".vtt",
     ],
 )
 @pytest.mark.parametrize("ingestion_mode", ["full", "progressive"])

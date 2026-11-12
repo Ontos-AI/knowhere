@@ -133,7 +133,7 @@ class DocumentIngestionService:
                         "Progressive ingestion is only supported for page-memory "
                         "formats (.pdf, .pptx), spreadsheets (.xlsx, .xls, .csv, .tsv), "
                         "media (.mp3, .wav, .m4a, .aac, .flac, .ogg, .opus, .mp4, "
-                        ".mov, .webm, .mkv, .srt, .vtt) "
+                        ".mov, .webm, .mkv) "
                         "and chunk formats (.docx, .md, .txt)"
                     ),
                     violations=[
@@ -142,7 +142,7 @@ class DocumentIngestionService:
                             "description": (
                                 "ingestion_mode=progressive requires .pdf/.pptx "
                                 "(page_memory), .xlsx/.xls/.csv/.tsv (sheet), "
-                                "media audio/video/subtitle extensions, or "
+                                "media audio/video extensions, or "
                                 ".docx/.md/.txt (chunk)"
                             ),
                         }

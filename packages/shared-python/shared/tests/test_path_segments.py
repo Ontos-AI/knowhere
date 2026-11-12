@@ -111,7 +111,7 @@ def test_section_parts_from_chunk_path_keep_spaced_slash_title() -> None:
 
 @pytest.mark.parametrize(
     "filename",
-    ["talk.mp3", "talk.mp4", "talk.wav", "captions.srt", "captions.vtt"],
+    ["talk.mp3", "talk.mp4", "talk.wav"],
 )
 def test_split_document_path_treats_media_filename_as_root(filename: str) -> None:
     chunk_path = join_document_path([filename, "Opening"])

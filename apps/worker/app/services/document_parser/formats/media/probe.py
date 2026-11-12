@@ -41,6 +41,76 @@ def admit_media_source(file_path: str) -> MediaInfo:
     return info
 
 
+def measure_media_duration_ms(file_path: str, info: MediaInfo) -> int:
+    """Return the audio duration, reading packets when the container omits it.
+
+    Browser-recorded webm/ogg often has no duration header, so ffprobe returns
+    none; a stream-copy pass over the first audio track reports the real end
+    time without decoding.
+    """
+    if info.duration_ms is not None:
+        return info.duration_ms
+    toolchain = require_media_toolchain()
+    copy_result = subprocess.run(
+        [
+            toolchain.ffmpeg_path,
+            "-v",
+            "error",
+            "-nostats",
+            "-i",
+            file_path,
+            "-map",
+            "0:a:0",
+            "-c",
+            "copy",
+            "-f",
+            "null",
+            "-progress",
+            "pipe:1",
+            "-",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    duration_ms = (
+        _last_progress_time_ms(copy_result.stdout)
+        if copy_result.returncode == 0
+        else None
+    )
+    if duration_ms is None:
+        raise ValidationException(
+            user_message="Could not read the duration of this media file.",
+            violations=[
+                {
+                    "field": "file",
+                    "description": "media duration could not be determined",
+                }
+            ],
+            internal_message=(
+                "media duration unreadable: "
+                f"input={file_path}, exit_code={copy_result.returncode}, "
+                f"stderr={truncate_log_value(copy_result.stderr)}"
+            ),
+        )
+    return duration_ms
+
+
+def _last_progress_time_ms(progress_output: str) -> int | None:
+    duration_ms: int | None = None
+    for line in progress_output.splitlines():
+        key, _, value = line.partition("=")
+        if key.strip() != "out_time_us":
+            continue
+        try:
+            microseconds = int(value.strip())
+        except ValueError:
+            continue
+        if microseconds >= 0:
+            duration_ms = microseconds // 1000
+    return duration_ms
+
+
 def probe_media(file_path: str) -> MediaInfo:
     """Read duration and audio-stream facts from ffprobe JSON."""
     toolchain = require_media_toolchain()
