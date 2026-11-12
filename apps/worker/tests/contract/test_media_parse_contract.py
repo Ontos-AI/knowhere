@@ -26,6 +26,7 @@ from app.services.document_parser.formats.media.transcriber import (
 )
 from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
+from shared.services.storage.zip_chunk_schema import ZipChunkSchemaBuilder
 
 _FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 
@@ -126,6 +127,16 @@ def test_parse_media_with_fake_transcriber_emits_timestamped_text_chunks(
     assert chunks[0]["metadata"]["speakers"] == ["S1"]
     assert chunks[0]["metadata"]["source_kind"] == "asr"
     assert chunks[1]["metadata"]["speakers"] == ["S2"]
+    formatted = ZipChunkSchemaBuilder().format_chunks(
+        chunks,
+        image_files_map={},
+        table_files_map={},
+    )
+    zip_meta = formatted[0]["metadata"]
+    assert zip_meta["time_ranges"] == [{"start_ms": 8410, "end_ms": 10290}]
+    assert zip_meta["speakers"] == ["S1"]
+    assert zip_meta["media"] == {"kind": "audio", "duration_ms": 12500}
+    assert zip_meta["source_kind"] == "asr"
 
 
 def test_parse_media_video_filename_sets_media_kind(
