@@ -15,6 +15,8 @@ ContextVar, so both runtimes share one lookup API.
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import Any, Optional
 
@@ -81,6 +83,32 @@ def init_llm_overrides(config: LLMConfig | dict[str, Any] | None) -> LLMConfig |
     with _lock:
         _overrides[gid] = parsed
     return parsed
+
+
+def get_current_llm_overrides_root_id() -> int | None:
+    """Return the active parse override root id for child-context propagation."""
+    return _find_root_id()
+
+
+@contextmanager
+def bind_llm_overrides(root_id: int | None) -> Iterator[None]:
+    """Temporarily bind the current greenlet/thread to a parse task's overrides."""
+    if root_id is None:
+        yield
+        return
+
+    gid = _current_greenlet_id()
+    with _lock:
+        previous = _root_ids.get(gid)
+        _root_ids[gid] = root_id
+    try:
+        yield
+    finally:
+        with _lock:
+            if previous is None:
+                _root_ids.pop(gid, None)
+            else:
+                _root_ids[gid] = previous
 
 
 def cleanup_llm_overrides() -> None:

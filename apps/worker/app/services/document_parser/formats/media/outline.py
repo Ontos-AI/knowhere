@@ -13,6 +13,9 @@ from app.services.document_parser.formats.media.chapters import (
     part_boundaries,
 )
 from app.services.document_parser.formats.media.segments import TranscriptSegment
+from app.services.document_parser.support.gevent_map import gevent_map
+
+from shared.core.config import settings
 
 from shared.services.chunks.path_segments import append_document_path
 
@@ -52,22 +55,27 @@ def build_media_outline(
     if titles is None:
         return flat_outline(document_root, segments)
     chapters = _chapter_spans(titles)
+    chapter_summaries = gevent_map(
+        lambda chapter: llm_summarize_scope(
+            node_name=chapter.title,
+            self_only="\n".join(
+                segment.text for segment in segments[chapter.start : chapter.end]
+            ),
+            child_rows=[],
+            max_tokens=SUMMARY_MAX_LEN,
+            usage_task=CHAPTER_SUMMARY_USAGE_TASK,
+        ),
+        chapters,
+        max_concurrent=settings.SUMMARY_LLM_MAX_CONCURRENT,
+    )
     digests = [
         ChapterDigest(
             title=chapter.title,
             start_ms=segments[chapter.start].start_ms,
             end_ms=segments[chapter.end - 1].end_ms,
-            summary=llm_summarize_scope(
-                node_name=chapter.title,
-                self_only="\n".join(
-                    segment.text for segment in segments[chapter.start : chapter.end]
-                ),
-                child_rows=[],
-                max_tokens=SUMMARY_MAX_LEN,
-                usage_task=CHAPTER_SUMMARY_USAGE_TASK,
-            ),
+            summary=summary,
         )
-        for chapter in chapters
+        for chapter, summary in zip(chapters, chapter_summaries, strict=True)
     ]
     parts = part_boundaries(digests)
     paths = [document_root] * len(segments)
@@ -95,19 +103,23 @@ def build_media_outline(
             paths[chapter.start : chapter.end] = [chapter_path] * (chapter.end - chapter.start)
             if digest.summary:
                 section_summaries[chapter_path] = digest.summary
-        if part_title:
-            part_summary = llm_summarize_scope(
-                node_name=part_title,
-                self_only="",
-                child_rows=[
-                    (digest.title, digest.summary)
-                    for digest in digests[first_chapter:end_chapter]
-                ],
-                max_tokens=SUMMARY_MAX_LEN,
-                usage_task=PART_SUMMARY_USAGE_TASK,
-            )
-            if part_summary:
-                section_summaries[parent_path] = part_summary
+    titled_parts = [part for part in part_ranges if part[0]]
+    part_summaries = gevent_map(
+        lambda part: llm_summarize_scope(
+            node_name=part[0],
+            self_only="",
+            child_rows=[(digest.title, digest.summary) for digest in digests[part[1] : part[2]]],
+            max_tokens=SUMMARY_MAX_LEN,
+            usage_task=PART_SUMMARY_USAGE_TASK,
+        ),
+        titled_parts,
+        max_concurrent=settings.SUMMARY_LLM_MAX_CONCURRENT,
+    )
+    for (part_title, _first_chapter, _end_chapter), part_summary in zip(
+        titled_parts, part_summaries, strict=True
+    ):
+        if part_summary:
+            section_summaries[append_document_path(document_root, part_title)] = part_summary
     return MediaOutline(paths=paths, section_summaries=section_summaries)
 
 

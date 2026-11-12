@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from loguru import logger
 
 from app.services.document_parser.formats.media.segments import TranscriptSegment
+from app.services.document_parser.support.gevent_map import gevent_map
 from app.services.document_parser.support.choice_judge import (
     ChoiceJudge,
     FallbackChoiceJudge,
@@ -13,6 +14,7 @@ from app.services.document_parser.support.choice_judge import (
     TextLlmChoiceJudge,
 )
 
+from shared.core.config import settings
 from shared.services.ai.llm_overrides import get_text_client
 from shared.services.ai.response_process_service import eval_response
 
@@ -77,12 +79,23 @@ def chapter_titles(
             TextLlmChoiceJudge(usage_task=CHAPTER_BOUNDARY_USAGE_TASK),
         )
     )
+    windows = _windows(segments)
+    # Windows are chaptered independently in parallel; edges are joined in order.
+    windows_titles = gevent_map(
+        lambda window: _chapter_window(segments, window[0], window[1]),
+        windows,
+        max_concurrent=settings.SUMMARY_LLM_MAX_CONCURRENT,
+    )
+    resolved_windows_titles = [
+        window_titles for window_titles in windows_titles if window_titles is not None
+    ]
+    if len(resolved_windows_titles) != len(windows):
+        return None
     titles: list[str] = []
     previous_window_start = 0
-    for window_start, window_end in _windows(segments):
-        window_titles = _chapter_window(segments, window_start, window_end)
-        if window_titles is None:
-            return None
+    for (window_start, _window_end), window_titles in zip(
+        windows, resolved_windows_titles, strict=True
+    ):
         if titles:
             window_titles = _join_window_edge(
                 segments,
