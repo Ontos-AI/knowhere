@@ -14,6 +14,7 @@ from shared.services.retrieval.hydration.row_utils import (
     apply_matched_page_nums,
     extract_matched_page_nums,
     extract_page_nums,
+    extract_time_ranges,
     filter_excluded_rows,
     is_unrefined_page,
     iter_connected_target_ids,
@@ -122,6 +123,9 @@ async def assemble_retrieval_results(
         else:
             assembled_row['content'] = base_content
             assembled_row['content_source'] = 'content'
+        time_ranges = extract_time_ranges(assembled_row)
+        if time_ranges is not None:
+            assembled_row['time_ranges'] = time_ranges
         assembled_row['composed'] = compose_evidence_parts(
             assembled_row,
             rows_by_build.get(build_id, {}),

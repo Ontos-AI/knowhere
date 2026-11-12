@@ -58,8 +58,10 @@ from shared.services.retrieval.hydration.assets import (
 )
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.result_assembly import _image_display_content
+from shared.services.chunks.time_ranges import format_time_ranges
 from shared.services.retrieval.hydration.row_utils import (
     apply_matched_page_nums,
+    extract_time_ranges,
     is_unrefined_page,
     iter_connected_target_ids,
     normalize_chunk_type,
@@ -420,8 +422,10 @@ def _collect_image_url_media(
         "with another section is filled in automatically. Images and "
         "tables the section contains are shown inline: small tables in "
         "full, large tables as row and column headers (then use "
-        "corpus.query_table). Each ref's outcome (ok, or failed with a "
-        "reason) is reported separately."
+        "corpus.query_table). Audio/video transcript chunks start with "
+        "their [hh:mm:ss–hh:mm:ss] time range; cite it when answering. "
+        "Each ref's outcome (ok, or failed with a reason) is reported "
+        "separately."
     ),
     json_schema={
         "type": "object",
@@ -852,6 +856,8 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             f"### {row.get('source_file_name')} ({row.get('document_id')}) / "
             f"{row.get('section_path')} [{row.get('chunk_type')}]"
         )
+        if time_label := format_time_ranges(extract_time_ranges(row)):
+            lines.append(time_label)
         lines.append(str(row.get("content") or ""))
 
     return ToolResult(

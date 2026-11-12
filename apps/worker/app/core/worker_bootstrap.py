@@ -57,6 +57,15 @@ def init_worker(**kwargs: object) -> None:
             # Celery logs and suppresses ordinary signal receiver exceptions.
             # Exit the process so a bypassing role cannot consume any tasks.
             raise SystemExit(str(error)) from error
+    from app.services.document_parser.formats.media.toolchain import (
+        require_media_toolchain,
+    )
+    from shared.core.exceptions.domain_exceptions import DependencyMissingException
+
+    try:
+        require_media_toolchain()
+    except DependencyMissingException as error:
+        raise SystemExit(error.internal_message) from error
     from shared.services.retrieval.lexical.preparation import LexicalPreparation
     LexicalPreparation.warmCompiler()
     start_worker_heartbeat()

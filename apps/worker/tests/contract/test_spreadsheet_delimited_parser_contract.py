@@ -31,8 +31,8 @@ def _fail_closed_spreadsheet_headers(
         lambda self, rows_text: None,
     )
     monkeypatch.setattr(
-        "app.services.document_parser.formats.excel.luna_decisions."
-        "GatewaySpreadsheetRegionJudge.choose",
+        "app.services.document_parser.support.choice_judge."
+        "GatewayLunaJudge.choose",
         lambda self, **kwargs: None,
     )
 

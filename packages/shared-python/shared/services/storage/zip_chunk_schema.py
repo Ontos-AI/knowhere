@@ -90,6 +90,14 @@ class ZipChunkSchemaBuilder:
                         ),
                     }
                 )
+                for key in (
+                    "time_ranges",
+                    "speakers",
+                    "media",
+                    "source_kind",
+                ):
+                    if key in existing_metadata:
+                        metadata[key] = existing_metadata[key]
             elif chunk_type == "image":
                 if image_info:
                     metadata["file_path"] = image_info["file_path"]

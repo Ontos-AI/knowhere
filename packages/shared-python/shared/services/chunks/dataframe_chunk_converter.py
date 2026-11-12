@@ -52,6 +52,10 @@ class ChunkMetadata(TypedDict, total=False):
     length: int
     connect_to: list[ConnectionValue]
     page_nums: list[int]
+    time_ranges: list[JsonValue]
+    speakers: list[str]
+    media: dict[str, JsonValue]
+    source_kind: str
     file_path: str
     original_name: str
     _relationship_refs: list[RelationshipRef]

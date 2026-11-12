@@ -40,6 +40,9 @@ from app.services.page_memory.phase_a import (
 )
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
 from shared.services.storage.zip_result_service import ZipResultService
+from shared.services.jobs.lifecycle.scope_enrichments import (
+    WHOLE_FILE_FINAL_PARSE_TRACKS,
+)
 from shared.services.jobs.parsing import ParsingOwnership
 
 ResultStorageFactory = Callable[[], ResultStorage]
@@ -299,12 +302,13 @@ def _upload_result_package(
         else ""
     )
     chunk_progressive_refs = (
-        existing_chunk_progressive_artifact_refs(
+        _whole_file_progressive_refs(
             add_dir,
+            parse_track=parse_track,
             source_file_name=str(source_file_name or ""),
         )
         if add_dir
-        and parse_track == "chunk"
+        and parse_track in WHOLE_FILE_FINAL_PARSE_TRACKS
         and ingestion_mode == "progressive"
         else []
     )
@@ -322,7 +326,7 @@ def _upload_result_package(
     if (
         job_context is not None
         and ingestion_mode == "progressive"
-        and parse_track in {"page_memory", "chunk", "sheet"}
+        and parse_track in {"page_memory", "chunk", "media", "sheet"}
     ):
         snapshot_id: str = f"snapshot_{uuid4().hex}"
         snapshot_options["snapshot_id"] = snapshot_id
@@ -361,6 +365,7 @@ def _upload_result_package(
         working_refs: list[str] = {
             "page_memory": phase_b_refs,
             "chunk": chunk_progressive_refs,
+            "media": chunk_progressive_refs,
             "sheet": sheet_progressive_refs,
         }[parse_track]
         with (
@@ -401,7 +406,7 @@ def _upload_result_package(
             metadata_updates["enrichment_status"] = "text"
     if (
         job_context is not None
-        and parse_track == "chunk"
+        and parse_track in WHOLE_FILE_FINAL_PARSE_TRACKS
         and ingestion_mode == "progressive"
     ):
         if snapshot_options:
@@ -435,6 +440,30 @@ def existing_sheet_progressive_artifact_refs(add_dir: str) -> list[str]:
     from app.services.document_parser.formats.excel.baseline import WORKBOOK_REL
 
     return [WORKBOOK_REL] if os.path.isfile(os.path.join(add_dir, WORKBOOK_REL)) else []
+
+
+def _whole_file_progressive_refs(
+    add_dir: str,
+    *,
+    parse_track: str,
+    source_file_name: str,
+) -> list[str]:
+    if parse_track == "media":
+        return existing_media_progressive_artifact_refs(add_dir)
+    return existing_chunk_progressive_artifact_refs(
+        add_dir,
+        source_file_name=source_file_name,
+    )
+
+
+def existing_media_progressive_artifact_refs(add_dir: str) -> list[str]:
+    from app.services.document_parser.formats.media.parser import MEDIA_TRANSCRIPT_REL
+
+    return (
+        [MEDIA_TRANSCRIPT_REL]
+        if os.path.isfile(os.path.join(add_dir, MEDIA_TRANSCRIPT_REL))
+        else []
+    )
 
 
 def existing_chunk_progressive_artifact_refs(

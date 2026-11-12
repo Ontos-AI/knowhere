@@ -56,6 +56,8 @@ BUILD_STRUCTURE_TASK_NAME = (
     "app.core.tasks.enrichment_tasks.build_page_memory_structure"
 )
 CHUNK_FINAL_TASK_NAME = "app.core.tasks.enrichment_tasks.run_chunk_final_enrichment"
+# Tracks whose progressive refine is one whole-file final parse (no scopes).
+WHOLE_FILE_FINAL_PARSE_TRACKS: frozenset[str] = frozenset({"chunk", "media"})
 ENRICH_SHEET_GROUP_TASK_NAME = "app.core.tasks.enrichment_tasks.enrich_sheet_group_scope"
 _ENRICH_SCOPE_TASK_BY_KIND: dict[str, str] = {
     SCOPE_KIND_PAGE_RANGE: ENRICH_SCOPE_TASK_NAME,
@@ -381,7 +383,7 @@ def _get_pending_chunk_final_state(
     job_metadata: dict[str, Any] | None,
 ) -> ProgressiveIngestionState | None:
     metadata = job_metadata if isinstance(job_metadata, dict) else {}
-    if JobMetadataHelper.get_parse_track(metadata) != "chunk":
+    if JobMetadataHelper.get_parse_track(metadata) not in WHOLE_FILE_FINAL_PARSE_TRACKS:
         return None
     if _revision_enrichment_status(document_metadata, metadata) != "text":
         return None
@@ -741,7 +743,7 @@ def sweep_progressive_enrichments_sync(
             parse_track = JobMetadataHelper.get_parse_track(
                 job_meta if isinstance(job_meta, dict) else {}
             )
-            if parse_track == "chunk":
+            if parse_track in WHOLE_FILE_FINAL_PARSE_TRACKS:
                 if not _should_skip_chunk_final_recovery(doc_meta=doc_meta, now=now):
                     reenqueued_chunk_finals.append(str(revision_id))
                 continue
@@ -834,7 +836,7 @@ def sweep_progressive_enrichments_sync(
             )
             .join(Document, Document.current_job_result_id == JobResult.id)
             .where(Document.status == "active")
-            .where(Document.parse_track != "chunk")
+            .where(Document.parse_track.not_in(sorted(WHOLE_FILE_FINAL_PARSE_TRACKS)))
             .where(
                 JobResult.document_metadata["progressive"]["enhancement"]["status"]
                 .as_string()

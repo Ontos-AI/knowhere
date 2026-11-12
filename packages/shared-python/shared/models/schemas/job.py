@@ -143,7 +143,9 @@ class JobCreateV2(JobCreateBase):
             "complete C1-C7 pipeline synchronously before publishing; "
             "'progressive' publishes an askable per-page baseline first, "
             "builds the coarse section structure in the background, and "
-            "refines coarse scopes on demand when pages are read."
+            "refines coarse scopes on demand when pages are read. For audio "
+            "and video, 'progressive' publishes the timestamped transcript "
+            "first and adds chapters and summaries when it is first read."
         ),
     )
     llm_config: Optional[LLMConfig] = Field(

@@ -37,6 +37,14 @@ class AIConfig(BaseModel):
             "Legacy deepseek-v4-flash-vision-exp is retired and only routed."
         ),
     )
+    SPEECH_MODEL: str = Field(
+        default="fun-asr",
+        description=(
+            "DashScope Fun-ASR file transcription model for the media parse "
+            "track. Reuses ALI_API_KEYS / ALI_URL; the native async API is "
+            "/api/v1/services/audio/asr/transcription."
+        ),
+    )
     ASSET_MODEL: str = Field(
         default="",
         description=(

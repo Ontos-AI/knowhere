@@ -9,10 +9,25 @@ from shared.models.schemas.job import IngestionMode, JobCreateBase
 from shared.models.schemas.page_memory_config import PageMemoryConfig
 
 ApiVersion = Literal["v1", "v2"]
-ParseTrack = Literal["chunk", "page_memory", "sheet"]
+ParseTrack = Literal["chunk", "page_memory", "sheet", "media"]
 ProcessingGeneration = Literal["legacy_chunk", "page_memory"]
 _PAGE_MEMORY_PARSE_TRACK_EXTENSIONS: frozenset[str] = frozenset({".pdf", ".pptx"})
 _SHEET_PARSE_TRACK_EXTENSIONS: frozenset[str] = frozenset({".xlsx", ".xls", ".csv", ".tsv"})
+_MEDIA_PARSE_TRACK_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".mp3",
+        ".wav",
+        ".m4a",
+        ".aac",
+        ".flac",
+        ".ogg",
+        ".opus",
+        ".mp4",
+        ".mov",
+        ".webm",
+        ".mkv",
+    }
+)
 _CHUNK_PROGRESSIVE_EXTENSIONS: frozenset[str] = frozenset({".docx", ".md", ".txt"})
 
 
@@ -22,7 +37,7 @@ def allows_progressive_ingestion(
     file_extension: str,
 ) -> bool:
     """Return whether progressive ingestion is supported for this resolved track."""
-    if parse_track in ("page_memory", "sheet"):
+    if parse_track in ("page_memory", "sheet", "media"):
         return True
     return (
         parse_track == "chunk"
@@ -94,4 +109,6 @@ def _resolve_parse_track(*, file_extension: str) -> ParseTrack:
         return "page_memory"
     if file_extension.lower() in _SHEET_PARSE_TRACK_EXTENSIONS:
         return "sheet"
+    if file_extension.lower() in _MEDIA_PARSE_TRACK_EXTENSIONS:
+        return "media"
     return "chunk"

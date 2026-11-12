@@ -38,3 +38,64 @@ def test_gemini_embedding_text_and_image_use_list_rates() -> None:
     assert estimate["by_model"]["gemini-embedding-2"]["input_cost"] == 0.2
     assert estimate["missing_pricing_models"] == []
     assert estimate["total_input_cost"] == 0.85
+
+
+def test_fun_asr_audio_seconds_are_priced_per_second() -> None:
+    estimate = build_token_cost_estimate(
+        {
+            "by_model": {
+                "fun-asr": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "audio_seconds": 3600,
+                    "calls": 1,
+                },
+                "deepseek-flash": {
+                    "prompt_tokens": 1_000_000,
+                    "completion_tokens": 0,
+                    "calls": 1,
+                },
+            },
+            "by_task": {
+                "parser.media.asr": {
+                    "audio_seconds": 3600,
+                    "calls": 1,
+                    "models": {"fun-asr": {"audio_seconds": 3600, "calls": 1}},
+                },
+            },
+        }
+    )
+    assert estimate["by_model"]["fun-asr"]["audio_seconds"] == 3600
+    assert estimate["by_model"]["fun-asr"]["audio_cost"] == 0.126
+    assert estimate["by_model"]["fun-asr"]["total_cost"] == 0.126
+    assert "audio_cost" not in estimate["by_model"]["deepseek-flash"]
+    assert estimate["total_audio_cost"] == 0.126
+    assert estimate["total_cost"] == 0.276
+    assert estimate["by_task"]["parser.media.asr"]["audio_cost"] == 0.126
+    assert estimate["by_task"]["parser.media.asr"]["total_cost"] == 0.126
+    assert estimate["missing_pricing_models"] == []
+
+
+def test_token_tracker_accumulates_audio_seconds_only_for_speech_calls() -> None:
+    from shared.services.ai.token_tracking import (
+        cleanup_token_tracker,
+        init_token_tracker,
+        record_tokens,
+    )
+
+    tracker = init_token_tracker()
+    try:
+        record_tokens({"audio_seconds": 30}, model="fun-asr", task="parser.media.asr")
+        record_tokens({"audio_seconds": 12}, model="fun-asr", task="parser.media.asr")
+        record_tokens(
+            {"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6},
+            model="deepseek-flash",
+            task="parser.text_summary",
+        )
+        usage = dict(tracker)
+    finally:
+        cleanup_token_tracker()
+    assert usage["audio_seconds"] == 42
+    assert usage["by_model"]["fun-asr"]["audio_seconds"] == 42
+    assert "audio_seconds" not in usage["by_model"]["deepseek-flash"]
+    assert usage["by_task"]["parser.media.asr"]["calls"] == 2
