@@ -34,6 +34,7 @@ _SECONDS_PER_HOUR = 3600
 _SYSTEM_PROMPT = """You split a spoken-audio transcript into chapters for a listener's table of contents.
 The transcript is a numbered list of consecutive segments with time ranges.
 A chapter is one sustained discussion of a subject that a listener would want to jump to directly.
+A chapter should be large enough to include a distinct topic, similar to an entire chapter or section in a book. Try not to leave an individual segment as a chapter unless it really contains rich content of an independent topic.
 Start a new chapter only when the conversation turns to a different subject and stays on it.
 A question and its answer, a follow-up, an example, a joke, a short aside, a greeting, or a sponsor read stays inside the surrounding chapter; it never forms a chapter of its own.
 Return JSON only: an array of objects {"start": <segment number>, "title": <title>}.
