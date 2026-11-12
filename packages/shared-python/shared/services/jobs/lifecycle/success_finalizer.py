@@ -31,6 +31,7 @@ from shared.utils.json_utils import remove_nul_characters
 _BASELINE_ENRICHMENT_STATUS_BY_TRACK: dict[str, str] = {
     "page_memory": "text",
     "chunk": "text",
+    "media": "text",
     "sheet": "coarse",
 }
 

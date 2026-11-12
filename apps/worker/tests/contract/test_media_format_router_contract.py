@@ -22,7 +22,6 @@ from app.services.document_parser.orchestration.format_router import (
     resolve_document_format,
 )
 from shared.services.http.url_file_type import CONTENT_TYPE_TO_EXTENSION
-from shared.services.jobs.progressive_stages import required_stages_before_finalization
 from shared.services.storage.job_file_storage import JobFileStorage
 
 
@@ -79,8 +78,3 @@ def test_document_sources_keep_document_file_size_cap(
     monkeypatch.setattr(settings, "MAX_FILE_SIZE", 10)
     monkeypatch.setattr(settings, "MAX_MEDIA_FILE_SIZE", 20)
     assert max_source_file_bytes(file_extension=".pdf") == 10
-
-
-def test_media_progressive_stages_match_sheet_empty_revision_map() -> None:
-    assert required_stages_before_finalization("media") == ()
-    assert required_stages_before_finalization("sheet") == ()

@@ -89,6 +89,16 @@ def execute_document_parse(
                     prepared_source=prepared_source,
                     output_dir=output_dir,
                 )
+            elif (
+                parse_track == "media"
+                and JobMetadataHelper.get_ingestion_mode(job_context.job_metadata)
+                == "progressive"
+            ):
+                parse_output = _execute_media_baseline_parse(
+                    job_id=job_id,
+                    prepared_source=prepared_source,
+                    output_dir=output_dir,
+                )
             else:
                 parse_output = parse_service.checkerboard_parse_output(
                     file_full_path=prepared_source.local_file_path,
@@ -203,6 +213,30 @@ def _execute_sheet_baseline_parse(
         relative_root=relative_root,
     )
     return ParseOutput(output_dir=full_output_dir, parsed_df=parsed_df)
+
+
+def _execute_media_baseline_parse(
+    *,
+    job_id: str,
+    prepared_source: PreparedSourceFile,
+    output_dir: str,
+) -> ParseOutput:
+    """Transcribe without chapters; the chunk-track final refine adds them."""
+    from app.services.document_parser.formats.media.parser import parse_media
+
+    relative_root, full_output_dir = _resolve_output_paths(
+        filename=prepared_source.source_file_name,
+        internal_output_filename=prepared_source.internal_parse_name,
+        output_dir=output_dir,
+    )
+    return parse_media(
+        prepared_source.local_file_path,
+        filename=prepared_source.source_file_name,
+        output_dir=full_output_dir,
+        relative_root=relative_root,
+        chapterize=False,
+        job_id=job_id,
+    )
 
 
 def _execute_chunk_baseline_parse(

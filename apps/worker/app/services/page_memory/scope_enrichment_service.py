@@ -89,6 +89,7 @@ from shared.services.ai.token_tracking import (
 )
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.jobs.lifecycle.scope_enrichments import (
+    WHOLE_FILE_FINAL_PARSE_TRACKS,
     mark_scope_enrichment_failed,
     write_coarse_scope_enrichments,
 )
@@ -1307,7 +1308,7 @@ def execute_progressive_recovery(
             or ""
         )
         stages: dict[str, EnhancementStage] = dict(state.stages)
-        if parse_track == "chunk":
+        if parse_track in WHOLE_FILE_FINAL_PARSE_TRACKS:
             if stages.get("finalization", {}).get("status") != "complete":
                 from shared.services.jobs.lifecycle.scope_enrichments import (
                     enqueue_chunk_final_after_commit,

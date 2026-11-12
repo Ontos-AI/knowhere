@@ -11,7 +11,7 @@ def _contract_environment(worker_contract_environment: None) -> None:
 
 
 @pytest.mark.parametrize("ingestion_mode", ["progressive", "full"])
-def test_media_parse_execution_uses_checkerboard_for_full_and_progressive(
+def test_media_parse_execution_uses_baseline_for_progressive_and_checkerboard_for_full(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     ingestion_mode: str,
@@ -32,6 +32,12 @@ def test_media_parse_execution_uses_checkerboard_for_full_and_progressive(
         parse_execution,
         "_execute_sheet_baseline_parse",
         lambda **_: calls.append("sheet_baseline")
+        or ParseOutput(output_dir="", parsed_df=None),
+    )
+    monkeypatch.setattr(
+        parse_execution,
+        "_execute_media_baseline_parse",
+        lambda **_: calls.append("media_baseline")
         or ParseOutput(output_dir="", parsed_df=None),
     )
     monkeypatch.setattr(
@@ -60,4 +66,6 @@ def test_media_parse_execution_uses_checkerboard_for_full_and_progressive(
         output_dir=str(tmp_path / "out"),
     )
 
-    assert calls == ["checkerboard"]
+    assert calls == (
+        ["media_baseline"] if ingestion_mode == "progressive" else ["checkerboard"]
+    )

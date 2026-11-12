@@ -16,7 +16,11 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 import pytest
 
 from app.services.document_parser.formats.media.extract import SOURCE_AUDIO_REL
-from app.services.document_parser.formats.media.parser import parse_media
+from app.services.document_parser.formats.media.parser import (
+    MEDIA_TRANSCRIPT_REL,
+    parse_media,
+    parse_media_transcript,
+)
 from app.services.document_parser.formats.media.probe import media_info_from_ffprobe_payload
 from app.services.document_parser.formats.media.transcriber import (
     MediaAudio,
@@ -106,6 +110,7 @@ def test_parse_media_with_fake_transcriber_emits_timestamped_text_chunks(
         filename="talk.mp3",
         output_dir=str(output_dir),
         relative_root="talk.mp3",
+        chapterize=False,
         job_id="job_talk",
         transcriber=transcriber,
     )
@@ -125,8 +130,16 @@ def test_parse_media_with_fake_transcriber_emits_timestamped_text_chunks(
     assert first["type"] == "PTXT"
     assert first["content"] == "S1: Hi, I'm Karen."
     assert second["content"] == "S2: and I'm Bradley."
-    assert first["path"] == "talk.mp3/talk.mp3 part 1"
-    assert second["path"] == "talk.mp3/talk.mp3 part 2"
+    assert first["path"] == "talk.mp3"
+    assert second["path"] == "talk.mp3"
+    transcript = json.loads((output_dir / MEDIA_TRANSCRIPT_REL).read_text(encoding="utf-8"))
+    assert transcript == {
+        "media": {"kind": "audio", "duration_ms": 12500},
+        "sentences": [
+            {"start_ms": 8410, "end_ms": 10290, "text": "Hi, I'm Karen.", "speaker_id": "0"},
+            {"start_ms": 10290, "end_ms": 11290, "text": "and I'm Bradley.", "speaker_id": "1"},
+        ],
+    }
     first_meta = json.loads(str(first["extra_metadata"]))
     assert first_meta == {
         "time_ranges": [{"start_ms": 8410, "end_ms": 10290}],
@@ -173,6 +186,7 @@ def test_parse_media_video_filename_sets_media_kind(
         filename="lecture.mp4",
         output_dir=str(output_dir),
         relative_root="lecture.mp4",
+        chapterize=False,
         transcriber=_FakeSpeechTranscriber(
             [TranscriptSentence(start_ms=0, end_ms=1000, text="welcome", speaker_id="0")]
         ),
@@ -205,6 +219,7 @@ def test_parse_media_fails_closed_on_empty_transcript(
             filename="silent.mp3",
             output_dir=str(output_dir),
             relative_root="silent.mp3",
+            chapterize=False,
             transcriber=_FakeSpeechTranscriber([]),
         )
     assert "no recognizable speech" in exc_info.value.user_message
@@ -334,6 +349,7 @@ def test_parse_media_disambiguates_identical_utterances_at_different_times(
         filename="talk.mp3",
         output_dir=str(output_dir),
         relative_root="talk.mp3",
+        chapterize=False,
         transcriber=_FakeSpeechTranscriber(sentences),
     )
     second_parse = parse_media(
@@ -341,6 +357,7 @@ def test_parse_media_disambiguates_identical_utterances_at_different_times(
         filename="talk.mp3",
         output_dir=str(output_dir),
         relative_root="talk.mp3",
+        chapterize=False,
         transcriber=_FakeSpeechTranscriber(sentences),
     )
 
@@ -521,6 +538,7 @@ def test_parse_media_generated_tone_with_fake_transcriber(tmp_path: Path) -> Non
         filename="tone.wav",
         output_dir=str(output_dir),
         relative_root="tone.wav",
+        chapterize=False,
         transcriber=_FakeSpeechTranscriber(
             [TranscriptSentence(start_ms=0, end_ms=1000, text="tone", speaker_id="0")]
         ),
@@ -925,3 +943,105 @@ def test_billed_audio_seconds_requires_integer_usage_duration() -> None:
     assert billed_audio_seconds({"usage": {}}) is None
     assert billed_audio_seconds({"usage": {"duration": True}}) is None
     assert billed_audio_seconds({}) is None
+
+
+def test_parse_media_chapters_segments_and_refine_rebuilds_them_from_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.formats.media import parser as parser_module
+
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    audio_path = output_dir / SOURCE_AUDIO_REL
+    audio_path.write_bytes(b"RIFF")
+    monkeypatch.setattr(parser_module, "admit_media_source", lambda _path: _audio_info())
+    monkeypatch.setattr(
+        parser_module,
+        "extract_source_audio",
+        lambda _path, _output_dir: str(audio_path),
+    )
+    chapter_calls: list[int] = []
+
+    def _fake_chapter_titles(segments: list[object]) -> list[str]:
+        chapter_calls.append(len(segments))
+        return ["Intro", "Intro", "Pricing", "Intro"]
+
+    monkeypatch.setattr(parser_module, "chapter_titles", _fake_chapter_titles)
+    transcriber = _FakeSpeechTranscriber(
+        [
+            TranscriptSentence(start_ms=0, end_ms=1000, text="welcome", speaker_id="0"),
+            TranscriptSentence(start_ms=1000, end_ms=2000, text="thanks", speaker_id="1"),
+            TranscriptSentence(start_ms=2000, end_ms=3000, text="price is", speaker_id="0"),
+            TranscriptSentence(start_ms=3000, end_ms=4000, text="back to intro", speaker_id="1"),
+        ]
+    )
+
+    parsed = parse_media(
+        str(tmp_path / "talk.mp3"),
+        filename="talk.mp3",
+        output_dir=str(output_dir),
+        relative_root="talk.mp3",
+        chapterize=True,
+        job_id="job_talk",
+        transcriber=transcriber,
+    )
+    assert parsed.parsed_df is not None
+    expected_paths = [
+        "talk.mp3/Intro",
+        "talk.mp3/Intro",
+        "talk.mp3/Pricing",
+        "talk.mp3/Intro_2",
+    ]
+    assert list(parsed.parsed_df["path"]) == expected_paths
+
+    refined = parse_media_transcript(
+        str(output_dir / MEDIA_TRANSCRIPT_REL),
+        filename="talk.mp3",
+        output_dir=str(output_dir),
+        relative_root="talk.mp3",
+    )
+    assert refined.parsed_df is not None
+    assert list(refined.parsed_df["path"]) == expected_paths
+    assert list(refined.parsed_df["content"]) == list(parsed.parsed_df["content"])
+    assert list(refined.parsed_df["extra_metadata"]) == list(
+        parsed.parsed_df["extra_metadata"]
+    )
+    assert chapter_calls == [4, 4]
+    assert len(transcriber.calls) == 1
+
+
+def test_parse_media_keeps_flat_paths_when_chaptering_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.formats.media import parser as parser_module
+
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    audio_path = output_dir / SOURCE_AUDIO_REL
+    audio_path.write_bytes(b"RIFF")
+    monkeypatch.setattr(parser_module, "admit_media_source", lambda _path: _audio_info())
+    monkeypatch.setattr(
+        parser_module,
+        "extract_source_audio",
+        lambda _path, _output_dir: str(audio_path),
+    )
+    monkeypatch.setattr(parser_module, "chapter_titles", lambda _segments: None)
+
+    parsed = parse_media(
+        str(tmp_path / "talk.mp3"),
+        filename="talk.mp3",
+        output_dir=str(output_dir),
+        relative_root="talk.mp3",
+        chapterize=True,
+        job_id="job_talk",
+        transcriber=_FakeSpeechTranscriber(
+            [
+                TranscriptSentence(start_ms=0, end_ms=1000, text="a", speaker_id="0"),
+                TranscriptSentence(start_ms=1000, end_ms=2000, text="b", speaker_id="1"),
+            ]
+        ),
+    )
+    assert parsed.parsed_df is not None
+    assert list(parsed.parsed_df["path"]) == ["talk.mp3", "talk.mp3"]
