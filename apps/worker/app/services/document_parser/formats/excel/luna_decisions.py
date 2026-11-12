@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol
-
-from loguru import logger
 
 from app.services.document_parser.formats.excel.formula_graph import (
     CellRange,
@@ -21,6 +17,10 @@ from app.services.document_parser.formats.excel.region_split import (
     columns_overlap,
     regions_overlap,
 )
+from app.services.document_parser.support.choice_judge import (
+    ChoiceJudge,
+    GatewayLunaJudge,
+)
 from app.services.document_parser.formats.excel.workbook_grid import (
     DefinedNameDef,
     Region,
@@ -28,26 +28,11 @@ from app.services.document_parser.formats.excel.workbook_grid import (
     display_value,
     merge_at,
 )
-from shared.services.http.client_pool import get_sync_client
 
 _CLOCKWISE_DIRS = ("up", "right", "down", "left")
 _BOUNDARY_EDGE = 5
-_LUNA_MODEL = "openai/gpt-6-luna-decisions"
-_LUNA_EVALUATE_URL = "https://ai-gateway.vercel.sh/v1/evaluate"
 _CHOICE_MERGE = "merge"
 _CHOICE_SEPARATE = "separate"
-
-
-class SpreadsheetRegionJudge(Protocol):
-    def choose(
-        self,
-        *,
-        state: Mapping[str, object],
-        questions: Mapping[str, Mapping[str, object]],
-        required_ids: Sequence[str],
-        allowed: Mapping[str, frozenset[str]],
-    ) -> Mapping[str, str] | None:
-        """Return question id → choice, or None to fail closed."""
 
 
 @dataclass
@@ -61,7 +46,7 @@ def split_sheet_regions(
     *,
     formula_nodes: Sequence[FormulaNode],
     defined_names: Sequence[DefinedNameDef] = (),
-    judge: SpreadsheetRegionJudge | None = None,
+    judge: ChoiceJudge | None = None,
 ) -> list[ClassifiedRegion]:
     """Split one sheet into atomic empty-row/col blocks, then classify them."""
     seeds, leftover = atomic_sheet_blocks(sheet, defined_names=defined_names)
@@ -81,7 +66,7 @@ def evaluate_sheet_blocks(
     blocks: Sequence[Region],
     *,
     formula_nodes: Sequence[FormulaNode],
-    judge: SpreadsheetRegionJudge | None = None,
+    judge: ChoiceJudge | None = None,
     locked: Sequence[Region] = (),
 ) -> list[ClassifiedRegion]:
     """Pointer-walk atomic blocks for merge-or-separate, then role by shape.
@@ -101,7 +86,7 @@ def evaluate_sheet_blocks(
         _OpenBlock(region=region, locked=region in locked_set) for region in blocks
     ]
     remaining.sort(key=lambda item: (item.region.min_row, item.region.min_col))
-    resolved_judge = judge if judge is not None else GatewaySpreadsheetRegionJudge()
+    resolved_judge = judge if judge is not None else GatewayLunaJudge()
     finalized: list[_OpenBlock] = []
 
     while remaining:
@@ -167,7 +152,7 @@ def _merge_answers(
     sheet: SheetGrid,
     center: _OpenBlock,
     neighbors: Mapping[str, _OpenBlock],
-    judge: SpreadsheetRegionJudge,
+    judge: ChoiceJudge,
 ) -> Mapping[str, str]:
     directions = tuple(direction for direction in _CLOCKWISE_DIRS if direction in neighbors)
     fail_closed = {direction: _CHOICE_SEPARATE for direction in directions}
@@ -467,68 +452,3 @@ def _cell_preview(sheet: SheetGrid, row: int, col: int) -> str:
     if formula:
         return f'"{shown}" formula={formula}{span}'
     return f'"{shown}"{span}'
-
-
-def _gateway_api_key() -> str:
-    from shared.core.config import settings
-
-    vercel = str(getattr(settings, "VERCEL_KEY", "") or "").strip()
-    if vercel:
-        return vercel
-    return str(os.environ.get("AI_GATEWAY_API_KEY", "") or "").strip()
-
-
-class GatewaySpreadsheetRegionJudge:
-    def choose(
-        self,
-        *,
-        state: Mapping[str, object],
-        questions: Mapping[str, Mapping[str, object]],
-        required_ids: Sequence[str],
-        allowed: Mapping[str, frozenset[str]],
-    ) -> Mapping[str, str] | None:
-        from shared.core.config import settings
-
-        api_key = _gateway_api_key()
-        if not api_key or not questions:
-            return None
-        try:
-            timeout_seconds = float(
-                getattr(settings, "OPENAI_CLIENT_TIMEOUT", 300) or 300
-            )
-            response = get_sync_client().post(
-                _LUNA_EVALUATE_URL,
-                json={
-                    "model": _LUNA_MODEL,
-                    "state": state,
-                    "questions": questions,
-                },
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                timeout=timeout_seconds,
-            )
-            if not response.is_success:
-                logger.warning(
-                    "Luna evaluate HTTP {}: {}",
-                    response.status_code,
-                    response.reason_phrase,
-                )
-                return None
-            payload = response.json()
-        except Exception as exc:
-            logger.warning("Luna evaluate failed: {}", exc)
-            return None
-        answers = payload.get("answers") if isinstance(payload, dict) else None
-        if not isinstance(answers, dict):
-            return None
-        chosen: dict[str, str] = {}
-        for question_id in required_ids:
-            item = answers.get(question_id)
-            choice = item.get("choice") if isinstance(item, dict) else None
-            allowed_choices = allowed.get(question_id, frozenset())
-            if not isinstance(choice, str) or choice not in allowed_choices:
-                return None
-            chosen[question_id] = choice
-        return chosen

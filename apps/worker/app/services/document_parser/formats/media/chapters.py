@@ -5,6 +5,12 @@ from collections.abc import Sequence
 from loguru import logger
 
 from app.services.document_parser.formats.media.segments import TranscriptSegment
+from app.services.document_parser.support.choice_judge import (
+    ChoiceJudge,
+    FallbackChoiceJudge,
+    GatewayLunaJudge,
+    TextLlmChoiceJudge,
+)
 
 from shared.services.ai.llm_overrides import get_text_client
 from shared.services.ai.response_process_service import eval_response
@@ -13,6 +19,10 @@ from shared.services.ai.response_process_service import eval_response
 # (<= 60 min) is one call, longer paid files are chaptered window by window.
 CHAPTER_WINDOW_MS = 60 * 60 * 1000
 CHAPTER_USAGE_TASK = "parser.media.chapters"
+CHAPTER_BOUNDARY_USAGE_TASK = "parser.media.chapter_boundary"
+_BOUNDARY_QUESTION_ID = "chapter_boundary"
+_CHOICE_MERGE = "merge"
+_CHOICE_SEPARATE = "separate"
 _MS_PER_SECOND = 1000
 _SECONDS_PER_MINUTE = 60
 _SECONDS_PER_HOUR = 3600
@@ -28,16 +38,42 @@ Rules:
 - Do not summarize, quote, or rewrite the transcript."""
 
 
-def chapter_titles(segments: Sequence[TranscriptSegment]) -> list[str] | None:
-    """Return one chapter title per segment, or None to keep the transcript flat."""
+def chapter_titles(
+    segments: Sequence[TranscriptSegment],
+    *,
+    judge: ChoiceJudge | None = None,
+) -> list[str] | None:
+    """Return one chapter title per segment, or None to keep the transcript flat.
+
+    At each window edge, the previous window's last chapter and the next
+    window's first chapter are judged merge-or-separate (Luna, then the text
+    LLM); with no answer they stay separate.
+    """
     if not segments:
         return None
+    resolved_judge = judge or FallbackChoiceJudge(
+        (
+            GatewayLunaJudge(),
+            TextLlmChoiceJudge(usage_task=CHAPTER_BOUNDARY_USAGE_TASK),
+        )
+    )
     titles: list[str] = []
+    previous_window_start = 0
     for window_start, window_end in _windows(segments):
         window_titles = _chapter_window(segments, window_start, window_end)
         if window_titles is None:
             return None
+        if titles:
+            window_titles = _join_window_edge(
+                segments,
+                titles=titles,
+                window_titles=window_titles,
+                previous_window_start=previous_window_start,
+                window_start=window_start,
+                judge=resolved_judge,
+            )
         titles.extend(window_titles)
+        previous_window_start = window_start
     return titles
 
 
@@ -52,22 +88,106 @@ def _windows(segments: Sequence[TranscriptSegment]) -> list[tuple[int, int]]:
     return windows
 
 
+def _join_window_edge(
+    segments: Sequence[TranscriptSegment],
+    *,
+    titles: list[str],
+    window_titles: list[str],
+    previous_window_start: int,
+    window_start: int,
+    judge: ChoiceJudge,
+) -> list[str]:
+    """Relabel the next window's first chapter when it continues the previous one."""
+    previous_title = titles[-1]
+    next_title = window_titles[0]
+    if previous_title == next_title:
+        return window_titles
+    previous_chapter_start = window_start - 1
+    while (
+        previous_chapter_start > previous_window_start
+        and titles[previous_chapter_start - 1] == previous_title
+    ):
+        previous_chapter_start -= 1
+    next_chapter_length = 1
+    while (
+        next_chapter_length < len(window_titles)
+        and window_titles[next_chapter_length] == next_title
+    ):
+        next_chapter_length += 1
+    state = {
+        "previous_chapter": {
+            "title": previous_title,
+            "transcript": _chapter_text(segments, previous_chapter_start, window_start),
+        },
+        "next_chapter": {
+            "title": next_title,
+            "transcript": _chapter_text(
+                segments, window_start, window_start + next_chapter_length
+            ),
+        },
+    }
+    questions = {
+        _BOUNDARY_QUESTION_ID: {
+            "type": "choice",
+            "instructions": (
+                "previous_chapter ends exactly where next_chapter begins; the cut "
+                "comes from a fixed processing window, not from the speakers. "
+                "Pick merge if next_chapter continues the same topic as "
+                "previous_chapter. Pick separate if it starts a new topic."
+            ),
+            "criteria": {
+                _CHOICE_MERGE: "Same topic; next_chapter continues previous_chapter.",
+                _CHOICE_SEPARATE: "Different topic; next_chapter starts a new chapter.",
+            },
+        }
+    }
+    chosen = judge.choose(
+        state=state,
+        questions=questions,
+        required_ids=(_BOUNDARY_QUESTION_ID,),
+        allowed={_BOUNDARY_QUESTION_ID: frozenset({_CHOICE_MERGE, _CHOICE_SEPARATE})},
+    )
+    choice = chosen.get(_BOUNDARY_QUESTION_ID) if chosen is not None else None
+    logger.info(
+        "Media chapter window edge at segment {}: {!r} | {!r} -> {}",
+        window_start,
+        previous_title,
+        next_title,
+        choice or f"{_CHOICE_SEPARATE} (no judge answer)",
+    )
+    if choice != _CHOICE_MERGE:
+        return window_titles
+    return [previous_title] * next_chapter_length + window_titles[next_chapter_length:]
+
+
+def _chapter_text(
+    segments: Sequence[TranscriptSegment],
+    start: int,
+    end: int,
+) -> str:
+    return "\n\n".join(_segment_line(segments, index) for index in range(start, end))
+
+
+def _segment_line(segments: Sequence[TranscriptSegment], index: int) -> str:
+    segment = segments[index]
+    return (
+        f"[{index}] {_clock(segment.start_ms)}-{_clock(segment.end_ms)}\n"
+        f"{segment.text}"
+    )
+
+
 def _chapter_window(
     segments: Sequence[TranscriptSegment],
     window_start: int,
     window_end: int,
 ) -> list[str] | None:
-    lines = [
-        f"[{index}] {_clock(segments[index].start_ms)}-{_clock(segments[index].end_ms)}\n"
-        f"{segments[index].text}"
-        for index in range(window_start, window_end)
-    ]
+    transcript = _chapter_text(segments, window_start, window_end)
     try:
         client, _model = get_text_client()
         raw = client.chat_completion(
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": "\n\n".join(lines)},
+                {"role": "user", "content": transcript},
             ],
             usage_task=CHAPTER_USAGE_TASK,
         )

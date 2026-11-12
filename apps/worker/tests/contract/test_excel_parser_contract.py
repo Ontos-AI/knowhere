@@ -16,8 +16,8 @@ _HEADER_LOCATE = (
     "TextClientSpreadsheetHeaderDetector.locate_header_start"
 )
 _LUNA_CHOOSE = (
-    "app.services.document_parser.formats.excel.luna_decisions."
-    "GatewaySpreadsheetRegionJudge.choose"
+    "app.services.document_parser.support.choice_judge."
+    "GatewayLunaJudge.choose"
 )
 
 
