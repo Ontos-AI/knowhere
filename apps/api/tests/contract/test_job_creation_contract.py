@@ -832,6 +832,7 @@ async def test_should_return_conflict_when_creating_a_job_for_a_document_with_an
         "reason": "ABORTED",
         "resource": "Document",
         "id": document_id,
+        "active_job_id": active_job_id,
     }
     assert await _count_jobs() == 1
 

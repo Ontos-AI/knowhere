@@ -64,6 +64,7 @@ def raise_document_ingestion_conflict(
         resource="Document",
         resource_id=document_id,
         internal_message=f"Active ingestion conflict for document_id={document_id}",
+        extra_details={"active_job_id": active_job_id} if active_job_id else None,
     )
 
 

@@ -117,5 +117,15 @@ describe these storage requirements.
 
 Use the saved job ID as the authority for retry. A lost create response can
 leave a waiting job until expiry. An explicit existing document can return an
-active-ingestion `409 ABORTED` whose details identify the document. Recovery
-requires the ID from the original accepted create response.
+active-ingestion `409 ABORTED`. Its `error.details` holds `reason`,
+`resource: "Document"`, the document `id`, and `active_job_id` when the API
+found the caller's active job:
+
+```json
+{"reason": "ABORTED", "resource": "Document", "id": "doc_123", "active_job_id": "job_456"}
+```
+
+A client that lost the original create response can continue with
+`active_job_id`. A conflict caught only by the database unique index, when two
+creates race, omits `active_job_id`. Retrying the create reports it while that
+job stays active.
