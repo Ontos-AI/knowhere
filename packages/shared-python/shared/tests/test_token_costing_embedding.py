@@ -66,13 +66,13 @@ def test_fun_asr_audio_seconds_are_priced_per_second() -> None:
         }
     )
     assert estimate["by_model"]["fun-asr"]["audio_seconds"] == 3600
-    assert estimate["by_model"]["fun-asr"]["audio_cost"] == 0.1152
-    assert estimate["by_model"]["fun-asr"]["total_cost"] == 0.1152
+    assert estimate["by_model"]["fun-asr"]["audio_cost"] == 0.126
+    assert estimate["by_model"]["fun-asr"]["total_cost"] == 0.126
     assert "audio_cost" not in estimate["by_model"]["deepseek-flash"]
-    assert estimate["total_audio_cost"] == 0.1152
-    assert estimate["total_cost"] == 0.2652
-    assert estimate["by_task"]["parser.media.asr"]["audio_cost"] == 0.1152
-    assert estimate["by_task"]["parser.media.asr"]["total_cost"] == 0.1152
+    assert estimate["total_audio_cost"] == 0.126
+    assert estimate["total_cost"] == 0.276
+    assert estimate["by_task"]["parser.media.asr"]["audio_cost"] == 0.126
+    assert estimate["by_task"]["parser.media.asr"]["total_cost"] == 0.126
     assert estimate["missing_pricing_models"] == []
 
 

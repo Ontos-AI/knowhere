@@ -81,14 +81,15 @@ DEFAULT_TOKEN_PRICING_TABLE: dict[str, dict[str, Any]] = {
     "gemini-embedding-2": {
         "alias_of": "google/gemini-embedding-2",
     },
-    # China mainland DashScope Fun-ASR file transcription bills audio seconds.
+    # Fun-ASR file transcription bills audio seconds. Deployed ALI_URL is the
+    # international (dashscope-intl) endpoint, so the international rate applies.
     "fun-asr": {
         "currency": "USD",
         "unit": "per_audio_second",
-        "audio_per_second": 0.000032,
+        "audio_per_second": 0.000035,
         "source": (
             "Alibaba Model Studio fun-asr recorded file recognition, "
-            "China mainland $0.000032 per second (international $0.000035)"
+            "international $0.000035 per second (China mainland $0.000032)"
         ),
         "effective_date": "2026-11-11",
     },

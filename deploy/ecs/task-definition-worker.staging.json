@@ -63,6 +63,9 @@
         {"name": "HIERARCHY_LLM_MODEL", "value": "deepseek-flash"},
         {"name": "NORMOL_MODEL", "value": "deepseek-flash"},
         {"name": "IMAGE_MODEL", "value": "deepseek-flash"},
+        {"name": "SPEECH_MODEL", "value": "fun-asr"},
+        {"name": "MEDIA_MAX_DURATION_FREE_SECONDS", "value": "3600"},
+        {"name": "MEDIA_MAX_DURATION_PAID_SECONDS", "value": "7200"},
         {"name": "ALL_DF_COLS", "value": "content,path,type,length,keywords,summary,know_id,tokens,connectto,addtime,page_nums"}
       ],
       "secrets": [
