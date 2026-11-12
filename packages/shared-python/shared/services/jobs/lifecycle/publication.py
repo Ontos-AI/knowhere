@@ -13,7 +13,10 @@ from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
 from shared.services.redis.publication_semaphore import SyncRedisPublicationSemaphore
-from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
+from shared.services.jobs.lifecycle.publication_trace import (
+    PUBLICATION_PARSE_TRACKS,
+    PublicationTrace,
+)
 from shared.core.config import settings
 from shared.services.retrieval.publication_service import RetrievalPublicationService
 from shared.services.retrieval.publication_models import (
@@ -158,7 +161,7 @@ class SyncJobPublicationFinalizer:
         metadata = raw_metadata or {}
         if trace is not None:
             parse_track = JobMetadataHelper.get_parse_track(metadata)
-            if parse_track in ("chunk", "page_memory", "sheet", "media"):
+            if parse_track in PUBLICATION_PARSE_TRACKS:
                 trace.bind_parse_track(parse_track)
         if published_document_state is None or published_document_state.document_id is None:
             return None

@@ -178,6 +178,7 @@ def _transcribe_file_url(
         if sentences
         else False,
         "has_diarization": bool(speakers),
+        "billed_duration_s": _billed_duration_seconds(job),
         "content_duration_ms": _first_content_duration_ms(transcripts),
         "original_duration_ms": _first_original_duration_ms(transcripts),
         "sentences": sentences,
@@ -264,15 +265,20 @@ def _download_transcripts(
     job: dict[str, Any],
 ) -> list[dict[str, Any]]:
     results = job.get("output", {}).get("results") or job.get("results") or []
+    if not isinstance(results, list) or not results:
+        raise RuntimeError(f"Fun-ASR job returned no subtask results: {job}")
     transcripts: list[dict[str, Any]] = []
-    if not isinstance(results, list):
-        return transcripts
     for result in results:
         if not isinstance(result, dict):
-            continue
+            raise RuntimeError(f"Fun-ASR subtask result is not an object: {result}")
+        subtask_status = str(result.get("subtask_status") or "").upper()
+        if subtask_status and subtask_status != "SUCCEEDED":
+            raise RuntimeError(f"Fun-ASR subtask failed: {result}")
         transcription_url = result.get("transcription_url")
         if not isinstance(transcription_url, str) or not transcription_url:
-            continue
+            raise RuntimeError(
+                f"Fun-ASR subtask succeeded without transcription_url: {result}"
+            )
         response = client.get(transcription_url)
         payload = _json_or_text(response)
         if response.status_code >= 400:
@@ -280,8 +286,11 @@ def _download_transcripts(
                 "Fun-ASR transcript download failed: "
                 f"status={response.status_code} body={payload}"
             )
-        if isinstance(payload, dict):
-            transcripts.append(payload)
+        if not isinstance(payload, dict):
+            raise RuntimeError(
+                f"Fun-ASR transcript payload is not a JSON object: {payload}"
+            )
+        transcripts.append(payload)
     return transcripts
 
 
@@ -314,16 +323,22 @@ def _sentences_from_transcripts(transcripts: list[dict[str, Any]]) -> list[dict[
     return sentences
 
 
+def _billed_duration_seconds(job: dict[str, Any]) -> int | None:
+    usage = job.get("usage")
+    if isinstance(usage, dict):
+        duration = usage.get("duration")
+        if isinstance(duration, int) and not isinstance(duration, bool):
+            return duration
+    return None
+
+
 def _first_content_duration_ms(transcripts: list[dict[str, Any]]) -> int | None:
     for transcript in transcripts:
-        value = transcript.get("content_duration")
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value
         transcripts_block = transcript.get("transcripts")
         if isinstance(transcripts_block, list):
             for block in transcripts_block:
                 if isinstance(block, dict):
-                    nested = block.get("content_duration")
+                    nested = block.get("content_duration_in_milliseconds")
                     if isinstance(nested, int) and not isinstance(nested, bool):
                         return nested
     return None
@@ -331,9 +346,11 @@ def _first_content_duration_ms(transcripts: list[dict[str, Any]]) -> int | None:
 
 def _first_original_duration_ms(transcripts: list[dict[str, Any]]) -> int | None:
     for transcript in transcripts:
-        value = transcript.get("original_duration_in_milliseconds")
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value
+        properties = transcript.get("properties")
+        if isinstance(properties, dict):
+            value = properties.get("original_duration_in_milliseconds")
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value
     return None
 
 
