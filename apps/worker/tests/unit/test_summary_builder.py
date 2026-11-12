@@ -129,7 +129,7 @@ class TestLlmTrigger:
             called["n"] += 1
             return "SHOULD_NOT_USE"
 
-        monkeypatch.setattr(sb, "_llm_summarize", _boom)
+        monkeypatch.setattr(sb, "llm_summarize_scope", _boom)
         parent = _parent(
             "P",
             [_leaf("A", summary="x"), _leaf("B", summary="y")],
@@ -152,7 +152,7 @@ class TestLlmTrigger:
             captured.update(kwargs)
             return "LLM_SUMMARY"
 
-        monkeypatch.setattr(sb, "_llm_summarize", _fake_llm)
+        monkeypatch.setattr(sb, "llm_summarize_scope", _fake_llm)
         long_a = "A" * (sb.SUMMARY_MAX_LEN + 5)
         parent = _parent(
             "P",
@@ -184,7 +184,7 @@ class TestLlmTrigger:
         sb = _summary_builder()
         monkeypatch.setattr(
             sb,
-            "_llm_summarize",
+            "llm_summarize_scope",
             lambda **kwargs: "MERGED",
         )
         long_child = "C" * (sb.SUMMARY_MAX_LEN + 1)
@@ -223,7 +223,7 @@ class TestPromptPayload:
             _fake_client,
         )
         # Ensure build_prompt path works
-        out = sb._llm_summarize(
+        out = sb.llm_summarize_scope(
             node_name="Parent",
             self_only="intro text",
             child_rows=[("ChildA", "summary A"), ("ChildB", "ChildB")],
@@ -256,7 +256,7 @@ class TestDocNavTopSummaryPersistence:
             captured["calls"] = int(captured.get("calls") or 0) + 1
             return "LLM document overview"
 
-        monkeypatch.setattr(sb, "_llm_summarize", _fake_llm)
+        monkeypatch.setattr(sb, "llm_summarize_scope", _fake_llm)
 
         file_dir = tmp_path / "report.pdf"
         file_dir.mkdir()
@@ -305,3 +305,49 @@ class TestDocNavTopSummaryPersistence:
         assert sb.load_nav_top_summary(str(file_dir), "report.pdf") == (
             "LLM document overview"
         )
+
+
+class TestTopSummaryKeepsSectionSummaries:
+    def test_llm_section_summaries_survive_top_summary(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        sb = _summary_builder()
+        long_leaf = "L" * (sb.SUMMARY_MAX_LEN + 5)
+
+        def _fake_llm(**kwargs: Any) -> str:
+            return f"LLM:{kwargs['node_name']}"
+
+        monkeypatch.setattr(sb, "llm_summarize_scope", _fake_llm)
+        doc_nav = {
+            "file_name": "doc.pdf",
+            "sections": [
+                _parent(
+                    "Chapter",
+                    [_leaf("A", summary=long_leaf), _leaf("B", summary=long_leaf)],
+                    path="doc.pdf/Chapter",
+                )
+            ],
+        }
+        for section in doc_nav["sections"]:
+            sb._recursive_summarize_nav(section, use_llm=True, source_file_name="doc.pdf")
+        assert doc_nav["sections"][0]["summary"] == "LLM:Chapter"
+
+        sb._build_nav_top_summary(doc_nav, use_llm=False, source_file_name="doc.pdf")
+
+        assert doc_nav["sections"][0]["summary"] == "LLM:Chapter"
+
+    def test_top_summary_fills_only_missing_parent_summaries(self) -> None:
+        sb = _summary_builder()
+        doc_nav = {
+            "file_name": "doc.pdf",
+            "sections": [
+                _parent("Kept", [_leaf("A", summary="a")], path="doc.pdf/Kept"),
+                _parent("Missing", [_leaf("B", summary="b")], path="doc.pdf/Missing"),
+            ],
+        }
+        doc_nav["sections"][0]["summary"] = "Parser summary."
+
+        sb._build_nav_top_summary(doc_nav, use_llm=False, source_file_name="doc.pdf")
+
+        assert doc_nav["sections"][0]["summary"] == "Parser summary."
+        assert doc_nav["sections"][1]["summary"].startswith("This section covers: ")

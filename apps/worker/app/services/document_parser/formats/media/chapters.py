@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from loguru import logger
 
@@ -20,6 +21,7 @@ from shared.services.ai.response_process_service import eval_response
 CHAPTER_WINDOW_MS = 60 * 60 * 1000
 CHAPTER_USAGE_TASK = "parser.media.chapters"
 CHAPTER_BOUNDARY_USAGE_TASK = "parser.media.chapter_boundary"
+PARTS_USAGE_TASK = "parser.media.parts"
 _BOUNDARY_QUESTION_ID = "chapter_boundary"
 _CHOICE_MERGE = "merge"
 _CHOICE_SEPARATE = "separate"
@@ -36,6 +38,24 @@ Rules:
 - "start" values strictly increase and are segment numbers from the list.
 - Titles are short noun phrases in the transcript's own language.
 - Do not summarize, quote, or rewrite the transcript."""
+
+_PARTS_SYSTEM_PROMPT = """You build the top level of a table of contents for a long spoken-audio transcript.
+The transcript is already split into numbered chapters, each shown with its time range, title, and summary.
+Group consecutive chapters into parts: a part is a broad theme or stage of the conversation that spans several chapters, so a reader can scan the parts to see the overall arc.
+Return JSON only: an array of objects {"start": <chapter number>, "title": <title>}.
+Rules:
+- The first part starts at chapter 0.
+- "start" values strictly increase and are chapter numbers from the list.
+- Each part covers several consecutive chapters; never make one part per chapter.
+- Titles are short noun phrases in the transcript's own language and name the broader theme, not a single chapter."""
+
+
+@dataclass(frozen=True)
+class ChapterDigest:
+    title: str
+    start_ms: int
+    end_ms: int
+    summary: str
 
 
 def chapter_titles(
@@ -176,38 +196,57 @@ def _segment_line(segments: Sequence[TranscriptSegment], index: int) -> str:
     )
 
 
+def part_boundaries(chapters: Sequence[ChapterDigest]) -> list[tuple[int, str]] | None:
+    """Group consecutive chapters into parts as (first chapter index, title).
+
+    Returns None when grouping fails, yields fewer than two parts, or puts every
+    chapter in its own part, so the outline keeps a single chapter level.
+    """
+    if not chapters:
+        return None
+    listing = "\n\n".join(
+        f"[{index}] {_clock(chapter.start_ms)}-{_clock(chapter.end_ms)} {chapter.title}\n"
+        f"{chapter.summary}"
+        for index, chapter in enumerate(chapters)
+    )
+    boundaries = _ask_boundaries(
+        system_prompt=_PARTS_SYSTEM_PROMPT,
+        user_text=listing,
+        usage_task=PARTS_USAGE_TASK,
+        start=0,
+        end=len(chapters),
+        unit="chapters",
+    )
+    if boundaries is None or len(boundaries) < 2:
+        return None
+    part_sizes = [
+        end - start
+        for (start, _title), end in zip(
+            boundaries,
+            [*(start for start, _title in boundaries[1:]), len(chapters)],
+            strict=True,
+        )
+    ]
+    if max(part_sizes) < 2:
+        # Every part holds one chapter: no grouping happened.
+        return None
+    return boundaries
+
+
 def _chapter_window(
     segments: Sequence[TranscriptSegment],
     window_start: int,
     window_end: int,
 ) -> list[str] | None:
-    transcript = _chapter_text(segments, window_start, window_end)
-    try:
-        client, _model = get_text_client()
-        raw = client.chat_completion(
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": transcript},
-            ],
-            usage_task=CHAPTER_USAGE_TASK,
-        )
-        parsed = eval_response(raw)
-    except Exception as exc:
-        logger.warning(
-            "Media chaptering failed for segments {}-{}: {}",
-            window_start,
-            window_end - 1,
-            exc,
-        )
-        return None
-    boundaries = _validated_boundaries(parsed, window_start, window_end)
+    boundaries = _ask_boundaries(
+        system_prompt=_SYSTEM_PROMPT,
+        user_text=_chapter_text(segments, window_start, window_end),
+        usage_task=CHAPTER_USAGE_TASK,
+        start=window_start,
+        end=window_end,
+        unit="segments",
+    )
     if boundaries is None:
-        logger.warning(
-            "Media chaptering returned invalid chapters for segments {}-{}: {}",
-            window_start,
-            window_end - 1,
-            parsed,
-        )
         return None
     titles: list[str] = []
     for position, (start, title) in enumerate(boundaries):
@@ -218,6 +257,41 @@ def _chapter_window(
         )
         titles.extend([title] * (end - start))
     return titles
+
+
+def _ask_boundaries(
+    *,
+    system_prompt: str,
+    user_text: str,
+    usage_task: str,
+    start: int,
+    end: int,
+    unit: str,
+) -> list[tuple[int, str]] | None:
+    try:
+        client, _model = get_text_client()
+        raw = client.chat_completion(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text},
+            ],
+            usage_task=usage_task,
+        )
+        parsed = eval_response(raw)
+    except Exception as exc:
+        logger.warning("Media {} grouping failed for {} {}-{}: {}", usage_task, unit, start, end - 1, exc)
+        return None
+    boundaries = _validated_boundaries(parsed, start, end)
+    if boundaries is None:
+        logger.warning(
+            "Media {} returned invalid boundaries for {} {}-{}: {}",
+            usage_task,
+            unit,
+            start,
+            end - 1,
+            parsed,
+        )
+    return boundaries
 
 
 def _validated_boundaries(

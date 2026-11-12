@@ -8,13 +8,14 @@ from typing import Any
 
 import pandas as pd
 
-from app.services.document_parser.formats.media.chapters import chapter_titles
+from app.services.connect_builder.summary_builder import PARSER_SECTION_SUMMARIES_REL
 from app.services.document_parser.formats.media.extract import extract_source_audio
-from app.services.document_parser.formats.media.probe import admit_media_source
-from app.services.document_parser.formats.media.segments import (
-    TranscriptSegment,
-    segment_transcript,
+from app.services.document_parser.formats.media.outline import (
+    build_media_outline,
+    flat_outline,
 )
+from app.services.document_parser.formats.media.probe import admit_media_source
+from app.services.document_parser.formats.media.segments import segment_transcript
 from app.services.document_parser.formats.media.transcriber import (
     FunAsrSpeechTranscriber,
     MediaAudio,
@@ -29,7 +30,6 @@ from app.services.document_parser.support.identifiers import gen_str_codes, get_
 from app.services.document_parser.support.parser_rows import ParsedRow, ParsedRowsBuilder
 
 from shared.core.exceptions.domain_exceptions import ValidationException
-from shared.services.chunks.path_segments import append_document_path
 
 _SOURCE_KIND_ASR = "asr"
 # Working copy of the transcript, so a progressive refine never re-runs ASR.
@@ -81,6 +81,7 @@ def parse_media(
             transcript.sentences,
             media=media,
             filename=filename,
+            output_dir=output_dir,
             relative_root=relative_root,
             chapterize=chapterize,
         ),
@@ -102,6 +103,7 @@ def parse_media_transcript(
             sentences,
             media=media,
             filename=filename,
+            output_dir=output_dir,
             relative_root=relative_root,
             chapterize=True,
         ),
@@ -113,15 +115,25 @@ def _build_rows(
     *,
     media: dict[str, Any],
     filename: str,
+    output_dir: str,
     relative_root: str,
     chapterize: bool,
 ) -> pd.DataFrame:
     segments = segment_transcript(list(sentences))
     document_root = str(relative_root or filename).strip() or filename
-    paths = _segment_paths(document_root, segments, chapterize=chapterize)
+    outline = (
+        build_media_outline(document_root, segments)
+        if chapterize
+        else flat_outline(document_root, segments)
+    )
+    if outline.section_summaries:
+        with open(
+            os.path.join(output_dir, PARSER_SECTION_SUMMARIES_REL), "w", encoding="utf-8"
+        ) as handle:
+            json.dump(outline.section_summaries, handle, ensure_ascii=False)
     timestamp = get_str_time()
     rows_builder = ParsedRowsBuilder()
-    for segment, path in zip(segments, paths, strict=True):
+    for segment, path in zip(segments, outline.paths, strict=True):
         extra_metadata = {
             "time_ranges": [
                 {"start_ms": segment.start_ms, "end_ms": segment.end_ms}
@@ -143,33 +155,6 @@ def _build_rows(
             )
         )
     return rows_builder.to_dataframe()
-
-
-def _segment_paths(
-    document_root: str,
-    segments: Sequence[TranscriptSegment],
-    *,
-    chapterize: bool,
-) -> list[str]:
-    titles = chapter_titles(segments) if chapterize else None
-    if titles is None:
-        return [document_root] * len(segments)
-    # Consecutive equal titles are one chapter (also across window edges);
-    # a title reused by a later chapter gets the markdown `_N` suffix.
-    paths: list[str] = []
-    title_counts: dict[str, int] = {}
-    previous_title: str | None = None
-    current_path = document_root
-    for title in titles:
-        if title != previous_title:
-            title_counts[title] = title_counts.get(title, 0) + 1
-            chapter_title = (
-                title if title_counts[title] == 1 else f"{title}_{title_counts[title]}"
-            )
-            current_path = append_document_path(document_root, chapter_title)
-            previous_title = title
-        paths.append(current_path)
-    return paths
 
 
 def _write_transcript(

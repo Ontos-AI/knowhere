@@ -945,6 +945,18 @@ def test_billed_audio_seconds_requires_integer_usage_duration() -> None:
     assert billed_audio_seconds({}) is None
 
 
+def _patch_outline(
+    monkeypatch: pytest.MonkeyPatch,
+    parser_module: object,
+    chapter_titles: object,
+) -> None:
+    # Patch through the function globals: contract fixtures may reload modules.
+    outline_globals = parser_module.build_media_outline.__globals__  # type: ignore[attr-defined]
+    monkeypatch.setitem(outline_globals, "chapter_titles", chapter_titles)
+    monkeypatch.setitem(outline_globals, "part_boundaries", lambda _digests: None)
+    monkeypatch.setitem(outline_globals, "llm_summarize_scope", lambda **_kwargs: "")
+
+
 def test_parse_media_chapters_segments_and_refine_rebuilds_them_from_transcript(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -967,7 +979,7 @@ def test_parse_media_chapters_segments_and_refine_rebuilds_them_from_transcript(
         chapter_calls.append(len(segments))
         return ["Intro", "Intro", "Pricing", "Intro"]
 
-    monkeypatch.setattr(parser_module, "chapter_titles", _fake_chapter_titles)
+    _patch_outline(monkeypatch, parser_module, _fake_chapter_titles)
     transcriber = _FakeSpeechTranscriber(
         [
             TranscriptSentence(start_ms=0, end_ms=1000, text="welcome", speaker_id="0"),
@@ -1027,7 +1039,7 @@ def test_parse_media_keeps_flat_paths_when_chaptering_fails(
         "extract_source_audio",
         lambda _path, _output_dir: str(audio_path),
     )
-    monkeypatch.setattr(parser_module, "chapter_titles", lambda _segments: None)
+    _patch_outline(monkeypatch, parser_module, lambda _segments: None)
 
     parsed = parse_media(
         str(tmp_path / "talk.mp3"),

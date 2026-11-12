@@ -169,11 +169,12 @@ def test_media_refine_rebuilds_chapters_from_transcript_without_source_or_asr(
         raise AssertionError("media refine must not download the source file")
 
     monkeypatch.setattr(service, "_download_original_source", _refuse_download)
+    outline_globals = parse_media_transcript.__globals__["build_media_outline"].__globals__
     monkeypatch.setitem(
-        parse_media_transcript.__globals__,
-        "chapter_titles",
-        lambda _segments: ["Welcome", "Pricing"],
+        outline_globals, "chapter_titles", lambda _segments: ["Welcome", "Pricing"]
     )
+    monkeypatch.setitem(outline_globals, "part_boundaries", lambda _digests: None)
+    monkeypatch.setitem(outline_globals, "llm_summarize_scope", lambda **_kwargs: "")
     target = _ChunkFinalTarget(
         document_id="doc_media",
         job_id="job_media",
