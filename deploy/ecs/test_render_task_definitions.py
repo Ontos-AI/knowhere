@@ -46,7 +46,7 @@ SHARED_STAGING_ENVIRONMENT: dict[str, str] = {
     "DS_URL": "https://api.deepseek.com/v1/chat/completions",
     "EMBEDDING_MODEL": "google/gemini-embedding-2",
     "S3_TEMP_PATH": "/tmp",
-    "SUPPORTED_EXTENSIONS": ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.tsv,.pptx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif,.md,.html,.htm",
+    "SUPPORTED_EXTENSIONS": ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.tsv,.pptx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif,.md,.html,.htm,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4,.mov,.webm,.mkv",
     "TMP_PATH": "/tmp/aismart_bid",
 }
 
@@ -64,6 +64,9 @@ WORKER_STAGING_ENVIRONMENT: dict[str, str] = {
     "DB_SYNC_POOL_SIZE": "2",
     "HIERARCHY_LLM_MODEL": "deepseek-flash",
     "IMAGE_MODEL": "deepseek-flash",
+    "SPEECH_MODEL": "fun-asr",
+    "MEDIA_MAX_DURATION_FREE_SECONDS": "3600",
+    "MEDIA_MAX_DURATION_PAID_SECONDS": "7200",
     "MAX_PDF_PAGE_LIMIT": "200",
     "NORMOL_MODEL": "deepseek-flash",
     "OVERSIZED_PDF_SHARD_ENABLED": "true",

@@ -394,3 +394,57 @@ def test_spreadsheets_resolve_to_sheet_track(
         parse_track=command.parse_track,
         file_extension=file_extension,
     )
+
+
+@pytest.mark.parametrize(
+    "file_extension",
+    [
+        ".mp3",
+        ".wav",
+        ".m4a",
+        ".aac",
+        ".flac",
+        ".ogg",
+        ".opus",
+        ".mp4",
+        ".mov",
+        ".webm",
+        ".mkv",
+    ],
+)
+@pytest.mark.parametrize("ingestion_mode", ["full", "progressive"])
+def test_media_sources_resolve_to_media_track(
+    file_extension: str,
+    ingestion_mode: str,
+) -> None:
+    from app.services.document_ingestion.command import (
+        allows_progressive_ingestion,
+        build_v1_ingestion_command,
+        build_v2_ingestion_command,
+    )
+
+    v1_command = build_v1_ingestion_command(
+        payload=_build_job_create(source_type="file", file_name=f"talk{file_extension}"),
+        file_extension=file_extension,
+    )
+    v2_payload = _build_job_create_v2(
+        source_type="file",
+        file_name=f"talk{file_extension}",
+        ingestion_mode=ingestion_mode,
+    )
+    v2_command = build_v2_ingestion_command(
+        payload=v2_payload,
+        file_extension=file_extension,
+    )
+
+    assert v1_command.parse_track == "media"
+    assert v1_command.processing_generation == "legacy_chunk"
+    assert v1_command.page_memory_config is None
+    assert v2_command.parse_track == "media"
+    assert v2_command.processing_generation == "legacy_chunk"
+    assert v2_command.page_memory_config is None
+    assert v2_command.ingestion_mode == ingestion_mode
+    assert allows_progressive_ingestion(
+        parse_track=v2_command.parse_track,
+        file_extension=file_extension,
+    )

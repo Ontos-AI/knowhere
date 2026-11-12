@@ -22,6 +22,7 @@ class DocumentFormat(str, Enum):
     MARKDOWN = "markdown"
     JSON = "json"
     HTML = "html"
+    MEDIA = "media"
 
 
 IMAGE_SOURCE_EXTENSIONS: tuple[str, ...] = (
@@ -44,6 +45,26 @@ TABLE_SOURCE_EXTENSIONS: tuple[str, ...] = (
     ".tsv",
 )
 
+AUDIO_SOURCE_EXTENSIONS: tuple[str, ...] = (
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".aac",
+    ".flac",
+    ".ogg",
+    ".opus",
+)
+VIDEO_SOURCE_EXTENSIONS: tuple[str, ...] = (
+    ".mp4",
+    ".mov",
+    ".webm",
+    ".mkv",
+)
+MEDIA_SOURCE_EXTENSIONS: tuple[str, ...] = (
+    *AUDIO_SOURCE_EXTENSIONS,
+    *VIDEO_SOURCE_EXTENSIONS,
+)
+
 SUPPORTED_FILE_TYPES: tuple[str, ...] = (
     ".txt",
     ".fragment",
@@ -57,6 +78,7 @@ SUPPORTED_FILE_TYPES: tuple[str, ...] = (
     ".html",
     ".htm",
     ".json",
+    *MEDIA_SOURCE_EXTENSIONS,
 )
 
 
@@ -84,6 +106,8 @@ def resolve_document_format(file_path: str) -> DocumentFormat:
         return DocumentFormat.JSON
     if extension in (".html", ".htm"):
         return DocumentFormat.HTML
+    if extension in MEDIA_SOURCE_EXTENSIONS:
+        return DocumentFormat.MEDIA
 
     raise ValidationException(
         user_message=f"Unsupported file type: {extension}",
@@ -111,5 +135,6 @@ def get_document_parse_adapter(document_format: DocumentFormat) -> DocumentParse
         DocumentFormat.MARKDOWN: format_adapters.MarkdownParseAdapter(document_format),
         DocumentFormat.HTML: format_adapters.HtmlParseAdapter(document_format),
         DocumentFormat.JSON: format_adapters.JsonParseAdapter(document_format),
+        DocumentFormat.MEDIA: format_adapters.MediaParseAdapter(document_format),
     }
     return adapter_by_format[document_format]

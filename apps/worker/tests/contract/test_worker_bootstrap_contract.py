@@ -257,3 +257,56 @@ def test_should_reject_bypassing_database_role_before_starting_consumers(
             worker_bootstrap.run_worker()
     finally:
         engine.dispose()
+
+
+def test_init_worker_exits_when_ffmpeg_is_missing(
+    worker_contract_environment: None,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from contextlib import contextmanager
+    from collections.abc import Iterator
+
+    from app.core import worker_bootstrap
+    from shared.core.exceptions.domain_exceptions import DependencyMissingException
+
+    del worker_contract_environment
+
+    @contextmanager
+    def skip_database() -> Iterator[object]:
+        yield object()
+
+    def reject_missing_toolchain() -> None:
+        raise DependencyMissingException(
+            internal_message=(
+                "ffmpeg and ffprobe not found on PATH. "
+                "Install ffmpeg in the worker image or on the host before parsing media."
+            ),
+            user_message="Media parsing is unavailable because ffmpeg is not installed.",
+        )
+
+    def refuse_compiler_warmup() -> None:
+        raise AssertionError("Worker must not warm the compiler without ffmpeg")
+
+    def refuse_heartbeat() -> None:
+        raise AssertionError("Worker must not start a heartbeat without ffmpeg")
+
+    monkeypatch.setattr(
+        "shared.core.database_sync.get_sync_db_context",
+        skip_database,
+    )
+    monkeypatch.setattr(
+        "shared.services.retrieval.demo_authorization.verify_runtime_database_role",
+        lambda _database: None,
+    )
+    monkeypatch.setattr(
+        "app.services.document_parser.formats.media.toolchain.require_media_toolchain",
+        reject_missing_toolchain,
+    )
+    monkeypatch.setattr(
+        "shared.services.retrieval.lexical.preparation.LexicalPreparation.warmCompiler",
+        staticmethod(refuse_compiler_warmup),
+    )
+    monkeypatch.setattr(worker_bootstrap, "start_worker_heartbeat", refuse_heartbeat)
+
+    with pytest.raises(SystemExit, match="ffmpeg and ffprobe not found on PATH"):
+        worker_bootstrap.init_worker()

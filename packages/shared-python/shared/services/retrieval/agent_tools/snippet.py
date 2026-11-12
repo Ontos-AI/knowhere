@@ -18,6 +18,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from shared.services.chunks.time_ranges import format_time_ranges, valid_time_ranges
+
 HIT_CONTEXT_CHARS = 80
 HEAD_TAIL_CHARS = 50
 
@@ -88,6 +90,7 @@ def build_row(
     depth: int = 0,
     is_hit: bool = False,
     hosted: bool | None = None,
+    time_ranges: object = None,
 ) -> dict[str, Any]:
     """One row record. Every ``corpus.*`` search/map tool returns these in
     ``payload["rows"]`` and renders them with ``format_row``.
@@ -99,7 +102,8 @@ def build_row(
     the asset's own ``Root`` path); it is ``None`` for every other kind.
     ``summary`` is a map-row field; ``snippet``/``score`` are hit-row
     fields; ``depth`` indents a map row under its parent; ``is_hit`` marks a
-    node_filter predicate match.
+    node_filter predicate match. ``time_ranges`` is a media row's time span,
+    rendered as ``[hh:mm:ss–hh:mm:ss]`` before the title.
     """
     return {
         "kind": kind,
@@ -113,6 +117,7 @@ def build_row(
         "is_hit": is_hit,
         "depth": max(depth, 0),
         "hosted": hosted,
+        "time_ranges": valid_time_ranges(time_ranges),
     }
 
 
@@ -120,6 +125,8 @@ def format_row(row: Mapping[str, Any]) -> str:
     """Render one ``build_row`` record as the shared model-visible row."""
     indent = "  " * row["depth"]
     header = f"{indent}- [{row['kind']}]"
+    if time_label := format_time_ranges(row["time_ranges"]):
+        header += f" {time_label}"
     if row["title"]:
         header += f" {row['title']}"
     header += f" | document_id={row['document_id']}"

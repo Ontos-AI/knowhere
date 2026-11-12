@@ -18,6 +18,8 @@ from contextlib import contextmanager
 from collections.abc import Iterator
 from typing import Any
 
+from shared.utils.greenlet_lineage import greenlet_lineage
+
 _trackers: dict[int, dict[str, Any]] = {}
 _lock = threading.Lock()
 
@@ -42,7 +44,7 @@ def _current_greenlet_id() -> int:
 
 
 def _find_root_id() -> int | None:
-    """Walk up the greenlet parent chain to find a registered root id."""
+    """Walk the greenlet spawn lineage to find a registered root id."""
     gid = _current_greenlet_id()
     # Check self first (fastest path for the root greenlet)
     if gid in _trackers:
@@ -50,19 +52,12 @@ def _find_root_id() -> int | None:
     # Check if this greenlet was registered as a child
     if gid in _root_ids:
         return _root_ids[gid]
-    # Walk parent chain
-    try:
-        import gevent
-        g = gevent.getcurrent()
-        while g is not None:
-            pid = id(g)
-            if pid in _trackers:
-                # Cache for future lookups
-                _root_ids[gid] = pid
-                return pid
-            g = getattr(g, 'parent', None)
-    except ImportError:
-        pass
+    for greenlet in greenlet_lineage():
+        pid = id(greenlet)
+        if pid in _trackers:
+            # Cache for future lookups
+            _root_ids[gid] = pid
+            return pid
     return None
 
 
@@ -162,6 +157,11 @@ def _add_usage(
     bucket["prompt_tokens"] = bucket.get("prompt_tokens", 0) + usage.get("prompt_tokens", 0)
     bucket["completion_tokens"] = bucket.get("completion_tokens", 0) + usage.get("completion_tokens", 0)
     bucket["total_tokens"] = bucket.get("total_tokens", 0) + usage.get("total_tokens", 0)
+    if "audio_seconds" in usage:
+        # Speech providers bill audio duration instead of tokens.
+        bucket["audio_seconds"] = int(bucket.get("audio_seconds", 0) or 0) + int(
+            usage["audio_seconds"]
+        )
     bucket["calls"] = bucket.get("calls", 0) + 1
     bucket["duration_ms"] = int(bucket.get("duration_ms", 0) or 0) + max(int(duration_ms), 0)
 

@@ -13,6 +13,7 @@ from shared.services.retrieval.execution.response_projection import (
 from shared.services.retrieval.hydration.row_utils import (
     build_reference_lookup_key,
     extract_page_nums,
+    extract_time_ranges,
 )
 
 
@@ -127,6 +128,9 @@ def _merge_reference_projection(
             page_nums = extract_page_nums(row)
             if page_nums is not None:
                 merged["page_nums"] = page_nums
+            time_ranges = extract_time_ranges(row)
+            if time_ranges is not None:
+                merged["time_ranges"] = time_ranges
         merged_refs.append(merged)
     return merged_refs
 

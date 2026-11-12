@@ -11,6 +11,8 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
+import pytest
+
 from shared.services.chunks.document_path import split_document_path
 from shared.services.chunks.path_segments import (
     ESCAPED_DOCUMENT_PATH_SEP,
@@ -105,6 +107,27 @@ def test_section_parts_from_chunk_path_keep_spaced_slash_title() -> None:
         )
         == "MD / TXT（2 层） / Details"
     )
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["talk.mp3", "talk.mp4", "talk.wav"],
+)
+def test_split_document_path_treats_media_filename_as_root(filename: str) -> None:
+    chunk_path = join_document_path([filename, "Opening"])
+    root_parts, section_parts = split_document_path(
+        chunk_path,
+        source_file_name=filename,
+    )
+    assert root_parts == [filename]
+    assert section_parts == ["Opening"]
+
+
+def test_split_document_path_recognizes_media_extension_in_legacy_namespace() -> None:
+    chunk_path = join_document_path(["podcasts", "talk.mp3", "Opening"])
+    root_parts, section_parts = split_document_path(chunk_path)
+    assert root_parts == ["podcasts", "talk.mp3"]
+    assert section_parts == ["Opening"]
 
 
 def test_doc_nav_keeps_slash_title_as_single_section() -> None:

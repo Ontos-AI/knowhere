@@ -144,7 +144,15 @@ class RetrievalQueryResponse(BaseModel):
             "Use evidence and synthesize answers downstream."
         ),
     )
-    referenced_chunks: list[dict] = Field(default_factory=list)
+    referenced_chunks: list[dict] = Field(
+        default_factory=list,
+        description=(
+            "Citations behind the evidence. Each item names the cited chunk "
+            "(document_id, chunk_id, section_path) and, when available, "
+            "job_result_id, page_nums for paged documents, or time_ranges "
+            "([{start_ms, end_ms}]) for audio and video transcripts."
+        ),
+    )
     results: list[dict] = Field(
         default_factory=list,
         description="Raw path chunks for debug. Content keeps placeholders; composed parts live on evidence.",

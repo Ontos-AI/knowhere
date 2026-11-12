@@ -238,8 +238,8 @@ def test_sheet_parse_execution_routes_only_progressive_to_baseline(
 
 
 _LUNA_CHOOSE = (
-    "app.services.document_parser.formats.excel.luna_decisions."
-    "GatewaySpreadsheetRegionJudge.choose"
+    "app.services.document_parser.support.choice_judge."
+    "GatewayLunaJudge.choose"
 )
 _HEADER_DETECT = (
     "app.services.document_parser.formats.excel.header_detect."

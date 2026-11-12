@@ -13,6 +13,8 @@ import threading
 
 from loguru import logger
 
+from shared.utils.greenlet_lineage import greenlet_lineage
+
 
 # ── Greenlet-safe stage timing accumulator ──
 
@@ -31,23 +33,17 @@ def _current_greenlet_id() -> int:
 
 
 def _find_root_id() -> int | None:
-    """Walk up the greenlet parent chain to find a registered root id."""
+    """Walk the greenlet spawn lineage to find a registered root id."""
     gid = _current_greenlet_id()
     if gid in _trackers:
         return gid
     if gid in _root_ids:
         return _root_ids[gid]
-    try:
-        import gevent
-        g = gevent.getcurrent()
-        while g is not None:
-            pid = id(g)
-            if pid in _trackers:
-                _root_ids[gid] = pid
-                return pid
-            g = getattr(g, 'parent', None)
-    except ImportError:
-        pass
+    for greenlet in greenlet_lineage():
+        pid = id(greenlet)
+        if pid in _trackers:
+            _root_ids[gid] = pid
+            return pid
     return None
 
 

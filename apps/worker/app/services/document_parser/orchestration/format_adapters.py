@@ -191,6 +191,23 @@ class HtmlParseAdapter:
         return ParseOutput(output_dir=session.full_output_dir, parsed_df=parsed_df)
 
 
+@dataclass(frozen=True)
+class MediaParseAdapter:
+    document_format: object
+
+    def parse(self, session: ParseSession) -> ParseOutput:
+        from app.services.document_parser.formats.media.parser import parse_media
+
+        return parse_media(
+            session.file_full_path,
+            filename=session.filename,
+            output_dir=session.full_output_dir,
+            relative_root=session.relative_root,
+            chapterize=True,
+            job_id=session.job_id,
+        )
+
+
 def _parse_docx_path(
     docx_path: str,
     session: ParseSession,

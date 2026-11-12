@@ -38,6 +38,13 @@ from app.services.document_parser.formats.docx.baseline import (
 from app.services.document_parser.formats.docx.page_attribution import (
     attribute_pages_to_leaves,
 )
+from app.services.document_parser.formats.media.parser import (
+    MEDIA_TRANSCRIPT_REL,
+    parse_media_transcript,
+)
+from app.services.document_parser.orchestration.format_router import (
+    MEDIA_SOURCE_EXTENSIONS,
+)
 from app.services.document_parser.orchestration.parse_session import (
     _resolve_output_paths,
     llm_parameters_from_job_metadata,
@@ -64,6 +71,9 @@ from shared.services.ai.token_tracking import (
     init_token_tracker,
 )
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
+from shared.services.jobs.lifecycle.scope_enrichments import (
+    WHOLE_FILE_FINAL_PARSE_TRACKS,
+)
 from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox, WebhookOutboxEvent
 from shared.services.jobs.progressive_completion import commit_final_completion
 from shared.services.jobs.progressive_stages import (
@@ -134,14 +144,9 @@ def execute_chunk_final_enrichment(
             target=target,
             output_root=output_root,
         )
-        source_path = _download_original_source(
-            target=target,
-            input_dir=input_dir,
-            add_dir=add_dir,
-        )
         parsed_df, add_dir = _run_full_chunk_parse(
             target=target,
-            source_path=source_path,
+            input_dir=input_dir,
             output_root=output_root,
             add_dir=add_dir,
         )
@@ -253,7 +258,8 @@ def _load_chunk_final_target(*, job_result_id: str) -> _ChunkFinalTarget | None:
             return None
         job_metadata = dict(job.job_metadata or {})
         if (
-            JobMetadataHelper.get_parse_track(job_metadata) != "chunk"
+            JobMetadataHelper.get_parse_track(job_metadata)
+            not in WHOLE_FILE_FINAL_PARSE_TRACKS
             or JobMetadataHelper.get_ingestion_mode(job_metadata) != "progressive"
         ):
             return None
@@ -346,7 +352,7 @@ def _download_resume_artifacts(
 def _run_full_chunk_parse(
     *,
     target: _ChunkFinalTarget,
-    source_path: str,
+    input_dir: str,
     output_root: str,
     add_dir: str,
 ) -> tuple[pd.DataFrame, str]:
@@ -358,31 +364,60 @@ def _run_full_chunk_parse(
     )
     if full_output_dir != add_dir:
         add_dir = full_output_dir
-    llm_paras = llm_parameters_from_job_metadata(target.job_metadata)
-    if extension in {".md", ".txt"}:
-        parsed_df = _parse_markdown_or_text(
-            source_path=source_path,
+    if extension in MEDIA_SOURCE_EXTENSIONS:
+        # Media refines from the baseline transcript: no source download, no ASR.
+        parsed_df = parse_media_transcript(
+            os.path.join(full_output_dir, MEDIA_TRANSCRIPT_REL),
+            filename=target.source_file_name,
+            output_dir=full_output_dir,
+            relative_root=relative_root,
+        ).parsed_df
+    else:
+        parsed_df = _parse_source_final(
+            target=target,
+            source_path=_download_original_source(
+                target=target,
+                input_dir=input_dir,
+                add_dir=add_dir,
+            ),
             extension=extension,
             output_dir=full_output_dir,
             relative_root=relative_root,
-            llm_paras=llm_paras,
-        )
-    elif extension == ".docx":
-        parsed_df = _parse_docx_final(
-            source_path=source_path,
-            output_dir=full_output_dir,
-            filename=target.source_file_name,
-            relative_root=relative_root,
-            llm_paras=llm_paras,
-        )
-    else:
-        raise ValueError(
-            f"chunk-track progressive final does not support {extension or 'unknown'}"
         )
     processed = apply_parse_postprocess(full_output_dir, parsed_df)
     if processed is None:
         raise ValueError("Final chunk parse returned no dataframe")
     return processed, full_output_dir
+
+
+def _parse_source_final(
+    *,
+    target: _ChunkFinalTarget,
+    source_path: str,
+    extension: str,
+    output_dir: str,
+    relative_root: str,
+) -> pd.DataFrame:
+    llm_paras = llm_parameters_from_job_metadata(target.job_metadata)
+    if extension in {".md", ".txt"}:
+        return _parse_markdown_or_text(
+            source_path=source_path,
+            extension=extension,
+            output_dir=output_dir,
+            relative_root=relative_root,
+            llm_paras=llm_paras,
+        )
+    if extension == ".docx":
+        return _parse_docx_final(
+            source_path=source_path,
+            output_dir=output_dir,
+            filename=target.source_file_name,
+            relative_root=relative_root,
+            llm_paras=llm_paras,
+        )
+    raise ValueError(
+        f"chunk-track progressive final does not support {extension or 'unknown'}"
+    )
 
 
 def _parse_markdown_or_text(

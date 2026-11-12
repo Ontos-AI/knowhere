@@ -174,11 +174,12 @@ Agents using Knowhere outperform those working from raw documents, Markitdown, U
 - [x] `.doc` `.docx` `.xls` `.xlsx` `.csv` `.tsv`
 - [x] `.jpg` `.jpeg` `.png` `.gif` `.webp` `.bmp` `.tif` `.tiff` `.heic` `.heif`
 - [x] `.md` `.txt` `.html` `.htm` `.json`
+- [x] `.mp3` `.wav` `.m4a` `.aac` `.flac` `.ogg` `.opus` `.mp4` `.mov` `.webm` `.mkv` — speech transcription with speakers, chapters, and time-range citations (video: audio track only)
 
 **⏳ Coming Soon**
 
 - [ ] `.epub` `.xml`
-- [ ] `.mp4` `.mp3`
+- [ ] `.srt` `.vtt`
 - [ ] `.skills.md`
 
 Want to see a new format supported? Adding a parser is a great first contribution. Check out [CONTRIBUTING.md](CONTRIBUTING.md) to get started.

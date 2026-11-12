@@ -6,6 +6,7 @@ Calculates page counts for billing based on:
 - PPTX: Slide count
 - Text-based (DOC, DOCX, TXT, MD, JSON): Word-based estimation using count_cn_en
 - Spreadsheet-based (XLS, XLSX, CSV, TSV): Visible non-empty cells, 1000 cells per page
+- Audio/video: Audio duration, 2 minutes per page
 """
 
 import math
@@ -16,6 +17,7 @@ from pathlib import Path
 
 from app.services.document_parser.orchestration.format_router import (
     IMAGE_SOURCE_EXTENSIONS,
+    MEDIA_SOURCE_EXTENSIONS,
     TABLE_SOURCE_EXTENSIONS,
 )
 from shared.core.logging import logger
@@ -23,6 +25,7 @@ from shared.utils.text_utils import count_cn_en
 
 WORDS_PER_PAGE = 500
 CELLS_PER_PAGE = 1000
+MEDIA_MS_PER_PAGE = 2 * 60 * 1000
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,10 @@ class PageEstimator:
             return cls._estimate_with_fallback("text_words", cls._count_text, file_path)
         if suffix in IMAGE_SOURCE_EXTENSIONS:
             return WorkloadEstimate(page_count=1, method="image_default")
+        if suffix in MEDIA_SOURCE_EXTENSIONS:
+            return cls._estimate_with_fallback(
+                "media_duration", cls._count_media, file_path
+            )
 
         fallback_reason = f"unknown_file_type:{suffix or '<none>'}"
         logger.warning(
@@ -103,6 +110,17 @@ class PageEstimator:
             method=method,
             fallback_reason=fallback_reason,
         )
+
+    @classmethod
+    def _count_media(cls, file_path: str) -> int:
+        """Estimate pages for audio/video from the audio duration."""
+        from app.services.document_parser.formats.media.probe import (
+            measure_media_duration_ms,
+            probe_media,
+        )
+
+        duration_ms = measure_media_duration_ms(file_path, probe_media(file_path))
+        return math.ceil(duration_ms / MEDIA_MS_PER_PAGE)
 
     @classmethod
     def _count_pdf(cls, file_path: str) -> int:

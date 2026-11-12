@@ -72,6 +72,29 @@ class StorageConfig(BaseModel):
     MAX_FILE_SIZE: int = Field(
         default=314572800, description="Maximum file size in bytes"
     )
+    MAX_MEDIA_FILE_SIZE: int = Field(
+        default=314572800,
+        description=(
+            "Maximum audio/video file size in bytes. Defaults to the same cap "
+            "as MAX_FILE_SIZE until a larger media limit is chosen."
+        ),
+    )
+    MEDIA_MAX_DURATION_FREE_SECONDS: int = Field(
+        default=3600,
+        ge=1,
+        description=(
+            "Maximum audio/video duration per file for free and guest tiers. "
+            "Longer media is rejected before billing."
+        ),
+    )
+    MEDIA_MAX_DURATION_PAID_SECONDS: int = Field(
+        default=7200,
+        ge=1,
+        description=(
+            "Maximum audio/video duration per file for paid tiers "
+            "(tier_1 and above). Longer media is rejected before billing."
+        ),
+    )
     MAX_PDF_PAGE_LIMIT: int = Field(
         default=200,
         ge=1,
@@ -108,7 +131,7 @@ class StorageConfig(BaseModel):
         ),
     )
     SUPPORTED_EXTENSIONS: str = Field(
-        default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.tsv,.pptx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif,.md,.html,.htm",
+        default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.tsv,.pptx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif,.md,.html,.htm,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4,.mov,.webm,.mkv",
         description="Supported file extensions",
     )
 

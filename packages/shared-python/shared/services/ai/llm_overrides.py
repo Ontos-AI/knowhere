@@ -19,6 +19,7 @@ from contextvars import ContextVar, Token
 from typing import Any, Optional
 
 from shared.models.schemas.llm_config import LLMConfig, LLMProviderConfig, parse_llm_config
+from shared.utils.greenlet_lineage import greenlet_lineage
 
 # Greenlet-root keyed store (worker / gevent).
 _overrides: dict[int, LLMConfig] = {}
@@ -45,25 +46,17 @@ def _current_greenlet_id() -> int:
 
 
 def _find_root_id() -> int | None:
-    """Walk up the greenlet parent chain to find a registered root id."""
+    """Walk the greenlet spawn lineage to find a registered root id."""
     gid = _current_greenlet_id()
     if gid in _overrides:
         return gid
     if gid in _root_ids:
         return _root_ids[gid]
-    try:
-        import gevent
-    except ImportError:
-        # gevent is worker-only; without it there is no parent chain to walk.
-        return None
-
-    g = gevent.getcurrent()
-    while g is not None:
-        pid = id(g)
+    for greenlet in greenlet_lineage():
+        pid = id(greenlet)
         if pid in _overrides:
             _root_ids[gid] = pid
             return pid
-        g = getattr(g, "parent", None)
     return None
 
 

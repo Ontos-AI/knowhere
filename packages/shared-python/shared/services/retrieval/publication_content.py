@@ -13,6 +13,7 @@ from shared.models.database.document import (
     DocumentChunk,
     DocumentSection,
 )
+from shared.services.chunks.time_ranges import widen_time_span
 from shared.services.retrieval.map_unit_index import replace_document_map_units
 from shared.services.retrieval.page_embedding_index import (
     extract_and_strip_page_embeddings,
@@ -99,7 +100,8 @@ def replace_document_revision_content(
                 section_parts_from_chunk_path(
                     source_path,
                     source_file_name=scope.source_file_name,
-                )
+                ),
+                time_ranges=chunk_metadata.get("time_ranges"),
             )
             prepared_chunks.append(
                 (index, safe_chunk, chunk_metadata, source_path, section)
@@ -187,12 +189,35 @@ class DocumentSectionPublisher:
             self._sections_by_path.setdefault(existing.section_path, existing)
             self._preexisting_paths.add(existing.section_path)
 
-    def ensure_section(self, section_parts: Sequence[str]) -> DocumentSection:
+    def ensure_section(
+        self,
+        section_parts: Sequence[str],
+        *,
+        time_ranges: object = None,
+    ) -> DocumentSection:
+        """Return the section for ``section_parts``, creating it and its ancestors.
+
+        A media chunk's ``time_ranges`` widen the ``time_ranges`` span in
+        ``section_metadata`` of its section and every ancestor.
+        """
+        path_parts = [part for part in section_parts if part] or ["Root"]
+        section = self._ensure_section_rows(path_parts)
+        if time_ranges is not None:
+            self._widen_time_spans(path_parts, time_ranges)
+        return section
+
+    def _widen_time_spans(self, path_parts: list[str], time_ranges: object) -> None:
+        for depth in range(1, len(path_parts) + 1):
+            section = self._sections_by_path[" / ".join(path_parts[:depth])]
+            metadata = dict(section.section_metadata or {})
+            span = widen_time_span(metadata.get("time_ranges"), time_ranges)
+            if span:
+                metadata["time_ranges"] = span
+                section.section_metadata = metadata
+
+    def _ensure_section_rows(self, path_parts: list[str]) -> DocumentSection:
         self._ensure_existing_loaded()
         corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(self._scope.namespace)
-        path_parts = [part for part in section_parts if part]
-        if not path_parts:
-            path_parts = ["Root"]
         section_path = " / ".join(path_parts)
         existing_section = self._sections_by_path.get(section_path)
         if existing_section is not None:

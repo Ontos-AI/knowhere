@@ -20,7 +20,10 @@ from shared.services.jobs.progressive_ingestion import (
     write_progressive_state,
 )
 from shared.services.jobs.lifecycle.post_commit_effects import PostCommitEffectPlan
-from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
+from shared.services.jobs.lifecycle.publication_trace import (
+    PUBLICATION_PARSE_TRACKS,
+    PublicationTrace,
+)
 from shared.utils.json_utils import remove_nul_characters
 
 
@@ -28,6 +31,7 @@ from shared.utils.json_utils import remove_nul_characters
 _BASELINE_ENRICHMENT_STATUS_BY_TRACK: dict[str, str] = {
     "page_memory": "text",
     "chunk": "text",
+    "media": "text",
     "sheet": "coarse",
 }
 
@@ -128,7 +132,7 @@ class SyncJobSuccessFinalizer:
             trace.bind_result_id(job_result.id)
             if document_id is not None:
                 trace.bind_document_id(document_id)
-            if parse_track in ("chunk", "page_memory", "sheet"):
+            if parse_track in PUBLICATION_PARSE_TRACKS:
                 trace.bind_parse_track(parse_track)
         baseline_enrichment_status = _BASELINE_ENRICHMENT_STATUS_BY_TRACK.get(parse_track)
         if (
