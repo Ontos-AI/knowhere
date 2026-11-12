@@ -14,7 +14,6 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 import pytest
 
-from app.services.document_parser.formats.media.parser import parse_media
 from app.services.document_parser.formats.media.probe import (
     MEDIA_HAS_NO_AUDIO,
     admit_media_source,
@@ -88,32 +87,6 @@ def test_admit_media_source_rejects_payload_without_audio(
     assert exc_info.value.details["violations"][0]["description"] == MEDIA_HAS_NO_AUDIO
 
 
-def test_parse_media_fails_closed_after_audio_admission(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from app.services.document_parser.formats.media import parser as parser_module
-
-    monkeypatch.setattr(
-        parser_module,
-        "admit_media_source",
-        lambda _path: media_info_from_ffprobe_payload(
-            {
-                "format": {"duration": "1"},
-                "streams": [{"codec_type": "audio", "codec_name": "mp3", "channels": 1}],
-            }
-        ),
-    )
-    with pytest.raises(ValidationException) as exc_info:
-        parse_media(
-            "/tmp/talk.mp3",
-            filename="talk.mp3",
-            output_dir="/tmp/out",
-            relative_root="talk.mp3",
-        )
-    assert "not enabled" in exc_info.value.user_message
-    assert exc_info.value.details["violations"][0]["field"] == "parse_track"
-
-
 def test_parse_subtitle_fails_closed_until_cue_parser_exists() -> None:
     with pytest.raises(ValidationException) as exc_info:
         parse_subtitle(
@@ -161,30 +134,3 @@ def test_admit_rejects_generated_video_without_audio(tmp_path: Path) -> None:
     assert exc_info.value.internal_message == MEDIA_HAS_NO_AUDIO
 
 
-@pytest.mark.skipif(not _FFMPEG_AVAILABLE, reason="ffmpeg and ffprobe must be on PATH")
-def test_parse_media_admits_generated_audio_then_fails_closed(tmp_path: Path) -> None:
-    tone = tmp_path / "tone.wav"
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "sine=frequency=440:duration=1",
-            str(tone),
-        ],
-        check=True,
-    )
-    info = admit_media_source(str(tone))
-    assert info.has_audio is True
-    with pytest.raises(ValidationException) as exc_info:
-        parse_media(
-            str(tone),
-            filename="tone.wav",
-            output_dir=str(tmp_path / "out"),
-            relative_root="tone.wav",
-        )
-    assert "not enabled" in exc_info.value.user_message

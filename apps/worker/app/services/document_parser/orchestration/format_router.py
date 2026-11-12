@@ -46,7 +46,7 @@ TABLE_SOURCE_EXTENSIONS: tuple[str, ...] = (
     ".tsv",
 )
 
-MEDIA_SOURCE_EXTENSIONS: tuple[str, ...] = (
+AUDIO_SOURCE_EXTENSIONS: tuple[str, ...] = (
     ".mp3",
     ".wav",
     ".m4a",
@@ -54,10 +54,16 @@ MEDIA_SOURCE_EXTENSIONS: tuple[str, ...] = (
     ".flac",
     ".ogg",
     ".opus",
+)
+VIDEO_SOURCE_EXTENSIONS: tuple[str, ...] = (
     ".mp4",
     ".mov",
     ".webm",
     ".mkv",
+)
+MEDIA_SOURCE_EXTENSIONS: tuple[str, ...] = (
+    *AUDIO_SOURCE_EXTENSIONS,
+    *VIDEO_SOURCE_EXTENSIONS,
 )
 
 SUBTITLE_SOURCE_EXTENSIONS: tuple[str, ...] = (

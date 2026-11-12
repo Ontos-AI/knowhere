@@ -203,6 +203,7 @@ class MediaParseAdapter:
             filename=session.filename,
             output_dir=session.full_output_dir,
             relative_root=session.relative_root,
+            job_id=session.job_id,
         )
 
 
