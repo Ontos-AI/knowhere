@@ -15,6 +15,7 @@ from app.services.document_parser.support.choice_judge import (
 )
 
 from shared.core.config import settings
+from shared.services.chunks.time_ranges import format_clock_ms
 from shared.services.ai.llm_overrides import get_text_client
 from shared.services.ai.response_process_service import eval_response
 
@@ -27,9 +28,6 @@ PARTS_USAGE_TASK = "parser.media.parts"
 _BOUNDARY_QUESTION_ID = "chapter_boundary"
 _CHOICE_MERGE = "merge"
 _CHOICE_SEPARATE = "separate"
-_MS_PER_SECOND = 1000
-_SECONDS_PER_MINUTE = 60
-_SECONDS_PER_HOUR = 3600
 
 _SYSTEM_PROMPT = """You split a spoken-audio transcript into chapters for a listener's table of contents.
 The transcript is a numbered list of consecutive segments with time ranges.
@@ -207,7 +205,7 @@ def _chapter_text(
 def _segment_line(segments: Sequence[TranscriptSegment], index: int) -> str:
     segment = segments[index]
     return (
-        f"[{index}] {_clock(segment.start_ms)}-{_clock(segment.end_ms)}\n"
+        f"[{index}] {format_clock_ms(segment.start_ms)}-{format_clock_ms(segment.end_ms)}\n"
         f"{segment.text}"
     )
 
@@ -221,7 +219,7 @@ def part_boundaries(chapters: Sequence[ChapterDigest]) -> list[tuple[int, str]] 
     if not chapters:
         return None
     listing = "\n\n".join(
-        f"[{index}] {_clock(chapter.start_ms)}-{_clock(chapter.end_ms)} {chapter.title}\n"
+        f"[{index}] {format_clock_ms(chapter.start_ms)}-{format_clock_ms(chapter.end_ms)} {chapter.title}\n"
         f"{chapter.summary}"
         for index, chapter in enumerate(chapters)
     )
@@ -335,10 +333,3 @@ def _validated_boundaries(
     if boundaries[0][0] != window_start:
         return None
     return boundaries
-
-
-def _clock(ms: int) -> str:
-    total_seconds = ms // _MS_PER_SECOND
-    hours, remainder = divmod(total_seconds, _SECONDS_PER_HOUR)
-    minutes, seconds = divmod(remainder, _SECONDS_PER_MINUTE)
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"

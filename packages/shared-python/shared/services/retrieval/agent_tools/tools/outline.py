@@ -40,6 +40,7 @@ from shared.services.retrieval.agent_tools.scope import (
     SCOPE_SCHEMA,
     resolve_scope,
 )
+from shared.services.chunks.time_ranges import section_time_ranges
 from shared.services.retrieval.agent_tools.snippet import build_row
 
 
@@ -48,7 +49,8 @@ from shared.services.retrieval.agent_tools.snippet import build_row
     description=(
         "Map what a document (or one of its sections) covers: every "
         "section_path beneath a scope target, any depth, with title + "
-        "summary, indented by level — no body text. Use this "
+        "summary, indented by level — no body text. Audio/video sections "
+        "show their [hh:mm:ss–hh:mm:ss] span before the title. Use this "
         "for 'what does this document/section cover' questions, not for "
         "finding an answer to a specific fact (use corpus.recall/corpus.grep "
         "for that). Accepts several scope targets in one call. Each target "
@@ -200,6 +202,7 @@ async def outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 title=section.section_title,
                 summary=section.summary or "",
                 depth=section.section_level - base_level,
+                time_ranges=section_time_ranges(section.section_metadata),
             )
             order.append((section.section_id, parent_id))
 

@@ -147,7 +147,8 @@ def replace_document_scope_content(
                 section_parts_from_chunk_path(
                     source_path,
                     source_file_name=scope.source_file_name,
-                )
+                ),
+                time_ranges=chunk_metadata.get("time_ranges"),
             )
             prepared_chunks.append(
                 (index, safe_chunk, chunk_metadata, source_path, section)

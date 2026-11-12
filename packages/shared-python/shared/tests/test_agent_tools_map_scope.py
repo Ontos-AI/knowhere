@@ -46,6 +46,7 @@ _ROW_KEYS = {
     "is_hit",
     "depth",
     "hosted",
+    "time_ranges",
 }
 
 
