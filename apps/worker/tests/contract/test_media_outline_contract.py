@@ -152,10 +152,18 @@ class _FakeClient:
         self.reply = reply
         self.prompt = ""
         self.usage_task = ""
+        self.temperature: float | None = None
 
-    def chat_completion(self, *, messages: list[dict[str, str]], usage_task: str) -> str:
+    def chat_completion(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        temperature: float,
+        usage_task: str,
+    ) -> str:
         self.prompt = messages[1]["content"]
         self.usage_task = usage_task
+        self.temperature = temperature
         return json.dumps(self.reply)
 
 
@@ -201,6 +209,7 @@ def test_part_boundaries_need_two_valid_parts(
     ]
     assert chapters.part_boundaries(digests) == expected
     assert client.usage_task == chapters.PARTS_USAGE_TASK
+    assert client.temperature == 0.0
     assert "[1] 00:01:00-00:02:00 Chapter 1\nAbout 1" in client.prompt
 
 

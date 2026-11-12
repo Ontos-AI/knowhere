@@ -20,10 +20,18 @@ class _FakeClient:
         self._replies = list(replies)
         self.prompts: list[str] = []
         self.usage_tasks: list[str] = []
+        self.temperatures: list[float] = []
 
-    def chat_completion(self, *, messages: list[dict[str, str]], usage_task: str) -> str:
+    def chat_completion(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        temperature: float,
+        usage_task: str,
+    ) -> str:
         self.prompts.append(messages[1]["content"])
         self.usage_tasks.append(usage_task)
+        self.temperatures.append(temperature)
         reply = self._replies.pop(0)
         if isinstance(reply, Exception):
             raise reply
@@ -80,6 +88,7 @@ def test_one_window_maps_boundaries_to_per_segment_titles(
     titles = chapters.chapter_titles(_segments([0, 5, 10, 59]))
     assert titles == ["Intro", "Intro", "Pricing", "Pricing"]
     assert client.usage_tasks == [chapters.CHAPTER_USAGE_TASK]
+    assert client.temperatures == [0.0]
     assert "[0] 00:00:00-00:00:30\nS1: segment at 0" in client.prompts[0]
     assert "[3] 00:59:00-00:59:30" in client.prompts[0]
 

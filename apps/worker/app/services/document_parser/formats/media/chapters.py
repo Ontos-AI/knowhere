@@ -31,14 +31,16 @@ _MS_PER_SECOND = 1000
 _SECONDS_PER_MINUTE = 60
 _SECONDS_PER_HOUR = 3600
 
-_SYSTEM_PROMPT = """You split a spoken-audio transcript into chapters by topic.
+_SYSTEM_PROMPT = """You split a spoken-audio transcript into chapters for a listener's table of contents.
 The transcript is a numbered list of consecutive segments with time ranges.
-Start a new chapter only where the conversation moves to a new topic.
+A chapter is one sustained discussion of a subject that a listener would want to jump to directly.
+Start a new chapter only when the conversation turns to a different subject and stays on it.
+A question and its answer, a follow-up, an example, a joke, a short aside, a greeting, or a sponsor read stays inside the surrounding chapter; it never forms a chapter of its own.
 Return JSON only: an array of objects {"start": <segment number>, "title": <title>}.
 Rules:
 - The first chapter starts at the first segment number shown.
 - "start" values strictly increase and are segment numbers from the list.
-- Titles are short noun phrases in the transcript's own language.
+- Titles are short noun phrases in the transcript's own language that name the subject.
 - Do not summarize, quote, or rewrite the transcript."""
 
 _PARTS_SYSTEM_PROMPT = """You build the top level of a table of contents for a long spoken-audio transcript.
@@ -287,6 +289,7 @@ def _ask_boundaries(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_text},
             ],
+            temperature=0.0,
             usage_task=usage_task,
         )
         parsed = eval_response(raw)
