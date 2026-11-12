@@ -31,7 +31,7 @@ def _patch_media(
     from shared.core.config import settings
 
     monkeypatch.setattr(settings, "MEDIA_MAX_DURATION_FREE_SECONDS", 3600)
-    monkeypatch.setattr(settings, "MEDIA_MAX_DURATION_PAID_SECONDS", 14400)
+    monkeypatch.setattr(settings, "MEDIA_MAX_DURATION_PAID_SECONDS", 7200)
     monkeypatch.setattr(
         policy,
         "admit_media_source",
@@ -62,7 +62,7 @@ def test_free_tiers_reject_media_over_free_cap_with_upgrade_hint(
     assert rejection is not None
     assert "95 minutes" in rejection.user_message
     assert "free plan supports up to 60 minutes" in rejection.user_message
-    assert "up to 240 minutes" in rejection.user_message
+    assert "up to 120 minutes" in rejection.user_message
     assert rejection.details["violations"][0]["field"] == "media_duration"
 
 
@@ -83,14 +83,14 @@ def test_paid_tier_accepts_media_between_free_and_paid_caps(
 def test_paid_tier_rejects_media_over_paid_cap_without_upgrade_hint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    policy = _patch_media(monkeypatch, duration_ms=241 * _MINUTE_MS, user_tier="tier_3")
+    policy = _patch_media(monkeypatch, duration_ms=121 * _MINUTE_MS, user_tier="tier_3")
     rejection = policy.build_media_admission_rejection(
         file_extension=".m4a",
         local_file_path="/tmp/talk.m4a",
         job_user_id="user_1",
     )
     assert rejection is not None
-    assert "maximum is 240 minutes" in rejection.user_message
+    assert "maximum is 120 minutes" in rejection.user_message
     assert "Upgrade" not in rejection.user_message
 
 

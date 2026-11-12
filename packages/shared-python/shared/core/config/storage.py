@@ -88,7 +88,7 @@ class StorageConfig(BaseModel):
         ),
     )
     MEDIA_MAX_DURATION_PAID_SECONDS: int = Field(
-        default=14400,
+        default=7200,
         ge=1,
         description=(
             "Maximum audio/video duration per file for paid tiers "
