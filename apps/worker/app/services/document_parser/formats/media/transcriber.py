@@ -33,7 +33,6 @@ from shared.services.storage.job_file_storage import JobFileStorage
 _POLL_INTERVAL_SECONDS = 1.0
 _MAX_POLL_INTERVAL_SECONDS = 8.0
 _TERMINAL_FAILURE_STATUSES = frozenset({"FAILED", "CANCELED", "UNKNOWN"})
-ASR_USAGE_TASK = "parser.media.asr"
 
 
 @dataclass(frozen=True)
@@ -62,6 +61,7 @@ class SpeechTranscriber(Protocol):
         *,
         diarize: bool,
         language_hint: str | None,
+        usage_task: str,
     ) -> Transcript: ...
 
 
@@ -83,6 +83,7 @@ class FunAsrSpeechTranscriber:
         *,
         diarize: bool,
         language_hint: str | None,
+        usage_task: str,
     ) -> Transcript:
         from shared.services.ai.ali_quota_manager import get_ali_quota_manager
 
@@ -100,6 +101,7 @@ class FunAsrSpeechTranscriber:
             quota_manager=quota_manager,
             api_root=api_root,
             job_id=job_id,
+            usage_task=usage_task,
         )
         if resumed is not None:
             return Transcript(sentences=_sentences_from_transcripts(resumed))
@@ -122,6 +124,7 @@ class FunAsrSpeechTranscriber:
                     api_key=lease.api_key,
                     task_id=task_id,
                     model=model,
+                    usage_task=usage_task,
                 )
             except (SoftTimeLimitExceeded, KnowhereException):
                 raise
@@ -136,6 +139,7 @@ class FunAsrSpeechTranscriber:
         quota_manager: BaseQuotaManager,
         api_root: str,
         job_id: str,
+        usage_task: str,
     ) -> list[dict[str, Any]] | None:
         """Finish a task a previous delivery of this job already paid for."""
         ref = self._task_store.load(job_id)
@@ -160,6 +164,7 @@ class FunAsrSpeechTranscriber:
                 api_key=token.api_key,
                 task_id=ref.task_id,
                 model=settings.SPEECH_MODEL,
+                usage_task=usage_task,
             )
         except SoftTimeLimitExceeded:
             raise
@@ -179,6 +184,7 @@ def _finish_task(
     api_key: str,
     task_id: str,
     model: str,
+    usage_task: str,
 ) -> list[dict[str, Any]]:
     """Wait for a submitted task, record its billed audio, and fetch transcripts."""
     started = time.perf_counter()
@@ -193,7 +199,7 @@ def _finish_task(
         record_tokens(
             {"audio_seconds": billed_seconds},
             model=model,
-            task=ASR_USAGE_TASK,
+            task=usage_task,
             duration_ms=int((time.perf_counter() - started) * 1000),
         )
     return _download_transcripts(client, job)

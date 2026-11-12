@@ -5,10 +5,12 @@ from dataclasses import dataclass
 
 from app.services.connect_builder.summary_builder import (
     SUMMARY_MAX_LEN,
+    deterministic_section_summary,
     llm_summarize_scope,
 )
 from app.services.document_parser.formats.media.chapters import (
     ChapterDigest,
+    boundary_spans,
     chapter_titles,
     part_boundaries,
 )
@@ -16,7 +18,6 @@ from app.services.document_parser.formats.media.segments import TranscriptSegmen
 from app.services.document_parser.support.gevent_map import gevent_map
 
 from shared.core.config import settings
-
 from shared.services.chunks.path_segments import append_document_path
 
 CHAPTER_SUMMARY_USAGE_TASK = "parser.media.chapter_summary"
@@ -80,47 +81,62 @@ def build_media_outline(
     parts = part_boundaries(digests)
     paths = [document_root] * len(segments)
     section_summaries: dict[str, str] = {}
-    part_ranges = (
-        _unique_titles(
-            [
-                (title, start, parts[position + 1][0] if position + 1 < len(parts) else len(chapters))
-                for position, (start, title) in enumerate(parts)
-            ]
-        )
-        if parts is not None
-        else [("", 0, len(chapters))]
-    )
-    for part_title, first_chapter, end_chapter in part_ranges:
-        parent_path = (
-            append_document_path(document_root, part_title) if part_title else document_root
-        )
-        for chapter, digest in zip(
+    if parts is None:
+        _place_chapters(document_root, chapters, digests, paths, section_summaries)
+        return MediaOutline(paths=paths, section_summaries=section_summaries)
+    part_spans = _unique_titles(boundary_spans(parts, len(chapters)))
+    for part_title, first_chapter, end_chapter in part_spans:
+        _place_chapters(
+            append_document_path(document_root, part_title),
             chapters[first_chapter:end_chapter],
             digests[first_chapter:end_chapter],
-            strict=True,
-        ):
-            chapter_path = append_document_path(parent_path, chapter.title)
-            paths[chapter.start : chapter.end] = [chapter_path] * (chapter.end - chapter.start)
-            if digest.summary:
-                section_summaries[chapter_path] = digest.summary
-    titled_parts = [part for part in part_ranges if part[0]]
+            paths,
+            section_summaries,
+        )
     part_summaries = gevent_map(
-        lambda part: llm_summarize_scope(
-            node_name=part[0],
-            self_only="",
-            child_rows=[(digest.title, digest.summary) for digest in digests[part[1] : part[2]]],
-            max_tokens=SUMMARY_MAX_LEN,
-            usage_task=PART_SUMMARY_USAGE_TASK,
-        ),
-        titled_parts,
+        lambda span: _part_summary(span[0], digests[span[1] : span[2]]),
+        part_spans,
         max_concurrent=settings.SUMMARY_LLM_MAX_CONCURRENT,
     )
     for (part_title, _first_chapter, _end_chapter), part_summary in zip(
-        titled_parts, part_summaries, strict=True
+        part_spans, part_summaries, strict=True
     ):
-        if part_summary:
-            section_summaries[append_document_path(document_root, part_title)] = part_summary
+        section_summaries[append_document_path(document_root, part_title)] = part_summary
     return MediaOutline(paths=paths, section_summaries=section_summaries)
+
+
+def _place_chapters(
+    parent_path: str,
+    chapters: Sequence[_ChapterSpan],
+    digests: Sequence[ChapterDigest],
+    paths: list[str],
+    section_summaries: dict[str, str],
+) -> None:
+    for chapter, digest in zip(chapters, digests, strict=True):
+        chapter_path = append_document_path(parent_path, chapter.title)
+        paths[chapter.start : chapter.end] = [chapter_path] * (chapter.end - chapter.start)
+        if digest.summary:
+            section_summaries[chapter_path] = digest.summary
+
+
+def _part_summary(part_title: str, digests: Sequence[ChapterDigest]) -> str:
+    """LLM part summary over chapter summaries.
+
+    On failure, use the covers text doc_nav enrichment would write for the part:
+    one part left without a summary would make enrichment re-derive every part
+    and replace the other parts' LLM summaries.
+    """
+    return llm_summarize_scope(
+        node_name=part_title,
+        self_only="",
+        child_rows=[(digest.title, digest.summary) for digest in digests],
+        max_tokens=SUMMARY_MAX_LEN,
+        usage_task=PART_SUMMARY_USAGE_TASK,
+    ) or deterministic_section_summary(
+        is_top_level=False,
+        self_only="",
+        child_titles=[digest.title for digest in digests],
+    )
 
 
 def _chapter_spans(titles: Sequence[str]) -> list[_ChapterSpan]:

@@ -252,3 +252,26 @@ def test_doc_nav_takes_parser_summaries_and_only_adds_top_summary(
     assert doc_nav["top_summary"] == "Vanguard's story."
     assert len(top_calls) == 1
     assert top_calls[0]["node_name"] == "Document Overview"
+
+
+def test_failed_part_summary_uses_doc_nav_covers_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    outline = _module("app.services.document_parser.formats.media.outline")
+    summary_builder = _module("app.services.connect_builder.summary_builder")
+    monkeypatch.setattr(outline, "chapter_titles", lambda _segments: ["A", "B", "C"])
+    monkeypatch.setattr(
+        outline, "part_boundaries", lambda _digests: [(0, "First"), (2, "Second")]
+    )
+
+    def _summary(**kwargs: object) -> str:
+        return "" if kwargs["node_name"] == "Second" else f"summary of {kwargs['node_name']}"
+
+    monkeypatch.setattr(outline, "llm_summarize_scope", _summary)
+    result = outline.build_media_outline("talk.mp3", _segments(3))
+    assert result.section_summaries["talk.mp3/First"] == "summary of First"
+    assert result.section_summaries["talk.mp3/Second"] == (
+        summary_builder.deterministic_section_summary(
+            is_top_level=False, self_only="", child_titles=["C"]
+        )
+    )

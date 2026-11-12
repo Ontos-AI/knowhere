@@ -45,7 +45,7 @@ def _parent(
 class TestDeterministicAssembly:
     def test_order_covers_self_only_then_titles(self) -> None:
         sb = _summary_builder()
-        text = sb._deterministic_section_summary(
+        text = sb.deterministic_section_summary(
             is_top_level=False,
             self_only="intro paragraph here",
             child_titles=["Alpha", "Beta"],

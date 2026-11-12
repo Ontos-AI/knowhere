@@ -232,15 +232,7 @@ def part_boundaries(chapters: Sequence[ChapterDigest]) -> list[tuple[int, str]] 
     )
     if boundaries is None or len(boundaries) < 2:
         return None
-    part_sizes = [
-        end - start
-        for (start, _title), end in zip(
-            boundaries,
-            [*(start for start, _title in boundaries[1:]), len(chapters)],
-            strict=True,
-        )
-    ]
-    if max(part_sizes) < 2:
+    if max(end - start for _title, start, end in boundary_spans(boundaries, len(chapters))) < 2:
         # Every part holds one chapter: no grouping happened.
         return None
     return boundaries
@@ -261,15 +253,22 @@ def _chapter_window(
     )
     if boundaries is None:
         return None
-    titles: list[str] = []
-    for position, (start, title) in enumerate(boundaries):
-        end = (
-            boundaries[position + 1][0]
-            if position + 1 < len(boundaries)
-            else window_end
-        )
-        titles.extend([title] * (end - start))
-    return titles
+    return [
+        title
+        for title, start, end in boundary_spans(boundaries, window_end)
+        for _index in range(start, end)
+    ]
+
+
+def boundary_spans(
+    boundaries: Sequence[tuple[int, str]],
+    end: int,
+) -> list[tuple[str, int, int]]:
+    """Expand ordered (start, title) boundaries into (title, start, end) spans."""
+    return [
+        (title, start, boundaries[position + 1][0] if position + 1 < len(boundaries) else end)
+        for position, (start, title) in enumerate(boundaries)
+    ]
 
 
 def _ask_boundaries(

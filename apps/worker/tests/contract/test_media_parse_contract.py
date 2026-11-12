@@ -16,11 +16,7 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 import pytest
 
 from app.services.document_parser.formats.media.extract import SOURCE_AUDIO_REL
-from app.services.document_parser.formats.media.parser import (
-    MEDIA_TRANSCRIPT_REL,
-    parse_media,
-    parse_media_transcript,
-)
+from app.services.document_parser.formats.media.parser import MEDIA_TRANSCRIPT_REL
 from app.services.document_parser.formats.media.probe import media_info_from_ffprobe_payload
 from app.services.document_parser.formats.media.transcriber import (
     MediaAudio,
@@ -46,6 +42,7 @@ class _FakeSpeechTranscriber:
         *,
         diarize: bool,
         language_hint: str | None,
+        usage_task: str,
     ) -> Transcript:
         self.calls.append(
             {
@@ -53,6 +50,7 @@ class _FakeSpeechTranscriber:
                 "job_id": audio.job_id,
                 "diarize": diarize,
                 "language_hint": language_hint,
+                "usage_task": usage_task,
             }
         )
         return self._transcript
@@ -105,7 +103,7 @@ def test_parse_media_with_fake_transcriber_emits_timestamped_text_chunks(
         ]
     )
 
-    parsed = parse_media(
+    parsed = parser_module.parse_media(
         str(tmp_path / "talk.mp3"),
         filename="talk.mp3",
         output_dir=str(output_dir),
@@ -121,6 +119,7 @@ def test_parse_media_with_fake_transcriber_emits_timestamped_text_chunks(
             "job_id": "job_talk",
             "diarize": True,
             "language_hint": None,
+            "usage_task": "parser.media.asr",
         }
     ]
     assert parsed.rows_count == 2
@@ -181,7 +180,7 @@ def test_parse_media_video_filename_sets_media_kind(
         "extract_source_audio",
         lambda _path, _output_dir: str(audio_path),
     )
-    parsed = parse_media(
+    parsed = parser_module.parse_media(
         str(tmp_path / "lecture.mp4"),
         filename="lecture.mp4",
         output_dir=str(output_dir),
@@ -214,7 +213,7 @@ def test_parse_media_fails_closed_on_empty_transcript(
         lambda _path, _output_dir: str(audio_path),
     )
     with pytest.raises(ValidationException) as exc_info:
-        parse_media(
+        parser_module.parse_media(
             str(tmp_path / "silent.mp3"),
             filename="silent.mp3",
             output_dir=str(output_dir),
@@ -344,7 +343,7 @@ def test_parse_media_disambiguates_identical_utterances_at_different_times(
         TranscriptSentence(start_ms=2000, end_ms=2500, text="Go on.", speaker_id="1"),
         TranscriptSentence(start_ms=5000, end_ms=5500, text="Yes.", speaker_id="0"),
     ]
-    first_parse = parse_media(
+    first_parse = parser_module.parse_media(
         str(tmp_path / "talk.mp3"),
         filename="talk.mp3",
         output_dir=str(output_dir),
@@ -352,7 +351,7 @@ def test_parse_media_disambiguates_identical_utterances_at_different_times(
         chapterize=False,
         transcriber=_FakeSpeechTranscriber(sentences),
     )
-    second_parse = parse_media(
+    second_parse = parser_module.parse_media(
         str(tmp_path / "talk.mp3"),
         filename="talk.mp3",
         output_dir=str(output_dir),
@@ -499,12 +498,14 @@ def test_fun_asr_transcriber_deletes_staged_audio_object_after_run(
                     MediaAudio(path=str(audio_file), job_id="job_1"),
                     diarize=True,
                     language_hint=None,
+                    usage_task="parser.media.asr",
                 )
         else:
             result = transcriber.transcribe(
                 MediaAudio(path=str(audio_file), job_id="job_1"),
                 diarize=True,
                 language_hint=None,
+                usage_task="parser.media.asr",
             )
             assert len(result.sentences) == 1
 
@@ -517,6 +518,8 @@ def test_fun_asr_transcriber_deletes_staged_audio_object_after_run(
 
 @pytest.mark.skipif(not _FFMPEG_AVAILABLE, reason="ffmpeg and ffprobe must be on PATH")
 def test_parse_media_generated_tone_with_fake_transcriber(tmp_path: Path) -> None:
+    from app.services.document_parser.formats.media import parser as parser_module
+
     tone = tmp_path / "tone.wav"
     subprocess.run(
         [
@@ -533,7 +536,7 @@ def test_parse_media_generated_tone_with_fake_transcriber(tmp_path: Path) -> Non
         check=True,
     )
     output_dir = tmp_path / "out"
-    parsed = parse_media(
+    parsed = parser_module.parse_media(
         str(tone),
         filename="tone.wav",
         output_dir=str(output_dir),
@@ -651,6 +654,7 @@ def test_fun_asr_rate_limit_only_resubmits_before_a_task_exists(
             MediaAudio(path=str(audio_file), job_id="job_1"),
             diarize=True,
             language_hint=None,
+            usage_task="parser.media.asr",
         )
 
     assert len(result.sentences) == 1
@@ -783,6 +787,7 @@ def test_fun_asr_records_submitted_task_for_redelivery(
             MediaAudio(path=str(audio_file), job_id="job_1"),
             diarize=True,
             language_hint=None,
+            usage_task="parser.media.asr",
         )
 
     assert len(result.sentences) == 1
@@ -813,6 +818,7 @@ def test_fun_asr_redelivery_resumes_submitted_task_without_resubmitting(
             MediaAudio(path=str(audio_file), job_id="job_1"),
             diarize=True,
             language_hint=None,
+            usage_task="parser.media.asr",
         )
 
     assert len(result.sentences) == 1
@@ -844,6 +850,7 @@ def test_fun_asr_resubmits_when_the_resumed_task_failed(
             MediaAudio(path=str(audio_file), job_id="job_1"),
             diarize=True,
             language_hint=None,
+            usage_task="parser.media.asr",
         )
 
     assert len(result.sentences) == 1
@@ -885,6 +892,7 @@ def test_fun_asr_soft_time_limit_is_not_reported_as_transcription_failure(
                 MediaAudio(path=str(audio_file), job_id="job_1"),
                 diarize=True,
                 language_hint=None,
+                usage_task="parser.media.asr",
             )
 
 
@@ -922,12 +930,13 @@ def test_fun_asr_records_billed_audio_seconds_once_per_finished_task(
                 MediaAudio(path=str(audio_file), job_id="job_1"),
                 diarize=True,
                 language_hint=None,
+                usage_task="parser.media.asr",
             )
         usage = dict(tracker)
     finally:
         cleanup_token_tracker()
 
-    asr_usage = usage["by_task"][transcriber_module.ASR_USAGE_TASK]
+    asr_usage = usage["by_task"]["parser.media.asr"]
     assert asr_usage["audio_seconds"] == 42
     assert asr_usage["calls"] == 1
     assert asr_usage["total_tokens"] == 0
@@ -989,7 +998,7 @@ def test_parse_media_chapters_segments_and_refine_rebuilds_them_from_transcript(
         ]
     )
 
-    parsed = parse_media(
+    parsed = parser_module.parse_media(
         str(tmp_path / "talk.mp3"),
         filename="talk.mp3",
         output_dir=str(output_dir),
@@ -1006,8 +1015,22 @@ def test_parse_media_chapters_segments_and_refine_rebuilds_them_from_transcript(
         "talk.mp3/Intro_2",
     ]
     assert list(parsed.parsed_df["path"]) == expected_paths
+    # Full mode has no refine, so it saves no transcript working copy.
+    assert not (output_dir / MEDIA_TRANSCRIPT_REL).exists()
 
-    refined = parse_media_transcript(
+    baseline = parser_module.parse_media(
+        str(tmp_path / "talk.mp3"),
+        filename="talk.mp3",
+        output_dir=str(output_dir),
+        relative_root="talk.mp3",
+        chapterize=False,
+        job_id="job_talk",
+        transcriber=transcriber,
+    )
+    assert baseline.parsed_df is not None
+    assert list(baseline.parsed_df["path"]) == ["talk.mp3"] * 4
+
+    refined = parser_module.parse_media_transcript(
         str(output_dir / MEDIA_TRANSCRIPT_REL),
         filename="talk.mp3",
         output_dir=str(output_dir),
@@ -1020,7 +1043,7 @@ def test_parse_media_chapters_segments_and_refine_rebuilds_them_from_transcript(
         parsed.parsed_df["extra_metadata"]
     )
     assert chapter_calls == [4, 4]
-    assert len(transcriber.calls) == 1
+    assert len(transcriber.calls) == 2
 
 
 def test_parse_media_keeps_flat_paths_when_chaptering_fails(
@@ -1041,7 +1064,7 @@ def test_parse_media_keeps_flat_paths_when_chaptering_fails(
     )
     _patch_outline(monkeypatch, parser_module, lambda _segments: None)
 
-    parsed = parse_media(
+    parsed = parser_module.parse_media(
         str(tmp_path / "talk.mp3"),
         filename="talk.mp3",
         output_dir=str(output_dir),

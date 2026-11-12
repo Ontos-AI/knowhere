@@ -14,7 +14,10 @@ from app.services.document_parser.formats.media.outline import (
     build_media_outline,
     flat_outline,
 )
-from app.services.document_parser.formats.media.probe import admit_media_source
+from app.services.document_parser.formats.media.probe import (
+    admit_media_source,
+    measure_media_duration_ms,
+)
 from app.services.document_parser.formats.media.segments import segment_transcript
 from app.services.document_parser.formats.media.transcriber import (
     FunAsrSpeechTranscriber,
@@ -32,6 +35,7 @@ from app.services.document_parser.support.parser_rows import ParsedRow, ParsedRo
 from shared.core.exceptions.domain_exceptions import ValidationException
 
 _SOURCE_KIND_ASR = "asr"
+ASR_USAGE_TASK = "parser.media.asr"
 # Working copy of the transcript, so a progressive refine never re-runs ASR.
 MEDIA_TRANSCRIPT_REL = "media_transcript.json"
 
@@ -48,8 +52,9 @@ def parse_media(
 ) -> ParseOutput:
     """Probe, extract mono audio, transcribe, and emit timestamped text rows.
 
-    ``chapterize`` groups segments under LLM chapter titles (full mode and
-    refine); the progressive baseline keeps every segment at the file root.
+    ``chapterize`` builds the chaptered outline (full mode). Without it this is
+    the progressive baseline: segments stay at the file root and the transcript
+    is saved as the refine input, so the refine never re-runs ASR.
     """
     info = admit_media_source(file_path)
     audio_path = extract_source_audio(file_path, output_dir)
@@ -58,6 +63,7 @@ def parse_media(
         MediaAudio(path=audio_path, job_id=job_id),
         diarize=True,
         language_hint=None,
+        usage_task=ASR_USAGE_TASK,
     )
     if not transcript.sentences:
         raise ValidationException(
@@ -73,8 +79,12 @@ def parse_media(
                 f"filename={filename}, audio_path={audio_path}"
             ),
         )
-    media = {"kind": _media_kind_from_filename(filename), "duration_ms": info.duration_ms}
-    _write_transcript(output_dir, media=media, sentences=transcript.sentences)
+    media = {
+        "kind": _media_kind_from_filename(filename),
+        "duration_ms": measure_media_duration_ms(file_path, info),
+    }
+    if not chapterize:
+        _write_transcript(output_dir, media=media, sentences=transcript.sentences)
     return ParseOutput(
         output_dir=output_dir,
         parsed_df=_build_rows(

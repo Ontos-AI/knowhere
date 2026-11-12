@@ -63,8 +63,9 @@ def test_media_sources_use_media_file_size_cap(
     monkeypatch: pytest.MonkeyPatch,
     extension: str,
 ) -> None:
-    from shared.core.config import settings
-
+    # Patch the settings object the live function reads: contract fixtures may
+    # reload app modules after this file imported them.
+    settings = max_source_file_bytes.__globals__["settings"]
     monkeypatch.setattr(settings, "MAX_FILE_SIZE", 10)
     monkeypatch.setattr(settings, "MAX_MEDIA_FILE_SIZE", 20)
     assert max_source_file_bytes(file_extension=extension) == 20
@@ -73,8 +74,9 @@ def test_media_sources_use_media_file_size_cap(
 def test_document_sources_keep_document_file_size_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from shared.core.config import settings
-
+    # Patch the settings object the live function reads: contract fixtures may
+    # reload app modules after this file imported them.
+    settings = max_source_file_bytes.__globals__["settings"]
     monkeypatch.setattr(settings, "MAX_FILE_SIZE", 10)
     monkeypatch.setattr(settings, "MAX_MEDIA_FILE_SIZE", 20)
     assert max_source_file_bytes(file_extension=".pdf") == 10

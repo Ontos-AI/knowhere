@@ -238,7 +238,7 @@ def _node_section_path(node: Dict[str, Any], source_file_name: str) -> str:
     return section_path_from_chunk_path(nav_path, source_file_name=source_file_name)
 
 
-def _deterministic_section_summary(
+def deterministic_section_summary(
     *,
     is_top_level: bool,
     self_only: str,
@@ -378,11 +378,10 @@ def _summarize_nav_node(
     """Summarize one non-leaf node from its children's current summaries."""
     children = list(node.get("children") or [])
     title = str(node.get("title") or "")
-    lookup = self_only_lookup
     section_path = _node_section_path(node, source_file_name)
     self_only = ""
     if section_path and section_path != "Root":
-        self_only = str(lookup.get(section_path) or "")
+        self_only = str(self_only_lookup.get(section_path) or "")
     if self_only.strip():
         node["self_summary"] = self_only.strip()
     elif "self_summary" in node:
@@ -392,7 +391,7 @@ def _summarize_nav_node(
     child_rows = _child_contribution_rows(children, is_top_level=is_top_level)
     contrib_len = sum(len(contrib) for _, contrib in child_rows) + len(self_only)
 
-    deterministic = _deterministic_section_summary(
+    deterministic = deterministic_section_summary(
         is_top_level=is_top_level,
         self_only=self_only,
         child_titles=child_titles,
@@ -471,7 +470,7 @@ def _build_nav_top_summary(
     child_titles = _child_title_list(sections, is_top_level=True)
     child_rows = _child_contribution_rows(sections, is_top_level=True)
     contrib_len = sum(len(contrib) for _, contrib in child_rows)
-    deterministic = _deterministic_section_summary(
+    deterministic = deterministic_section_summary(
         is_top_level=True,
         self_only="",
         child_titles=child_titles,
