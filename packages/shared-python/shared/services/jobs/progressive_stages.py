@@ -27,6 +27,7 @@ from shared.utils.utc_now import utc_now_naive
 _REQUIRED_STAGES_BEFORE_FINALIZATION: dict[str, tuple[str, ...]] = {
     "page_memory": ("structure", "vector_repair"),
     "sheet": (),
+    "media": (),
 }
 
 

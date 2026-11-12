@@ -357,7 +357,8 @@ def configure_contract_environment(
         "SUPPORTED_EXTENSIONS": (
             ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.tsv,.pptx,"
             ".jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif,"
-            ".md,.html,.htm"
+            ".md,.html,.htm,"
+            ".mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4,.mov,.webm,.mkv,.srt,.vtt"
         ),
     }
 

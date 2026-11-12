@@ -72,6 +72,13 @@ class StorageConfig(BaseModel):
     MAX_FILE_SIZE: int = Field(
         default=314572800, description="Maximum file size in bytes"
     )
+    MAX_MEDIA_FILE_SIZE: int = Field(
+        default=314572800,
+        description=(
+            "Maximum audio/video file size in bytes. Defaults to the same cap "
+            "as MAX_FILE_SIZE until a larger media limit is chosen."
+        ),
+    )
     MAX_PDF_PAGE_LIMIT: int = Field(
         default=200,
         ge=1,
@@ -108,7 +115,7 @@ class StorageConfig(BaseModel):
         ),
     )
     SUPPORTED_EXTENSIONS: str = Field(
-        default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.tsv,.pptx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif,.md,.html,.htm",
+        default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.tsv,.pptx,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif,.md,.html,.htm,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4,.mov,.webm,.mkv,.srt,.vtt",
         description="Supported file extensions",
     )
 

@@ -80,7 +80,11 @@ def execute_document_parse(
                     prepared_source=prepared_source,
                     output_dir=output_dir,
                 )
-            elif JobMetadataHelper.get_ingestion_mode(job_context.job_metadata) == "progressive":
+            elif (
+                parse_track == "chunk"
+                and JobMetadataHelper.get_ingestion_mode(job_context.job_metadata)
+                == "progressive"
+            ):
                 parse_output = _execute_chunk_baseline_parse(
                     prepared_source=prepared_source,
                     output_dir=output_dir,

@@ -52,6 +52,33 @@ def test_result_upload_concurrency_defaults_to_twenty() -> None:
     assert config.RESULT_UPLOAD_CONCURRENCY == 20
 
 
+def test_supported_extensions_include_media_and_subtitle_defaults() -> None:
+    config: StorageConfig = create_storage_config()
+    extensions = config.get_supported_extensions()
+    for extension in (
+        ".mp3",
+        ".wav",
+        ".m4a",
+        ".aac",
+        ".flac",
+        ".ogg",
+        ".opus",
+        ".mp4",
+        ".mov",
+        ".webm",
+        ".mkv",
+        ".srt",
+        ".vtt",
+    ):
+        assert extension in extensions
+
+
+def test_media_file_size_defaults_to_document_file_size() -> None:
+    config: StorageConfig = create_storage_config()
+    assert config.MAX_MEDIA_FILE_SIZE == config.MAX_FILE_SIZE
+    assert config.MAX_FILE_SIZE == 314572800
+
+
 def test_aws_s3_passes_complete_explicit_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from app.services.document_ingestion.file_size_policy import (
     build_file_size_limit_message,
+    max_source_file_bytes,
 )
 from app.services.document_ingestion.office_compat_normalizer import (
     normalize_office_source,
@@ -19,7 +20,6 @@ from app.services.document_parser.support.internal_parse_name import (
 )
 from loguru import logger
 
-from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import (
     NotFoundException,
     ValidationException,
@@ -110,8 +110,9 @@ def _assert_source_file_within_size_limit(
     raw_file_size = file_info.get("size", 0)
     file_size = raw_file_size if isinstance(raw_file_size, int) else 0
     file_extension = os.path.splitext(s3_key)[1].lower()
-    if file_size > settings.MAX_FILE_SIZE:
-        limit_mb = settings.MAX_FILE_SIZE // (1024 * 1024)
+    size_limit = max_source_file_bytes(file_extension=file_extension)
+    if file_size > size_limit:
+        limit_mb = size_limit // (1024 * 1024)
         raise ValidationException(
             user_message=build_file_size_limit_message(
                 limit_mb=limit_mb,
@@ -122,7 +123,7 @@ def _assert_source_file_within_size_limit(
                     "field": "file_size",
                     "description": (
                         f"Size {file_size} bytes exceeds limit of "
-                        f"{settings.MAX_FILE_SIZE} bytes"
+                        f"{size_limit} bytes"
                     ),
                 }
             ],

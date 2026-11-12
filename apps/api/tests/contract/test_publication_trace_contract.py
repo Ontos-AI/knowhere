@@ -168,3 +168,15 @@ def test_cumulative_sql_hook_updates_are_counted_once() -> None:
     stages = cast(dict[str, dict[str, float | int]], payload["stages"])
     assert stages["chunks_persist"]["statement_count"] == 2
     assert stages["chunks_persist"]["duration_ms"] == 0.0
+
+
+def test_trace_accepts_media_parse_track() -> None:
+    trace = PublicationTrace.start(
+        attempt_ref="attempt_123",
+        owner="async",
+        job_id="job_123",
+        parse_track="media",
+    )
+    trace.bind_parse_track("media")
+    payload = trace.finish(outcome="success")
+    assert payload["parse_track"] == "media"

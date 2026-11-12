@@ -41,6 +41,23 @@ CONTENT_TYPE_TO_EXTENSION: dict[str, str] = {
     "image/tiff": ".tiff",
     "image/heic": ".heic",
     "image/heif": ".heif",
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/wave": ".wav",
+    "audio/mp4": ".m4a",
+    "audio/x-m4a": ".m4a",
+    "audio/aac": ".aac",
+    "audio/flac": ".flac",
+    "audio/ogg": ".ogg",
+    "audio/opus": ".opus",
+    "video/mp4": ".mp4",
+    "video/quicktime": ".mov",
+    "video/webm": ".webm",
+    "video/x-matroska": ".mkv",
+    "application/x-subrip": ".srt",
+    "text/vtt": ".vtt",
 }
 
 REDIRECT_STATUS_CODES: set[int] = {301, 302, 303, 307, 308}

@@ -4,6 +4,7 @@ import os
 
 from app.services.document_ingestion.file_size_policy import (
     build_file_size_limit_message,
+    max_source_file_bytes,
 )
 from loguru import logger
 
@@ -61,10 +62,11 @@ def assert_temp_file_within_size_limit(
     file_extension: str,
 ) -> int:
     file_size = os.path.getsize(temp_file_path)
-    if file_size <= settings.MAX_FILE_SIZE:
+    size_limit = max_source_file_bytes(file_extension=file_extension)
+    if file_size <= size_limit:
         return file_size
 
-    limit_mb = settings.MAX_FILE_SIZE // (1024 * 1024)
+    limit_mb = size_limit // (1024 * 1024)
     raise ValidationException(
         user_message=build_file_size_limit_message(
             limit_mb=limit_mb,
@@ -75,7 +77,7 @@ def assert_temp_file_within_size_limit(
                 "field": "file_size",
                 "description": (
                     f"Size {file_size} bytes exceeds limit of "
-                    f"{settings.MAX_FILE_SIZE} bytes"
+                    f"{size_limit} bytes"
                 ),
             }
         ],

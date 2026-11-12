@@ -128,7 +128,7 @@ class SyncJobSuccessFinalizer:
             trace.bind_result_id(job_result.id)
             if document_id is not None:
                 trace.bind_document_id(document_id)
-            if parse_track in ("chunk", "page_memory", "sheet"):
+            if parse_track in ("chunk", "page_memory", "sheet", "media"):
                 trace.bind_parse_track(parse_track)
         baseline_enrichment_status = _BASELINE_ENRICHMENT_STATUS_BY_TRACK.get(parse_track)
         if (
