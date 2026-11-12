@@ -234,8 +234,11 @@ def test_fun_asr_sentence_mapping_keeps_timestamps_and_speaker_ids() -> None:
 
 
 @pytest.mark.skipif(not _FFMPEG_AVAILABLE, reason="ffmpeg and ffprobe must be on PATH")
-def test_extract_source_audio_downmixes_stereo_to_mono(tmp_path: Path) -> None:
-    from app.services.document_parser.formats.media.extract import extract_source_audio
+def test_extract_source_audio_downmixes_stereo_to_16khz_mono(tmp_path: Path) -> None:
+    from app.services.document_parser.formats.media.extract import (
+        ASR_SAMPLE_RATE_HZ,
+        extract_source_audio,
+    )
     from app.services.document_parser.formats.media.probe import probe_media
 
     stereo = tmp_path / "stereo.wav"
@@ -248,7 +251,7 @@ def test_extract_source_audio_downmixes_stereo_to_mono(tmp_path: Path) -> None:
             "-f",
             "lavfi",
             "-i",
-            "sine=frequency=440:duration=1",
+            "sine=frequency=440:sample_rate=48000:duration=1",
             "-ac",
             "2",
             str(stereo),
@@ -261,6 +264,212 @@ def test_extract_source_audio_downmixes_stereo_to_mono(tmp_path: Path) -> None:
     info = probe_media(str(extracted))
     assert info.has_audio is True
     assert info.channels == 1
+    assert info.codec == "pcm_s16le"
+    probe_json = json.loads(
+        subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-print_format",
+                "json",
+                "-show_streams",
+                str(extracted),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    )
+    assert int(probe_json["streams"][0]["sample_rate"]) == ASR_SAMPLE_RATE_HZ
+
+
+def test_parse_media_disambiguates_identical_utterances_at_different_times(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.formats.media import parser as parser_module
+
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    audio_path = output_dir / SOURCE_AUDIO_REL
+    audio_path.write_bytes(b"RIFF")
+    monkeypatch.setattr(parser_module, "admit_media_source", lambda _path: _audio_info())
+    monkeypatch.setattr(
+        parser_module,
+        "extract_source_audio",
+        lambda _path, _output_dir: str(audio_path),
+    )
+    sentences = [
+        TranscriptSentence(start_ms=1000, end_ms=1500, text="Yes.", speaker_id="0"),
+        TranscriptSentence(start_ms=2000, end_ms=2500, text="Go on.", speaker_id="1"),
+        TranscriptSentence(start_ms=5000, end_ms=5500, text="Yes.", speaker_id="0"),
+    ]
+    first_parse = parse_media(
+        str(tmp_path / "talk.mp3"),
+        filename="talk.mp3",
+        output_dir=str(output_dir),
+        relative_root="talk.mp3",
+        transcriber=_FakeSpeechTranscriber(sentences),
+    )
+    second_parse = parse_media(
+        str(tmp_path / "talk.mp3"),
+        filename="talk.mp3",
+        output_dir=str(output_dir),
+        relative_root="talk.mp3",
+        transcriber=_FakeSpeechTranscriber(sentences),
+    )
+
+    first_chunks = dataframe_to_chunks(first_parse.parsed_df)
+    second_chunks = dataframe_to_chunks(second_parse.parsed_df)
+    assert first_chunks[0]["content"] == first_chunks[2]["content"] == "S1: Yes."
+    assert first_chunks[0]["chunk_id"] != first_chunks[2]["chunk_id"]
+    assert [c["chunk_id"] for c in first_chunks] == [
+        c["chunk_id"] for c in second_chunks
+    ]
+
+
+@pytest.mark.parametrize(
+    "poll_payload",
+    [
+        {"output": {"task_status": "CANCELED"}},
+        {"output": {"task_status": "UNKNOWN"}},
+        {"output": {}},
+    ],
+)
+def test_wait_for_task_fails_immediately_on_terminal_or_missing_status(
+    monkeypatch: pytest.MonkeyPatch,
+    poll_payload: dict[str, object],
+) -> None:
+    import httpx
+    from app.services.document_parser.formats.media import transcriber as transcriber_module
+
+    monkeypatch.setattr(
+        transcriber_module.time,
+        "sleep",
+        lambda _seconds: (_ for _ in ()).throw(AssertionError("must not sleep on terminal status")),
+    )
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(200, json=poll_payload)
+    )
+    with httpx.Client(transport=transport) as client:
+        with pytest.raises(RuntimeError):
+            transcriber_module._wait_for_task(
+                client,
+                api_root="https://dashscope.aliyuncs.com/api/v1",
+                api_key="test-key",
+                task_id="task_123",
+            )
+
+
+@pytest.mark.parametrize("fail_task", [False, True])
+def test_fun_asr_transcriber_deletes_staged_audio_object_after_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fail_task: bool,
+) -> None:
+    from types import SimpleNamespace
+    import httpx
+    from app.services.document_parser.formats.media import transcriber as transcriber_module
+    from shared.core.exceptions.domain_exceptions import LLMServiceException
+
+    uploaded: list[tuple[str, str, str]] = []
+    deleted: list[tuple[str, str]] = []
+
+    class _FakeStorage:
+        results_bucket = "results-bucket"
+
+        def build_result_raw_prefix(self, *, job_id: str) -> str:
+            return f"results/{job_id}/"
+
+        def upload_local_file(
+            self, local_path: str, storage_key: str, *, bucket: str
+        ) -> dict[str, object]:
+            uploaded.append((local_path, storage_key, bucket))
+            return {}
+
+        def generate_download_url(
+            self, storage_key: str, *, bucket: str
+        ) -> dict[str, str]:
+            return {"download_url": f"https://storage.example/{bucket}/{storage_key}"}
+
+        def delete_object(self, storage_key: str, *, bucket: str) -> bool:
+            deleted.append((storage_key, bucket))
+            return True
+
+    class _FakeQuotaManager:
+        def acquire_request(self, *, operation: str) -> object:
+            assert operation == "fun_asr_transcribe"
+            return SimpleNamespace(token_id="tok1", api_key="key1")
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, json={"output": {"task_id": "task_1"}})
+        if request.url.path.endswith("/tasks/task_1"):
+            if fail_task:
+                return httpx.Response(200, json={"output": {"task_status": "CANCELED"}})
+            return httpx.Response(
+                200,
+                json={
+                    "output": {
+                        "task_status": "SUCCEEDED",
+                        "results": [
+                            {
+                                "subtask_status": "SUCCEEDED",
+                                "transcription_url": "https://dashscope.aliyuncs.com/transcript.json",
+                            }
+                        ],
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "transcripts": [
+                    {
+                        "sentences": [
+                            {
+                                "begin_time": 0,
+                                "end_time": 1000,
+                                "text": "hello",
+                                "speaker_id": 0,
+                            }
+                        ]
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(transcriber_module, "JobFileStorage", _FakeStorage)
+    monkeypatch.setattr(
+        "shared.services.ai.ali_quota_manager.get_ali_quota_manager",
+        lambda: _FakeQuotaManager(),
+    )
+    audio_file = tmp_path / SOURCE_AUDIO_REL
+    audio_file.write_bytes(b"RIFF")
+
+    with httpx.Client(transport=httpx.MockTransport(_handler)) as client:
+        transcriber = transcriber_module.FunAsrSpeechTranscriber(client=client)
+        if fail_task:
+            with pytest.raises(LLMServiceException):
+                transcriber.transcribe(
+                    MediaAudio(path=str(audio_file), job_id="job_1"),
+                    diarize=True,
+                    language_hint=None,
+                )
+        else:
+            result = transcriber.transcribe(
+                MediaAudio(path=str(audio_file), job_id="job_1"),
+                diarize=True,
+                language_hint=None,
+            )
+            assert len(result.sentences) == 1
+
+    assert len(uploaded) == 1
+    _, staged_key, staged_bucket = uploaded[0]
+    assert staged_key.startswith("results/job_1/asr/")
+    assert staged_key.endswith(f"/{SOURCE_AUDIO_REL}")
+    assert deleted == [(staged_key, staged_bucket)]
 
 
 @pytest.mark.skipif(not _FFMPEG_AVAILABLE, reason="ffmpeg and ffprobe must be on PATH")

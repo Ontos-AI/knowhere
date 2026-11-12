@@ -17,15 +17,12 @@ from app.services.document_parser.orchestration.format_router import (
 from app.services.document_parser.orchestration.parse_output import ParseOutput
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import ParsedRow, ParsedRowsBuilder
-from app.services.document_parser.support.path_helpers import find_matches_parsing
-from app.services.document_parser.tables.dataframe_helpers import process_dup_paths_df
 
 from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.services.chunks.path_segments import (
     append_document_path,
     split_escaped_document_path,
 )
-from shared.utils.text_utils import tokenize2stw_remove
 
 _SOURCE_KIND_ASR = "asr"
 
@@ -80,22 +77,19 @@ def parse_media(
             },
             "source_kind": _SOURCE_KIND_ASR,
         }
-        tokens = tokenize2stw_remove([segment.text], None)
         rows_builder.append(
             ParsedRow(
                 content=segment.text,
                 path=path,
-                type=find_matches_parsing(segment.text, path),
-                keywords="",
-                summary="",
-                know_id=gen_str_codes(segment.text),
-                tokens=tokens[0] if tokens else "",
+                type="PTXT",
+                know_id=gen_str_codes(
+                    f"{segment.start_ms}:{segment.end_ms}:{segment.text}"
+                ),
                 addtime=timestamp,
                 extra_metadata=json.dumps(extra_metadata, ensure_ascii=False),
             )
         )
-    parsed_df = process_dup_paths_df(rows_builder.to_dataframe())
-    return ParseOutput(output_dir=output_dir, parsed_df=parsed_df)
+    return ParseOutput(output_dir=output_dir, parsed_df=rows_builder.to_dataframe())
 
 
 def _media_kind_from_filename(filename: str) -> str:

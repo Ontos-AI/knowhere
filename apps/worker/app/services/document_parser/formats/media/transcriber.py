@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 import math
 import time
-from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import httpx
 from loguru import logger
@@ -22,6 +25,7 @@ from shared.services.storage.job_file_storage import JobFileStorage
 _POLL_INTERVAL_SECONDS = 1.0
 _MAX_POLL_INTERVAL_SECONDS = 8.0
 _DEFAULT_SPEECH_MODEL = "fun-asr"
+_TERMINAL_FAILURE_STATUSES = frozenset({"FAILED", "CANCELED", "UNKNOWN"})
 
 
 @dataclass(frozen=True)
@@ -70,7 +74,6 @@ class FunAsrSpeechTranscriber:
 
         model = (settings.SPEECH_MODEL or "").strip() or _DEFAULT_SPEECH_MODEL
         api_root = _dashscope_api_v1_root(settings.ALI_URL)
-        file_url = _publish_source_audio_url(audio)
         parameters: dict[str, Any] = {"diarization_enabled": bool(diarize)}
         if language_hint:
             parameters["language_hints"] = [language_hint]
@@ -79,54 +82,55 @@ class FunAsrSpeechTranscriber:
         client = self._client or get_sync_client()
         max_retries = settings.ALI_INLINE_MAX_RETRIES
         last_error: Exception | None = None
-        for attempt in range(max_retries):
-            lease = quota_manager.acquire_request(operation="fun_asr_transcribe")
-            try:
-                task_id = _submit_transcription(
-                    client,
-                    api_root=api_root,
-                    api_key=lease.api_key,
-                    model=model,
-                    file_url=file_url,
-                    parameters=parameters,
-                )
-                job = _wait_for_task(
-                    client,
-                    api_root=api_root,
-                    api_key=lease.api_key,
-                    task_id=task_id,
-                )
-                transcripts = _download_transcripts(client, job)
-                return Transcript(sentences=_sentences_from_transcripts(transcripts))
-            except KnowhereException:
-                raise
-            except _FunAsrRateLimited as exc:
-                last_error = exc
-                quota_manager.mark_rate_limited(lease.token_id, exc.retry_after)
-                logger.warning(
-                    "Fun-ASR token {} rate-limited (attempt {}/{}), "
-                    "cooling down {}s and retrying with next token",
-                    lease.token_id,
-                    attempt + 1,
-                    max_retries,
-                    exc.retry_after,
-                )
-                if attempt == max_retries - 1:
+        with _staged_source_audio_url(audio) as file_url:
+            for attempt in range(max_retries):
+                lease = quota_manager.acquire_request(operation="fun_asr_transcribe")
+                try:
+                    task_id = _submit_transcription(
+                        client,
+                        api_root=api_root,
+                        api_key=lease.api_key,
+                        model=model,
+                        file_url=file_url,
+                        parameters=parameters,
+                    )
+                    job = _wait_for_task(
+                        client,
+                        api_root=api_root,
+                        api_key=lease.api_key,
+                        task_id=task_id,
+                    )
+                    transcripts = _download_transcripts(client, job)
+                    return Transcript(sentences=_sentences_from_transcripts(transcripts))
+                except KnowhereException:
+                    raise
+                except _FunAsrRateLimited as exc:
+                    last_error = exc
+                    quota_manager.mark_rate_limited(lease.token_id, exc.retry_after)
+                    logger.warning(
+                        "Fun-ASR token {} rate-limited (attempt {}/{}), "
+                        "cooling down {}s and retrying with next token",
+                        lease.token_id,
+                        attempt + 1,
+                        max_retries,
+                        exc.retry_after,
+                    )
+                    if attempt == max_retries - 1:
+                        raise LLMServiceException(
+                            internal_message=(
+                                f"All Ali tokens exhausted after {max_retries} "
+                                f"Fun-ASR retries: {exc}"
+                            ),
+                            provider=model,
+                            original_exception=exc,
+                        ) from exc
+                except Exception as exc:
                     raise LLMServiceException(
-                        internal_message=(
-                            f"All Ali tokens exhausted after {max_retries} "
-                            f"Fun-ASR retries: {exc}"
-                        ),
+                        internal_message=f"Fun-ASR transcription failed: {exc}",
                         provider=model,
+                        user_message="Speech transcription failed for this media file.",
                         original_exception=exc,
                     ) from exc
-            except Exception as exc:
-                raise LLMServiceException(
-                    internal_message=f"Fun-ASR transcription failed: {exc}",
-                    provider=model,
-                    user_message="Speech transcription failed for this media file.",
-                    original_exception=exc,
-                ) from exc
         raise LLMServiceException(
             internal_message="Fun-ASR retry loop exited without a transcript",
             provider=model,
@@ -140,7 +144,8 @@ class _FunAsrRateLimited(Exception):
         self.retry_after = retry_after
 
 
-def _publish_source_audio_url(audio: MediaAudio) -> str:
+@contextmanager
+def _staged_source_audio_url(audio: MediaAudio) -> Iterator[str]:
     job_id = (audio.job_id or "").strip()
     if not job_id:
         raise LLMServiceException(
@@ -152,27 +157,41 @@ def _publish_source_audio_url(audio: MediaAudio) -> str:
             user_message="Speech transcription failed for this media file.",
         )
     storage = JobFileStorage()
-    storage_key = f"{storage.build_result_raw_prefix(job_id=job_id)}{SOURCE_AUDIO_REL}"
+    storage_key = (
+        f"{storage.build_result_raw_prefix(job_id=job_id)}"
+        f"asr/{uuid4().hex}/{SOURCE_AUDIO_REL}"
+    )
     storage.upload_local_file(
         audio.path,
         storage_key,
         bucket=storage.results_bucket,
     )
-    signed = storage.generate_download_url(
-        storage_key,
-        bucket=storage.results_bucket,
-    )
-    download_url = signed.get("download_url")
-    if not isinstance(download_url, str) or not download_url:
-        raise LLMServiceException(
-            internal_message=(
-                "Fun-ASR source_audio presign returned no download_url: "
-                f"job_id={job_id}, storage_key={storage_key}"
-            ),
-            provider=(settings.SPEECH_MODEL or "").strip() or _DEFAULT_SPEECH_MODEL,
-            user_message="Speech transcription failed for this media file.",
+    try:
+        signed = storage.generate_download_url(
+            storage_key,
+            bucket=storage.results_bucket,
         )
-    return download_url
+        download_url = signed.get("download_url")
+        if not isinstance(download_url, str) or not download_url:
+            raise LLMServiceException(
+                internal_message=(
+                    "Fun-ASR source_audio presign returned no download_url: "
+                    f"job_id={job_id}, storage_key={storage_key}"
+                ),
+                provider=(settings.SPEECH_MODEL or "").strip() or _DEFAULT_SPEECH_MODEL,
+                user_message="Speech transcription failed for this media file.",
+            )
+        yield download_url
+    finally:
+        try:
+            storage.delete_object(storage_key, bucket=storage.results_bucket)
+        except Exception as exc:
+            logger.warning(
+                "Failed to delete staged Fun-ASR audio object: "
+                "storage_key={}, error={}",
+                storage_key,
+                exc,
+            )
 
 
 def _dashscope_api_v1_root(ali_url: str) -> str:
@@ -242,8 +261,10 @@ def _wait_for_task(
         logger.info(f"Fun-ASR task {task_id} status={status}")
         if status == "SUCCEEDED":
             return payload
-        if status == "FAILED":
-            raise RuntimeError(f"Fun-ASR task failed: {payload}")
+        if not status:
+            raise RuntimeError(f"Fun-ASR poll returned no task_status: {payload}")
+        if status in _TERMINAL_FAILURE_STATUSES:
+            raise RuntimeError(f"Fun-ASR task {status.lower()}: {payload}")
         retry_after = response.headers.get("Retry-After")
         if retry_after:
             try:

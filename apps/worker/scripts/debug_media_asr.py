@@ -20,7 +20,6 @@ import os
 import sys
 import time
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 from dotenv import load_dotenv
@@ -28,11 +27,6 @@ from loguru import logger
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
-
-# DashScope SDK `jobs.wait` defaults (not product thresholds).
-_POLL_INTERVAL_SECONDS = 1.0
-_MAX_POLL_INTERVAL_SECONDS = 8.0
-_FUN_ASR_MODEL = "fun-asr"
 
 
 def main() -> int:
@@ -64,22 +58,28 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    from app.services.document_parser.formats.media.transcriber import (
+        _DEFAULT_SPEECH_MODEL,
+        _dashscope_api_v1_root,
+    )
     from shared.core.config import settings
 
     api_key = _first_ali_api_key()
     api_root = _dashscope_api_v1_root(settings.ALI_URL)
+    model = (settings.SPEECH_MODEL or "").strip() or _DEFAULT_SPEECH_MODEL
     reports: list[dict[str, Any]] = []
     for file_url in args.file_urls:
         reports.append(
             _transcribe_file_url(
                 api_root=api_root,
                 api_key=api_key,
+                model=model,
                 file_url=file_url,
                 language_hint=args.language,
                 speaker_count=args.speaker_count,
             )
         )
-    report = {"api_root": api_root, "model": _FUN_ASR_MODEL, "files": reports}
+    report = {"api_root": api_root, "model": model, "files": reports}
     rendered = json.dumps(report, indent=2, ensure_ascii=False)
     print(rendered)
     if args.output:
@@ -106,21 +106,21 @@ def _first_ali_api_key() -> str:
     return tokens[0].api_key
 
 
-def _dashscope_api_v1_root(ali_url: str) -> str:
-    parsed = urlparse(ali_url)
-    if not parsed.scheme or not parsed.netloc:
-        raise SystemExit(f"ALI_URL is not a valid DashScope URL: {ali_url}")
-    return f"{parsed.scheme}://{parsed.netloc}/api/v1"
-
-
 def _transcribe_file_url(
     *,
     api_root: str,
     api_key: str,
+    model: str,
     file_url: str,
     language_hint: str | None,
     speaker_count: int | None,
 ) -> dict[str, Any]:
+    from app.services.document_parser.formats.media.transcriber import (
+        _download_transcripts,
+        _submit_transcription,
+        _wait_for_task,
+    )
+
     parameters: dict[str, Any] = {"diarization_enabled": True}
     if language_hint:
         parameters["language_hints"] = [language_hint]
@@ -133,6 +133,7 @@ def _transcribe_file_url(
                 client,
                 api_root=api_root,
                 api_key=api_key,
+                model=model,
                 file_url=file_url,
                 parameters=parameters,
             )
@@ -185,113 +186,6 @@ def _transcribe_file_url(
         "job": job,
         "transcripts": transcripts,
     }
-
-
-def _submit_transcription(
-    client: httpx.Client,
-    *,
-    api_root: str,
-    api_key: str,
-    file_url: str,
-    parameters: dict[str, Any],
-) -> str:
-    response = client.post(
-        f"{api_root}/services/audio/asr/transcription",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "X-DashScope-Async": "enable",
-        },
-        json={
-            "model": _FUN_ASR_MODEL,
-            "input": {"file_urls": [file_url]},
-            "parameters": parameters,
-        },
-    )
-    payload = _json_or_text(response)
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"Fun-ASR submit failed: status={response.status_code} body={payload}"
-        )
-    task_id = _task_id_from_submit(payload)
-    if not task_id:
-        raise RuntimeError(f"Fun-ASR submit returned no task_id: {payload}")
-    logger.info(f"Submitted Fun-ASR task {task_id} for {file_url}")
-    return task_id
-
-
-def _wait_for_task(
-    client: httpx.Client,
-    *,
-    api_root: str,
-    api_key: str,
-    task_id: str,
-) -> dict[str, Any]:
-    interval = _POLL_INTERVAL_SECONDS
-    while True:
-        response = client.get(
-            f"{api_root}/tasks/{task_id}",
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
-        payload = _json_or_text(response)
-        if response.status_code >= 400:
-            raise RuntimeError(
-                f"Fun-ASR poll failed: status={response.status_code} body={payload}"
-            )
-        if not isinstance(payload, dict):
-            raise RuntimeError(f"Fun-ASR poll returned a non-object: {payload}")
-        status = str(
-            payload.get("output", {}).get("task_status")
-            or payload.get("task_status")
-            or ""
-        ).upper()
-        logger.info(f"Fun-ASR task {task_id} status={status}")
-        if status in {"SUCCEEDED", "FAILED"}:
-            if status == "FAILED":
-                raise RuntimeError(f"Fun-ASR task failed: {payload}")
-            return payload
-        retry_after = response.headers.get("Retry-After")
-        if retry_after:
-            try:
-                interval = max(float(retry_after), _POLL_INTERVAL_SECONDS)
-            except ValueError:
-                interval = min(interval * 2, _MAX_POLL_INTERVAL_SECONDS)
-        time.sleep(interval)
-        interval = min(interval * 2, _MAX_POLL_INTERVAL_SECONDS)
-
-
-def _download_transcripts(
-    client: httpx.Client,
-    job: dict[str, Any],
-) -> list[dict[str, Any]]:
-    results = job.get("output", {}).get("results") or job.get("results") or []
-    if not isinstance(results, list) or not results:
-        raise RuntimeError(f"Fun-ASR job returned no subtask results: {job}")
-    transcripts: list[dict[str, Any]] = []
-    for result in results:
-        if not isinstance(result, dict):
-            raise RuntimeError(f"Fun-ASR subtask result is not an object: {result}")
-        subtask_status = str(result.get("subtask_status") or "").upper()
-        if subtask_status and subtask_status != "SUCCEEDED":
-            raise RuntimeError(f"Fun-ASR subtask failed: {result}")
-        transcription_url = result.get("transcription_url")
-        if not isinstance(transcription_url, str) or not transcription_url:
-            raise RuntimeError(
-                f"Fun-ASR subtask succeeded without transcription_url: {result}"
-            )
-        response = client.get(transcription_url)
-        payload = _json_or_text(response)
-        if response.status_code >= 400:
-            raise RuntimeError(
-                "Fun-ASR transcript download failed: "
-                f"status={response.status_code} body={payload}"
-            )
-        if not isinstance(payload, dict):
-            raise RuntimeError(
-                f"Fun-ASR transcript payload is not a JSON object: {payload}"
-            )
-        transcripts.append(payload)
-    return transcripts
 
 
 def _sentences_from_transcripts(transcripts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -352,27 +246,6 @@ def _first_original_duration_ms(transcripts: list[dict[str, Any]]) -> int | None
             if isinstance(value, int) and not isinstance(value, bool):
                 return value
     return None
-
-
-def _task_id_from_submit(payload: object) -> str | None:
-    if not isinstance(payload, dict):
-        return None
-    output = payload.get("output")
-    if isinstance(output, dict):
-        task_id = output.get("task_id")
-        if isinstance(task_id, str) and task_id:
-            return task_id
-    task_id = payload.get("task_id")
-    if isinstance(task_id, str) and task_id:
-        return task_id
-    return None
-
-
-def _json_or_text(response: httpx.Response) -> object:
-    try:
-        return response.json()
-    except ValueError:
-        return response.text
 
 
 if __name__ == "__main__":

@@ -10,10 +10,12 @@ from shared.core.exceptions.domain_exceptions import ValidationException
 
 # Working copy name, same role as excel `source_workbook.xlsx`.
 SOURCE_AUDIO_REL = "source_audio.wav"
+# Fun-ASR native acoustic sample rate (16 kHz mono 16-bit PCM).
+ASR_SAMPLE_RATE_HZ = 16000
 
 
 def extract_source_audio(file_path: str, output_dir: str) -> str:
-    """Downmix the admitted media file to a mono wav kept in ``output_dir``."""
+    """Downmix and resample the admitted media file to 16 kHz mono PCM wav."""
     toolchain = require_media_toolchain()
     os.makedirs(output_dir, exist_ok=True)
     destination = os.path.join(output_dir, SOURCE_AUDIO_REL)
@@ -29,6 +31,10 @@ def extract_source_audio(file_path: str, output_dir: str) -> str:
             "-vn",
             "-ac",
             "1",
+            "-ar",
+            str(ASR_SAMPLE_RATE_HZ),
+            "-c:a",
+            "pcm_s16le",
             destination,
         ],
         check=False,
