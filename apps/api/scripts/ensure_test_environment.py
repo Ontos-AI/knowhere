@@ -208,7 +208,7 @@ def get_install_commands() -> tuple[InstallCommand, ...]:
             ),
             InstallCommand(
                 description=(
-                    "Hold Ubuntu PostgreSQL and install matching PGDG pgvector"
+                    "Hold the PostgreSQL major version and install matching PGDG pgvector"
                 ),
                 command=_with_privilege(
                     (
@@ -218,7 +218,10 @@ def get_install_commands() -> tuple[InstallCommand, ...]:
                             "set -euo pipefail; "
                             "major=$(pg_config --version | awk '{print $2}' | cut -d. -f1); "
                             "/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y; "
-                            'apt-mark hold postgresql "postgresql-${major}"; '
+                            # Holding the metapackage keeps the major version. PGDG
+                            # pgvector can require a newer minor release of that major,
+                            # so the server package may upgrade with it.
+                            "apt-mark hold postgresql; "
                             'apt-get install -y --no-upgrade "postgresql-${major}-pgvector"'
                         ),
                     )
