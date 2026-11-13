@@ -37,27 +37,25 @@ They take precedence over conflicting text in the sections listed.
 | Latency work | After the five-QPS staging replay measured a server-side P95 of 0.49–0.61 seconds, the owner stopped latency work outside the lexical refactor. Staging API keeps 0.25 vCPU and 15 PostgreSQL connections; production API tasks run 0.5 vCPU. ([#531](https://github.com/Ontos-AI/knowhere/pull/531)) | Section 7.3 tuning scope. |
 | Production backfill | Backfill covers each document's current published revision only. It runs in throttled slices during low-traffic windows, pauses on Aurora, API or worker guardrails, and keeps PostgreSQL serving throughout. | Consistent with Section 14.1. |
 
-Status on 2026-11-12: production serves lexical retrieval from PostgreSQL.
+Status on 2026-11-13: production serves lexical retrieval from PostgreSQL.
 Production API and worker tasks carry OpenSearch TLS identities for the
 `knowhere-prod-lexical-v1` prefix. The first production backfill slice paused
 after 23 of 100 documents were written and verified. Staging serves from
-OpenSearch with both manifest settings disabled.
+OpenSearch with both manifest settings disabled. Host monitoring for the shared
+node is deployed.
 
-Open owner decisions before production cutover:
+### Launch decisions (2026-11-13)
 
-1. Whether production cuts over with the manifest settings enabled. The
-   retention and retained-chunk rules in ADR 0023 apply only when they are
-   enabled.
-2. Whether production snapshots, alerting and a host-recovery drill must be in
-   place before cutover. Section 10.2 currently starts production snapshots
-   when production indexes are ready.
-3. The cutover gate scope and the measured restoration time `R` for the
-   Section 14.3 abort calculation. The current release bridge returns 503 for
-   the entire customer route.
-4. Whether the Section 7.1 one-hour ten-times mixed-load campaign remains a
-   launch gate. It has not run. The 50-QPS target was not attempted after a
-   25-request burst against one 0.25-vCPU staging API task reached an
-   8.3-second P95.
+The owner settled the remaining pre-cutover decisions. They replace the
+conflicting launch requirements in the sections listed.
+
+| Topic | Decision | Supersedes for launch |
+| --- | --- | --- |
+| Published manifests | Not a setting. After staging verification, OpenSearch publication always maintains the namespace manifest, retired-build retention and retained chunks, and classic retrieval always uses the manifest lookup where it is eligible. Remove `KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS` and `KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP`. Lookup eligibility stays as implemented: classic, private, no signal paths, more chunks than `top_k`, and no documents with page vectors; other reads keep the per-request build list. | The staged enablement in ADR 0023's rollout section. |
+| Backups | No OpenSearch snapshots at launch. Hardware faults use EC2 simplified automatic recovery, which keeps the instance, its private IP and its EBS volumes. Data-volume or host loss can recover from the S3 remote-backed store, which is enabled but not rehearsed. Data loss or bad writes use a deliberate rollback to PostgreSQL. **Keep the PostgreSQL lexical term tables until OpenSearch snapshots exist**; retiring them (Section 14.5, KW-12) must add snapshots first. | Section 10.2's production schedule, KW-07/KW-08 snapshot and recovery gates, and the backup items in Section 14.2. |
+| Monitoring | CloudWatch host monitoring on the shared node, notified by email through the existing alert topic. Four alarms (status check, OpenSearch process, data volume at 75%, CPU at 85%) feed `knowhere-opensearch-action-required`, which notifies once on alarm and once on recovery. See [host monitoring](../../deploy/opensearch/README.md#host-monitoring). Search correctness is not monitored at launch. | Section 11.1's alert table and KW-08 alert-delivery work. |
+| Cutover window | The whole customer route may return 503, and the window may last overnight. Estimate restoration from the 219-document staging round trip (6 minutes to OpenSearch, 17 minutes back to PostgreSQL): about 30 minutes to OpenSearch and 40–60 minutes back to PostgreSQL for the current production corpus, plus about 11 seconds per document published after cutover. A small staging rehearsal on the current code replaces a production-scale rehearsal. | The two-hour ceiling and measured `R` in Section 14.3 and ADR 0024. |
+| Load gate | The Section 7.1 one-hour ten-times campaign is not a launch gate. Acceptance is a server-side P95 of at most one second at the observed production peak of about five requests per second, measured at 0.49–0.61 seconds on staging. | Section 7.1 and KW-09's mixed-load signoff. |
 
 This plan covers formal integration of the validated lexical replacement into
 Knowhere's API, existing Celery/gevent worker deployment, client SDKs and
@@ -67,7 +65,7 @@ finished release. Repository documentation is written in English.
 
 | Reader need | Jump to |
 | --- | --- |
-| Decisions made after 2026-11-05 and open decisions | [Owner amendments](#owner-amendments-after-2026-11-05) |
+| Decisions made after 2026-11-05, including launch decisions | [Owner amendments](#owner-amendments-after-2026-11-05) |
 | Background, decisions and reusable work | [Sections 1–4](#1-handoff-summary-and-source-of-truth) |
 | Client and consistency contract | [Sections 5–6](#5-user-and-client-contract) |
 | Performance and its acceptance gates | [Section 7](#7-performance-plan) |
@@ -764,6 +762,8 @@ migration does not add a streaming endpoint merely because an earlier ADR exists
 
 ### 7.1 Accepted targets
 
+> Launch amendment (2026-11-13): the mixed-load campaign below is not a launch gate. See the [launch decisions](#launch-decisions-2026-11-13).
+
 All are internal release-validation targets, not customer SLAs or established
 results. The observed production arrival peak was five requests per rolling
 second; the selected profile preserves its rhythm and scales volume ten times.
@@ -1403,6 +1403,8 @@ latency effects. It does not supply live availability for a zero-replica node.
 
 ### 10.2 Backup policy
 
+> Launch amendment (2026-11-13): production launches without OpenSearch snapshots; keep the PostgreSQL lexical term tables until snapshots exist. See the [launch decisions](#launch-decisions-2026-11-13).
+
 - Schedule hourly snapshots for production indexes when they are ready for
   the production rollout. Reuse the existing operational scheduling. Retain
   seven days and at least three complete, successful, coverage-verified
@@ -1510,6 +1512,8 @@ Never expose credentials/native admin endpoints in public payloads or logs.
 ## 11. Operations, evolution and maintainability
 
 ### 11.1 Alerts and visibility
+
+> Launch amendment (2026-11-13): launch monitoring is the CloudWatch host monitoring described in the [launch decisions](#launch-decisions-2026-11-13).
 
 Reuse the existing Loguru/Logfire error-alert path and off-node application
 checks. Native Alerting can supplement node metrics, but cannot be the only
@@ -2067,6 +2071,8 @@ actual public service smoke are distinct from local source tests.
   required production/cost approvals are recorded before execution.
 
 ### 14.3 Release 2 — nighttime switch
+
+> Launch amendment (2026-11-13): the window may last overnight and restoration time is estimated from the staging round trip. See the [launch decisions](#launch-decisions-2026-11-13).
 
 The two-hour ceiling counts **all customer-visible interruption**, including a
 failed OS attempt and return to PG. Let `T0` be first customer impact, `R` the

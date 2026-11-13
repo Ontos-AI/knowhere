@@ -14,6 +14,12 @@
   and verifies coverage before PostgreSQL serves. This supersedes the
   background-thread copy described below. See the
   [plan amendments](../design/opensearch-development-plan.md#owner-amendments-after-2026-11-05).
+- Launch amendment (2026-11-13): The cutover may use an overnight maintenance
+  window instead of the two-hour ceiling below. OpenSearch launches without
+  snapshots, so deliberate rollback to PostgreSQL is the recovery route for
+  data loss. Keep the PostgreSQL lexical term tables until OpenSearch snapshots
+  exist. See the
+  [launch decisions](../design/opensearch-development-plan.md#launch-decisions-2026-11-13).
 - Context: Knowhere is evaluating OpenSearch as a replacement for its custom
   PostgreSQL lexical index to improve long-term maintainability and scaling.
   Retaining the previous index is intended to support a deliberate migration
