@@ -117,6 +117,7 @@ def _run_fine_hierarchy_for_scope(
         compute_fat_leaf_pages,
         refine_fat_leaf_skeletons,
     )
+    from app.services.page_memory.fine_skills import resolve_fine_skills
     from app.services.page_memory.memory_service import (
         _resolve_hierarchy_model,
         _summarize_tag_scope,
@@ -162,6 +163,7 @@ def _run_fine_hierarchy_for_scope(
         excluded_toc_pages,
     )
 
+    active_skills = resolve_fine_skills(page_memory_config.fine_skills)
     fine_min = page_memory_config.fine_min_pages
     fat_leaf_pages = compute_fat_leaf_pages(
         active_skeletons,
@@ -195,6 +197,7 @@ def _run_fine_hierarchy_for_scope(
             vlm_model=vlm_model,
             scan_direction=page_memory_config.scan_direction,
             max_concurrent=page_memory_config.title_detection_concurrency,
+            active_skills=active_skills,
         )
         record_stage(
             scope_stages,
@@ -296,6 +299,7 @@ def _run_fine_hierarchy_for_scope(
         plans=plans,
         vlm_model=vlm_model,
         max_concurrent=page_memory_config.tag_concurrency,
+        active_skills=active_skills,
     )
     record_stage(
         scope_stages,
@@ -372,7 +376,19 @@ def main() -> int:
             f"{exc}. Re-run Stage 2: "
             "uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file ..."
         ) from exc
+    from dataclasses import replace
+
+    from app.services.page_memory.fine_skills import resolve_active_fine_skill_names
+
     skeletons = skeletons_from_phase_a_manifest(manifest)
+    page_memory_config = replace(
+        page_memory_config,
+        fine_skills=resolve_active_fine_skill_names(
+            profile=getattr(anatomy, "document_profile", None),
+            manifest=manifest,
+            config=page_memory_config,
+        ),
+    )
     toc_pages = [int(page) for page in (manifest.get("toc_pages") or [])]
     coarse_scopes = scopes_from_phase_a_manifest(manifest)
     next_title_by_path = next_title_by_path_from_manifest(manifest)

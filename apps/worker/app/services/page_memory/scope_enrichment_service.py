@@ -6,7 +6,7 @@ import json
 import os
 import shutil
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid4, uuid5
 from typing import Any, Callable, cast
@@ -174,6 +174,7 @@ def execute_structure_enrichment(
             profile=profile,
             filename=target.source_file_name,
             trace_recorder=None,
+            page_memory_config=target.page_memory_config,
         )
         phase_b_refs = persist_phase_b_inputs(
             output_dir=add_dir,
@@ -368,6 +369,15 @@ def run_single_scope_refinement(
     )
     vlm_model = os.environ.get("IMAGE_MODEL")
 
+    from app.services.page_memory.fine_skills import resolve_active_fine_skill_names
+
+    page_memory_config = replace(
+        page_memory_config,
+        fine_skills=resolve_active_fine_skill_names(
+            manifest=manifest,
+            config=page_memory_config,
+        ),
+    )
     scope_result = run_single_scope(
         scope=coarse_scope,
         scope_index=scope_index,
@@ -787,7 +797,7 @@ def _resume_profile_from_m0_workspace(
             coordinator.blackboard.page_full_text_cache
         ),
     )
-    if not profile.is_atlas and profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
+    if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
         profile.anatomy = coordinator.run_structural()
     else:
         profile.anatomy = coordinator.run_lightweight_anatomy()

@@ -340,10 +340,18 @@ def _summarize_body(
     if not isinstance(parsed, dict):
         return BodySummary(kind=kind)
     entities = _split_entities(parsed.get("entities") or parsed.get("keywords"))
+    signal_keys: list[str] = []
+    raw_keys = (prompt_paras or {}).get("skill_signal_keys") or []
+    if isinstance(raw_keys, (list, tuple)):
+        signal_keys = [str(key) for key in raw_keys if str(key).strip()]
+    skill_signals = {
+        key: parsed[key] for key in signal_keys if key in parsed
+    }
     return BodySummary(
         summary=str(parsed.get("summary", "")).strip(),
         entities=entities,
         kind=kind,
+        skill_signals=skill_signals,
     )
 
 

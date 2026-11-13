@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -384,6 +384,15 @@ def assemble_c7_node_rows(
         if rend and rend.image_path and os.path.exists(rend.image_path):
             image_path_by_page[page] = rend.image_path
 
+    from app.services.page_memory.fine_skills import (
+        joined_skill_addon,
+        resolve_fine_skills,
+    )
+
+    skill_instructions = joined_skill_addon(
+        resolve_fine_skills(page_memory_config.fine_skills),
+        "node_summary_prompt_addon",
+    )
     rows = build_node_rows(
         skeletons=skeletons,
         raw_text_by_page=raw_text_by_page,
@@ -399,6 +408,7 @@ def assemble_c7_node_rows(
         node_assembly_concurrency=page_memory_config.node_assembly_concurrency,
         body_text_by_page=body_text_by_page,
         toc_pages=toc_pages,
+        skill_instructions=skill_instructions,
     )
     return rows, final_pages
 
@@ -436,6 +446,13 @@ def _build_page_dataframe(
         profile=profile,
         filename=filename,
         trace_recorder=trace_recorder,
+        page_memory_config=page_memory_config,
+    )
+    from app.services.page_memory.fine_skills import resolve_active_fine_skill_names
+
+    page_memory_config = replace(
+        page_memory_config,
+        fine_skills=resolve_active_fine_skill_names(manifest=phase_a.manifest),
     )
     page_texts = phase_a.page_texts
     coarse_scopes = phase_a.coarse_scopes
@@ -680,6 +697,9 @@ def _run_hierarchy_scope(
         },
     )
 
+    from app.services.page_memory.fine_skills import resolve_fine_skills
+
+    active_skills = resolve_fine_skills(page_memory_config.fine_skills)
     fine_min = page_memory_config.fine_min_pages
     fat_leaf_pages = compute_fat_leaf_pages(
         scope_skeletons,
@@ -715,6 +735,7 @@ def _run_hierarchy_scope(
                 vlm_model=vlm_model,
                 scan_direction=page_memory_config.scan_direction,
                 max_concurrent=page_memory_config.title_detection_concurrency,
+                active_skills=active_skills,
             )
         _record_trace_stage(
             trace_recorder,
@@ -829,6 +850,7 @@ def _run_hierarchy_scope(
             plans=plans,
             vlm_model=vlm_model,
             max_concurrent=page_memory_config.tag_concurrency,
+            active_skills=active_skills,
         )
     _record_trace_stage(
         trace_recorder,
@@ -846,8 +868,9 @@ def _run_hierarchy_scope(
 
     assets_by_page: dict[int, list[Any]] = {}
     if asset_extraction_enabled:
+        tags_by_page = {tag.page_index: tag for tag in tags}
         asset_rendered = _select_rendered_pages_with_assets(
-            rendered, page_features
+            rendered, page_features, tags_by_page=tags_by_page
         )
         with stage_timer("page_memory.assets", page_count=len(asset_rendered)):
             assets_by_page = extract_page_assets_from_renders(
@@ -860,6 +883,8 @@ def _run_hierarchy_scope(
                 summary_concurrency=page_memory_config.asset_summary_concurrency,
                 table_engine=page_memory_config.table_engine,
                 table_merge_enabled=page_memory_config.table_merge_enabled,
+                tags_by_page=tags_by_page,
+                active_skills=active_skills,
             )
     _record_trace_stage(
         trace_recorder,
@@ -901,13 +926,18 @@ def _run_hierarchy_scope(
 def _select_rendered_pages_with_assets(
     rendered: list[Any],
     page_features: list[Any],
+    tags_by_page: dict[int, Any] | None = None,
 ) -> list[Any]:
-    """Keep only rendered pages that coarse profile marked ``has_asset``."""
+    """Keep rendered pages marked ``has_asset``, plus drawing-sheet pages."""
     asset_pages = {
         int(getattr(feature, "page", 0) or 0)
         for feature in page_features
         if getattr(feature, "has_asset", False)
     }
+    for page_index, tag in (tags_by_page or {}).items():
+        signals = dict(getattr(tag, "skill_signals", None) or {})
+        if signals.get("is_drawing_sheet") is True:
+            asset_pages.add(int(page_index))
     return [item for item in rendered if item.page_index in asset_pages]
 
 

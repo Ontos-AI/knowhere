@@ -112,6 +112,61 @@ def test_refined_page_parts_include_content_and_inline_connected_charts() -> Non
     assert "[tables/" not in composed_text
 
 
+def test_refined_page_skips_duplicate_page_png_when_drawing_asset_already_embedded(
+    monkeypatch,
+) -> None:
+    payload = base64.b64encode(b"same-png").decode("ascii")
+
+    def _read(row, artifact, media_type):  # noqa: ANN001
+        del row, artifact
+        return {
+            "type": "image",
+            "media_type": media_type or "image/png",
+            "data": payload,
+        }
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.evidence_compose._try_read_image_artifact",
+        _read,
+    )
+    parts = compose_evidence_parts(
+        {
+            "chunk_type": "page",
+            "content": "",
+            "job_id": "job-1",
+            "chunk_metadata": {
+                "summary": "图纸",
+                "enrichment_state": "refined",
+                "page_nums": [2],
+                "page_assets": [
+                    {
+                        "page_num": 2,
+                        "artifact_ref": "pages/page-2.png",
+                        "content_type": "image/png",
+                    }
+                ],
+                "connect_to": [
+                    {
+                        "target": "img-1",
+                        "relation": "embeds",
+                        "ref": "[images/image-[2-1] A-01.png]",
+                    }
+                ],
+            },
+        },
+        {
+            "img-1": {
+                "chunk_type": "image",
+                "file_path": "images/image-[2-1] A-01.png",
+                "job_id": "job-1",
+            }
+        },
+    )
+    images = [part for part in parts if part.get("type") == "image"]
+    assert len(images) == 1
+    assert images[0]["data"] == payload
+
+
 def test_unrefined_page_parts_use_matched_pages_only(monkeypatch) -> None:
     seen: list[str] = []
 

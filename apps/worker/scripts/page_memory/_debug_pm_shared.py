@@ -1352,6 +1352,7 @@ def load_page_tags_artifact(path: Path) -> list[Any]:
                 strategy_used=str(item.get("strategy_used") or ""),
                 entities=list(item.get("entities") or []),
                 observed_titles=list(item.get("observed_titles") or []),
+                skill_signals=dict(item.get("skill_signals") or {}),
             )
         )
     return tags

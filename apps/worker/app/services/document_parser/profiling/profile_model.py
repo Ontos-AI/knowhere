@@ -51,10 +51,6 @@ class ParserDocumentProfile:
         return self.file_type == "pdf"
 
     @property
-    def is_atlas(self) -> bool:
-        return self.routing_category is PdfRoutingCategory.ATLAS
-
-    @property
     def has_structural_anatomy(self) -> bool:
         return self.anatomy is not None
 

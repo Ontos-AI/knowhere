@@ -14,6 +14,7 @@ from typing import Any
 from app.services.document_agent.calibration.prompts import (
     SECTION_START_ANSWER_KEYS,
     build_section_start_question,
+    calibration_skill_rules,
     coerce_found,
     coerce_found_page,
 )
@@ -52,7 +53,9 @@ def verify_section_page_choice(
         {
             "pages": pages,
             "page_cap": len(pages),
-            "question": build_section_start_question(title),
+            "question": build_section_start_question(
+                title, calibration_skill_rules(ctx)
+            ),
             "answer_keys": SECTION_START_ANSWER_KEYS,
             "folder_name": "calibration_verify",
             "prefix": "verify",

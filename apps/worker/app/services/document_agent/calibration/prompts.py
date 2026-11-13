@@ -38,22 +38,42 @@ def _variant_rules() -> str:
     )
 
 
-def build_section_start_question(title: str) -> str:
+def calibration_skill_rules(ctx: Any) -> str:
+    """Skill addon for calibration, gated by the coarse ``routing_category``."""
+    from app.services.page_memory.fine_skills import (
+        joined_skill_addon,
+        resolve_active_fine_skill_names,
+        resolve_fine_skills,
+    )
+
+    profile = getattr(getattr(ctx, "blackboard", None), "document_profile", None)
+    return joined_skill_addon(
+        resolve_fine_skills(resolve_active_fine_skill_names(profile=profile)),
+        "calibration_prompt_addon",
+    )
+
+
+def _rules_block(skill_rules: str) -> str:
+    rules = _variant_rules()
+    return f"{rules}\n{skill_rules}" if skill_rules else rules
+
+
+def build_section_start_question(title: str, skill_rules: str = "") -> str:
     """Ask whether ``title`` starts as a body heading on the provided pages."""
     return (
         f"Does the section titled {title!r} START on one of these pages as a "
         "body heading (where that section begins)?\n"
-        f"{_variant_rules()}\n"
+        f"{_rules_block(skill_rules)}\n"
         "Report the physical page number from the page label above each image."
     )
 
 
-def build_section_start_page_question(title: str) -> str:
+def build_section_start_page_question(title: str, skill_rules: str = "") -> str:
     """Ask whether ``title`` starts as a body heading on this single page."""
     return (
         f"Does the section titled {title!r} START on THIS page as a "
         "body heading (where that section begins)?\n"
-        f"{_variant_rules()}\n"
+        f"{_rules_block(skill_rules)}\n"
         "Return found true or false, and a reason of at most 20 Chinese characters."
     )
 

@@ -69,6 +69,7 @@ def build_phase_a(
     profile: Any,
     filename: str,
     trace_recorder: Any | None = None,
+    page_memory_config: Any | None = None,
 ) -> PhaseAResult:
     """Run through C4 skeletons, freeze scopes, and build coarse page rows."""
     from app.services.page_memory.skeleton_extractor import extract_section_skeletons
@@ -84,7 +85,15 @@ def build_phase_a(
             toc_pages=[],
             skeletons=[],
             coarse_df=empty,
-            manifest=_empty_manifest(filename=filename, page_count=page_count),
+            manifest=_empty_manifest(
+                filename=filename,
+                page_count=page_count,
+                routing_category=_routing_category_value(profile),
+                fine_skills=_fine_skills_for_manifest(
+                    profile=profile,
+                    page_memory_config=page_memory_config,
+                ),
+            ),
             page_texts=page_texts,
         )
 
@@ -127,6 +136,11 @@ def build_phase_a(
         coarse_scopes=coarse_scopes,
         next_title_by_path=next_title_by_path,
         toc_pages=toc_pages,
+        routing_category=_routing_category_value(profile),
+        fine_skills=_fine_skills_for_manifest(
+            profile=profile,
+            page_memory_config=page_memory_config,
+        ),
     )
     _record_trace_stage(
         trace_recorder,
@@ -186,6 +200,8 @@ def build_phase_a_manifest(
     coarse_scopes: list[CoarseScope],
     next_title_by_path: dict[str, EndTitleAnchor],
     toc_pages: list[int],
+    routing_category: str = "generic",
+    fine_skills: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     scope_entries: list[dict[str, Any]] = []
     for scope in coarse_scopes:
@@ -235,6 +251,8 @@ def build_phase_a_manifest(
         "next_title_by_path": dict(next_title_by_path),
         "skeletons": serialize_skeletons(skeletons),
         "scopes": scope_entries,
+        "routing_category": routing_category,
+        "fine_skills": list(fine_skills),
     }
 
 
@@ -505,7 +523,13 @@ def require_phase_a_manifest(stage2: dict[str, Any] | None) -> dict[str, Any]:
     return manifest
 
 
-def _empty_manifest(*, filename: str, page_count: int) -> dict[str, Any]:
+def _empty_manifest(
+    *,
+    filename: str,
+    page_count: int,
+    routing_category: str = "generic",
+    fine_skills: tuple[str, ...] = (),
+) -> dict[str, Any]:
     return {
         "filename": filename,
         "page_count": page_count,
@@ -513,7 +537,28 @@ def _empty_manifest(*, filename: str, page_count: int) -> dict[str, Any]:
         "next_title_by_path": {},
         "skeletons": [],
         "scopes": [],
+        "routing_category": routing_category,
+        "fine_skills": list(fine_skills),
     }
+
+
+def _routing_category_value(profile: Any) -> str:
+    from app.services.page_memory.fine_skills import routing_category_of
+
+    return routing_category_of(profile).value
+
+
+def _fine_skills_for_manifest(
+    *,
+    profile: Any,
+    page_memory_config: Any | None,
+) -> tuple[str, ...]:
+    from app.services.page_memory.fine_skills import resolve_active_fine_skill_names
+
+    return resolve_active_fine_skill_names(
+        profile=profile,
+        config=page_memory_config,
+    )
 
 
 def _skeleton_pages(

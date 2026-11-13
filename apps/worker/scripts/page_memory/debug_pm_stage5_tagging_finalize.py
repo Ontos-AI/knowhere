@@ -42,6 +42,7 @@ from _debug_pm_shared import (
     load_assets_artifact,
     load_page_tags_artifact,
     load_hierarchy_artifact,
+    load_pipeline_state,
     load_stage_costs,
     pipeline_state_path,
     record_stage,
@@ -437,7 +438,22 @@ def main() -> int:
     logger.info("🧱 C7: assemble canonical chunks")
     logger.info("=" * 70)
 
+    from dataclasses import replace
+
+    from app.services.page_memory.fine_skills import resolve_active_fine_skill_names
+
     page_memory_config = PageMemoryConfig.default()
+    state = load_pipeline_state(state_path) if state_path.exists() else {}
+    stage2 = (state.get("stages") or {}).get("stage2") or {}
+    manifest = stage2.get("scope_manifest") if isinstance(stage2, dict) else None
+    page_memory_config = replace(
+        page_memory_config,
+        fine_skills=resolve_active_fine_skill_names(
+            profile=getattr(anatomy, "document_profile", None),
+            manifest=manifest if isinstance(manifest, dict) else None,
+            config=page_memory_config,
+        ),
+    )
     rows, active_pages = assemble_c7_node_rows(
         skeletons=active_skeletons,
         rendered=rendered_by_page,

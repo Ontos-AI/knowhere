@@ -152,6 +152,7 @@ def serialize_page_tags(tags: list[Any]) -> list[dict[str, Any]]:
             "entities": list(getattr(item, "entities", []) or []),
             "strategy_used": item.strategy_used,
             "observed_titles": list(getattr(item, "observed_titles", []) or []),
+            "skill_signals": dict(getattr(item, "skill_signals", None) or {}),
         }
         for item in tags
     ]
