@@ -19,7 +19,6 @@ from loguru import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import (
     JobOperationException,
     ValidationException,
@@ -28,6 +27,7 @@ from shared.core.state_machine.states import JobStatus
 from shared.models.database.job import Job
 from shared.models.schemas.job import JobCreateBase, JobCreateV2, JobResponse
 from shared.models.schemas.job_metadata import JobMetadataHelper
+from shared.services.jobs.source_upload_deadline import get_guarded_source_upload_lifetime_seconds
 from shared.services.redis import JobInfoRedisService, RedisServiceFactory
 from shared.services.redis.job_metadata_service import JobMetadataService
 from shared.services.storage.file_upload_service import FileUploadService
@@ -172,7 +172,7 @@ class DocumentIngestionCreationService:
                 storage_key=s3_key,
                 file_extension=file_extension,
                 source_integrity=source_integrity,
-                expiration=settings.JOB_WAITING_EXPIRE_SECONDS,
+                expiration=get_guarded_source_upload_lifetime_seconds(),
             )
 
         job = await self._create_waiting_job(

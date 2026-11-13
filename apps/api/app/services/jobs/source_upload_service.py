@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from app.services.document_ingestion.source_upload_deadline import get_remaining_source_upload_seconds
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +14,7 @@ from shared.core.exceptions.domain_exceptions import (
 )
 from shared.models.database.job import Job
 from shared.models.schemas.job_metadata import JobMetadataHelper
+from shared.services.jobs.source_upload_deadline import get_remaining_source_upload_seconds
 from shared.services.retrieval.demo_job_scope import validate_job_corpus
 from shared.services.storage.file_upload_service import FileUploadService
 from shared.services.storage.job_file_storage import JobFileStorage

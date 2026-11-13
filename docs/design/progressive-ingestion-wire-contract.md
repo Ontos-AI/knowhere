@@ -97,20 +97,32 @@ guarded key for its owner while the job is `waiting-file` and within its upload
 lifetime. `expires_in` can be shorter than that lifetime because the signature
 is also limited by the storage credential's expiry.
 
-`POST /v2/jobs/{job_id}/confirm-upload` takes an empty body or `{}`. An absent
-object returns `400 INVALID_ARGUMENT` with a `file` violation. A mismatch or
-missing stored SHA-256 returns `400 INVALID_ARGUMENT` with a `source_integrity`
-violation. An expired waiting job returns `409 ABORTED` and is marked `failed`
-with `UPLOAD_EXPIRED`. A replay after the job advances can return `200` even
-for a failed job, so poll the saved job for the outcome. Storage notifications
-verify the same length and SHA-256 before handoff. The worker verifies the
-downloaded original again before normalization and parsing.
+`POST /v2/jobs/{job_id}/confirm-upload` takes an empty body or `{}`. Manual
+confirmation, storage notifications, and expiry recovery verify length and
+SHA-256 and use the S3 object's `LastModified` to check the upload deadline.
+A verified object stored by the deadline can start the original job after the
+deadline. The worker verifies the downloaded original again before parsing.
+
+An object missing before the deadline returns `400 INVALID_ARGUMENT` with a
+`file` violation. An in-window object with a mismatched length, SHA-256, or
+missing SHA-256 returns `400 INVALID_ARGUMENT` with a `source_integrity`
+violation and marks the job `failed` with `UPLOAD_INTEGRITY_MISMATCH`. An
+object stored after the deadline, or confirmed absent after it, returns
+`409 ABORTED` and marks the waiting job `failed` with `UPLOAD_EXPIRED`. A
+replay after the job advances can return `200` even for a failed job, so poll
+the saved job for the outcome.
+
+When `JOB_WAITING_EXPIRE_SECONDS` is zero or negative, verified uploads use
+the default two-hour upload lifetime. Once confirmed, a guarded upload has
+at least two minutes for parse dispatch and worker admission.
 
 This mode requires S3 with conditional PUT and checksum-enabled HEAD. The
-API's role needs access to read object checksums and identify an absent key.
+API and worker roles need access to read object checksums and identify an
+absent key.
 For S3, a missing object returns `404` when the caller also has `s3:ListBucket`.
 KMS-encrypted buckets also need the permissions required for checksum retrieval.
-Storage verification failures return retryable `503` responses.
+Temporary storage verification failures return retryable `503` responses to
+manual confirmation and leave the waiting job eligible for recovery.
 [Amazon S3 PutObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html)
 and [Amazon S3 HeadObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html)
 describe these storage requirements.

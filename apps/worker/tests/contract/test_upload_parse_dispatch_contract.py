@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from celery import Celery
-from pytest import MonkeyPatch
+from pytest import MonkeyPatch, mark
 from sqlalchemy import update
 
 
@@ -113,3 +113,60 @@ def test_should_recover_an_unacknowledged_upload_without_restarting_other_jobs(
         assert dispatch is not None
         assert dispatch.attempt == 3
         assert dispatch.published_at is not None
+
+
+@mark.parametrize(
+    ("pending_seconds", "published", "should_expire"),
+    [(70, False, False), (70, True, False), (130, False, True), (130, True, True)],
+)
+def test_confirmed_guarded_upload_has_time_for_its_durable_dispatch(
+    worker_contract_environment: None,
+    monkeypatch: MonkeyPatch,
+    pending_seconds: int,
+    published: bool,
+    should_expire: bool,
+) -> None:
+    from app.core.tasks import stale_job_sweeper
+    from shared.core.config import settings
+    from shared.core.database_sync import get_sync_db_context
+    from shared.models.database.job import Job
+    from shared.models.database.upload_parse_dispatch import UploadParseDispatch
+    from shared.models.database.user import User
+    from shared.services.jobs.upload_parse_dispatch import UploadParseOutbox
+    from shared.utils.utc_now import utc_now_naive
+
+    monkeypatch.setattr(settings, "JOB_WAITING_EXPIRE_SECONDS", 1)
+    now = utc_now_naive()
+    user_id = "guarded-short-upload-owner"
+    job_id = "guarded-short-upload"
+    with get_sync_db_context() as db:
+        db.add(User(id=user_id, name="Upload owner", email="upload-owner@example.invalid"))
+        db.flush()
+        job = Job(
+            job_id=job_id,
+            user_id=user_id,
+            job_type="document_ingestion",
+            status="pending",
+            source_type="file",
+            job_metadata={"source_integrity": {"size_bytes": 5, "sha256": "0" * 64}},
+            created_at=now - timedelta(minutes=3),
+            updated_at=now - timedelta(seconds=pending_seconds),
+        )
+        db.add(job)
+        db.flush()
+        UploadParseOutbox.stage(db, job_id=job_id, user_id=user_id)
+        db.flush()
+        db.execute(
+            update(UploadParseDispatch).values(
+                available_at=now,
+                published_at=now if published else None,
+            )
+        )
+
+    assert stale_job_sweeper.expire_stale_jobs()["expired"] == int(should_expire)
+    with get_sync_db_context() as db:
+        claim = UploadParseOutbox.claim_due(db)
+        if should_expire or published:
+            assert claim is None
+        else:
+            assert claim is not None and claim.job_id == job_id

@@ -1,7 +1,9 @@
 """Async adapter for shared Job file storage."""
 
+from __future__ import annotations
+
 import asyncio
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -12,6 +14,7 @@ from shared.core.exceptions.domain_exceptions import (
 from shared.models.schemas.source_integrity import SourceIntegrity
 from shared.services.storage.async_presigner import AsyncStoragePresigner
 from shared.services.storage.job_file_storage import JobFileStorage
+from shared.services.storage.source_upload_verification import SourceUploadVerification
 
 
 class FileUploadService:
@@ -95,7 +98,7 @@ class FileUploadService:
 
     async def verify_upload_integrity(
         self, storage_key: str, source_integrity: SourceIntegrity
-    ) -> Literal["matched", "missing", "mismatch"]:
+    ) -> SourceUploadVerification:
         try:
             return await asyncio.to_thread(
                 self._storage.verify_upload_integrity, storage_key, source_integrity

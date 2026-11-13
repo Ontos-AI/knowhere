@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from app.services.document_ingestion.source_upload_deadline import (
-    get_remaining_source_upload_seconds,
-)
 from app.services.document_ingestion.worker_dispatcher import (
     DocumentIngestionWorkerDispatcher,
 )
@@ -21,6 +18,13 @@ from shared.core.state_machine.states import JobStatus
 from shared.models.database.job import Job
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.source_integrity import SourceIntegrity
+from shared.services.jobs.source_upload_deadline import (
+    UPLOAD_EXPIRED_CODE,
+    UPLOAD_EXPIRED_MESSAGE,
+    UPLOAD_INTEGRITY_MISMATCH_CODE,
+    UPLOAD_INTEGRITY_MISMATCH_MESSAGE,
+    classify_guarded_source_upload,
+)
 from shared.services.jobs.upload_parse_dispatch import UploadParseOutbox
 from shared.services.storage.file_upload_service import FileUploadService
 
@@ -141,24 +145,25 @@ class DocumentIngestionHandoffService:
         self, db: AsyncSession, *, job: Job, source_integrity: SourceIntegrity
     ) -> bool:
         job_id = job.job_id
-        created_at = job.created_at
-        result = None
-        if get_remaining_source_upload_seconds(created_at) > 0:
-            if not job.s3_key:
-                raise ValidationException(
-                    user_message="Job is missing S3 key information",
-                    violations=[{"field": "s3_key", "description": "S3 key not set for this job"}],
-                )
-            result = await FileUploadService().verify_upload_integrity(
-                job.s3_key, source_integrity
+        if not job.s3_key:
+            raise ValidationException(
+                user_message="Job is missing S3 key information",
+                violations=[{"field": "s3_key", "description": "S3 key not set for this job"}],
             )
+        verification = await FileUploadService().verify_upload_integrity(
+            job.s3_key, source_integrity
+        )
+        result = classify_guarded_source_upload(job.created_at, verification)
 
-        # HEAD can run without a lock. Serialize the deadline decision and
-        # waiting-file transition after verification against concurrent triggers.
-        if not await self._lock_waiting_job(db, job_id):
+        # Storage checks happen outside the row lock. The terminal decision and
+        # parse handoff both recheck waiting-file under that same lock.
+        locked_job = await self._lock_waiting_job(db, job_id)
+        if locked_job is None:
             return False
-        if get_remaining_source_upload_seconds(created_at) == 0:
-            await self._mark_locked_upload_expired(db, job_id)
+        if result == "expired":
+            await self._mark_locked_upload_failed(
+                db, job=locked_job, code=UPLOAD_EXPIRED_CODE, message=UPLOAD_EXPIRED_MESSAGE
+            )
             raise ConflictException(
                 user_message="The source upload has expired.",
                 reason="ABORTED",
@@ -170,9 +175,15 @@ class DocumentIngestionHandoffService:
                 user_message="S3 file does not exist, please upload the file first",
                 violations=[{"field": "file", "description": "File not found in S3"}],
             )
-        if result != "matched":
+        if result == "mismatch":
+            await self._mark_locked_upload_failed(
+                db,
+                job=locked_job,
+                code=UPLOAD_INTEGRITY_MISMATCH_CODE,
+                message=UPLOAD_INTEGRITY_MISMATCH_MESSAGE,
+            )
             raise ValidationException(
-                user_message="The uploaded file does not match the expected original",
+                user_message=UPLOAD_INTEGRITY_MISMATCH_MESSAGE,
                 violations=[{
                     "field": "source_integrity",
                     "description": "Stored length or SHA-256 does not match",
@@ -181,33 +192,42 @@ class DocumentIngestionHandoffService:
         return True
 
     @staticmethod
-    async def _lock_waiting_job(db: AsyncSession, job_id: str) -> bool:
-        locked_job = await db.scalar(
-            select(Job.job_id)
+    async def _lock_waiting_job(db: AsyncSession, job_id: str) -> Job | None:
+        return await db.scalar(
+            select(Job)
             .where(Job.job_id == job_id, Job.status == JobStatus.WAITING_FILE.value)
             .with_for_update()
         )
-        return locked_job is not None
 
     async def mark_upload_expired(self, db: AsyncSession, *, job: Job) -> None:
-        if await self._lock_waiting_job(db, job.job_id):
-            await self._mark_locked_upload_expired(db, job.job_id)
+        locked_job = await self._lock_waiting_job(db, job.job_id)
+        if locked_job is not None:
+            await self._mark_locked_upload_failed(
+                db, job=locked_job, code=UPLOAD_EXPIRED_CODE, message=UPLOAD_EXPIRED_MESSAGE
+            )
 
-    async def _mark_locked_upload_expired(
-        self,
-        db: AsyncSession,
-        job_id: str,
+    async def _mark_locked_upload_failed(
+        self, db: AsyncSession, *, job: Job, code: str, message: str,
     ) -> None:
-        outcome = await self._state_machine.mark_failed_outcome(
+        job_id = job.job_id
+        metadata = {"error_code": code, "error_message": message}
+        job.error_code = code
+        job.error_message = message
+        outcome = await self._state_machine.transition_outcome(
             db,
             job_id,
-            "Upload expired: file was not uploaded within the allowed time window",
-            error_code="UPLOAD_EXPIRED",
+            JobStatus.FAILED.value,
+            "mark_failed",
+            metadata=metadata,
+            auto_commit=False,
+            expected_from_state=JobStatus.WAITING_FILE.value,
         )
         if not outcome.succeeded:
             await db.rollback()
             raise UnavailableException(
-                internal_message=f"Could not expire upload for job_id={job_id}, reason={outcome.reason}",
+                internal_message=f"Could not fail upload for job_id={job_id}, reason={outcome.reason}",
                 retry_after=settings.DOCUMENT_INGESTION_TASK_RETRY_COUNTDOWN,
                 user_message="Job state is still settling. Retrying shortly.",
             )
+        await db.commit()
+        await self._state_machine.publish_status_cache(job_id, JobStatus.FAILED.value, metadata)

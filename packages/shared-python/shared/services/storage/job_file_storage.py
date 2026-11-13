@@ -3,12 +3,13 @@ from __future__ import annotations
 import os
 import tempfile
 from datetime import datetime
-from typing import Any, BinaryIO, Literal
+from typing import Any, BinaryIO
 
 from shared.core.config import settings
 from shared.core.config.storage import get_cached_storage_adapter
 from shared.core.exceptions.domain_exceptions import StorageServiceException
 from shared.models.schemas.source_integrity import SourceIntegrity
+from shared.services.storage.source_upload_verification import SourceUploadVerification
 from shared.services.storage.storage_adapter import StorageAdapter
 from shared.services.http.pinned_outbound import download_pinned_outbound_file
 from shared.services.http.url_security import validate_http_url_and_resolve_ip
@@ -144,7 +145,7 @@ class JobFileStorage:
 
     def verify_upload_integrity(
         self, storage_key: str, source_integrity: SourceIntegrity
-    ) -> Literal["matched", "missing", "mismatch"]:
+    ) -> SourceUploadVerification:
         from shared.services.storage.adapters.s3_adapter import S3StorageAdapter
 
         adapter = self.storage_adapter

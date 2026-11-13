@@ -81,6 +81,8 @@ class SyncStateMachineService:
         operator_id: Optional[str] = None,
         operator_type: str = "system",
         metadata: Optional[Dict[str, Any]] = None,
+        *,
+        publish_cache: bool = True,
     ) -> JobTransitionOutcome:
         """Execute a state transition and preserve the reason if it is rejected."""
         max_retries = MAX_TRANSITION_ATTEMPTS
@@ -136,7 +138,8 @@ class SyncStateMachineService:
 
                 success = self._cas_update_state(db, job_id, to_state, old_version)
                 if success:
-                    self._update_redis_cache(job_id, to_state, metadata)
+                    if publish_cache:
+                        self.publish_status_cache(job_id, to_state, metadata)
                     db.flush()
                     logger.info(
                         f"Job {job_id} state transition: {old_state} → {to_state}"
@@ -440,7 +443,7 @@ class SyncStateMachineService:
         except Exception as e:
             logger.error(f"Failed to update Job {job_id} error info: {e}")
 
-    def _update_redis_cache(
+    def publish_status_cache(
         self,
         job_id: str,
         status: str,

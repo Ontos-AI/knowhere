@@ -3,13 +3,14 @@ from __future__ import annotations
 from base64 import b64encode
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
+from datetime import datetime, timezone
 from hashlib import sha256
 from urllib.parse import parse_qs, urlsplit
 
 import boto3
 import pytest
 from botocore.stub import Stubber
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 
 from tests.support.contract_database import ContractDatabase
 
@@ -49,6 +50,24 @@ def _stub_uploaded_object(monkeypatch: pytest.MonkeyPatch) -> tuple[Stubber, str
     adapter = S3StorageAdapter(client, bucket)
     monkeypatch.setattr(job_file_storage, "get_cached_storage_adapter", lambda: adapter)
     return Stubber(client), bucket
+
+
+def _upload_event(bucket: str, key: str) -> dict[str, object]:
+    return {
+        "Records": [
+            {
+                "eventVersion": "2.1",
+                "eventSource": "aws:s3",
+                "awsRegion": "us-west-1",
+                "eventTime": datetime.now(timezone.utc).isoformat(),
+                "eventName": "ObjectCreated:Put",
+                "s3": {
+                    "bucket": {"name": bucket},
+                    "object": {"key": key, "size": len(_ORIGINAL)},
+                },
+            }
+        ],
+    }
 
 
 def _check_signed_upload(result: dict[str, object]) -> None:
@@ -139,7 +158,7 @@ async def test_integrity_requires_valid_file_metadata_and_supported_storage(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("trigger", ["manual", "s3"])
-async def test_handoff_requires_the_expected_stored_checksum_and_size(
+async def test_unavailable_or_missing_upload_remains_waiting_until_verified(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
@@ -167,92 +186,138 @@ async def test_handoff_requires_the_expected_stored_checksum_and_size(
         job_id: str = created.json()["job_id"]
         key = f"uploads/{job_id}.pdf"
         confirm_url = f"/api/v2/jobs/{job_id}/confirm-upload"
-        event = {
-            "Records": [
-                {
-                    "eventVersion": "2.1",
-                    "eventSource": "aws:s3",
-                    "awsRegion": "us-west-1",
-                    "eventTime": "2026-04-26T00:00:00.000Z",
-                    "eventName": "ObjectCreated:Put",
-                    "s3": {
-                        "bucket": {"name": bucket},
-                        "object": {"key": key, "size": len(_ORIGINAL)},
-                    },
-                }
-            ],
-        }
-
+        event = _upload_event(bucket, key)
         expected_head = {"Bucket": bucket, "Key": key, "ChecksumMode": "ENABLED"}
-        if trigger == "manual":
+        for code in (403, 404):
             stubber.add_client_error(
                 "head_object",
-                service_error_code="403",
-                http_status_code=403,
+                service_error_code=str(code),
+                http_status_code=code,
                 expected_params=expected_head,
             )
-            stubber.add_client_error(
-                "head_object",
-                service_error_code="404",
-                http_status_code=404,
-                expected_params=expected_head,
-            )
-        for metadata in (
-            {
-                "ContentLength": len(_ORIGINAL),
-                "ChecksumSHA256": b64encode(bytes(32)).decode("ascii"),
-            },
-            {
-                "ContentLength": len(_ORIGINAL) + 1,
-                "ChecksumSHA256": b64encode(_DIGEST).decode("ascii"),
-            },
-            {"ContentLength": len(_ORIGINAL)},
+        stubber.add_response(
+            "head_object",
             {
                 "ContentLength": len(_ORIGINAL),
                 "ChecksumSHA256": b64encode(_DIGEST).decode("ascii"),
+                "LastModified": datetime.now(timezone.utc),
             },
-        ):
-            stubber.add_response("head_object", metadata, expected_head)
+            expected_head,
+        )
 
-        async def _confirm(expected_violation: str | None = None) -> None:
-            response = (
-                await api_client.post(confirm_url)
-                if trigger == "manual"
-                else await api_client.post(
-                    "/api/v1/internal/s3-events",
-                    json=event,
-                )
-            )
-            if trigger == "s3":
-                assert response.status_code == 200
-            elif expected_violation is not None:
-                assert response.status_code == 400
-                assert (
-                    response.json()["error"]["details"]["violations"][0]["field"]
-                    == expected_violation
-                )
-            else:
-                assert response.status_code == 200
+        async def _confirm() -> Response:
+            if trigger == "manual":
+                return await api_client.post(confirm_url)
+            return await api_client.post("/api/v1/internal/s3-events", json=event)
 
         with stubber:
-            rejected_fields = ["source_integrity"] * 3
-            if trigger == "manual":
-                unavailable = await api_client.post(confirm_url)
-                assert unavailable.status_code == 503
-                assert unavailable.json()["error"]["code"] == "UNAVAILABLE"
-                rejected_fields.insert(0, "file")
-            for field in rejected_fields:
-                await _confirm(field)
+            for expected_status in (503, 400):
+                response = await _confirm()
+                if trigger == "manual":
+                    assert response.status_code == expected_status
+                    error = response.json()["error"]
+                    if expected_status == 503:
+                        assert error["code"] == "UNAVAILABLE"
+                    else:
+                        assert error["details"]["violations"][0]["field"] == "file"
+                else:
+                    assert response.status_code == 200
                 assert not publication
                 stored = await ContractDatabase.fetch_job(job_id)
                 assert stored is not None and stored["status"] == "waiting-file"
-            await _confirm()
-            await _confirm()
+            assert (await _confirm()).status_code == 200
+            assert (await _confirm()).status_code == 200
             stubber.assert_no_pending_responses()
         assert publication == [job_id]
         assert (await api_client.get(f"/api/v2/jobs/{job_id}")).json()[
             "status"
         ] == "pending"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trigger", ["manual", "s3"])
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {
+            "ContentLength": len(_ORIGINAL),
+            "ChecksumSHA256": b64encode(bytes(32)).decode("ascii"),
+        },
+        {
+            "ContentLength": len(_ORIGINAL) + 1,
+            "ChecksumSHA256": b64encode(_DIGEST).decode("ascii"),
+        },
+        {"ContentLength": len(_ORIGINAL)},
+    ],
+    ids=["wrong-checksum", "wrong-length", "missing-checksum"],
+)
+async def test_invalid_stored_original_immediately_fails_the_waiting_job(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+    trigger: str,
+    metadata: dict[str, object],
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        _enable_s3_signing(monkeypatch)
+        stubber, bucket = _stub_uploaded_object(monkeypatch)
+        created = await api_client.post("/api/v2/jobs", json=_get_payload())
+        assert created.status_code == 200
+        job_id: str = created.json()["job_id"]
+        key = f"uploads/{job_id}.pdf"
+        confirm_url = f"/api/v2/jobs/{job_id}/confirm-upload"
+        event = _upload_event(bucket, key)
+        stubber.add_response(
+            "head_object",
+            {**metadata, "LastModified": datetime.now(timezone.utc)},
+            {"Bucket": bucket, "Key": key, "ChecksumMode": "ENABLED"},
+        )
+
+        async def _confirm() -> Response:
+            if trigger == "manual":
+                return await api_client.post(confirm_url)
+            return await api_client.post("/api/v1/internal/s3-events", json=event)
+
+        with stubber:
+            rejected = await _confirm()
+            if trigger == "manual":
+                assert rejected.status_code == 400
+                error = rejected.json()["error"]
+                assert error["code"] == "INVALID_ARGUMENT"
+                assert error["details"]["violations"][0]["field"] == "source_integrity"
+            else:
+                assert rejected.status_code == 200
+            status = (await api_client.get(f"/api/v2/jobs/{job_id}")).json()
+            assert status["status"] == "failed"
+            assert status["error"]["code"] == "UPLOAD_INTEGRITY_MISMATCH"
+            assert (await _confirm()).status_code == 200
+            renewed = await api_client.post(f"/api/v2/jobs/{job_id}/upload-url")
+            assert renewed.status_code == 409
+            stubber.assert_no_pending_responses()
+
+        assert (
+            await ContractDatabase.fetch_one(
+                "SELECT job_id FROM upload_parse_dispatches WHERE job_id = :job_id",
+                {"job_id": job_id},
+            )
+            is None
+        )
+        assert await ContractDatabase.fetch_all(
+            """
+            SELECT from_state, to_state,
+                   transition_metadata ->> 'error_code' AS error_code
+            FROM job_state_audit_logs
+            WHERE job_id = :job_id AND to_state = 'failed'
+            """,
+            {"job_id": job_id},
+        ) == [
+            {
+                "from_state": "waiting-file",
+                "to_state": "failed",
+                "error_code": "UPLOAD_INTEGRITY_MISMATCH",
+            }
+        ]
 
 
 @pytest.mark.asyncio
@@ -264,10 +329,20 @@ async def test_expired_verified_upload_cannot_be_renewed_or_manually_started(
 ) -> None:
     async with developer_api_client_factory() as api_client:
         _enable_s3_signing(monkeypatch)
-        stubber, _ = _stub_uploaded_object(monkeypatch)
+        stubber, bucket = _stub_uploaded_object(monkeypatch)
         created = await api_client.post("/api/v2/jobs", json=_get_payload())
         assert created.status_code == 200
         job_id: str = created.json()["job_id"]
+        stubber.add_client_error(
+            "head_object",
+            service_error_code="404",
+            http_status_code=404,
+            expected_params={
+                "Bucket": bucket,
+                "Key": f"uploads/{job_id}.pdf",
+                "ChecksumMode": "ENABLED",
+            },
+        )
         await ContractDatabase.execute(
             "UPDATE jobs SET created_at = now() - interval '3 hours' WHERE job_id = :job_id",
             {"job_id": job_id},
@@ -277,6 +352,7 @@ async def test_expired_verified_upload_cannot_be_renewed_or_manually_started(
                 await api_client.post(f"/api/v2/jobs/{job_id}/upload-url")
             ).status_code == 409
             rejected = await api_client.post(f"/api/v2/jobs/{job_id}/confirm-upload")
+            stubber.assert_no_pending_responses()
         assert rejected.status_code == 409
         assert (await api_client.get(f"/api/v2/jobs/{job_id}")).json()[
             "status"

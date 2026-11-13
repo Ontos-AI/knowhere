@@ -1,8 +1,11 @@
-from dataclasses import dataclass
-from datetime import timedelta
+from __future__ import annotations
 
-from sqlalchemy import select, update
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from shared.core.config import settings
 from shared.core.state_machine.states import JobStatus
@@ -12,6 +15,37 @@ from shared.utils.utc_now import utc_now_naive
 
 _CLAIM_LEASE = timedelta(minutes=1)
 _RETRY_DELAY = timedelta(seconds=30)
+_MIN_GUARDED_DISPATCH_WINDOW_SECONDS = 120
+
+has_source_integrity = Job.job_metadata["source_integrity"].as_string().is_not(None)
+
+
+def within_upload_parse_dispatch_window(
+    *, now: datetime, waiting_max_age: int
+) -> ColumnElement[bool]:
+    """Keep confirmed guarded uploads eligible through the first broker retry."""
+    legacy_cutoff = now - timedelta(seconds=waiting_max_age)
+    if waiting_max_age >= _MIN_GUARDED_DISPATCH_WINDOW_SECONDS:
+        return Job.updated_at >= legacy_cutoff
+    guarded_cutoff = now - timedelta(seconds=_MIN_GUARDED_DISPATCH_WINDOW_SECONDS)
+    current_dispatch_exists = (
+        select(UploadParseDispatch.job_id)
+        .where(
+            UploadParseDispatch.job_id == Job.job_id,
+            UploadParseDispatch.job_version == Job.version,
+        )
+        .correlate(Job)
+        .exists()
+    )
+    return or_(
+        Job.updated_at >= legacy_cutoff,
+        and_(
+            Job.status == JobStatus.PENDING.value,
+            has_source_integrity,
+            current_dispatch_exists,
+            Job.updated_at >= guarded_cutoff,
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -60,7 +94,7 @@ class UploadParseOutbox:
         waiting_max_age = settings.JOB_WAITING_EXPIRE_SECONDS
         if waiting_max_age > 0 and settings.JOB_PROCESSING_EXPIRE_SECONDS > 0:
             statement = statement.where(
-                Job.updated_at >= now - timedelta(seconds=waiting_max_age)
+                within_upload_parse_dispatch_window(now=now, waiting_max_age=waiting_max_age)
             )
 
         row = db.execute(statement).one_or_none()
