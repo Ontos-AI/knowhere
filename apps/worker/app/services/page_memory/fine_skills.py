@@ -1,4 +1,8 @@
-"""Pluggable Fine-stage skills for page-memory (atlas drawing sheets first)."""
+"""Pluggable document skills for page-memory (atlas drawing sheets first).
+
+Most hooks act in the Fine stage; ``calibration_prompt_addon`` is the one
+pre-Fine hook, gated by the coarse ``routing_category``.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +22,10 @@ class FineSkill(Protocol):
 
     name: str
     extra_tag_fields: dict[str, str]
+
+    def calibration_prompt_addon(self) -> str:
+        """Addon appended to the TOC calibration section-start questions."""
+        ...
 
     def title_prompt_addon(self) -> str:
         """Addon appended to ``page-memory-vlm-title``."""
@@ -51,6 +59,16 @@ class DrawingSheetFineSkill:
         "is_drawing_sheet": "boolean",
         "drawing_title": "string",
     }
+
+    def calibration_prompt_addon(self) -> str:
+        return (
+            "DRAWING-SHEET NOTE: if a page looks like an engineering/technical "
+            "drawing sheet rather than ordinary content, the matching rules "
+            "above stay the same. Only when no main heading is found in the "
+            "usual heading position, also check the drawing's title block "
+            "(info bar, usually at a page corner) and treat the drawing name "
+            "there as that page's main heading."
+        )
 
     def title_prompt_addon(self) -> str:
         return (

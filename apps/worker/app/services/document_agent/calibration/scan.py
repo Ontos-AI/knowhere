@@ -22,6 +22,7 @@ from loguru import logger
 from app.services.document_agent.calibration.prompts import (
     SECTION_START_PAGE_ANSWER_KEYS,
     build_section_start_page_question,
+    calibration_skill_rules,
     coerce_found,
     coerce_reason,
 )
@@ -125,7 +126,9 @@ def _inspect_one_page(
         {
             "pages": [page],
             "page_cap": 1,
-            "question": build_section_start_page_question(title),
+            "question": build_section_start_page_question(
+                title, calibration_skill_rules(ctx)
+            ),
             "answer_keys": SECTION_START_PAGE_ANSWER_KEYS,
             "folder_name": "calibration_scan",
             "prefix": "scan",

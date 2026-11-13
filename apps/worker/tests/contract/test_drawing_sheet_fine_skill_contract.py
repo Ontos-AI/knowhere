@@ -15,6 +15,11 @@ import importlib
 import pytest
 from PIL import Image
 
+from app.services.document_agent.calibration.prompts import (
+    build_section_start_page_question,
+    build_section_start_question,
+    calibration_skill_rules,
+)
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 from app.services.page_memory.fine_skills import (
     DRAWING_SHEET_SKILL_NAME,
@@ -34,6 +39,11 @@ from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.summary.model import BodySummary
 
 _WORKER_SYMBOLS: dict[str, tuple[str, ...]] = {
+    "app.services.document_agent.calibration.prompts": (
+        "build_section_start_page_question",
+        "build_section_start_question",
+        "calibration_skill_rules",
+    ),
     "app.services.document_parser.profiling.taxonomy": ("PdfRoutingCategory",),
     "app.services.page_memory.fine_skills": (
         "DRAWING_SHEET_SKILL_NAME",
@@ -422,3 +432,29 @@ def test_tag_pages_forwards_drawing_skill_signals(monkeypatch, tmp_path) -> None
         "is_drawing_sheet": True,
         "drawing_title": "A-01 Plan",
     }
+
+
+def _calibration_ctx(routing_category: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        blackboard=SimpleNamespace(
+            document_profile=SimpleNamespace(routing_category=routing_category)
+        )
+    )
+
+
+def test_calibration_questions_add_drawing_note_only_for_atlas() -> None:
+    atlas_rules = calibration_skill_rules(_calibration_ctx("atlas"))
+    assert "title block" in atlas_rules
+    assert calibration_skill_rules(_calibration_ctx("generic")) == ""
+
+    plain_page = build_section_start_page_question("A-01 Plan")
+    plain_batch = build_section_start_question("A-01 Plan")
+    assert "title block" not in plain_page
+    assert "title block" not in plain_batch
+    assert build_section_start_page_question("A-01 Plan", "") == plain_page
+
+    atlas_page = build_section_start_page_question("A-01 Plan", atlas_rules)
+    atlas_batch = build_section_start_question("A-01 Plan", atlas_rules)
+    assert atlas_page.startswith(plain_page.split("Return found")[0])
+    assert "DRAWING-SHEET NOTE" in atlas_page
+    assert "DRAWING-SHEET NOTE" in atlas_batch
