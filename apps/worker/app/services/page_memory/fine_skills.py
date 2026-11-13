@@ -77,7 +77,8 @@ class DrawingSheetFineSkill:
             "table page, follow all standard rules above.\n"
             "If and only if it is an engineering/technical drawing or detail sheet "
             "with a title block / info bar (usually at the bottom-right corner, "
-            "bottom edge, or top-left corner), extract ONE main heading from the "
+            "bottom edge, or top-left corner), only when no normal prominent "
+            "heading is found, extract ONE main heading from the "
             "title block formatted as \"<drawing_no> <drawing_title>\" (or "
             "whichever of the two is present), and set \"is_in_table\": false and "
             "\"is_in_header_footer\": false for it. Do NOT extract dimension "
@@ -97,8 +98,9 @@ class DrawingSheetFineSkill:
             '- "is_drawing_sheet": true only when the page is primarily an '
             "architectural/engineering/CAD drawing, schematic, or detail sheet. "
             "false for covers, body specifications, pure schedules/tables, or TOC.\n"
-            '- "drawing_title": the drawing number and drawing name from the title '
-            "block / info bar when present; otherwise an empty string.\n"
+            '- "drawing_title": try to extract the drawing name and drawing '
+            "number from the title block / info bar when present; otherwise "
+            "an empty string.\n"
             "When is_drawing_sheet is true: prefer the corner/edge title block "
             "(drawing number, drawing name, project/atlas name, scale, discipline, "
             "revision) and technical notes on the sheet when forming summary and "
