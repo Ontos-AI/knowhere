@@ -11,6 +11,8 @@ class PdfRoutingCategory(str, Enum):
 
     @classmethod
     def normalize(cls, value: object) -> "PdfRoutingCategory":
+        if isinstance(value, cls):
+            return value
         raw = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
         if raw in {"atlas", "engineering_atlas", "drawing_atlas", "drawing_collection"}:
             return cls.ATLAS

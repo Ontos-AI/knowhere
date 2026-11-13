@@ -153,6 +153,11 @@ def main() -> int:
                 anatomy=anchored,
                 page_full_text_cache=page_texts,
                 page_body_text_cache={},
+                routing_category=getattr(
+                    getattr(bb, "document_profile", None),
+                    "routing_category",
+                    None,
+                ),
             ),
             filename=filename,
         )

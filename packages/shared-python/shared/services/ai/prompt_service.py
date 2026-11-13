@@ -115,6 +115,13 @@ def _entity_instruction() -> str:
     )
 
 
+def _with_skill_instructions(prompt: str, paras: dict | None) -> str:
+    extra = str((paras or {}).get("skill_instructions") or "").strip()
+    if not extra:
+        return prompt
+    return f"{prompt.rstrip()}\n\n{extra}\n"
+
+
 _SEQUENCE_SOURCE_LABELS = {
     "gif": "an animated GIF",
     "animated_webp": "an animated WebP",
@@ -432,9 +439,11 @@ def build_prompt(task, texts, query, **kwargs):
     elif task == "page-memory-vlm-tag":
         temperature = 0
         top_p = 0.01
-        max_tokens = kwargs.get("paras", {}).get("max_tokens", 600)
+        paras = kwargs.get("paras", {}) or {}
+        max_tokens = paras.get("max_tokens", 600)
         entity_line = _entity_instruction()
-        prompt = f"""\
+        prompt = _with_skill_instructions(
+            f"""\
         You are annotating a single rendered document page for a document memory
         system. Return one strict JSON object with exactly these keys:
 
@@ -450,7 +459,9 @@ def build_prompt(task, texts, query, **kwargs):
           chart, describe what it depicts and any standout values.
         {entity_line}
         - Return ONLY the JSON object, with no markdown fences or extra text.
-        """
+        """,
+            paras,
+        )
 
     elif task == "page-memory-vlm-title":
         temperature = 0
@@ -466,7 +477,8 @@ def build_prompt(task, texts, query, **kwargs):
             reading_order_upper = "TOP-TO-BOTTOM, LEFT-TO-RIGHT"
             column_order = "left to right (i.e. finish the left column before starting the right column)"
 
-        prompt = f"""\
+        prompt = _with_skill_instructions(
+            f"""\
         You are extracting document-outline-level headings from a PDF page screenshot.
         Your goal is to find ONLY the section headings that structure the document.
         If no text on this page qualifies as a section heading, return an empty list.
@@ -529,7 +541,7 @@ def build_prompt(task, texts, query, **kwargs):
         - Column headers, row category labels, merged-cell group labels
         - Any label inside a tabular layout, regardless of visual prominence
 
-        2. PAGE PERIPHERY — Text in margins or corners of the page:
+        2. PAGE PERIPHERY — Running headers, running footers, and page numbers:
         organization/document names repeated as running headers, page numbers,
         book/volume titles used as running headers or footers.
 
@@ -548,7 +560,9 @@ def build_prompt(task, texts, query, **kwargs):
         Do NOT force-extract table labels or numbered items as headings.
 
         Return ONLY the JSON object, no markdown fences.
-        """
+        """,
+            paras,
+        )
 
     elif task == "page-memory-hierarchy":
         temperature = 0
@@ -619,9 +633,10 @@ Output requirements:
     elif task == "page-memory-node-summary":
         temperature = 0
         top_p = 0.01
-        max_tokens = kwargs.get("paras", {}).get("max_tokens", 400)
-        node_title = kwargs.get("paras", {}).get("node_title", "")
-        next_title = kwargs.get("paras", {}).get("next_title", "")
+        paras = kwargs.get("paras", {}) or {}
+        max_tokens = paras.get("max_tokens", 400)
+        node_title = paras.get("node_title", "")
+        next_title = paras.get("next_title", "")
         if next_title:
             scope = (
                 f"Summarize ONLY the content that belongs to the section titled "
@@ -635,7 +650,8 @@ Output requirements:
                 f"across the provided page image(s) as a single coherent section."
             )
         entity_line = _entity_instruction()
-        prompt = f"""\
+        prompt = _with_skill_instructions(
+            f"""\
         You are summarizing one section of a document for a navigation/memory
         system. You are given the page image(s) that this section spans.
 
@@ -654,7 +670,9 @@ Output requirements:
           other sections on the same page.
         {entity_line}
         - Return ONLY the JSON object, with no markdown fences or extra text.
-        """
+        """,
+            paras,
+        )
 
     elif task == "transcribe":
         # Unified OCR primitive (§4.2): replaces the former ``page-memory-vlm-ocr``
@@ -874,38 +892,6 @@ header_rows_to_skip: integer, the number of leading rows in Table B that duplica
         - All images except those with rich text content are considered image-based
         - Output strictly in JSON dictionary format with key "answer" and value can only be "text" or "image"
         - Do not return any additional explanations or descriptions
-        """
-
-    elif task == "atlas-page-info":
-        temperature = 0.1
-        max_tokens = 300
-        prompt = """
-        You will receive a scanned page from an engineering atlas (drawing collection).
-        Your task is to extract the atlas number, atlas name, and page label from the title block (info bar), then format the output EXACTLY as shown below.
-
-        Steps:
-        1. FIRST: Find the title block / info bar (usually at the bottom-right corner or bottom edge of the page).
-           - Extract:
-             a) Atlas number: a code with letters and digits, which may include hyphens
-             b) Atlas name: the drawing collection name, whether shown in Chinese or English
-             c) Page label: the page number or page tag shown in the title block
-           - Output EXACTLY this format (replace placeholders with real values):
-             <atlas_no (if any)> (<atlas_name>) <page number>
-
-        2. IF the title block is present but you can only find SOME fields (e.g. no atlas name), fill what you can and omit missing parts:
-           - Only atlas number found: <atlas_no>
-           - Only atlas name found: <atlas_name>
-           - Use your best judgment for partial matches
-
-        3. IF NO title block is found at all: summarize the most important content on this page in no more than 10 Chinese or English words.
-
-        4. IF the page is completely blank or contains only meaningless noise: return exactly: null
-
-        Requirements:
-        - Output a SINGLE LINE only, no explanations, no prefixes, no extra text
-        - Use the SAME LANGUAGE as the text visible on the page
-        - Do NOT wrap the output in quotes or markdown
-        - Do NOT add any explanation before or after the formatted string
         """
 
     # ==================== TOC Detection Prompts ====================

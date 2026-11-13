@@ -277,7 +277,11 @@ def _run_coarse(
         ),
         job_result_id=str(state["job_result_id"]) if state else "debug",
     )
-    phase_a = build_phase_a(profile=profile, filename=filename)
+    phase_a = build_phase_a(
+        profile=profile,
+        filename=filename,
+        page_memory_config=page_memory_config,
+    )
     persist_phase_b_inputs(
         output_dir=str(out_dir),
         profile=profile,

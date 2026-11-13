@@ -40,6 +40,7 @@ class PageMemoryConfig:
     scan_direction: str = "top_to_bottom_left_to_right"
     fine_text_extractor: str = "none"
     fine_text_extraction_concurrency: int = 4
+    fine_skills: tuple[str, ...] = ()
 
     @classmethod
     def default(cls) -> Self:
@@ -150,6 +151,10 @@ class PageMemoryConfig:
                 value.get("fine_text_extraction_concurrency"),
                 default.fine_text_extraction_concurrency,
             ),
+            fine_skills=_as_skill_names(
+                value.get("fine_skills"),
+                default.fine_skills,
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -200,3 +205,20 @@ _FINE_TEXT_EXTRACTORS = frozenset({"none", "vlm", "ocr", "mineru"})
 def _as_extractor(value: object, default: str) -> str:
     resolved = _as_str(value, default).strip().lower()
     return resolved if resolved in _FINE_TEXT_EXTRACTORS else default
+
+
+def _as_skill_names(value: object, default: tuple[str, ...]) -> tuple[str, ...]:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, (list, tuple)):
+        items = list(value)
+    else:
+        return default
+    names: list[str] = []
+    for item in items:
+        name = str(item or "").strip()
+        if name and name not in names:
+            names.append(name)
+    return tuple(names)

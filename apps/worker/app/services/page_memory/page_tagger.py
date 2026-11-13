@@ -15,7 +15,7 @@ import base64
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any, Sequence, cast
 
 from loguru import logger
 
@@ -43,6 +43,7 @@ class PageTagResult:
     Each entry is ``{"text": str, "prominence": float | None}``.
     Empty list means no titles were detected (or title detection was skipped).
     """
+    skill_signals: dict[str, Any] = field(default_factory=dict)
 
 
 _MAX_JSON_RETRIES = 1
@@ -57,6 +58,7 @@ def tag_pages(
     plans: list[PagePlan],
     vlm_model: str | None = None,
     max_concurrent: int | None = None,
+    active_skills: Sequence[Any] = (),
 ) -> list[PageTagResult]:
     """Tag all pages according to their processing plan.
 
@@ -104,7 +106,7 @@ def tag_pages(
             )
             return _tag_skip(page)
 
-        return _tag_vlm_lite(page, model=model)
+        return _tag_vlm_lite(page, model=model, active_skills=active_skills)
 
     pool = GeventPool(size=min(resolved_max_concurrent, len(pages)))
     greenlets = [pool.spawn(_tag_one, page) for page in pages]
@@ -141,6 +143,7 @@ def _tag_vlm_lite(
     page: PageRenderResult,
     *,
     model: str,
+    active_skills: Sequence[Any] = (),
 ) -> PageTagResult:
     """Send page PNG to the VLM via the unified engine."""
     if not page.image_path or not os.path.exists(page.image_path):
@@ -150,11 +153,29 @@ def _tag_vlm_lite(
         )
         return _tag_skip(page)
 
+    from app.services.page_memory.fine_skills import (
+        extra_tag_field_keys,
+        joined_skill_addon,
+    )
+
+    prompt_paras: dict[str, Any] | None = None
+    if active_skills:
+        instructions = joined_skill_addon(active_skills, "page_tag_prompt_addon")
+        signal_keys = extra_tag_field_keys(active_skills)
+        extras: dict[str, Any] = {}
+        if instructions:
+            extras["skill_instructions"] = instructions
+        if signal_keys:
+            extras["skill_signal_keys"] = list(signal_keys)
+        if extras:
+            prompt_paras = extras
+
     result = summarize(
         mode="page",
         image_paths=[page.image_path],
         model=model,
         usage_task="page_memory.tag",
+        prompt_paras=prompt_paras,
     )
     return PageTagResult(
         page_index=page.page_index,
@@ -162,6 +183,7 @@ def _tag_vlm_lite(
         keywords=[e.text for e in result.entities],
         entities=[e.to_dict() for e in result.entities],
         strategy_used="vlm_lite",
+        skill_signals=dict(getattr(result, "skill_signals", None) or {}),
     )
 
 
@@ -181,6 +203,7 @@ def tag_page_titles(
     vlm_model: str | None = None,
     scan_direction: str = "top_to_bottom_left_to_right",
     max_concurrent: int | None = None,
+    active_skills: Sequence[Any] = (),
 ) -> list[PageTagResult]:
     """Run independent VLM title detection on fat-leaf pages.
 
@@ -202,6 +225,8 @@ def tag_page_titles(
         Reading-order wording for the title prompt.
     max_concurrent:
         Maximum concurrent title-detection calls.
+    active_skills:
+        Active Fine skills whose ``title_prompt_addon`` is appended to the prompt.
 
     Returns
     -------
@@ -236,6 +261,10 @@ def tag_page_titles(
         getattr(settings, "PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY", 3)
     )
 
+    from app.services.page_memory.fine_skills import joined_skill_addon
+
+    skill_instructions = joined_skill_addon(active_skills, "title_prompt_addon")
+
     def _detect_one(
         page_idx: int,
         page: PageRenderResult,
@@ -244,6 +273,7 @@ def tag_page_titles(
             page,
             model=model,
             scan_direction=scan_direction,
+            skill_instructions=skill_instructions,
         )
 
     import gevent
@@ -352,6 +382,7 @@ def _tag_vlm_titles(
     *,
     model: str,
     scan_direction: str = "top_to_bottom_left_to_right",
+    skill_instructions: str = "",
 ) -> list[dict[str, Any]]:
     """Send page PNG to VLM with the title-only prompt and parse results.
 
@@ -365,6 +396,7 @@ def _tag_vlm_titles(
         paras={
             "max_tokens": _TITLE_TOKEN_BUDGETS[0],
             "scan_direction": scan_direction,
+            "skill_instructions": skill_instructions,
         },
     )
 

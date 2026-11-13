@@ -51,6 +51,7 @@ class BodySummary:
     summary: str = ""
     entities: list[Entity] = field(default_factory=list)
     kind: str = "text"  # text | page
+    skill_signals: dict[str, Any] = field(default_factory=dict)
 
     def keywords_str(self, sep: str = ";") -> str:
         """Flattened entity surface forms for the transitional ``keywords`` column.

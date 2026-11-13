@@ -187,10 +187,31 @@ def _compose_refined_page_parts(
             parts.append(_text_part(summary))
         parts.extend(_connected_asset_parts(row, rows_by_chunk_id, queried_tables))
     page_nums = coerce_page_nums(extract_page_nums(row))
-    parts.extend(_page_image_parts(row, page_nums))
+    parts.extend(
+        _without_duplicate_page_images(parts, _page_image_parts(row, page_nums))
+    )
     if not parts:
         parts.append(_text_part("Page image unavailable: missing page image"))
     return parts
+
+
+def _without_duplicate_page_images(
+    existing: list[dict[str, Any]],
+    page_images: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    emitted = {
+        (part.get("media_type"), part.get("data"))
+        for part in existing
+        if part.get("type") == "image" and part.get("data")
+    }
+    kept: list[dict[str, Any]] = []
+    for part in page_images:
+        if part.get("type") == "image":
+            key = (part.get("media_type"), part.get("data"))
+            if part.get("data") and key in emitted:
+                continue
+        kept.append(part)
+    return kept
 
 
 def _page_image_parts(row: dict[str, Any], page_nums: list[int]) -> list[dict[str, Any]]:

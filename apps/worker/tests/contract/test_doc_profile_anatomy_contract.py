@@ -1026,11 +1026,31 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
     assert profile.anatomy is fake_anatomy
 
 
-def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
+def test_oversized_atlas_runs_structural_anatomy(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     calls: list[str] = []
+    fake_anatomy = PageAnatomyMap(
+        job_id="job-oversized-atlas",
+        file_path=str(tmp_path / "oversized-atlas.pdf"),
+        page_count=250,
+        page_features=[_page_feature(1)],
+        page_labels=[PageLabel(page=1, kind="normal")],
+        toc_result=TocResult(
+            toc_pages=[4],
+            evidence=[
+                AgentTocEvidence(
+                    page_index=4,
+                    source="vlm",
+                    reason="table of contents",
+                )
+            ],
+            method="vlm_batch",
+        ),
+        shard_plan=ShardPlan(enabled=False, reason="not_needed"),
+        skeleton_anchor={"source": "toc"},
+    )
 
     class FakeCoordinator:
         def __init__(self, **_kwargs) -> None:
@@ -1066,10 +1086,11 @@ def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
             )
 
         def run_structural(self):
-            raise AssertionError("oversized atlas should not run structural anatomy")
+            calls.append("run_structural")
+            return fake_anatomy
 
         def run_lightweight_anatomy(self):
-            raise AssertionError("oversized atlas should not run lightweight anatomy")
+            raise AssertionError("oversized atlas should run structural anatomy")
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
     monkeypatch.setattr(doc_profiler.settings, "MAX_PDF_PAGE_LIMIT", 200)
@@ -1083,12 +1104,76 @@ def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
         output_dir=str(tmp_path),
     )
 
-    assert calls == ["run_coarse"]
-    assert profile.is_atlas is True
-    assert profile.anatomy is None
+    assert calls == ["run_coarse", "run_structural"]
+    assert profile.routing_category is PdfRoutingCategory.ATLAS
+    assert profile.anatomy is fake_anatomy
+    assert profile.anatomy.skeleton_anchor == {"source": "toc"}
+    assert [feature.page for feature in profile.anatomy.page_features] == [1]
     assert profile.toc.has_toc is True
     assert profile.toc.attempted is True
     assert profile.toc.toc_pages == [4]
+
+
+def test_standard_atlas_runs_lightweight_anatomy(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fake_anatomy = PageAnatomyMap(
+        job_id="job-standard-atlas",
+        file_path=str(tmp_path / "atlas.pdf"),
+        page_count=12,
+        page_features=[_page_feature(1)],
+        page_labels=[PageLabel(page=1, kind="normal")],
+        toc_result=TocResult(method="none"),
+        shard_plan=ShardPlan(enabled=False, reason="not_needed"),
+        skeleton_anchor={"source": "lightweight"},
+    )
+    calls: list[str] = []
+
+    class FakeCoordinator:
+        def __init__(self, **_kwargs) -> None:
+            self.blackboard = SimpleNamespace(
+                page_count=12,
+                doc_stats={"page_count": 12},
+                global_signals={},
+                toc_result=None,
+                toc_hierarchies=None,
+                page_full_text_cache={},
+            )
+
+        def run_coarse(self) -> DocumentProfile:
+            calls.append("run_coarse")
+            self.blackboard.toc_result = TocResult(method="none")
+            return DocumentProfile(
+                is_scanned=False,
+                category=["OTHER"],
+                category_label="Engineering Atlas",
+                routing_category=PdfRoutingCategory.ATLAS.value,
+            )
+
+        def run_lightweight_anatomy(self):
+            calls.append("run_lightweight_anatomy")
+            return fake_anatomy
+
+        def run_structural(self):
+            raise AssertionError("standard atlas should run lightweight anatomy")
+
+    monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
+    monkeypatch.setattr(doc_profiler.settings, "MAX_PDF_PAGE_LIMIT", 200)
+
+    profile = profile_document(
+        str(tmp_path / "atlas.pdf"),
+        "atlas.pdf",
+        job_id="job-standard-atlas",
+        output_dir=str(tmp_path),
+        oversized_policy="page_memory",
+    )
+
+    assert calls == ["run_coarse", "run_lightweight_anatomy"]
+    assert profile.routing_category is PdfRoutingCategory.ATLAS
+    assert profile.anatomy is fake_anatomy
+    assert profile.anatomy.skeleton_anchor == {"source": "lightweight"}
+    assert profile.anatomy.page_features[0].page == 1
 
 
 def test_find_toc_anchor_pages_scanned_unions_text_and_visual(

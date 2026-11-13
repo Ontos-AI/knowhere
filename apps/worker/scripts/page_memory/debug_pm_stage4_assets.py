@@ -35,6 +35,8 @@ from _debug_pm_shared import (
     load_anatomy_cache,
     resolve_anatomy_cache_path,
     load_hierarchy_artifact,
+    load_page_tags_artifact,
+    load_pipeline_state,
     pipeline_state_path,
     record_stage,
     require_file,
@@ -212,8 +214,36 @@ def main() -> int:
         or os.environ.get("ASSET_MODEL")
         or os.environ.get("IMAGE_MODEL")
     )
+    from dataclasses import replace
+
+    from app.services.page_memory.fine_skills import (
+        resolve_active_fine_skill_names,
+        resolve_fine_skills,
+    )
+
     pm_config = PageMemoryConfig.default()
-    asset_rendered = _select_rendered_pages_with_assets(rendered, page_features)
+    state = load_pipeline_state(state_path) if state_path.exists() else {}
+    stage2 = (state.get("stages") or {}).get("stage2") or {}
+    manifest = stage2.get("scope_manifest") if isinstance(stage2, dict) else None
+    pm_config = replace(
+        pm_config,
+        fine_skills=resolve_active_fine_skill_names(
+            profile=getattr(anatomy, "document_profile", None),
+            manifest=manifest if isinstance(manifest, dict) else None,
+            config=pm_config,
+        ),
+    )
+    active_skills = resolve_fine_skills(pm_config.fine_skills)
+    tags_by_page: dict[int, Any] = {}
+    for context in scope_contexts:
+        tags_path = scopes_dir / context.scope_id / "page_tags.json"
+        if not tags_path.exists():
+            continue
+        for tag in load_page_tags_artifact(tags_path):
+            tags_by_page.setdefault(int(tag.page_index), tag)
+    asset_rendered = _select_rendered_pages_with_assets(
+        rendered, page_features, tags_by_page=tags_by_page
+    )
     summary_enabled = page_asset_summary_enabled()
     logger.info(
         "   C5: {}/{} rendered pages have coarse has_asset "
@@ -234,6 +264,8 @@ def main() -> int:
         summary_concurrency=pm_config.asset_summary_concurrency,
         table_engine=pm_config.table_engine,
         table_merge_enabled=pm_config.table_merge_enabled,
+        tags_by_page=tags_by_page,
+        active_skills=active_skills,
     )
     asset_count = sum(len(items) for items in assets_by_page.values())
     logger.info(
