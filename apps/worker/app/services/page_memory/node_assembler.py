@@ -320,6 +320,7 @@ def compute_node_summary(
     image_path_by_page: dict[int, str],
     vlm_model: str | None,
     node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
+    skill_instructions: str = "",
 ) -> tuple[str, list[str], list[dict[str, str]]]:
     """Settle a node's summary, keywords, and typed entities (§4.4).
 
@@ -352,6 +353,7 @@ def compute_node_summary(
             image_path_by_page=image_path_by_page,
             vlm_model=vlm_model,
             node_summary_max_pages=node_summary_max_pages,
+            skill_instructions=skill_instructions,
         )
         if result is not None:
             return result
@@ -401,6 +403,7 @@ def _vlm_node_summary(
     image_path_by_page: dict[int, str],
     vlm_model: str,
     node_summary_max_pages: int,
+    skill_instructions: str = "",
 ) -> tuple[str, list[str], list[dict[str, str]]] | None:
     leaf = view.leaf
     pages = view.pages[:node_summary_max_pages]
@@ -421,18 +424,21 @@ def _vlm_node_summary(
     if not image_paths:
         return None
 
+    prompt_paras: dict[str, Any] = {
+        "max_tokens": 400,
+        "node_title": leaf.title,
+        "next_title": next_title or "",
+        "kw_num": 5,
+    }
+    if skill_instructions:
+        prompt_paras["skill_instructions"] = skill_instructions
     result = summarize(
         mode="page",
         image_paths=image_paths,
         model=vlm_model,
         usage_task="page_memory.node_summary",
         prompt_task="page-memory-node-summary",
-        prompt_paras={
-            "max_tokens": 400,
-            "node_title": leaf.title,
-            "next_title": next_title or "",
-            "kw_num": 5,
-        },
+        prompt_paras=prompt_paras,
     )
     if not result.summary and not result.entities:
         return None
@@ -462,6 +468,7 @@ def build_node_rows(
     node_assembly_concurrency: int = 3,
     body_text_by_page: dict[int, str] | None = None,
     toc_pages: list[int] | None = None,
+    skill_instructions: str = "",
 ) -> list[dict[str, Any]]:
     """Assemble one row per leaf section node (node-granularity chunks)."""
     available_pages = set(raw_text_by_page.keys())
@@ -494,6 +501,7 @@ def build_node_rows(
                 image_path_by_page=image_path_by_page,
                 vlm_model=vlm_model,
                 node_summary_max_pages=node_summary_max_pages,
+                skill_instructions=skill_instructions,
             )
 
         with stage_timer(

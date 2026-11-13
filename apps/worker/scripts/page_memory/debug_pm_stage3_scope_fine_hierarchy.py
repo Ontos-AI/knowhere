@@ -291,11 +291,14 @@ def _run_fine_hierarchy_for_scope(
         variables={"scope_id": scope_id, "plan_count": len(plans)},
     )
 
+    from app.services.page_memory.fine_skills import resolve_fine_skills
+
     tags = tag_pages(
         pages=rendered,
         plans=plans,
         vlm_model=vlm_model,
         max_concurrent=page_memory_config.tag_concurrency,
+        active_skills=resolve_fine_skills(page_memory_config.fine_skills),
     )
     record_stage(
         scope_stages,
@@ -372,7 +375,19 @@ def main() -> int:
             f"{exc}. Re-run Stage 2: "
             "uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file ..."
         ) from exc
+    from dataclasses import replace
+
+    from app.services.page_memory.fine_skills import resolve_active_fine_skill_names
+
     skeletons = skeletons_from_phase_a_manifest(manifest)
+    page_memory_config = replace(
+        page_memory_config,
+        fine_skills=resolve_active_fine_skill_names(
+            profile=getattr(anatomy, "document_profile", None),
+            manifest=manifest,
+            config=page_memory_config,
+        ),
+    )
     toc_pages = [int(page) for page in (manifest.get("toc_pages") or [])]
     coarse_scopes = scopes_from_phase_a_manifest(manifest)
     next_title_by_path = next_title_by_path_from_manifest(manifest)

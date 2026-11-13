@@ -115,8 +115,6 @@ def _detect_mock_task(prompt_text: str) -> str:
         and "only include rows that you judge to be headings" in normalized_prompt
     ):
         return "eval-headings"
-    if "scanned page from an engineering atlas" in normalized_prompt:
-        return "atlas-page-info"
     if "you are transcribing a document page or image" in normalized_prompt:
         return "transcribe"
     if "annotating a single rendered document page" in normalized_prompt:
@@ -143,7 +141,6 @@ def _build_mock_response(task_name: str) -> str:
         ),
         "eval-headings": "[]",
         "eval-toc-headings": "[]",
-        "atlas-page-info": "Mock atlas page info",
         "transcribe": '{"text": "Mock transcribed text"}',
         "summary-images": (
             '{"title": "Mock Image Title", "summary": "Mock image summary", '

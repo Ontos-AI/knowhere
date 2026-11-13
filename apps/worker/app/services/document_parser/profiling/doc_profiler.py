@@ -176,29 +176,21 @@ def _profile_pdf_with_db(
     if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
         if oversized_policy != "page_memory":
             raise_if_oversized_pdf_not_supported(page_count=profile.page_count)
-        if not profile.is_atlas:
-            try:
-                profile.anatomy = coordinator.run_structural()
-                profile.toc = _map_toc_profile(coordinator)
-            except Exception as exc:
-                if oversized_policy == "page_memory":
-                    raise build_oversized_pdf_profile_failed_exception(
-                        page_count=profile.page_count,
-                        original_exception=exc,
-                    ) from exc
-                raise build_oversized_pdf_processing_failed_exception(
+        try:
+            profile.anatomy = coordinator.run_structural()
+            profile.toc = _map_toc_profile(coordinator)
+        except Exception as exc:
+            if oversized_policy == "page_memory":
+                raise build_oversized_pdf_profile_failed_exception(
                     page_count=profile.page_count,
                     original_exception=exc,
                 ) from exc
-        else:
-            # TODO(page_memory): oversized atlas skips anatomy, so coarse
-            # has_asset / page_features never reach page_memory (Root fallback).
-            profile.toc = _map_toc_profile(coordinator)
+            raise build_oversized_pdf_processing_failed_exception(
+                page_count=profile.page_count,
+                original_exception=exc,
+            ) from exc
     else:
-        # TODO(page_memory): non-oversized atlas skips anatomy; coarse
-        # has_asset / page_features never reach page_memory via profile.anatomy.
-        if not profile.is_atlas:
-            profile.anatomy = coordinator.run_lightweight_anatomy()
+        profile.anatomy = coordinator.run_lightweight_anatomy()
         profile.toc = _map_toc_profile(coordinator)
 
     if trace := getattr(coordinator, "trace", None):

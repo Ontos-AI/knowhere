@@ -60,3 +60,9 @@ def test_page_memory_config_from_mapping_keeps_explicit_asset_model() -> None:
     config = PageMemoryConfig.from_mapping({"asset_model": "vision-b"})
 
     assert config.asset_model == "vision-b"
+
+
+def test_page_memory_config_from_mapping_accepts_fine_skills() -> None:
+    config = PageMemoryConfig.from_mapping({"fine_skills": ["drawing_sheet"]})
+    assert config.fine_skills == ("drawing_sheet",)
+    assert PageMemoryConfig.default().fine_skills == ()

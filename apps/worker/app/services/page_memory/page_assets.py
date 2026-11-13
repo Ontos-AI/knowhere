@@ -387,13 +387,40 @@ def extract_page_assets_from_renders(
     summary_concurrency: int = 4,
     table_engine: str = "tabula",
     table_merge_enabled: bool = True,
+    tags_by_page: dict[int, Any] | None = None,
+    active_skills: tuple[Any, ...] = (),
 ) -> dict[int, list[PageAsset]]:
     pages = sorted(rendered_pages, key=lambda item: item.page_index)
     source_name = Path(pdf_path).name
     assets_by_page: dict[int, list[PageAsset]] = {}
     pending_summaries: list[PageAsset] = []
+    tag_map = tags_by_page or {}
 
     for page in pages:
+        overridden: list[PageAsset] | None = None
+        tag = tag_map.get(page.page_index)
+        for skill in active_skills:
+            overridden = skill.override_page_assets(
+                page=page,
+                tag=tag,
+                output_dir=output_dir,
+                source_name=source_name,
+            )
+            if overridden is not None:
+                break
+        if overridden is not None:
+            page_assets_list = [
+                asset for asset in overridden if asset.image_uri or asset.html_uri
+            ]
+            if page_assets_list:
+                assets_by_page[page.page_index] = page_assets_list
+                if visual_debug_enabled():
+                    annotate_page_assets(
+                        page=page,
+                        assets=page_assets_list,
+                        output_dir=output_dir,
+                    )
+            continue
         detected = detect_page_assets(
             page=page,
             source_name=source_name,
