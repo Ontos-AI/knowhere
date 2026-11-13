@@ -24,11 +24,8 @@ from shared.models.schemas.job import JobCreate
 from shared.services.storage.file_upload_service import FileUploadService
 
 
-class _ActiveDocumentRaceJobRepository(JobRepository):
+class _ActiveDocumentRaceJobRepository:
     """Simulates a concurrent create winning the active-document index."""
-
-    def __init__(self) -> None:
-        pass
 
     async def create_job(self, *args: object, **kwargs: object) -> Job | None:
         raise IntegrityError(
@@ -40,17 +37,13 @@ class _ActiveDocumentRaceJobRepository(JobRepository):
         )
 
 
-class _UnusedFileUploadService(FileUploadService):
-    def __init__(self) -> None:
-        pass
-
-
 @pytest.mark.asyncio
 async def test_should_omit_active_job_id_when_the_active_document_index_rejects_a_create() -> None:
     document_id: str = "doc_race_target"
     service = DocumentIngestionCreationService(
-        job_repository=_ActiveDocumentRaceJobRepository(),
-        file_upload_service=_UnusedFileUploadService(),
+        job_repository=cast(JobRepository, _ActiveDocumentRaceJobRepository()),
+        # The race fails before any upload URL is issued.
+        file_upload_service=cast(FileUploadService, object()),
     )
     command = DocumentIngestionCommand(
         payload=JobCreate(
