@@ -554,6 +554,86 @@ def test_gated_pg_repair_reuses_current_frozen_revision_without_new_job(
         assert _require(db.get(Job, jobId)).credits_charged == 991
 
 
+def test_release_backend_follows_the_serving_control_row(transitionRuntime: Engine) -> None:
+    from shared.models.database.lexicalcontrol import LexicalBackendControl
+    from shared.services.retrieval.lexical.deployment_backend import (
+        DeploymentBackendUnavailable,
+        readDeploymentBackend,
+    )
+
+    sessions = sessionmaker(transitionRuntime, expire_on_commit=False)
+    assert readDeploymentBackend(sessions) == "postgresql"
+    with Session(transitionRuntime) as db:
+        control = _require(db.get(LexicalBackendControl, 1))
+        control.backend = "opensearch"
+        db.commit()
+    assert readDeploymentBackend(sessions) == "opensearch"
+    with Session(transitionRuntime) as db:
+        _require(db.get(LexicalBackendControl, 1)).mode = "gated"
+        db.commit()
+    with pytest.raises(DeploymentBackendUnavailable, match="opensearch is gated"):
+        readDeploymentBackend(sessions)
+    with Session(transitionRuntime) as db:
+        db.delete(_require(db.get(LexicalBackendControl, 1)))
+        db.commit()
+    assert readDeploymentBackend(sessions) == "postgresql"
+
+
+def test_unreadable_input_is_reported_without_stopping_backfill_and_blocks_resume(
+    transitionRuntime: Engine, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.core.exceptions.domain_exceptions import StorageServiceException
+    from shared.models.database.document import DocumentMapUnitToken
+    from shared.services.retrieval.lexical.error import LexicalIndexError
+    from shared.services.retrieval.lexical.storage import LexicalInputStorage
+    from shared.services.retrieval.lexical.transition import LexicalTransition
+
+    jobId, _, revisionId = createParsed(transitionRuntime)
+    publishPostgresql(transitionRuntime, jobId)
+    service = LexicalTransition(
+        sessionFactory=sessionmaker(transitionRuntime, expire_on_commit=False)
+    )
+    with Session(transitionRuntime) as db:
+        token = _require(db.scalars(select(DocumentMapUnitToken)).first())
+        token.frequency += 10
+        db.commit()
+    service.run("gate", targetBackend="postgresql", execute=True, expectedEpoch=1)
+
+    def loadMissing(self: LexicalInputStorage, **_options: object) -> object:
+        raise StorageServiceException(internal_message="Retained input object is missing",
+            operation="download_fileobj")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(LexicalInputStorage, "load", loadMissing)
+        deferred = service.run(
+            "backfill",
+            targetBackend="postgresql",
+            execute=True,
+            expectedEpoch=2,
+            documentsPerSecond=100000,
+        )
+        assert deferred["backfilledRevisions"] == 0
+        assert deferred["deferredRevisionCount"] == 1
+        report = cast(list[dict[str, str]], deferred["deferredRevisions"])
+        assert report[0]["revisionId"] == revisionId
+        assert report[0]["reason"].startswith("StorageServiceException")
+        with pytest.raises(LexicalIndexError, match=f"unreadable indexing input .*{revisionId}"):
+            service.run("resume", targetBackend="postgresql", execute=True, expectedEpoch=2)
+    repaired = service.run(
+        "backfill",
+        targetBackend="postgresql",
+        execute=True,
+        expectedEpoch=2,
+        documentsPerSecond=100000,
+    )
+    assert repaired["backfilledRevisions"] == 1 and repaired["deferredRevisionCount"] == 0
+    assert _object(
+        service.run(
+            "verify", targetBackend="postgresql", execute=True, expectedEpoch=2
+        )["coverage"]
+    )["complete"]
+
+
 @pytest.mark.parametrize("corruption", ["format", "token_hash", "statistics"])
 def test_pg_coverage_rejects_incompatible_or_corrupt_lookup_metadata(
     transitionRuntime: Engine, corruption: str

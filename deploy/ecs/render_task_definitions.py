@@ -52,6 +52,7 @@ PROD_OPENSEARCH_VARIABLES: Final[tuple[str, ...]] = (
     "PROD_OPENSEARCH_WORKER_TLS_PARAMETER",
 )
 PROD_OPENSEARCH_INDEX_PREFIX: Final[str] = "knowhere-prod-lexical-v1"
+LEXICAL_BACKENDS: Final[frozenset[str]] = frozenset({"postgresql", "opensearch"})
 
 
 def replace_placeholders(value: object, variables: dict[str, str]) -> object:
@@ -122,7 +123,7 @@ def configure_staging_opensearch(definition: object, variables: dict[str, str]) 
     if variables["RUNTIME_ENVIRONMENT"] != "staging" or not isinstance(definition, dict):
         raise ValueError("OpenSearch TLS bootstrap requires a staging task definition")
     backend: str = variables.get("STAGING_LEXICAL_BACKEND") or "postgresql"
-    if backend not in {"postgresql", "opensearch"}:
+    if backend not in LEXICAL_BACKENDS:
         raise ValueError("Unsupported staging lexical backend")
     attach_opensearch(
         definition,
@@ -136,7 +137,7 @@ def configure_staging_opensearch(definition: object, variables: dict[str, str]) 
 
 
 def configure_production_opensearch(definition: object, variables: dict[str, str]) -> None:
-    """Attach production credentials while keeping PostgreSQL primary."""
+    """Attach production credentials and the backend the release read from the control row."""
     if variables.get("DEPLOYMENT_ENVIRONMENT") != "prod" or not any(
         name in variables for name in PROD_OPENSEARCH_VARIABLES
     ):
@@ -159,9 +160,12 @@ def configure_production_opensearch(definition: object, variables: dict[str, str
         ):
             raise ValueError(f"Invalid production TLS parameter for {service}")
         parameters[service] = parameter
+    backend: str = variables.get("PROD_LEXICAL_BACKEND") or "postgresql"
+    if backend not in LEXICAL_BACKENDS:
+        raise ValueError("Unsupported production lexical backend")
     attach_opensearch(
         definition,
-        backend="postgresql",
+        backend=backend,
         url=url,
         prefix=PROD_OPENSEARCH_INDEX_PREFIX,
         parameters=parameters,
@@ -278,6 +282,10 @@ def main() -> None:
         if arguments.environment != "production":
             raise ValueError("--production-opensearch requires --environment production")
         variables.update({name: os.environ.get(name, "") for name in PROD_OPENSEARCH_VARIABLES})
+        variables["PROD_LEXICAL_BACKEND"] = os.environ.get("PROD_LEXICAL_BACKEND", "")
+    elif arguments.environment == "production" and os.environ.get("PROD_LEXICAL_BACKEND") == "opensearch":
+        # Without the TLS attachment the containers would silently default to PostgreSQL.
+        raise ValueError("A production OpenSearch backend requires --production-opensearch")
     template_directory = Path(__file__).parent
     output_suffix = variables["DEPLOYMENT_ENVIRONMENT"]
     render_template(

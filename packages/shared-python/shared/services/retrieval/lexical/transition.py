@@ -15,6 +15,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from shared.core.config import settings
+from shared.core.exceptions.domain_exceptions import StorageServiceException
 from shared.models.database.lexicalpublishedmanifest import LexicalPublishedManifest
 from shared.models.database.indexing import IndexingAttempt
 from shared.models.database.job import Job
@@ -51,6 +52,10 @@ from shared.services.retrieval.serving_generation import (
 )
 
 _Backend = Literal["postgresql", "opensearch"]
+# Errors that mean one revision's retained input cannot be read, as opposed to
+# control, epoch or authorization failures that must stop the whole invocation.
+_UNREADABLE_INPUT_ERRORS: tuple[type[Exception], ...] = (LexicalIndexError, StorageServiceException)
+_MAXIMUM_REPORTED_DEFERRALS: int = 100
 _Receipt = dict[str, object]
 
 
@@ -71,6 +76,23 @@ class _Binding:
     def scope(self) -> LexicalScope:
         return LexicalScope(
             ownerId=self.ownerId, namespace=self.namespace, corpusKind=self.corpusKind
+        )
+
+
+@dataclass(frozen=True)
+class _UnreadableInput:
+    """A current-published revision whose retained indexing input could not be loaded."""
+
+    documentId: str
+    revisionId: str
+    reason: str
+
+    @staticmethod
+    def describe(binding: _Binding, error: Exception) -> _UnreadableInput:
+        return _UnreadableInput(
+            documentId=binding.documentId,
+            revisionId=binding.revisionId,
+            reason=f"{type(error).__name__}: {error}",
         )
 
 
@@ -128,9 +150,14 @@ class LexicalTransition:
             elif verb == "settle":
                 changed["settledJobs"] = self._settle(cast(int, expectedEpoch), limit)
             elif verb == "backfill":
-                changed["backfilledRevisions"] = self._backfill(
+                completed, deferred = self._backfill(
                     target, cast(int, expectedEpoch), limit, documentsPerSecond
                 )
+                changed["backfilledRevisions"] = completed
+                changed["deferredRevisionCount"] = len(deferred)
+                changed["deferredRevisions"] = [
+                    asdict(item) for item in deferred[:_MAXIMUM_REPORTED_DEFERRALS]
+                ]
             elif verb == "seed-manifests":
                 if target != "opensearch":
                     raise LexicalIndexError("Manifest seeding requires OpenSearch")
@@ -567,9 +594,21 @@ class LexicalTransition:
             with self.sessions.begin() as db:
                 self._authorize(db)
                 self._checkActiveProgressiveJobs(db)
-        payloads: dict[str, LexicalInput] = {
-            binding.revisionId: self._loadInput(binding) for binding in bindings
-        }
+        payloads: dict[str, LexicalInput] = {}
+        unreadable: list[_UnreadableInput] = []
+        for binding in bindings:
+            try:
+                payloads[binding.revisionId] = self._loadInput(binding)
+            except _UNREADABLE_INPUT_ERRORS as error:
+                unreadable.append(_UnreadableInput.describe(binding, error))
+        if unreadable:
+            sample: str = ", ".join(
+                f"{item.documentId}/{item.revisionId}" for item in unreadable[:10]
+            )
+            raise LexicalIndexError(
+                f"Backend resume refused: {len(unreadable)} current-published revisions "
+                f"have unreadable indexing input ({sample})"
+            )
         coverage = self._verifyCoverage(
             target, bindings, payloads=payloads, allowNativeOpen=True, epoch=epoch
         )
@@ -711,7 +750,14 @@ class LexicalTransition:
             native.close()
         return seeded
 
-    def _backfill(self, target: _Backend, epoch: int, limit: int, rate: float) -> int:
+    def _backfill(
+        self, target: _Backend, epoch: int, limit: int, rate: float
+    ) -> tuple[int, tuple[_UnreadableInput, ...]]:
+        """Repair bindings in order; skip and report revisions whose input cannot be read.
+
+        Coverage verification still treats a skipped revision as missing, so an
+        unreadable input blocks activation without blocking the rest of the backfill.
+        """
         control, bindings = self._capture()
         if control["epoch"] != epoch or not (
             control["mode"] == "gated"
@@ -723,6 +769,7 @@ class LexicalTransition:
                 "Backfill requires its exact gated epoch or explicit PG-serving shadow preparation"
             )
         completed: int = 0
+        deferred: list[_UnreadableInput] = []
         for binding in bindings:
             if completed >= limit:
                 break
@@ -730,7 +777,11 @@ class LexicalTransition:
             binding = self._materializeInput(binding, epoch)
             if binding is None:
                 continue
-            payload: LexicalInput = self._loadInput(binding)
+            try:
+                payload: LexicalInput = self._loadInput(binding)
+            except _UNREADABLE_INPUT_ERRORS as error:
+                deferred.append(_UnreadableInput.describe(binding, error))
+                continue
             coverage = self._verifyCoverage(
                 target,
                 (binding,),
@@ -748,7 +799,7 @@ class LexicalTransition:
             delay: float = 1.0 / rate - (time.monotonic() - started)
             if delay > 0:
                 time.sleep(min(delay, 60.0))
-        return completed
+        return completed, tuple(deferred)
 
     def _repairPostgresql(
         self, binding: _Binding, epoch: int, payload: LexicalInput

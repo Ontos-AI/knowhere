@@ -262,6 +262,10 @@ class ReleaseBridge:
             control: dict[str, object] = _object(resumed.get("control"))
             if control.get("mode") != "serving" or control.get("backend") != target:
                 raise ValueError("Actual control did not select the intended serving backend")
+            if target == "opensearch":
+                # Resume retires every manifest. Seeding writes each namespace's current
+                # build list so eligible reads use manifests from the first request.
+                drain("seed-manifests", target, "seededNamespaces")
             remaining()
             smoke: list[dict[str, object]] = cast(list[dict[str, object]], plan["smoke"])
             if any(str(case["path"]).endswith("/indexing/retry") for case in smoke):
