@@ -57,3 +57,23 @@ def test_installer_defaults_to_command_plan_without_root_or_artifacts(tmp_path: 
     assert plan["mode"] == "dry-run"
     assert plan["formats_volume"] is False
     assert plan["starts_service"] is False
+
+
+def test_application_roles_exits_non_zero_when_live_roles_miss_actions(tmp_path: Path) -> None:
+    manifest: Path = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(createManifest()))
+    bundle: Path = tmp_path / "bundle"
+    assert runCommand("render", "--manifest", str(manifest), "--directory", str(bundle)).returncode == 0
+    complete: dict[str, object] = json.loads((bundle / "roles.yml").read_text())
+    roles: Path = tmp_path / "roles.json"
+    arguments: list[str] = ["application-roles", "--roles", str(roles), "--index-prefix", "knowhere-lexical-v1", "--role-prefix", "knowhere_"]
+
+    roles.write_text(json.dumps(complete))
+    result = runCommand(*arguments)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["passed"] is True
+
+    roles.write_text(json.dumps({**complete, "knowhere_worker": {}}))
+    result = runCommand(*arguments)
+    assert result.returncode == 1, result.stderr
+    assert json.loads(result.stdout)["missing"]["knowhere_worker"]

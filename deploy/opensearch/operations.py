@@ -9,14 +9,19 @@ versioned source, not managed-service IAM authentication assumptions.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from fnmatch import fnmatchcase
 from hashlib import sha256
 import json
+import re
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 __all__: list[str] = ["OpenSearchOperations"]
 _DAY_MILLISECONDS: int = 86_400_000
+_CLUSTER_READ: tuple[str, ...] = ("cluster:monitor/main", "cluster:monitor/state", "cluster:monitor/health")
+_SEARCH: str = "indices:data/read/search*"
+_INDEX_READ: tuple[str, ...] = (_SEARCH, "indices:admin/get", "indices:monitor/settings/get", "indices:monitor/stats")
 
 
 class _Installation(BaseModel):
@@ -91,6 +96,25 @@ class _Fence(BaseModel):
     old_epoch: int = Field(ge=0)
     new_epoch: int = Field(ge=1)
     proof_sha256: str = Field(pattern="^[a-f0-9]{64}$")
+
+
+class _LiveIndexPermission(BaseModel):
+    # The security API adds DLS, FLS and masking fields that this check does not use.
+    model_config = ConfigDict(extra="ignore", frozen=True)
+    index_patterns: list[str] = Field(default_factory=list)
+    allowed_actions: list[str] = Field(default_factory=list)
+
+    def grants(self, index: str, action: str) -> bool:
+        return any(fnmatchcase(action, granted) for granted in self.allowed_actions) and any(
+            re.fullmatch(pattern[1:-1], index) is not None if pattern.startswith("/") and pattern.endswith("/")
+            else fnmatchcase(index, pattern)
+            for pattern in self.index_patterns)
+
+
+class _LiveRole(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+    cluster_permissions: list[str] = Field(default_factory=list)
+    index_permissions: list[_LiveIndexPermission] = Field(default_factory=list)
 
 
 class _Shard(BaseModel):
@@ -307,30 +331,37 @@ class OpenSearchOperations:
         }
 
     @staticmethod
-    def _renderRoles(installation: _Installation, *, isIndependent: bool = False) -> dict[str, object]:
-        clusterRead: list[str] = ["cluster:monitor/main", "cluster:monitor/state", "cluster:monitor/health"]
-        search: str = "indices:data/read/search*"
-        indexRead: list[str] = [search, "indices:admin/get", "indices:monitor/settings/get", "indices:monitor/stats"]
+    def _renderApplicationRoles(indexPrefix: str) -> dict[str, dict[str, list]]:
+        """Render the API and worker roles; both processes read and publish builds and manifests."""
         publication: list[str] = ["indices:admin/create", "indices:admin/open", "indices:admin/close", "indices:data/write/bulk*", "indices:data/write/index", "indices:data/read/count"]
-        scoped: str = installation.index_prefix + "-*"
+        # Build cleanup runs _delete_by_query?refresh=true, which scrolls, bulk-deletes and then refreshes.
+        cleanup: list[str] = ["indices:data/write/delete/byquery", "indices:data/write/delete", "indices:admin/refresh"]
         # Namespace indexes use a 48-character fingerprint. Keep their actions off the manifest index.
-        namespacePattern: str = f"/{installation.index_prefix}-[a-f0-9]{{48}}/"
-        manifestIndex: str = f"{installation.index_prefix}-published-manifests"
+        namespacePattern: str = f"/{indexPrefix}-[a-f0-9]{{48}}/"
+        manifestIndex: str = f"{indexPrefix}-published-manifests"
         # OpenSearch authorizes _create through the same index action as _doc.
         manifestActions: list[str] = ["indices:admin/create", "indices:data/read/get", "indices:data/write/index"]
-        deploymentProbe: str = f"{installation.index_prefix}-deployment-probe"
-        applicationCluster: list[str] = [*clusterRead, "indices:data/write/bulk"]
-        roles: dict[str, object] = {"_meta": {"type": "roles", "config_version": 2},
+        deploymentProbe: str = f"{indexPrefix}-deployment-probe"
+        applicationCluster: list[str] = [*_CLUSTER_READ, "indices:data/write/bulk"]
+        return {
             "knowhere_api": {"cluster_permissions": applicationCluster, "index_permissions": [
-                {"index_patterns": [namespacePattern], "allowed_actions": [*indexRead, *publication]},
+                {"index_patterns": [namespacePattern], "allowed_actions": [*_INDEX_READ, *publication]},
                 {"index_patterns": [manifestIndex], "allowed_actions": manifestActions},
-                {"index_patterns": [deploymentProbe], "allowed_actions": [search]},
+                {"index_patterns": [deploymentProbe], "allowed_actions": [_SEARCH]},
             ]},
-            "knowhere_worker": {"cluster_permissions": applicationCluster, "index_permissions": [
-                {"index_patterns": [namespacePattern], "allowed_actions": [*indexRead, *publication, "indices:data/write/delete/byquery"]},
+            "knowhere_worker": {"cluster_permissions": [*applicationCluster, "indices:data/read/scroll"], "index_permissions": [
+                {"index_patterns": [namespacePattern], "allowed_actions": [*_INDEX_READ, *publication, *cleanup]},
                 {"index_patterns": [manifestIndex], "allowed_actions": [*manifestActions, "indices:data/write/delete"]},
-                {"index_patterns": [deploymentProbe], "allowed_actions": [search]},
+                {"index_patterns": [deploymentProbe], "allowed_actions": [_SEARCH]},
             ]},
+        }
+
+    @staticmethod
+    def _renderRoles(installation: _Installation, *, isIndependent: bool = False) -> dict[str, object]:
+        clusterRead: list[str] = list(_CLUSTER_READ)
+        scoped: str = installation.index_prefix + "-*"
+        roles: dict[str, object] = {"_meta": {"type": "roles", "config_version": 2},
+            **OpenSearchOperations._renderApplicationRoles(installation.index_prefix),
             "knowhere_backup": {"cluster_permissions": [*clusterRead, "cluster:admin/snapshot/create", "cluster:admin/snapshot/get", "cluster:admin/snapshot/status*", "cluster:admin/snapshot/delete", "cluster:admin/repository/get"], "index_permissions": [{"index_patterns": [scoped], "allowed_actions": ["indices:admin/get", "indices:monitor/settings/get", "indices:monitor/stats"]}]},
             "knowhere_monitor": {"cluster_permissions": [*clusterRead, "cluster:monitor/nodes/stats", "cluster:admin/snapshot/get"], "index_permissions": [{"index_patterns": [scoped], "allowed_actions": ["indices:monitor/stats", "indices:monitor/settings/get"]}]},
         }
@@ -345,7 +376,7 @@ class OpenSearchOperations:
                     {"index_patterns": [scoped, "verify-*-" + scoped], "allowed_actions": [
                         "indices:admin/create", "indices:data/write/index"]},
                     {"index_patterns": ["verify-*-" + scoped], "allowed_actions": [
-                        *indexRead, "indices:admin/close", "indices:admin/delete"]},
+                        *_INDEX_READ, "indices:admin/close", "indices:admin/delete"]},
                 ]}
         return roles
 
@@ -625,6 +656,33 @@ class OpenSearchOperations:
             "excluded_unapproved_features": ["new-NAT", "new-KMS-key", "read-replica", "second-always-on-node"],
             "resource_quantities_and_request_churn_require_actual_campaign_review": True,
             "quote_is_actual_bill": False, "approved_to_provision": False}
+
+    @staticmethod
+    def checkApplicationRoles(liveRoles: object, *, indexPrefix: str, rolePrefix: str) -> dict[str, object]:
+        """Report rendered API and worker actions that the live roles do not grant.
+
+        `liveRoles` is the security API's role listing. Roles on the shared node are
+        maintained by hand and may use broader patterns, so each rendered action is
+        checked against a sample index of its pattern. Action groups are not
+        expanded, so an action granted only through a group is reported as missing.
+        """
+        if not isinstance(liveRoles, dict):
+            raise ValueError("Live roles must be the security API role listing")
+        sampleNamespace: str = f"{indexPrefix}-{'0' * 48}"
+        missing: dict[str, list[str]] = {}
+        for renderedName, rendered in OpenSearchOperations._renderApplicationRoles(indexPrefix).items():
+            liveName: str = rolePrefix + renderedName.removeprefix("knowhere_")
+            live: _LiveRole = _LiveRole.model_validate(liveRoles.get(liveName, {}))
+            gaps: list[str] = [f"cluster {action}" for action in rendered["cluster_permissions"]
+                if not any(fnmatchcase(action, granted) for granted in live.cluster_permissions)]
+            for permission in rendered["index_permissions"]:
+                for pattern in permission["index_patterns"]:
+                    index: str = sampleNamespace if pattern.startswith("/") else pattern
+                    gaps.extend(f"{index} {action}" for action in permission["allowed_actions"]
+                        if not any(granted.grants(index, action) for granted in live.index_permissions))
+            missing[liveName] = gaps
+        return {"schema_version": "opensearch-application-roles-check-v1", "index_prefix": indexPrefix,
+            "missing": missing, "passed": not any(missing.values())}
 
     @staticmethod
     def preflight(value: object, *, proofs: dict[str, object]) -> dict[str, object]:
