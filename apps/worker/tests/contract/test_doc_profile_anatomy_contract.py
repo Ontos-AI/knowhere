@@ -1105,7 +1105,7 @@ def test_oversized_atlas_runs_structural_anatomy(
     )
 
     assert calls == ["run_coarse", "run_structural"]
-    assert profile.is_atlas is True
+    assert profile.routing_category is PdfRoutingCategory.ATLAS
     assert profile.anatomy is fake_anatomy
     assert profile.anatomy.skeleton_anchor == {"source": "toc"}
     assert [feature.page for feature in profile.anatomy.page_features] == [1]
@@ -1170,7 +1170,7 @@ def test_standard_atlas_runs_lightweight_anatomy(
     )
 
     assert calls == ["run_coarse", "run_lightweight_anatomy"]
-    assert profile.is_atlas is True
+    assert profile.routing_category is PdfRoutingCategory.ATLAS
     assert profile.anatomy is fake_anatomy
     assert profile.anatomy.skeleton_anchor == {"source": "lightweight"}
     assert profile.anatomy.page_features[0].page == 1

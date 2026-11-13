@@ -477,7 +477,8 @@ def build_prompt(task, texts, query, **kwargs):
             reading_order_upper = "TOP-TO-BOTTOM, LEFT-TO-RIGHT"
             column_order = "left to right (i.e. finish the left column before starting the right column)"
 
-        prompt = f"""\
+        prompt = _with_skill_instructions(
+            f"""\
         You are extracting document-outline-level headings from a PDF page screenshot.
         Your goal is to find ONLY the section headings that structure the document.
         If no text on this page qualifies as a section heading, return an empty list.
@@ -559,7 +560,9 @@ def build_prompt(task, texts, query, **kwargs):
         Do NOT force-extract table labels or numbered items as headings.
 
         Return ONLY the JSON object, no markdown fences.
-        """
+        """,
+            paras,
+        )
 
     elif task == "page-memory-hierarchy":
         temperature = 0

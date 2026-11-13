@@ -10,6 +10,9 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
+import importlib
+
+import pytest
 from PIL import Image
 
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
@@ -23,12 +26,50 @@ from app.services.page_memory.memory_service import _select_rendered_pages_with_
 from app.services.page_memory.page_assets import extract_page_assets_from_renders
 from app.services.page_memory.page_plan import PagePlan, PageProcessingStrategy
 from app.services.page_memory.page_renderer import PageRenderResult
-from app.services.page_memory.page_tagger import PageTagResult, tag_pages
+from app.services.page_memory.page_tagger import PageTagResult, tag_page_titles, tag_pages
 from app.services.page_memory.phase_a import build_phase_a
 from app.services.page_memory.scope_enrichment_service import run_single_scope_refinement
 from shared.models.schemas.page_memory_config import PageMemoryConfig
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.summary.model import BodySummary
+
+_WORKER_SYMBOLS: dict[str, tuple[str, ...]] = {
+    "app.services.document_parser.profiling.taxonomy": ("PdfRoutingCategory",),
+    "app.services.page_memory.fine_skills": (
+        "DRAWING_SHEET_SKILL_NAME",
+        "DrawingSheetFineSkill",
+        "resolve_active_fine_skill_names",
+        "resolve_fine_skills",
+    ),
+    "app.services.page_memory.memory_service": ("_select_rendered_pages_with_assets",),
+    "app.services.page_memory.page_assets": ("extract_page_assets_from_renders",),
+    "app.services.page_memory.page_plan": ("PagePlan", "PageProcessingStrategy"),
+    "app.services.page_memory.page_renderer": ("PageRenderResult",),
+    "app.services.page_memory.page_tagger": (
+        "PageTagResult",
+        "tag_page_titles",
+        "tag_pages",
+    ),
+    "app.services.page_memory.phase_a": ("build_phase_a",),
+    "app.services.page_memory.scope_enrichment_service": (
+        "run_single_scope_refinement",
+    ),
+}
+
+
+@pytest.fixture(autouse=True)
+def _rebind_worker_symbols() -> None:
+    """Rebind worker symbols to the live modules.
+
+    Other contract modules evict and re-import ``app.*``; without rebinding,
+    this module's references (and enum identity) would point at stale copies
+    while string-path monkeypatches target the live ones.
+    """
+    namespace = globals()
+    for module_name, names in _WORKER_SYMBOLS.items():
+        module = importlib.import_module(module_name)
+        for name in names:
+            namespace[name] = getattr(module, name)
 
 
 def test_atlas_profile_activates_drawing_sheet_on_phase_a_manifest() -> None:
@@ -98,20 +139,55 @@ def test_drawing_skill_addon_is_appended_only_when_requested() -> None:
     assert "title block" not in plain_node
 
 
-def test_title_prompt_excludes_running_headers_not_corners() -> None:
+def test_title_prompt_appends_drawing_rule_only_when_requested() -> None:
+    plain, *_ = build_prompt("page-memory-vlm-title", "", "", paras={"max_tokens": 300})
+    assert "DRAWING-SHEET RULE" not in plain
+    assert "Running headers, running footers, and page numbers" in plain
     prompt, *_ = build_prompt(
         "page-memory-vlm-title",
         "",
         "",
         paras={
             "max_tokens": 300,
-            "skill_instructions": DrawingSheetFineSkill().page_tag_prompt_addon(),
+            "skill_instructions": DrawingSheetFineSkill().title_prompt_addon(),
         },
     )
-    assert "corners of the page" not in prompt
-    assert "Running headers, running footers, and page numbers" in prompt
-    assert "is_drawing_sheet" not in prompt
-    assert DrawingSheetFineSkill().title_prompt_addon() == ""
+    assert "DRAWING-SHEET RULE" in prompt
+    assert "<drawing_no> <drawing_title>" in prompt
+
+
+def test_tag_page_titles_forwards_title_skill_addon(monkeypatch, tmp_path) -> None:
+    captured: dict[str, str] = {}
+    png = tmp_path / "page-1.png"
+    Image.new("RGB", (8, 8), "white").save(png)
+
+    def fake_tag_vlm_titles(page, *, model, scan_direction, skill_instructions):
+        del page, model, scan_direction
+        captured["skill_instructions"] = skill_instructions
+        return [{"text": "A-01 Plan", "prominence": 1.0}]
+
+    monkeypatch.setattr(
+        "app.services.page_memory.page_tagger._tag_vlm_titles",
+        fake_tag_vlm_titles,
+    )
+    results = tag_page_titles(
+        pages=[
+            PageRenderResult(
+                page_index=1,
+                image_path=str(png),
+                raw_text="",
+                width=8,
+                height=8,
+                is_landscape=False,
+            )
+        ],
+        tag_results=[PageTagResult(page_index=1)],
+        fat_leaf_pages={1},
+        vlm_model="vision",
+        active_skills=resolve_fine_skills((DRAWING_SHEET_SKILL_NAME,)),
+    )
+    assert "DRAWING-SHEET RULE" in captured["skill_instructions"]
+    assert results[0].observed_titles == [{"text": "A-01 Plan", "prominence": 1.0}]
 
 
 def test_mixed_pages_keep_detect_for_body_and_intact_asset_for_drawing(

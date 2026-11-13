@@ -203,6 +203,7 @@ def tag_page_titles(
     vlm_model: str | None = None,
     scan_direction: str = "top_to_bottom_left_to_right",
     max_concurrent: int | None = None,
+    active_skills: Sequence[Any] = (),
 ) -> list[PageTagResult]:
     """Run independent VLM title detection on fat-leaf pages.
 
@@ -224,6 +225,8 @@ def tag_page_titles(
         Reading-order wording for the title prompt.
     max_concurrent:
         Maximum concurrent title-detection calls.
+    active_skills:
+        Active Fine skills whose ``title_prompt_addon`` is appended to the prompt.
 
     Returns
     -------
@@ -258,6 +261,10 @@ def tag_page_titles(
         getattr(settings, "PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY", 3)
     )
 
+    from app.services.page_memory.fine_skills import joined_skill_addon
+
+    skill_instructions = joined_skill_addon(active_skills, "title_prompt_addon")
+
     def _detect_one(
         page_idx: int,
         page: PageRenderResult,
@@ -266,6 +273,7 @@ def tag_page_titles(
             page,
             model=model,
             scan_direction=scan_direction,
+            skill_instructions=skill_instructions,
         )
 
     import gevent
@@ -374,6 +382,7 @@ def _tag_vlm_titles(
     *,
     model: str,
     scan_direction: str = "top_to_bottom_left_to_right",
+    skill_instructions: str = "",
 ) -> list[dict[str, Any]]:
     """Send page PNG to VLM with the title-only prompt and parse results.
 
@@ -387,6 +396,7 @@ def _tag_vlm_titles(
         paras={
             "max_tokens": _TITLE_TOKEN_BUDGETS[0],
             "scan_direction": scan_direction,
+            "skill_instructions": skill_instructions,
         },
     )
 

@@ -448,9 +448,11 @@ def _build_page_dataframe(
         trace_recorder=trace_recorder,
         page_memory_config=page_memory_config,
     )
+    from app.services.page_memory.fine_skills import resolve_active_fine_skill_names
+
     page_memory_config = replace(
         page_memory_config,
-        fine_skills=tuple(phase_a.manifest.get("fine_skills") or ()),
+        fine_skills=resolve_active_fine_skill_names(manifest=phase_a.manifest),
     )
     page_texts = phase_a.page_texts
     coarse_scopes = phase_a.coarse_scopes
@@ -695,6 +697,9 @@ def _run_hierarchy_scope(
         },
     )
 
+    from app.services.page_memory.fine_skills import resolve_fine_skills
+
+    active_skills = resolve_fine_skills(page_memory_config.fine_skills)
     fine_min = page_memory_config.fine_min_pages
     fat_leaf_pages = compute_fat_leaf_pages(
         scope_skeletons,
@@ -730,6 +735,7 @@ def _run_hierarchy_scope(
                 vlm_model=vlm_model,
                 scan_direction=page_memory_config.scan_direction,
                 max_concurrent=page_memory_config.title_detection_concurrency,
+                active_skills=active_skills,
             )
         _record_trace_stage(
             trace_recorder,
@@ -838,9 +844,6 @@ def _run_hierarchy_scope(
         variables={"scope_id": scope.scope_id, "plan_count": len(plans)},
     )
 
-    from app.services.page_memory.fine_skills import resolve_fine_skills
-
-    active_skills = resolve_fine_skills(page_memory_config.fine_skills)
     with stage_timer("page_memory.tag", page_count=len(rendered)):
         tags = tag_pages(
             pages=rendered,

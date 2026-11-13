@@ -20,7 +20,7 @@ class FineSkill(Protocol):
     extra_tag_fields: dict[str, str]
 
     def title_prompt_addon(self) -> str:
-        """Optional addon for outline title detection. Empty when unused."""
+        """Addon appended to ``page-memory-vlm-title``."""
         ...
 
     def page_tag_prompt_addon(self) -> str:
@@ -53,7 +53,19 @@ class DrawingSheetFineSkill:
     }
 
     def title_prompt_addon(self) -> str:
-        return ""
+        return (
+            "DRAWING-SHEET RULE (apply per page):\n"
+            "First check this page. If it is a body/text page or a standard data "
+            "table page, follow all standard rules above.\n"
+            "If and only if it is an engineering/technical drawing or detail sheet "
+            "with a title block / info bar (usually at the bottom-right corner, "
+            "bottom edge, or top-left corner), extract ONE main heading from the "
+            "title block formatted as \"<drawing_no> <drawing_title>\" (or "
+            "whichever of the two is present), and set \"is_in_table\": false and "
+            "\"is_in_header_footer\": false for it. Do NOT extract dimension "
+            "annotations, internal CAD labels, or component tables on the drawing "
+            "as headings."
+        )
 
     def page_tag_prompt_addon(self) -> str:
         return (

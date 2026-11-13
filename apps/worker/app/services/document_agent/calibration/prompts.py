@@ -34,11 +34,7 @@ def _variant_rules() -> str:
         "given title 'Foo (DOC-12)' ↔ page heading 'Foo'; "
         "given title 'A.1 Foo Bar' ↔ page heading 'Foo Bar').\n"
         "Do NOT count: a contents-list line, a running header/footer, or "
-        "a passing mention inside ordinary body paragraphs. "
-        "A drawing-sheet title block (the info bar at a corner or edge that "
-        "carries the drawing name and drawing number) counts as that page's "
-        "main heading when matching a TOC entry. Ordinary running "
-        "headers/footers remain excluded."
+        "a passing mention inside ordinary body paragraphs."
     )
 
 
