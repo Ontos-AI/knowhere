@@ -127,6 +127,20 @@ Verify the decision on both backends:
 
 ## Staging rollout
 
+Amendment (2026-11-13): manifests are no longer optional. The owner removed
+`KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS` and `KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP`;
+OpenSearch publication always maintains the namespace manifest, and eligible
+classic reads always use it. A manifest is only the list of current build IDs.
+Manifest reads hydrate a current build from its live chunks and a replaced
+build from the copy its publication captured just before replacing those
+chunks, so publications copy only the build they retire and seeding writes only
+the list. A namespace without a manifest keeps the per-request build list until
+its next publication or until `seed-manifests` runs. Run that command once when
+this change first reaches an environment that already serves from OpenSearch.
+Every switch to OpenSearch retires all manifests, so the release bridge seeds
+them again before customer traffic returns. The steps below describe the
+original staged enablement.
+
 1. Ship the additive schema and compatible readers. Keep the existing inline
    OpenSearch build filter available with version-aware hydration. Drain old
    publication workers before enabling the new publisher. The two manifest

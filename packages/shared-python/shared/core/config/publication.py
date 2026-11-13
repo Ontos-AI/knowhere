@@ -16,12 +16,6 @@ class PublicationConfig(BaseSettings):
         default=False,
         description="Build PostgreSQL scoring terms only during a backend transition from OpenSearch.",
     )
-    KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS: bool = Field(
-        default=False, description="Use immutable OpenSearch manifests for classic lexical retrieval.",
-    )
-    KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP: bool = Field(
-        default=False, description="Select a prepared manifest for supported classic queries.",
-    )
     KNOWHERE_OPENSEARCH_URL: str = Field(default="http://127.0.0.1:9200")
     KNOWHERE_OPENSEARCH_CA_FILE: str | None = None
     KNOWHERE_OPENSEARCH_CLIENT_CERT_FILE: str | None = None
@@ -67,6 +61,4 @@ class PublicationConfig(BaseSettings):
     def validateIdleWatermarks(self) -> Self:
         if self.KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK >= self.KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK:
             raise ValueError("OpenSearch idle low watermark must be below the high watermark")
-        if self.KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP and not self.KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS:
-            raise ValueError("OpenSearch manifest lookup requires publication maintenance")
         return self

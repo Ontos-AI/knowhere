@@ -10,7 +10,6 @@ import time
 from sqlalchemy import and_, false, func, or_, select, text, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import UnavailableException
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.document_scope import DocumentScope
@@ -68,8 +67,11 @@ async def discoverOpenSearch(
                 queryTokens=tokens, limit=topK, documentScope=scope, chunkTypes=chunkTypes,
                 excludeSections=excludeSections,
             )
+            # Current builds read live chunks; a build replaced after the search reads the
+            # copy its publication captured before replacing those chunks.
             rows, _ = await _hydrateBuildHits(db, reader=reader, hits=hits, documentScope=scope,
-                chunkTypes=chunkTypes, excludeSections=excludeSections, revisionPins=revisionPins)
+                chunkTypes=chunkTypes, excludeSections=excludeSections, revisionPins=revisionPins,
+                readCurrentBuilds=True)
             return _formatDiscovery(rows, startedAt=started, hasUnhydratedHits=False)
         if revisionPins is not None and any(reader.pins.get(identity) != revision for identity, revision in revisionPins.items()):
             raise LexicalIndexError("Discovery revision pins differ from its read session")
@@ -79,7 +81,7 @@ async def discoverOpenSearch(
         unitIds: tuple[str, ...] | None = None if selected else ()
         hasUnitFilters: bool = _hasUnitFilters(chunkTypes, signalPaths or [], excludeSections, sectionTargets)
         useNativeFilters: bool = (reader.isClassic and not sectionTargets and not signalPaths and hasUnitFilters
-            and settings.KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP and isinstance(reader, AsyncPublishedLexicalRead))
+            and isinstance(reader, AsyncPublishedLexicalRead))
         if selected and hasUnitFilters and not useNativeFilters:
             operation = partial(_filterUnits, reader, selected, chunkTypes,
                 signalPaths or [], filterMode, excludeSections, sectionTargets)
@@ -135,7 +137,7 @@ async def discoverOpenSearch(
 async def _hydrateBuildHits(
     db: AsyncSession, *, reader: PublishedLexicalRead, hits: tuple[LexicalHit, ...],
     documentScope: DocumentScope, chunkTypes: set[str] | None, excludeSections: list[dict[str, str]],
-    revisionPins: Mapping[str, str] | None, allowCurrent: bool = False,
+    revisionPins: Mapping[str, str] | None, allowCurrent: bool = False, readCurrentBuilds: bool = False,
 ) -> tuple[list[dict[str, object]], bool]:
     for hit in hits:
         if not documentScope.allows(hit.unit.documentId) or (
@@ -145,6 +147,7 @@ async def _hydrateBuildHits(
     sectionKeys: tuple[tuple[str, str], ...] = tuple(dict.fromkeys((hit.buildId, hit.unit.sectionId) for hit in hits))
     snapshots: list[dict[str, object]] = await BuildSnapshot.loadRows(
         db, scope=reader.scope, sectionKeys=sectionKeys, allowCurrent=allowCurrent,
+        readCurrentBuilds=readCurrentBuilds,
     )
     # Match PG discovery's last chunk in sort order when a section has multiple rows.
     rowsBySection: dict[tuple[object, object], dict[str, object]] = {

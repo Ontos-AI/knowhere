@@ -83,15 +83,15 @@ class ProgressivePublication:
 
     def publish(self, *, scope: DocumentPublicationScope,
                 update: Callable[[Session, DocumentPublicationScope], _Result]) -> _Result:
-        """Apply a replayable SQL update after its exact native index is ready."""
+        """Apply a replayable SQL update after its exact native index is ready.
+
+        Publications of one document stay serialized: each one previews its SQL update
+        inside a transaction, and two concurrent previews of the same document contend
+        for the same rows. Other documents and all searches proceed without this lock.
+        """
         storage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
         lexicalScope: LexicalScope = LexicalScope(ownerId=storage.resolve_owner(scope.user_id),
             namespace=scope.namespace, corpusKind="demo" if storage.is_demo else "private")
-        if settings.KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS:
-            try:
-                return self._publish(scope, update, storage=storage, lexicalScope=lexicalScope)
-            except _ProgressiveBuildAdvanced:
-                return self._publish(scope, update, storage=storage, lexicalScope=lexicalScope)
         lock = RedisJobLock(SyncRedisServiceFactory.get_service(),
             f"progressive-publication:{lexicalScope.fingerprint}:{scope.document_id}")
         queuedAt: float = monotonic()
@@ -184,7 +184,7 @@ class ProgressivePublication:
         self, scope: DocumentPublicationScope, update: Callable[[Session, DocumentPublicationScope], _Result],
         storage: CorpusStorage, lexicalScope: LexicalScope, indexUuid: str, epoch: int,
         candidate: _Candidate, payload: LexicalInput, key: str, checksum: str, byteCount: int,
-        deadline: IndexingDeadline, prepared: PreparedManifest | None,
+        deadline: IndexingDeadline, prepared: PreparedManifest,
     ) -> _Result:
         with self._transaction(deadline) as db:
             document, previous, result, generation = self._lockPublication(
@@ -197,8 +197,7 @@ class ProgressivePublication:
             if (build is None or build.state != "writing" or lease is None or lease.state != "active"
                 or lease.expiresAt <= now or lease.ownerToken != build.ownerToken or lease.backendEpoch != epoch):
                 raise LexicalIndexError("Progressive publication lost its build authority", isRetryable=True)
-            if prepared is not None:
-                BuildSnapshot.capture(db, scope=lexicalScope, buildId=previous.id)
+            BuildSnapshot.capture(db, scope=lexicalScope, buildId=previous.id)
             # A copy queued for the previous build may still be running.
             db.execute(select(func.pg_advisory_xact_lock(LegacyLexicalCopy.getRevisionLockIdentity(scope.job_result_id))))
             generationBefore = generation.generation
@@ -217,12 +216,10 @@ class ProgressivePublication:
             previous.state = "retired"
             previous.retirementGeneration = generation.generation
             previous.cleanupState = "pending"
-            previous.retainForManifestReads = prepared is not None
+            previous.retainForManifestReads = True
             if previous.legacyCopyState == "pending":
                 previous.legacyCopyState = "skipped"
             build.state = "published"
-            if prepared is not None:
-                BuildSnapshot.capture(db, scope=lexicalScope, buildId=build.id)
             ManifestPublication.activate(db, prepared, previousGeneration=generationBefore,
                 publishedGeneration=generation.generation)
             build.unitCount = len(payload.units)

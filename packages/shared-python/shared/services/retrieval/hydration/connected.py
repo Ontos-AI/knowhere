@@ -74,6 +74,7 @@ async def _hydrateBuildTargets(
     loadedRows: list[dict[str, object]] = await BuildSnapshot.loadRows(
         db, scope=scope, chunkKeys=tuple(targets),
         allowCurrent=any(row.get('uses_inline_build') for row in rows),
+        readCurrentBuilds=any(row.get('uses_current_build') for row in rows),
     )
     for row in loadedRows:
         key: tuple[str, str] = (str(row['build_id']), str(row['chunk_id']))

@@ -184,12 +184,19 @@ class BuildSnapshot:
         sectionKeys: Sequence[tuple[str, str]] = (),
         chunkKeys: Sequence[tuple[str, str]] = (),
         allowCurrent: bool = False,
+        readCurrentBuilds: bool = False,
     ) -> list[dict[str, object]]:
-        """Load matching rows, allowing legacy builds only while their pointer is current."""
+        """Load matching rows from captured builds and, when requested, from current builds.
+
+        ``allowCurrent`` serves inline reads: every row must belong to an active document
+        and callers may drop unmatched hits. ``readCurrentBuilds`` serves manifest reads:
+        captured rows keep their original rules and only current, uncaptured builds read
+        live chunks, so a hit that matches neither still surfaces as missing.
+        """
         if not sectionKeys and not chunkKeys:
             return []
         statement: str = _REQUESTED_KEYS + _LOAD_SNAPSHOT_ROWS
-        if allowCurrent:
+        if allowCurrent or readCurrentBuilds:
             storage: CorpusStorage = CorpusStorage(
                 "DEMO" if scope.corpusKind == "demo" else "PRIVATE"
             )
@@ -198,7 +205,7 @@ class BuildSnapshot:
                 _REQUESTED_KEYS
                 + _CURRENT_KEYS
                 + _LOAD_SNAPSHOT_ROWS
-                + _REQUIRE_ACTIVE_DOCUMENT
+                + (_REQUIRE_ACTIVE_DOCUMENT if allowCurrent else "")
                 + _LOAD_CURRENT_ROWS
             )
         result = await db.execute(
@@ -219,6 +226,8 @@ class BuildSnapshot:
             hydrationRow.pop("source_row_id")
             if allowCurrent:
                 hydrationRow["uses_inline_build"] = True
+            elif readCurrentBuilds:
+                hydrationRow["uses_current_build"] = True
             metadata: object = hydrationRow["chunk_metadata"]
             hydrationRow["chunk_metadata"] = (
                 metadata if isinstance(metadata, dict) else {}

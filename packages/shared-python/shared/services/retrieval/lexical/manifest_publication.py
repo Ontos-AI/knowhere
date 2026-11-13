@@ -9,10 +9,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from shared.core.config import settings
 from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
-from shared.models.database.lexicalhydrationsnapshot import LexicalHydrationSnapshot
 from shared.models.database.lexicalpublishedmanifest import LexicalPublishedManifest
 from shared.services.retrieval.corpus_storage import CorpusStorage
-from shared.services.retrieval.hydration.build_snapshot import BuildSnapshot
 from shared.services.retrieval.serving_generation import lock_namespace_generation
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
 from shared.services.retrieval.lexical.error import LexicalIndexError
@@ -44,17 +42,14 @@ class ManifestPublication:
     def prepare(
         self, *, scope: LexicalScope, documentId: str | None, buildId: str | None,
         native: OpenSearchLexicalIndex,
-    ) -> PreparedManifest | None:
+    ) -> PreparedManifest:
         prepared = self.prepareMetadata(scope=scope, documentId=documentId, buildId=buildId)
-        if prepared is not None:
-            native.writePublishedManifest(manifestId=prepared.id, scopeId=prepared.scopeId, buildIds=prepared.buildIds)
+        native.writePublishedManifest(manifestId=prepared.id, scopeId=prepared.scopeId, buildIds=prepared.buildIds)
         return prepared
 
     def prepareMetadata(
         self, *, scope: LexicalScope, documentId: str | None, buildId: str | None,
-    ) -> PreparedManifest | None:
-        if not settings.KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS:
-            return None
+    ) -> PreparedManifest:
         storage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
         namespace = storage.RetrievalNamespaceGeneration
         document = storage.Document
@@ -87,13 +82,8 @@ class ManifestPublication:
         return prepared
 
     def seed(self, *, scope: LexicalScope, native: OpenSearchLexicalIndex, expectedEpoch: int | None = None) -> str:
-        """Seed an already indexed namespace before enabling manifest reads."""
+        """Publish the current build list for a namespace that has no manifest yet."""
         prepared = self.prepareMetadata(scope=scope, documentId=None, buildId=None)
-        if prepared is None:
-            raise LexicalIndexError("Manifest publication must be enabled before seeding")
-        for buildId in prepared.buildIds:
-            with self.sessions.begin() as db:
-                BuildSnapshot.capture(db, scope=scope, buildId=buildId)
         native.writePublishedManifest(manifestId=prepared.id, scopeId=prepared.scopeId, buildIds=prepared.buildIds)
         with self.sessions.begin() as db:
             control = LexicalCoordination.lockControl(db)
@@ -113,11 +103,6 @@ class ManifestPublication:
         candidate = db.get(LexicalPublishedManifest, prepared.id, with_for_update=True)
         if candidate is None or candidate.state != "prepared":
             raise LexicalIndexError("Prepared namespace manifest is no longer available", isRetryable=True)
-        if prepared.buildIds:
-            capturedCount = db.scalar(select(func.count()).select_from(LexicalHydrationSnapshot).where(
-                LexicalHydrationSnapshot.buildId.in_(prepared.buildIds)))
-            if capturedCount != len(prepared.buildIds):
-                raise LexicalIndexError("Namespace manifest hydration is incomplete; seed the namespace before activation", isRetryable=True)
         if prepared.previousId is not None:
             previous = db.get(LexicalPublishedManifest, prepared.previousId, with_for_update=True)
             if previous is None or previous.state != "active":
