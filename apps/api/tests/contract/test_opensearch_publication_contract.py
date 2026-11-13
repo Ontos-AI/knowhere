@@ -1309,6 +1309,30 @@ def test_public_retrieval_cache_observes_activation_without_redis_invalidation(
         engine.dispose()
 
 
+def _collectRetiredBuild(engine: Engine, buildId: str) -> bool:
+    """Delete a retired build once its in-flight read retention has passed."""
+    from sqlalchemy.orm import sessionmaker
+    from shared.models.database.lexicalbuild import LexicalBuild
+    from shared.services.retrieval.lexical.cleanup import LexicalCleanup
+
+    cleanup = LexicalCleanup(sessionFactory=sessionmaker(engine, expire_on_commit=False))
+    assert not cleanup.collect(buildId), "A retired build must stay readable during its retention period"
+    with Session(engine) as session, session.begin():
+        session.execute(update(LexicalBuild).where(LexicalBuild.id == buildId)
+            .values(manifestCleanupAfter=func.now() - timedelta(seconds=1)))
+    return cleanup.collect(buildId)
+
+
+def _useInlinePublishedRead(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise the per-request build list that still serves reads a manifest cannot."""
+    from shared.services.retrieval.lexical.asyncread import AsyncPublishedLexicalRead
+
+    async def declineManifest(self: AsyncPublishedLexicalRead, **_options: object) -> bool:
+        return False
+
+    monkeypatch.setattr(AsyncPublishedLexicalRead, "startManifestAsync", declineManifest)
+
+
 def _stageReplacement(engine: Engine, namespace: str) -> str:
     from shared.models.database.document import Document
     from shared.models.database.job import Job
@@ -1429,7 +1453,7 @@ def test_active_old_read_allows_cleanup_and_returns_actual_hits(
         assert worker.run(replacement) == "completed"
         from shared.services.retrieval.lexical.cleanup import LexicalCleanup
         cleanup = LexicalCleanup(sessionFactory=factory)
-        assert cleanup.collect(oldBuild)
+        assert _collectRetiredBuild(engine, oldBuild)
         with reader.bind():
             assert asyncio.run(_discoverNative(namespace)) == []
         reader.close()
@@ -1802,7 +1826,7 @@ def test_classic_read_hydrates_its_hit_revision_after_replacement_and_cleanup(
     def replaceDuringAssembly() -> None:
         jobId: str = _stageReplacement(engine, namespace)
         assert IndexingWorker(sessionFactory=sessionmaker(engine, expire_on_commit=False)).run(jobId) == "completed"
-        assert cleanup.collect(oldBuild)
+        assert _collectRetiredBuild(engine, oldBuild)
 
     monkeypatch.setattr(routes, "assemble_retrieval_results", _inspectAsyncCall(routes.assemble_retrieval_results, replaceDuringAssembly))
     response: dict[str, object] = asyncio.run(_queryClassic(namespace))
@@ -1915,6 +1939,7 @@ def test_progressive_native_read_returns_available_evidence(
     classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch, publication_count: int,
     boundary: Literal["assembled", "hydration"],
 ) -> None:
+    _useInlinePublishedRead(monkeypatch)
     from shared.models.database.document import Document
     from shared.models.database.job_result import JobResult
     from shared.services.retrieval.execution import plan
@@ -1984,18 +2009,12 @@ def test_progressive_native_read_returns_available_evidence(
     response = asyncio.run(_queryClassic(namespace))
     results: object = response["results"]
     assert isinstance(results, list)
-    if boundary == "assembled" or publication_count == 0:
-        assert len(read_generations) == 1
-        assert results and results[0]["content"] == "工程验收计划"
-        assert results[0]["source"]["job_result_id"] == scope.job_result_id
-    else:
-        assert len(read_generations) == 2
-        assert read_generations[0] is not None and read_generations[1] == read_generations[0] + 1
-        if publication_count == 1:
-            assert results and results[0]["content"] == revised_content
-            assert results[0]["source"]["job_result_id"] == scope.job_result_id
-        else:
-            assert results == []
+    # A refinement published mid-read retires the matched build after copying its
+    # chunks, so the read returns the evidence it matched without restarting.
+    assert len(publications) == min(publication_count, 1)
+    assert len(read_generations) == 1
+    assert results and results[0]["content"] == "工程验收计划"
+    assert results[0]["source"]["job_result_id"] == scope.job_result_id
 
 
 def test_classic_read_reopens_a_closed_index_through_normal_admission(
@@ -2081,6 +2100,7 @@ def test_classic_finalization_reuses_the_body_database_session(
 def test_classic_hydration_and_finalization_share_one_transaction(
     classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _useInlinePublishedRead(monkeypatch)
     from sqlalchemy import event
     from sqlalchemy.engine import Connection
     from shared.services.retrieval.lexical.hit import LexicalHit
@@ -2259,6 +2279,7 @@ def test_activation_reuses_its_locked_namespace_generation(
     from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
     from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
     from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.lexical.manifest_publication import PreparedManifest
     from shared.services.retrieval.lexical.worker import IndexingWorker, _Claim
 
     index = OpenSearchLexicalIndex(endpoint=settings.KNOWHERE_OPENSEARCH_URL,
@@ -2279,10 +2300,10 @@ def test_activation_reuses_its_locked_namespace_generation(
         if "retrieval_namespace_generations" in normalized and "for update" in normalized:
             lockedGenerations.append(statement)
 
-    def inspectActivation(self: IndexingWorker, claim: _Claim) -> str:
+    def inspectActivation(self: IndexingWorker, claim: _Claim, prepared: PreparedManifest) -> str:
         event.listen(engine, "after_cursor_execute", inspectStatement)
         try:
-            return original(self, claim)
+            return original(self, claim, prepared)
         finally:
             event.remove(engine, "after_cursor_execute", inspectStatement)
 
@@ -2331,10 +2352,10 @@ def test_query_does_not_wait_for_shared_coordination_rows(
 def test_query_returns_empty_without_restart_when_its_old_build_is_cleaned(
     classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _useInlinePublishedRead(monkeypatch)
     from sqlalchemy.orm import sessionmaker
     from shared.models.database.document import Document
     from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
-    from shared.services.retrieval.lexical.cleanup import LexicalCleanup
     from shared.services.retrieval.lexical.hit import LexicalHit
     from shared.services.retrieval.lexical.worker import IndexingWorker
 
@@ -2353,7 +2374,7 @@ def test_query_returns_empty_without_restart_when_its_old_build_is_cleaned(
         if len(calls) == 1:
             jobId: str = _stageReplacement(engine, namespace)
             assert IndexingWorker(sessionFactory=factory).run(jobId) == "completed"
-            assert LexicalCleanup(sessionFactory=factory).collect(oldBuild)
+            assert _collectRetiredBuild(engine, oldBuild)
         return await original(self, buildIds=buildIds, queryTokens=queryTokens, limit=limit, unitIds=unitIds)
 
     with monkeypatch.context() as patch:
@@ -2367,6 +2388,7 @@ def test_query_returns_empty_without_restart_when_its_old_build_is_cleaned(
 def test_query_recovers_once_when_lru_closes_between_capture_and_search(
     classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _useInlinePublishedRead(monkeypatch)
     from sqlalchemy.orm import sessionmaker
     from shared.core.config import settings
     from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
@@ -2461,6 +2483,7 @@ def test_writer_fails_once_after_lru_closure_and_reopens_only_on_manual_retry(
 def test_query_stops_after_one_lru_recovery_without_returning_empty_success(
     classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _useInlinePublishedRead(monkeypatch)
     from sqlalchemy.orm import sessionmaker
     from shared.core.config import settings
     from shared.core.exceptions.domain_exceptions import UnavailableException
@@ -2610,8 +2633,6 @@ def test_manifest_query_keeps_the_body_from_the_selected_build(
     native = OpenSearchLexicalIndex(endpoint=_getNativeEndpoint(), scope=lexicalScope,
         indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX)
     native.createManifestIndex()
-    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS", True)
-    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP", True)
     firstManifest = ManifestPublication(sessions).seed(scope=lexicalScope, native=native)
     original = AsyncOpenSearchLexicalIndex.search
     observed: list[str] = []
@@ -2687,7 +2708,6 @@ def test_parallel_document_refinements_rebase_the_published_manifest(
     native = OpenSearchLexicalIndex(endpoint=_getNativeEndpoint(), scope=lexicalScope,
         indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX)
     native.createManifestIndex()
-    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS", True)
     monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND", True)
     firstManifest = ManifestPublication(sessions).seed(scope=lexicalScope, native=native)
     secondJob = "native-contract-second"

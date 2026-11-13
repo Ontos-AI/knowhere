@@ -20,8 +20,6 @@ from shared.services.retrieval.lexical.manifest_maintenance import collectPublis
 @celery_app.task(name="shared.services.retrieval.lexical.maintenance.maintainLexical")
 def maintainLexical() -> int:
     isNativeServing: bool = settings.KNOWHERE_LEXICAL_BACKEND == "opensearch"
-    if not isNativeServing and not settings.KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS:
-        return 0
     sessions = get_sync_session_factory()
     with sessions.begin() as db:
         control: LexicalBackendControl | None = db.get(

@@ -114,12 +114,10 @@ class AsyncIndexingWorker:
         for _ in range(8):
             prepared = await self.database.run(partial(publication.prepareMetadata, scope=claim.context.scope,
                 documentId=claim.context.documentId, buildId=claim.buildId))
-            if prepared is not None:
-                await native.writePublishedManifest(manifestId=prepared.id, scopeId=prepared.scopeId,
-                    buildIds=prepared.buildIds)
+            await native.writePublishedManifest(manifestId=prepared.id, scopeId=prepared.scopeId,
+                buildIds=prepared.buildIds)
             try:
-                activation = partial(self.repository._activate, claim) if prepared is None else partial(
-                    self.repository._activate, claim, prepared)
+                activation = partial(self.repository._activate, claim, prepared)
                 return await self.database.run(activation)
             except ManifestPublicationAdvanced:
                 continue

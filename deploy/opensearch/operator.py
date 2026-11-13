@@ -418,10 +418,10 @@ def _prepareManifestSeed(arguments: argparse.Namespace, manifest: dict[str, obje
     driver: Path = _ROOT / "scripts/probes/manage-opensearch-transition.py"
     if sha256(driver.read_bytes()).hexdigest() != plan.get("transition_script_sha256"):
         raise ValueError("Manifest seed transition script differs from its reviewed binding")
-    if (settings.KNOWHERE_LEXICAL_BACKEND != "opensearch" or not settings.KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS
+    if (settings.KNOWHERE_LEXICAL_BACKEND != "opensearch"
             or settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX != manifest["index_prefix"]
             or settings.KNOWHERE_OPENSEARCH_URL.rstrip("/") != f"https://{manifest['endpoint_host']}:9200"):
-        raise ValueError("Manifest seeding requires its approved OpenSearch endpoint, index prefix and publication setting")
+        raise ValueError("Manifest seeding requires its approved OpenSearch backend, endpoint and index prefix")
     limit: object = plan.get("batch_limit")
     timeout: float = float(str(plan.get("maximum_step_seconds")))
     if type(limit) is not int or limit < 1 or not isfinite(timeout) or timeout <= 0 or sourceReceipt.exists():

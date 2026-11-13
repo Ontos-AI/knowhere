@@ -589,7 +589,7 @@ class DocumentService:
     ) -> dict[str, Any] | None:
         from shared.core.config import settings
 
-        if settings.KNOWHERE_LEXICAL_BACKEND != "opensearch" or not settings.KNOWHERE_OPENSEARCH_PUBLISHED_MANIFESTS:
+        if settings.KNOWHERE_LEXICAL_BACKEND != "opensearch":
             return await self._archive_document(db, user_id=user_id, document_id=document_id)
         if db.bind is None:
             raise RuntimeError("Document archival requires a database bind")
