@@ -337,6 +337,42 @@ def test_periodic_turnover_does_not_treat_native_use_as_a_close_fence(
             index.close()
 
 
+def test_configured_open_index_limit_evicts_at_its_own_capacity(
+    turnoverRuntime: tuple[Engine, str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shared.core.config import settings
+    from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
+    from shared.services.retrieval.lexical.coordination import LexicalCoordination
+    from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.scope import LexicalScope
+
+    engine, endpoint, prefix = turnoverRuntime
+    scopes: tuple[LexicalScope, ...] = tuple(
+        LexicalScope(ownerId="turnover-contract", namespace=name)
+        for name in ("old", "recent", "cold")
+    )
+    indexes: list[OpenSearchLexicalIndex] = [
+        OpenSearchLexicalIndex(endpoint=endpoint, scope=scope, indexPrefix=prefix)
+        for scope in scopes
+    ]
+    coordinator = LexicalCoordination(sessionmaker(engine, expire_on_commit=False))
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT", 2)
+    try:
+        for scope, index in zip(scopes, indexes, strict=True):
+            coordinator.ensureIndex(scope=scope, native=index)
+        with Session(engine) as database:
+            states: dict[str, str] = dict(
+                database.execute(
+                    select(LexicalNamespaceIndex.namespace, LexicalNamespaceIndex.state)
+                ).tuples().all()
+            )
+        assert states == {"old": "closed", "recent": "open", "cold": "open"}
+    finally:
+        for index in indexes:
+            httpx.delete(f"{endpoint}/{index.indexName}", timeout=5, trust_env=False)
+            index.close()
+
+
 def test_unregistered_business_index_counts_at_capacity(
     turnoverRuntime: tuple[Engine, str, str],
 ) -> None:
