@@ -53,16 +53,18 @@ PROD_OPENSEARCH_VARIABLES: Final[tuple[str, ...]] = (
 )
 PROD_OPENSEARCH_INDEX_PREFIX: Final[str] = "knowhere-prod-lexical-v1"
 # Staging shares the production OpenSearch node, so it keeps a smaller open-index
-# budget. Production stays at 400 until the node is measured at a higher count.
+# budget. Both limits plus system indexes stay below the 786 open shards the node
+# was measured at (see deploy/opensearch/README.md); more open indexes mean fewer
+# cold opens, which queue one at a time on the node.
 STAGING_OPENSEARCH_CAPACITY: Final[tuple[tuple[str, str], ...]] = (
     ("KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT", "100"),
     ("KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK", "90"),
     ("KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK", "80"),
 )
 PROD_OPENSEARCH_CAPACITY: Final[tuple[tuple[str, str], ...]] = (
-    ("KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT", "400"),
-    ("KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK", "360"),
-    ("KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK", "320"),
+    ("KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT", "600"),
+    ("KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK", "540"),
+    ("KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK", "480"),
 )
 LEXICAL_BACKENDS: Final[frozenset[str]] = frozenset({"postgresql", "opensearch"})
 

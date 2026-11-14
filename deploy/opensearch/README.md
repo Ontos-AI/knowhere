@@ -326,7 +326,7 @@ namespaces created after the last snapshot. No snapshot catalog is required ther
 uv run --offline --frozen python deploy/opensearch/recovery.py submit \
   --manifest /private/knowhere-native/installation.json \
   --inventory /private/knowhere-native/restore-batch.json \
-  --epoch 42 --open-index-limit 400 --operation-id APPROVED_OPERATION_UUID \
+  --epoch 42 --open-index-limit 600 --operation-id APPROVED_OPERATION_UUID \
   --journal /private/knowhere-native/recovery/batch-journal.json \
   --receipt-directory /private/knowhere-native/recovery/receipts \
   --transition-source-hash APPROVED_SOURCE_HASH \
@@ -396,11 +396,25 @@ Each environment caps its open namespace indexes with
 `KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT` and closes idle ones from
 `KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK` down to
 `KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK`. `deploy/ecs/render_task_definitions.py`
-renders 400/360/320 for production and 100/90/80 for staging. Staging shares the
+renders 600/540/480 for production and 100/90/80 for staging. Staging shares the
 production node and neither limit counts the other prefix, so keep both limits
 plus system indexes below the node's `cluster.max_shards_per_node` (1,000 by
 default). Measure heap use and cold-open latency on the node before raising a
 limit.
+
+The shared node (16 GiB heap, remote store) was measured with synthetic indexes
+of about 100 units each:
+
+- Old generation stayed at 0.27 GiB from 186 to 786 open shards, and searches on
+  open indexes stayed near 12 ms at p95. Heap is not the limit at these counts.
+- One cold open takes 0.9–1.1 s until the index is searchable. Concurrent opens
+  queue on the cluster manager at about 0.4 s each while CPU stays below 25%:
+  10 at once took up to 4 s, 20 up to 8 s and 50 up to 20 s. Searches on
+  already open indexes were unaffected.
+- Each lifecycle operation waits at most 5 s (`_WAIT_SECONDS` in
+  `coordination.py`), so a burst of more than about 12 cold opens fails the
+  later ones as retryable and journals those rows as uncertain. A higher open
+  limit keeps more namespaces warm and makes such bursts rarer.
 
 Use `launch-issuer.py --kind operator` with the `release` child command shown
 by `operator.py --help`. Review separate plans for `phase:"prepare"`,

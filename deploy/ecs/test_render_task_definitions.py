@@ -353,7 +353,7 @@ def test_production_cli_renders_the_backend_read_by_the_release(
         assert environment["KNOWHERE_OPENSEARCH_URL"] == PRODUCTION_OPENSEARCH["PROD_OPENSEARCH_URL"]
         assert environment["KNOWHERE_OPENSEARCH_INDEX_PREFIX"] == "knowhere-prod-lexical-v1"
         assert (environment["KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT"], environment["KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK"],
-            environment["KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK"]) == ("400", "360", "320")
+            environment["KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK"]) == ("600", "540", "480")
         assert secrets["KNOWHERE_PROD_NATIVE_TLS"] == PRODUCTION_OPENSEARCH[
             f"PROD_OPENSEARCH_{service.upper()}_TLS_PARAMETER"
         ]
