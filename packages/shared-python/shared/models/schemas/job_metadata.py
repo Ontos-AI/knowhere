@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from shared.models.schemas.llm_config import LLMConfig, parse_llm_config
 from shared.models.schemas.page_memory_config import PageMemoryConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
+from shared.models.schemas.source_integrity import SourceIntegrity
 from shared.utils.security_utils import mask_api_key
 
 
@@ -52,6 +53,9 @@ class JobMetadataBase(BaseModel):
     # Source-file fields.
     source_type: Optional[str] = Field(None, description="Source type")
     source_file_name: Optional[str] = Field(None, description="Source file name")
+    source_integrity: SourceIntegrity | None = Field(
+        None, description="Expected size and SHA-256 for a guarded file upload"
+    )
     source_content_sha256: Optional[str] = Field(
         None, pattern=r"^[0-9a-f]{64}$", description="SHA-256 of the original source bytes"
     )
@@ -256,6 +260,12 @@ class JobMetadataHelper:
         return JobMetadataHelper.get_string_field(metadata, "source_file_name")
 
     @staticmethod
+    def get_source_integrity(metadata: Optional[Dict[str, Any]]) -> SourceIntegrity | None:
+        """Read the integrity requirement committed with the waiting job."""
+        value = JobMetadataHelper.get_field(metadata, "source_integrity")
+        return SourceIntegrity.model_validate(value) if value is not None else None
+
+    @staticmethod
     def get_source_url(metadata: Optional[Dict[str, Any]]) -> str | None:
         """Return the source URL stored in metadata."""
         return JobMetadataHelper.get_string_field(metadata, "source_url")
@@ -327,4 +337,6 @@ def _dump_public_request(request) -> Dict[str, Any]:
     """Dump declared public request fields without hidden compatibility extras."""
     extra_fields = getattr(request, "model_extra", None) or {}
     payload = request.model_dump(exclude=set(extra_fields))
+    if payload.get("source_integrity") is None:
+        payload.pop("source_integrity", None)
     return _mask_llm_config_in_request(payload)

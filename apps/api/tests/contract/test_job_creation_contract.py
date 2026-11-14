@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timezone
@@ -8,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from loguru import logger
 from pytest import MonkeyPatch
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -384,7 +386,12 @@ async def test_should_create_a_v2_page_memory_job_for_pdf_uploads(
     }
 
     async with developer_api_client_factory() as api_client:
-        response = await api_client.post("/api/v2/jobs", json=payload)
+        creation_logs: list[str] = []
+        sink_id = logger.add(creation_logs.append, level="INFO", format="{message}")
+        try:
+            response = await api_client.post("/api/v2/jobs", json=payload)
+        finally:
+            logger.remove(sink_id)
 
         assert response.status_code == 200
 
@@ -399,6 +406,11 @@ async def test_should_create_a_v2_page_memory_job_for_pdf_uploads(
     assert response_json["namespace"] == payload["namespace"]
     assert response_json["data_id"] == payload["data_id"]
     assert response_json["upload_headers"] == {"Content-Type": "application/pdf"}
+    upload_url = response_json["upload_url"]
+    assert isinstance(upload_url, str) and upload_url
+    assert not any(upload_url in message for message in creation_logs), (
+        "Job creation logged the signed upload URL"
+    )
     assert list_response.status_code == 200
     assert read_response.status_code == 200
     listed_jobs = cast(list[dict[str, object]], list_response.json()["jobs"])
@@ -820,6 +832,7 @@ async def test_should_return_conflict_when_creating_a_job_for_a_document_with_an
         "reason": "ABORTED",
         "resource": "Document",
         "id": document_id,
+        "active_job_id": active_job_id,
     }
     assert await _count_jobs() == 1
 
@@ -1697,13 +1710,20 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
         "data_id": "contract-job-confirm-upload",
     }
     started_workflows: list[dict[str, object]] = []
+    both_confirmations_read_job = asyncio.Event()
+    confirmation_count = 0
 
     async def _fake_verify_s3_file_exists(
         self: object,
         s3_key: str,
         bucket: str | None = None,
     ) -> dict[str, object]:
+        nonlocal confirmation_count
         assert bucket is None
+        confirmation_count += 1
+        if confirmation_count == 2:
+            both_confirmations_read_job.set()
+        await asyncio.wait_for(both_confirmations_read_job.wait(), timeout=5)
         return {"exists": True, "s3_key": s3_key}
 
     async def _fake_start_uploaded_file_parse(
@@ -1741,13 +1761,17 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
         create_response_json: dict[str, object] = create_response.json()
         job_id = cast(str, create_response_json["job_id"])
 
-        confirm_response = await api_client.post(f"/api/v1/jobs/{job_id}/confirm-upload")
+        responses = await asyncio.gather(
+            api_client.post(f"/api/v1/jobs/{job_id}/confirm-upload"),
+            api_client.post(f"/api/v1/jobs/{job_id}/confirm-upload"),
+        )
 
-    assert confirm_response.status_code == 200
-    assert confirm_response.headers["x-request-id"]
-    assert confirm_response.json() == {
-        "message": "File upload confirmed; processing started"
-    }
+    for response in responses:
+        assert response.status_code == 200
+        assert response.headers["x-request-id"]
+        assert response.json() == {
+            "message": "File upload confirmed; processing started"
+        }
 
     job_row = await _load_job_record(job_id)
     assert job_row["status"] == "pending"
@@ -1757,6 +1781,78 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
             "user_id": "local-dev-user",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_should_accept_confirmed_upload_when_parse_publication_fails(
+    monkeypatch: MonkeyPatch,
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    statuses_at_publication: list[object] = []
+
+    async def _fake_verify_s3_file_exists(
+        self: object,
+        s3_key: str,
+        bucket: str | None = None,
+    ) -> dict[str, object]:
+        return {"exists": True, "s3_key": s3_key}
+
+    async def _fail_to_publish(
+        self: object,
+        *,
+        job_id: str,
+        user_id: str,
+    ) -> str:
+        # Use a second connection to verify the transition committed before publication.
+        statuses_at_publication.append((await _load_job_record(job_id))["status"])
+        raise ConnectionError("Celery broker unavailable")
+
+    async with developer_api_client_factory() as api_client:
+        from app.services.document_ingestion.worker_dispatcher import (
+            DocumentIngestionWorkerDispatcher,
+        )
+        from shared.services.storage.file_upload_service import FileUploadService
+
+        monkeypatch.setattr(
+            FileUploadService, "verify_s3_file_exists", _fake_verify_s3_file_exists
+        )
+        monkeypatch.setattr(
+            DocumentIngestionWorkerDispatcher,
+            "start_uploaded_file_parse",
+            _fail_to_publish,
+        )
+        create_response = await api_client.post(
+            "/api/v1/jobs",
+            json={
+                "namespace": "contract-jobs",
+                "source_type": "file",
+                "file_name": "dispatch-recovery.pdf",
+                "data_id": "contract-job-dispatch-recovery",
+            },
+        )
+        assert create_response.status_code == 200
+        job_id = cast(str, create_response.json()["job_id"])
+
+        response = await api_client.post(f"/api/v1/jobs/{job_id}/confirm-upload")
+
+    assert (await _load_job_record(job_id))["status"] == "pending"
+    assert statuses_at_publication == ["pending"]
+    assert response.status_code == 200
+    engine = await _create_contract_engine()
+    try:
+        async with engine.begin() as connection:
+            result = await connection.execute(
+                text(
+                    "SELECT attempt, published_at FROM upload_parse_dispatches "
+                    "WHERE job_id = :job_id"
+                ),
+                {"job_id": job_id},
+            )
+            assert result.one() == (1, None)
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -1791,8 +1887,12 @@ async def test_should_preserve_retryable_confirm_upload_transition_rejection(
         operator_type: str = "system",
         metadata: dict[str, object] | None = None,
         auto_commit: bool = True,
+        *,
+        expected_from_state: str | None = None,
     ) -> object:
-        del self, db, transition_reason, operator_id, operator_type, metadata, auto_commit
+        del self, db, transition_reason, operator_id, operator_type, metadata
+        assert auto_commit is False
+        assert expected_from_state == "waiting-file"
 
         from shared.core.state_machine.transition_outcome import JobTransitionOutcome
 

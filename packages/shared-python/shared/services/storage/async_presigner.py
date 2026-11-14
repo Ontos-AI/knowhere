@@ -32,6 +32,7 @@ import httpx
 from shared.core.config import settings
 from shared.core.config.storage import StorageConfig
 from shared.core.exceptions.domain_exceptions import UnavailableException
+from shared.models.schemas.source_integrity import SourceIntegrity
 
 
 class _Deadline(Protocol):
@@ -128,11 +129,14 @@ class AsyncStoragePresigner:
         method: str = "GET",
         headers: dict[str, str] | None = None,
         expiration: int = 3600,
+        source_integrity: SourceIntegrity | None = None,
     ) -> _PresignedURL:
         if method not in ("GET", "PUT") or not key or not 1 <= expiration <= 604800:
             raise ValueError(
                 "Presigning requires a key, GET/PUT method and a supported expiration"
             )
+        if source_integrity is not None and (method != "PUT" or self.config.S3_TYPE != "s3"):
+            raise self._unavailable("Verified source uploads require S3 PUT signing")
         deadline = deadline if deadline is not None else _SigningDeadline(5)
         async with asyncio.timeout(deadline.getRemainingSeconds()):
             signedAt: datetime = self._getCurrentTime().replace(microsecond=0)
@@ -192,6 +196,7 @@ class AsyncStoragePresigner:
                 headers,
                 effectiveExpiration,
                 credentials,
+                source_integrity,
             )
             deadline.getRemainingSeconds()
             return _PresignedURL(
@@ -405,13 +410,14 @@ class AsyncStoragePresigner:
         headers: dict[str, str] | None,
         expiration: int,
         credentials: _Credentials,
+        source_integrity: SourceIntegrity | None,
     ) -> str:
         if bucket.startswith("arn:") or bucket.endswith("--x-s3"):
             raise self._unavailable(
                 "Async storage signing supports ordinary S3 buckets only"
             )
         client: BaseClient = self._getSigningClient(credentials)
-        parameters: dict[str, str] = {"Bucket": bucket, "Key": key}
+        parameters: dict[str, str | int] = {"Bucket": bucket, "Key": key}
         if headers:
             contentType: str | None = headers.get("Content-Type") or headers.get(
                 "content-type"
@@ -424,6 +430,10 @@ class AsyncStoragePresigner:
                 parameters["ResponseContentDisposition"] = headers[
                     "Content-Disposition"
                 ]
+        if source_integrity is not None:
+            parameters["IfNoneMatch"] = "*"
+            parameters["ContentLength"] = source_integrity.size_bytes
+            parameters["ChecksumSHA256"] = source_integrity.checksum_base64()
         return client.generate_presigned_url(
             "put_object" if method == "PUT" else "get_object",
             Params=parameters,

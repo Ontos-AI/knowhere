@@ -213,6 +213,9 @@ class ConflictException(KnowhereException):
 
     Details schema:
         {"reason": "ALREADY_EXISTS" | "ABORTED", "resource": "...", "id": "..."}
+
+    `extra_details` adds client-safe fields after the fixed ones. The fixed
+    `reason`, `resource`, and `id` values take precedence.
     """
 
     def __init__(
@@ -222,6 +225,7 @@ class ConflictException(KnowhereException):
         resource: Optional[str] = None,
         resource_id: Optional[str] = None,
         internal_message: Optional[str] = None,
+        extra_details: Optional[Dict[str, Any]] = None,
     ):
         normalized_reason = reason.upper()
         if normalized_reason not in {"ALREADY_EXISTS", "ABORTED"}:
@@ -232,6 +236,8 @@ class ConflictException(KnowhereException):
             details["resource"] = resource
         if resource_id:
             details["id"] = resource_id
+        for key, value in (extra_details or {}).items():
+            details.setdefault(key, value)
 
         error_code = (
             ErrorCode.ALREADY_EXISTS

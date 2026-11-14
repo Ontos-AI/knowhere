@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from httpx import AsyncClient
 
+from shared.testing.contract_runtime import CONTRACT_DEVELOPER_USER_ID
 from tests.support.contract_database import ContractDatabase
 
 
@@ -130,6 +131,74 @@ async def test_should_return_job_details_for_an_existing_waiting_file_job(
     assert response_json["ocr_enabled"] is None
     assert response_json["duration_seconds"] is not None
     assert response_json["credits_spent"] == 0.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_type", "source_size_bytes"),
+    [("file", 1_245), ("url", 64_562), ("file", None)],
+    ids=["file", "url", "legacy-without-size"],
+)
+async def test_should_return_the_persisted_original_size_on_v2_job_reads(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    source_type: str,
+    source_size_bytes: int | None,
+) -> None:
+    job_id: str = f"job_source_size_{uuid4().hex[:12]}"
+    path: str = f"/api/v2/jobs/{job_id}"
+
+    async with developer_api_client_factory() as api_client:
+        await ContractDatabase.insert_job(
+            job_id=job_id,
+            user_id=CONTRACT_DEVELOPER_USER_ID,
+            status="running",
+            source_type=source_type,
+            job_metadata={
+                "api_version": "v2",
+                "document_metadata": {"source_size_bytes": 50},
+            },
+        )
+
+        initial_response = await api_client.get(path)
+        assert initial_response.status_code == 200
+        assert "source_size_bytes" not in initial_response.json()
+
+        if source_size_bytes is not None:
+            await ContractDatabase.execute(
+                """
+                UPDATE jobs
+                SET job_metadata = CAST(
+                    job_metadata::jsonb || jsonb_build_object(
+                        'source_size_bytes', CAST(:source_size_bytes AS BIGINT)
+                    ) AS JSON
+                )
+                WHERE job_id = :job_id
+                """,
+                {"job_id": job_id, "source_size_bytes": source_size_bytes},
+            )
+        await ContractDatabase.insert_job_result(
+            job_result_id=f"result_{uuid4().hex[:12]}",
+            job_id=job_id,
+            result_size=98_765,
+        )
+        await ContractDatabase.execute(
+            "UPDATE jobs SET status = 'done' WHERE job_id = :job_id",
+            {"job_id": job_id},
+        )
+
+        for _ in range(2):
+            response = await api_client.get(path)
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["status"] == "done"
+            assert payload["source_type"] == source_type
+            if source_size_bytes is None:
+                assert "source_size_bytes" not in payload
+            else:
+                assert payload["source_size_bytes"] == source_size_bytes
+                assert type(payload["source_size_bytes"]) is int
 
 
 @pytest.mark.asyncio

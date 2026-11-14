@@ -29,6 +29,7 @@ from .document_page_plan import DocumentPagePlan
 from .demo_materialization import DemoMaterialization
 from .guest_device import GuestDevice
 from .job import Job
+from .upload_parse_dispatch import UploadParseDispatch
 from .job_result import JobChunk, JobResult
 from .indexing import IndexingAttempt
 from .lexicalcontrol import LexicalBackendControl
@@ -74,6 +75,7 @@ __all__ = [
     "CreditsTransaction",
     "UserBalance",
     "Job",
+    "UploadParseDispatch",
     "JobResult",
     "JobChunk",
     "Document",

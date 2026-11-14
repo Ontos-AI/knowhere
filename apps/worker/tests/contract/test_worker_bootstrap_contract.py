@@ -20,11 +20,13 @@ def test_should_register_worker_task_modules_for_celery_consumers(
         "app.core.tasks.kb_tasks.upload_url_file_task",
         "app.core.tasks.kb_tasks.parse_task",
         "app.core.tasks.stale_job_sweeper.expire_stale_jobs",
+        "app.core.tasks.upload_parse_dispatch_tasks.recover_upload_parse_dispatches",
         "app.core.tasks.webhook_tasks.recover_orphaned_webhooks",
     )
     task_module_names: tuple[str, ...] = (
         "app.core.tasks.document_ingestion_tasks",
         "app.core.tasks.stale_job_sweeper",
+        "app.core.tasks.upload_parse_dispatch_tasks",
         "app.core.tasks.webhook_tasks",
     )
 
@@ -38,6 +40,10 @@ def test_should_register_worker_task_modules_for_celery_consumers(
 
     for task_name in expected_task_names:
         assert task_name in celery_app.tasks
+    recovery = celery_app.conf.beat_schedule["recover-upload-parse-dispatches"]
+    assert recovery["task"] in expected_task_names
+    route = celery_app.amqp.router.route({}, recovery["task"])
+    assert route["queue"].name == "default"
 
 
 @pytest.mark.parametrize("hasPreparedCampaign", [False, True])

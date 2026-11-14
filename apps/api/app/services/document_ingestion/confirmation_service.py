@@ -9,6 +9,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.exceptions.domain_exceptions import (
+    ConflictException,
     JobOperationException,
     NotFoundException,
     PermissionDeniedException,
@@ -16,6 +17,7 @@ from shared.core.exceptions.domain_exceptions import (
     ValidationException,
 )
 from shared.core.state_machine.states import JobStatus
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.storage.file_upload_service import FileUploadService
 
 
@@ -46,8 +48,12 @@ class DocumentIngestionConfirmationService:
             from shared.services.retrieval.demo_job_scope import validate_job_corpus
             await db.run_sync(lambda session: validate_job_corpus(session, job=job))
 
+            source_integrity = JobMetadataHelper.get_source_integrity(job.job_metadata)
+            accepts_confirmation = job.status == JobStatus.WAITING_FILE.value or (
+                source_integrity is None and job.status == JobStatus.PENDING.value
+            )
             logger.info(f"Confirm upload - Job {job_id} current status: {job.status}")
-            if job.status not in [JobStatus.PENDING.value, JobStatus.WAITING_FILE.value]:
+            if not accepts_confirmation:
                 logger.info(f"Job {job_id} already processed, status: {job.status}")
                 return {"message": "Job status already updated"}
 
@@ -62,14 +68,15 @@ class DocumentIngestionConfirmationService:
                     ],
                 )
 
-            file_info = await self._file_upload_service.verify_s3_file_exists(job.s3_key)
-            if not bool(file_info.get("exists")):
-                raise ValidationException(
-                    user_message="S3 file does not exist, please upload the file first",
-                    violations=[
-                        {"field": "file", "description": "File not found in S3"}
-                    ],
-                )
+            if source_integrity is None:
+                file_info = await self._file_upload_service.verify_s3_file_exists(job.s3_key)
+                if not bool(file_info.get("exists")):
+                    raise ValidationException(
+                        user_message="S3 file does not exist, please upload the file first",
+                        violations=[
+                            {"field": "file", "description": "File not found in S3"}
+                        ],
+                    )
 
             await self._handoff_service.start_uploaded_file_workflow(
                 db=db,
@@ -83,6 +90,8 @@ class DocumentIngestionConfirmationService:
         except PermissionDeniedException:
             raise
         except UnavailableException:
+            raise
+        except ConflictException:
             raise
         except ValidationException:
             raise

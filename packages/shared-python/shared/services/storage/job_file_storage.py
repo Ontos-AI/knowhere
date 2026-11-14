@@ -8,6 +8,8 @@ from typing import Any, BinaryIO
 from shared.core.config import settings
 from shared.core.config.storage import get_cached_storage_adapter
 from shared.core.exceptions.domain_exceptions import StorageServiceException
+from shared.models.schemas.source_integrity import SourceIntegrity
+from shared.services.storage.source_upload_verification import SourceUploadVerification
 from shared.services.storage.storage_adapter import StorageAdapter
 from shared.services.http.pinned_outbound import download_pinned_outbound_file
 from shared.services.http.url_security import validate_http_url_and_resolve_ip
@@ -140,6 +142,24 @@ class JobFileStorage:
 
     def verify_upload_exists(self, storage_key: str) -> dict[str, Any]:
         return self.verify_exists(storage_key, bucket=self.uploads_bucket)
+
+    def verify_upload_integrity(
+        self, storage_key: str, source_integrity: SourceIntegrity
+    ) -> SourceUploadVerification:
+        from shared.services.storage.adapters.s3_adapter import S3StorageAdapter
+
+        adapter = self.storage_adapter
+        if not isinstance(adapter, S3StorageAdapter):
+            raise StorageServiceException(
+                internal_message="Verified source uploads require S3 checksum support",
+                operation="verify_upload_integrity",
+            )
+        return adapter.verify_upload_integrity(
+            storage_key,
+            self.uploads_bucket,
+            size_bytes=source_integrity.size_bytes,
+            checksum_sha256=source_integrity.checksum_base64(),
+        )
 
     def upload_local_file(
         self,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from app.api.dependencies.current_user import with_current_user
@@ -50,18 +51,38 @@ class RetrievalQueryRequestV2(RetrievalQueryRequest):
     )
 
 
+async def wait_for_client_disconnect(request: Request) -> None:
+    # FastAPI has already consumed the request body to validate the payload.
+    while (await request.receive())["type"] != "http.disconnect":
+        pass
+
+
 @router.post("/query", response_model=RetrievalQueryResponse)
 async def query_retrieval(
     payload: RetrievalQueryRequestV2,
+    request: Request,
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await execute_retrieval_query(
-        payload,
-        current_user,
-        db,
-        llm_config=payload.llm_config,
+    query = asyncio.create_task(
+        execute_retrieval_query(
+            payload, current_user, db, llm_config=payload.llm_config
+        )
     )
+    disconnect = asyncio.create_task(wait_for_client_disconnect(request))
+    try:
+        completed, _ = await asyncio.wait(
+            (query, disconnect), return_when=asyncio.FIRST_COMPLETED
+        )
+        if query in completed:
+            return await query
+        raise HTTPException(status_code=499, detail="Client disconnected")
+    finally:
+        for task in (query, disconnect):
+            if not task.done():
+                task.cancel()
+        # Join before FastAPI releases the request-owned database session.
+        await asyncio.gather(query, disconnect, return_exceptions=True)
 
 
 class RetrievalToolInvokeRequest(BaseModel):
@@ -85,7 +106,9 @@ async def invoke_retrieval_tool(
 ):
     if payload.tool not in INVOKE_CORPUS_TOOLS:
         raise HTTPException(status_code=400, detail="tool is not supported")
-    namespace = normalize_retrieval_namespace(request.headers.get(KNOWHERE_NAMESPACE_HEADER))
+    namespace = normalize_retrieval_namespace(
+        request.headers.get(KNOWHERE_NAMESPACE_HEADER)
+    )
     result = await REGISTRY.dispatch(
         payload.tool,
         ToolContext(

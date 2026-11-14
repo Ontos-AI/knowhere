@@ -170,11 +170,23 @@ async def build_job_result_response(
     )
     raw_page_count: object = getattr(job, "page_count", None) or (job_metadata or {}).get("page_count")
     page_count: int | None = raw_page_count if isinstance(raw_page_count, int) and not isinstance(raw_page_count, bool) and raw_page_count > 0 else None
+    # A poll can cache metadata before the worker measures the source.
+    raw_source_size: object = JobMetadataHelper.get_field(
+        job.job_metadata, "source_size_bytes"
+    )
+    source_size_bytes: int | None = (
+        raw_source_size
+        if isinstance(raw_source_size, int)
+        and not isinstance(raw_source_size, bool)
+        and raw_source_size >= 0
+        else None
+    )
 
     return JobResultResponse(
         job_result_id=getattr(getattr(job, "job_result", None), "id", None),
         job_id=job.job_id,
         page_count=page_count,
+        source_size_bytes=source_size_bytes,
         enhancement=progressive_state.enhancement if progressive_state else None,
         snapshots=(
             publish_snapshot_descriptors(progressive_state, JobFileStorage())

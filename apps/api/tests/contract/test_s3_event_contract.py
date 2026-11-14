@@ -5,11 +5,14 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from types import SimpleNamespace
 from typing import cast
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from tests.support.contract_database import ContractDatabase
 
@@ -162,41 +165,82 @@ async def test_should_not_dispatch_a_second_task_for_a_replayed_upload_event(
 
 
 @pytest.mark.asyncio
+async def test_should_roll_back_upload_confirmation_if_dispatch_cannot_be_recorded(
+    api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    publication_calls: list[str] = []
+
+    class FakeDispatcher:
+        async def start_uploaded_file_parse(self, *, job_id: str, user_id: str) -> str:
+            publication_calls.append(job_id)
+            return "contract-task-id"
+
+    async with api_client_factory() as api_client:
+        from app.services.document_ingestion import handoff_service
+        from shared.models.database.upload_parse_dispatch import UploadParseDispatch
+        from shared.services.jobs.upload_parse_dispatch import UploadParseClaim, UploadParseOutbox
+        from shared.utils.utc_now import utc_now_naive
+
+        _, job_id = await _insert_waiting_file_job()
+        event = _build_s3_event_payload(job_id)
+        monkeypatch.setattr(
+            handoff_service, "DocumentIngestionWorkerDispatcher", FakeDispatcher
+        )
+        stage = UploadParseOutbox.stage
+
+        def _stage_duplicate(db: Session, *, job_id: str, user_id: str) -> UploadParseClaim:
+            claim = stage(db, job_id=job_id, user_id=user_id)
+            db.add(
+                UploadParseDispatch(
+                    job_id=job_id, job_version=1, attempt=1, available_at=utc_now_naive()
+                )
+            )
+            return claim
+
+        with monkeypatch.context() as failing:
+            failing.setattr(UploadParseOutbox, "stage", staticmethod(_stage_duplicate))
+            response = await api_client.post("/api/v1/internal/s3-events", json=event)
+        assert response.status_code == 200
+        job_row = await ContractDatabase.fetch_job(job_id)
+        assert job_row is not None
+        assert job_row["status"] == "waiting-file"
+        assert publication_calls == []
+
+        retry = await api_client.post("/api/v1/internal/s3-events", json=event)
+        assert retry.status_code == 200
+        assert publication_calls == [job_id]
+
+
+@pytest.mark.asyncio
 async def test_should_treat_a_concurrent_upload_handoff_cas_winner_as_a_no_op() -> None:
     from app.services.document_ingestion.handoff_service import (
         DocumentIngestionHandoffService,
     )
+    from app.services.document_ingestion.worker_dispatcher import DocumentIngestionWorkerDispatcher
+    from shared.core.state_machine.service import AsyncStateMachineService
     from shared.core.state_machine.transition_outcome import JobTransitionOutcome
+    from shared.models.database.job import Job
 
-    class FakeStateMachine:
-        async def transition_outcome(self, *args: object, **kwargs: object) -> object:
-            del args, kwargs
-            return JobTransitionOutcome.rejected(
-                job_id="job-race",
-                to_state="pending",
-                reason="invalid_transition",
-                attempts=1,
-                from_state="pending",
-            )
-
-    class FakeDispatcher:
-        async def start_uploaded_file_parse(
-            self,
-            *,
-            job_id: str,
-            user_id: str,
-        ) -> str:
-            del job_id, user_id
-            raise AssertionError("CAS loser must not dispatch a duplicate task")
+    state_machine = AsyncMock(spec=AsyncStateMachineService)
+    state_machine.transition_outcome.return_value = JobTransitionOutcome.rejected(
+        job_id="job-race",
+        to_state="pending",
+        reason="invalid_transition",
+        attempts=1,
+        from_state="pending",
+    )
+    dispatcher = AsyncMock(spec=DocumentIngestionWorkerDispatcher)
+    db = AsyncMock(spec=AsyncSession)
 
     service = DocumentIngestionHandoffService(
-        state_machine=FakeStateMachine(),
-        worker_dispatcher=FakeDispatcher(),
+        state_machine=state_machine,
+        worker_dispatcher=dispatcher,
     )
 
     await service.start_uploaded_file_workflow(
-        db=cast(object, None),
-        job=SimpleNamespace(
+        db=db,
+        job=Job(
             job_id="job-race",
             job_type="document_ingestion",
             status="waiting-file",
@@ -204,6 +248,8 @@ async def test_should_treat_a_concurrent_upload_handoff_cas_winner_as_a_no_op() 
         user_id="contract-user",
         trigger="s3_upload_completed",
     )
+    db.rollback.assert_awaited_once()
+    dispatcher.start_uploaded_file_parse.assert_not_awaited()
 
 
 @pytest.mark.asyncio
