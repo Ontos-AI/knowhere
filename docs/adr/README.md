@@ -38,3 +38,9 @@ Use this shape:
 | [0021](0021-gate-final-enrichment-completion-on-all-required-work.md) | Gate final enrichment completion on all required work |
 | [0022](0022-open-citations-on-the-enhanced-original-page.md) | Open citations on the enhanced original page |
 | [0023](0023-keep-progressive-retrieval-on-one-published-version.md) | Keep progressive retrieval on one published version |
+| [0024](0024-keep-postgresql-lexical-index-for-migration-rollback-only.md) | Keep the PostgreSQL lexical index for migration rollback only |
+| [0025](0025-separate-parsing-completion-from-search-readiness.md) | Separate parsing completion from search readiness |
+| [0026](0026-publish-search-readiness-from-background-tasks.md) | Run one indexing execution inline and publish separate phase milestones |
+| [0027](0027-activate-document-revisions-only-after-search-readiness.md) | Activate document revisions only after search readiness |
+| [0028](0028-select-webhook-events-on-a-single-callback-url.md) | Select webhook events on a single callback URL |
+| [0029](0029-keep-parsing-charges-and-allow-free-indexing-retries.md) | Keep parsing charges and allow free indexing retries |
