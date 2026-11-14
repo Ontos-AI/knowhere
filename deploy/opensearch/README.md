@@ -129,7 +129,8 @@ aws cloudformation create-change-set --stack-name knowhere-opensearch-monitoring
   --change-set-name <name> --capabilities CAPABILITY_IAM \
   --template-body file://deploy/opensearch/host-monitoring-stack.yaml \
   --parameters ParameterKey=HostRoleName,ParameterValue=<host role> \
-               ParameterKey=HostInstanceId,ParameterValue=<instance id>
+               ParameterKey=HostInstanceId,ParameterValue=<instance id> \
+               ParameterKey=MetricsBucketName,ParameterValue=<shared bucket>
 ```
 
 Install the agent once with the `AWS-ConfigureAWSPackage` SSM document
@@ -138,6 +139,57 @@ Install the agent once with the `AWS-ConfigureAWSPackage` SSM document
 parameter name from the stack. A replacement host needs both steps again and a
 stack update with its instance ID. These alarms watch the host and process,
 not search correctness.
+
+### Node metrics records
+
+`metrics_recorder.py` records the node every 30 minutes for later analysis. It
+raises no alarm and changes nothing on the node. Each run:
+
+- makes three filtered GET requests: node stats, cluster health and the index
+  listing;
+- reads only the JSON server log lines written since the previous run, and
+  counts completed opens and closes per namespace prefix plus the most opens in
+  any 10 seconds. Concurrent opens queue on the cluster manager, so that burst
+  is what makes cold opens slow;
+- writes one gzip JSON record of about 1 KB to `/var/lib/knowhere-metrics/outbox`
+  on the root volume and uploads it to
+  `s3://<shared bucket>/opensearch/shared/metrics/YYYY/MM/DD/`. A failed upload
+  stays in the outbox for the next run. Local copies are kept for 30 days and
+  200 MB at most.
+
+`counters` are cumulative: subtract consecutive records, and treat a smaller
+`node.jvmUptimeMillis` as a node restart. `activeNamespaces` counts open
+namespace indexes whose search count changed since the previous record. It
+includes non-user searches such as backfill verification, and a namespace opened
+and closed within one window appears only in `opens` and `closes`.
+`lifecycle.isComplete` is false on the first run and whenever a rotated log could
+not be read.
+
+The service runs at the lowest CPU and I/O priority with a 10% CPU and 128 MB
+memory cap. It reads OpenSearch with a client certificate already on the host
+and only sends GET requests. `MetricsArchivePolicy` lets the host role put
+objects under the metrics prefix and nothing else.
+
+Install or reinstall it on the host through SSM `AWS-RunShellScript` with the
+three files from this directory, then run it once and read its summary line. The
+environment file names the bucket, the region and the certificate files:
+
+```bash
+install -d -m 0700 /opt/knowhere-opensearch-metrics /etc/knowhere-opensearch-metrics
+install -m 0600 metrics_recorder.py /opt/knowhere-opensearch-metrics/
+install -m 0644 knowhere-opensearch-metrics.service knowhere-opensearch-metrics.timer /etc/systemd/system/
+cat > /etc/knowhere-opensearch-metrics/environment <<'EOF'
+KNOWHERE_METRICS_BUCKET=<shared bucket>
+KNOWHERE_METRICS_REGION=<region>
+KNOWHERE_OPENSEARCH_CA_FILE=<CA certificate>
+KNOWHERE_OPENSEARCH_CLIENT_CERT_FILE=<client certificate>
+KNOWHERE_OPENSEARCH_CLIENT_KEY_FILE=<client key>
+EOF
+systemctl daemon-reload
+systemctl start knowhere-opensearch-metrics.service
+journalctl -u knowhere-opensearch-metrics.service -n 1 --no-pager
+systemctl enable --now knowhere-opensearch-metrics.timer
+```
 
 ## Hourly independent full backups
 
