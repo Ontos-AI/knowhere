@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from base64 import b64encode
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from typing import Any
 from uuid import uuid4
 
+import boto3
+import pytest
+from botocore.exceptions import EndpointConnectionError
+from botocore.stub import Stubber
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -138,3 +144,127 @@ def test_should_skip_duplicate_beat_firing_with_the_real_periodic_redis_lock(
         "status": "skipped",
         "reason": "duplicate Beat firing",
     }
+
+
+@pytest.mark.parametrize(
+    ("storage_result", "expected_status"),
+    [
+        ("matched", "pending"),
+        ("unavailable", "waiting-file"),
+        ("connection-error", "waiting-file"),
+        ("concurrent-confirmation", "pending"),
+    ],
+)
+def test_sweeper_checks_storage_before_expiring_guarded_uploads(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    storage_result: str,
+    expected_status: str,
+) -> None:
+    from shared.core.config import settings
+    from shared.core.database_sync import get_sync_db_context
+    from shared.core.state_machine.service_sync import SyncStateMachineService
+    from shared.services.jobs.upload_parse_dispatch import UploadParseOutbox
+    from shared.services.storage import job_file_storage
+    from shared.services.storage.adapters.s3_adapter import S3StorageAdapter
+
+    stale_job_sweeper, engine = _load_worker_modules()
+    user_id = f"worker-user-{uuid4().hex[:12]}"
+    job_id = f"job_guarded_{uuid4().hex[:12]}"
+    key = f"uploads/{job_id}.pdf"
+    legacy_job_id = f"job_legacy_{uuid4().hex[:12]}"
+    original = b"original upload bytes"
+    digest = sha256(original).digest()
+    created_at = datetime.now(timezone.utc) - timedelta(hours=3)
+    uploaded_at = created_at + timedelta(hours=1)
+
+    with engine.begin() as connection:
+        insert_contract_user(connection, user_id=user_id)
+        insert_contract_job(
+            connection,
+            job_id=job_id,
+            user_id=user_id,
+            status="waiting-file",
+            s3_key=key,
+            job_metadata={
+                **_build_file_job_metadata(),
+                "source_integrity": {"size_bytes": len(original), "sha256": digest.hex()},
+            },
+            created_at=created_at.replace(tzinfo=None),
+        )
+        insert_contract_job(
+            connection,
+            job_id=legacy_job_id,
+            user_id=user_id,
+            status="waiting-file",
+            job_metadata=_build_file_job_metadata(),
+            created_at=created_at.replace(tzinfo=None),
+        )
+
+    s3 = boto3.client(
+        "s3", region_name="us-west-1",
+        aws_access_key_id="test", aws_secret_access_key="test",
+    )
+    bucket = settings.S3_BUCKET_NAME
+    adapter = S3StorageAdapter(s3, bucket)
+    monkeypatch.setattr(job_file_storage, "get_cached_storage_adapter", lambda: adapter)
+    if storage_result == "concurrent-confirmation":
+        # Another transaction can confirm while the worker is reading storage.
+        # The worker must neither fail the fresh pending job nor stage twice.
+        def confirm_during_head(**_: object) -> None:
+            with get_sync_db_context() as db:
+                assert SyncStateMachineService().transition_outcome(
+                    db, job_id, "pending", "manual_upload_completed"
+                ).succeeded
+                UploadParseOutbox.stage(db, job_id=job_id, user_id=user_id)
+
+        s3.meta.events.register("after-call.s3.HeadObject", confirm_during_head)
+    if storage_result == "connection-error":
+        def raise_connection_error(**_: object) -> None:
+            raise EndpointConnectionError(endpoint_url="https://s3.example.invalid")
+
+        s3.meta.events.register("before-parameter-build.s3.HeadObject", raise_connection_error)
+
+    with Stubber(s3) as stubber:
+        params = {"Bucket": bucket, "Key": key, "ChecksumMode": "ENABLED"}
+        if storage_result in {"matched", "concurrent-confirmation"}:
+            stubber.add_response(
+                "head_object",
+                {
+                    "ContentLength": len(original),
+                    "ChecksumSHA256": b64encode(digest).decode("ascii"),
+                    "LastModified": uploaded_at,
+                },
+                params,
+            )
+        elif storage_result == "unavailable":
+            stubber.add_client_error(
+                "head_object", "ServiceUnavailable", http_status_code=503,
+                expected_params=params,
+            )
+        result = stale_job_sweeper.expire_stale_jobs()
+        with engine.begin() as connection:
+            job = connection.execute(
+                text("SELECT status, error_code FROM jobs WHERE job_id = :job_id"),
+                {"job_id": job_id},
+            ).mappings().one()
+            dispatch = connection.execute(
+                text("SELECT job_id FROM upload_parse_dispatches WHERE job_id = :job_id"),
+                {"job_id": job_id},
+            ).scalar_one_or_none()
+            legacy_job = connection.execute(
+                text("SELECT status, error_code FROM jobs WHERE job_id = :job_id"),
+                {"job_id": legacy_job_id},
+            ).mappings().one()
+        assert (job["status"], job["error_code"]) == (expected_status, None)
+        assert (legacy_job["status"], legacy_job["error_code"]) == ("failed", "JOB_EXPIRED")
+        assert result["expired"] == 1
+        assert dispatch == (job_id if expected_status == "pending" else None)
+        if expected_status == "waiting-file":
+            with engine.begin() as connection:
+                last_attempt = connection.execute(
+                    text("SELECT updated_at FROM jobs WHERE job_id = :job_id"),
+                    {"job_id": job_id},
+                ).scalar_one()
+            assert last_attempt > created_at.replace(tzinfo=None)
+        stubber.assert_no_pending_responses()

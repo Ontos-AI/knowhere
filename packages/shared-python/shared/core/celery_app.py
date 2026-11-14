@@ -130,6 +130,9 @@ celery_app.conf.update(
         "app.core.tasks.webhook_tasks.recover_orphaned_webhooks": {"queue": "default"},
         # Sweeper task
         "app.core.tasks.stale_job_sweeper.expire_stale_jobs": {"queue": "default"},
+        "app.core.tasks.upload_parse_dispatch_tasks.recover_upload_parse_dispatches": {
+            "queue": "default"
+        },
     },
     # Periodic tasks (Celery Beat)
     beat_schedule={
@@ -148,6 +151,10 @@ celery_app.conf.update(
         "expire-stale-jobs": {
             "task": "app.core.tasks.stale_job_sweeper.expire_stale_jobs",
             "schedule": 1800.0,  # Every 30 minutes
+        },
+        "recover-upload-parse-dispatches": {
+            "task": "app.core.tasks.upload_parse_dispatch_tasks.recover_upload_parse_dispatches",
+            "schedule": 30.0,
         },
         "sweep-progressive-enrichments": {
             "task": "app.core.tasks.enrichment_tasks.sweep_progressive_enrichments",

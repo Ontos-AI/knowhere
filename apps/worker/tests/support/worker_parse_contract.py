@@ -211,7 +211,8 @@ class WorkerParseContract:
                             page_count,
                             credits_charged,
                             error_code,
-                            error_message
+                            error_message,
+                            job_metadata
                         FROM jobs
                         WHERE job_id = :job_id
                         """

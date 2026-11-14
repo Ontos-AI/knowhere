@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from threading import Event
 from time import monotonic, sleep
@@ -74,6 +75,36 @@ def admit_source(source: SourceJob) -> dict[str, object]:
         job_id=source.job_id,
         local_file_path=str(source.local_path),
     )
+
+
+def test_verified_file_checks_downloaded_bytes_before_saving_a_fingerprint(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    from shared.core.database_sync import get_sync_db_context
+    from shared.core.exceptions.domain_exceptions import ValidationException
+    from shared.models.database.job import Job
+
+    expected = b"original"
+    source = create_source_job(WorkerParseContract.create(), tmp_path, content=b"replaced")
+    with get_sync_db_context() as database:
+        job = database.get(Job, source.job_id)
+        assert job is not None
+        job.job_metadata = {
+            **dict(job.job_metadata or {}),
+            "source_integrity": {"size_bytes": len(expected), "sha256": sha256(expected).hexdigest()},
+        }
+
+    with pytest.raises(ValidationException, match="expected original"):
+        admit_source(source)
+    with get_sync_db_context() as database:
+        job = database.get(Job, source.job_id)
+        assert job is not None and "source_content_sha256" not in (job.job_metadata or {})
+
+    source.local_path.write_bytes(expected)
+    assert admit_source(source) == {
+        "source_size_bytes": len(expected), "source_content_sha256": sha256(expected).hexdigest(),
+    }
 
 
 def publish_source(source: SourceJob, *, namespace: str = "worker-contract") -> None:

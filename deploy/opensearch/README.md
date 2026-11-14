@@ -104,6 +104,41 @@ endpoint/process or API event loop, avoid joining an active old pool, and requir
 a coordinated restart before a third generation. Rehearse rotation on actual
 authenticated clients; the local SSL-context tests are development evidence.
 
+## Host monitoring
+
+`host-monitoring-stack.yaml` is deployed as its own stack,
+`knowhere-opensearch-monitoring`, so monitoring changes never update the host
+stack. It grants the host role permission to publish only to the `CWAgent`
+namespace and stores the CloudWatch agent configuration in SSM Parameter Store.
+The agent reports the data-volume usage and the OpenSearch process count every
+minute. Four alarms feed one composite alarm,
+`knowhere-opensearch-action-required`, which notifies the existing alert topic on
+both alarm and recovery:
+
+| Alarm | Condition |
+| --- | --- |
+| `knowhere-opensearch-status-check-failed` | EC2 status check fails for 3 consecutive minutes. |
+| `knowhere-opensearch-process-down` | No OpenSearch process for 3 consecutive minutes. Missing data counts as down. |
+| `knowhere-opensearch-data-disk-high` | Data volume at or above 75% for 15 minutes. |
+| `knowhere-opensearch-cpu-high` | Host CPU averages 85% or more for 15 minutes. |
+
+Deploy changes through a reviewed change set:
+
+```bash
+aws cloudformation create-change-set --stack-name knowhere-opensearch-monitoring \
+  --change-set-name <name> --capabilities CAPABILITY_IAM \
+  --template-body file://deploy/opensearch/host-monitoring-stack.yaml \
+  --parameters ParameterKey=HostRoleName,ParameterValue=<host role> \
+               ParameterKey=HostInstanceId,ParameterValue=<instance id>
+```
+
+Install the agent once with the `AWS-ConfigureAWSPackage` SSM document
+(`AmazonCloudWatchAgent`), then load the configuration with
+`AmazonCloudWatch-ManageAgent` using `optionalConfigurationSource=ssm` and the
+parameter name from the stack. A replacement host needs both steps again and a
+stack update with its instance ID. These alarms watch the host and process,
+not search correctness.
+
 ## Hourly independent full backups
 
 Install the generated backup and monitor services and timers on the existing

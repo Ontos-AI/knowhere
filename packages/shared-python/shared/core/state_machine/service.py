@@ -83,14 +83,28 @@ class AsyncStateMachineService:
         operator_type: str = "system",
         metadata: Optional[Dict[str, Any]] = None,
         auto_commit: bool = True,
+        *,
+        expected_from_state: str | None = None,
     ) -> JobTransitionOutcome:
-        """Execute a state transition and preserve the reason if it is rejected."""
+        """Execute a transition. With auto_commit=False, publish the cache after commit."""
         max_retries = MAX_TRANSITION_ATTEMPTS
 
         for attempt in range(max_retries):
             attempts = attempt + 1
             try:
                 job = await self._get_job_with_version(db, job_id)
+                if (
+                    job is not None
+                    and expected_from_state is not None
+                    and job.status != expected_from_state
+                ):
+                    return JobTransitionOutcome.rejected(
+                        job_id=job_id,
+                        from_state=job.status,
+                        to_state=to_state,
+                        reason="invalid_transition",
+                        attempts=attempts,
+                    )
                 prepared = prepare_transition_attempt(
                     job_id=job_id,
                     to_state=to_state,
@@ -145,9 +159,8 @@ class AsyncStateMachineService:
                     old_version,
                 )
                 if success:
-                    await self._update_redis_cache(job_id, to_state, metadata)
-
                     if auto_commit:
+                        await self.publish_status_cache(job_id, to_state, metadata)
                         await db.commit()
                     else:
                         await db.flush()
@@ -405,6 +418,7 @@ class AsyncStateMachineService:
             select(Job)
             .options(load_only(Job.job_id, Job.status, Job.version))
             .where(Job.job_id == job_id)
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
 
@@ -502,11 +516,11 @@ class AsyncStateMachineService:
                     f"Rollback failed after error-update failure for Job {job_id}: {rollback_err}"
                 )
 
-    async def _update_redis_cache(
+    async def publish_status_cache(
         self,
         job_id: str,
         status: str,
-        metadata: Optional[Dict[str, Any]],
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         try:
             status_key = redis_key_builder.task_status(job_id)

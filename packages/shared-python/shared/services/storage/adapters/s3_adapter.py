@@ -1,14 +1,18 @@
 """S3 storage adapter implementation for AWS S3 and MinIO."""
 
+from __future__ import annotations
+
+from datetime import datetime, timezone
 from typing import Any, BinaryIO, Dict, Iterator, Optional
 
 from botocore.client import BaseClient
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 from loguru import logger
 
 from shared.core.exceptions.domain_exceptions import StorageServiceException
-from shared.services.storage.storage_adapter import StorageAdapter
 from shared.services.storage.object_inventory_page import ObjectInventoryPage
+from shared.services.storage.source_upload_verification import SourceUploadVerification
+from shared.services.storage.storage_adapter import StorageAdapter
 
 
 class S3StorageAdapter(StorageAdapter):
@@ -27,6 +31,42 @@ class S3StorageAdapter(StorageAdapter):
 
     def close(self) -> None:
         self.s3_client.close()
+
+    def verify_upload_integrity(
+        self, key: str, bucket: str, *, size_bytes: int, checksum_sha256: str
+    ) -> SourceUploadVerification:
+        """Read the S3-validated checksum and length of a single PUT object."""
+        checked_at = datetime.now(timezone.utc)
+        try:
+            result = self.s3_client.head_object(
+                Bucket=bucket, Key=key, ChecksumMode="ENABLED"
+            )
+        except ClientError as error:
+            code = error.response.get("Error", {}).get("Code")
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                return SourceUploadVerification(status="missing", checked_at=checked_at)
+            raise StorageServiceException(
+                internal_message=f"S3 upload verification failed ({code})",
+                operation="verify_upload_integrity",
+                original_exception=error,
+            ) from error
+        except BotoCoreError as error:
+            raise StorageServiceException(
+                internal_message=f"S3 upload verification failed ({type(error).__name__})",
+                operation="verify_upload_integrity",
+                original_exception=error,
+            ) from error
+        matches = (
+            result.get("ContentLength") == size_bytes
+            and result.get("ChecksumSHA256") == checksum_sha256
+            and result.get("ChecksumType") != "COMPOSITE"
+        )
+        last_modified = result.get("LastModified")
+        return SourceUploadVerification(
+            status="matched" if matches else "mismatch",
+            checked_at=checked_at,
+            last_modified=last_modified if isinstance(last_modified, datetime) else None,
+        )
 
     def _get_bucket(self, bucket: Optional[str] = None) -> str:
         """Get the effective bucket name."""

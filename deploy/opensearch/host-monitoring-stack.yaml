@@ -1,0 +1,167 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Host monitoring for the shared Knowhere OpenSearch node. Lives in its own
+  stack so that monitoring changes never update the host stack.
+  Deploy as knowhere-opensearch-monitoring; see deploy/opensearch/README.md.
+
+Parameters:
+  HostRoleName:
+    Type: String
+    Description: IAM role of the OpenSearch host instance profile (HostRole in the host stack).
+  HostInstanceId:
+    Type: AWS::EC2::Instance::Id
+    Description: The shared OpenSearch EC2 instance.
+  AgentConfigurationName:
+    Type: String
+    Default: AmazonCloudWatch-knowhere-opensearch
+  AlertTopicName:
+    Type: String
+    Default: knowhere-staging-ecs-alerts
+    Description: Existing SNS topic that receives the *-action-required alarms.
+
+Resources:
+  AgentMetricsPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: KnowhereOpenSearchCloudWatchAgent
+      Roles:
+        - !Ref HostRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublishAgentMetricsOnly
+            Effect: Allow
+            Action: cloudwatch:PutMetricData
+            Resource: "*"
+            Condition:
+              StringEquals:
+                cloudwatch:namespace: CWAgent
+          - Sid: ReadAgentConfiguration
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AgentConfigurationName}
+
+  AgentConfiguration:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Ref AgentConfigurationName
+      Type: String
+      Description: CloudWatch agent configuration for the shared OpenSearch node
+      Value: |
+        {
+          "metrics": {
+            "namespace": "CWAgent",
+            "append_dimensions": {"InstanceId": "${aws:InstanceId}"},
+            "metrics_collected": {
+              "disk": {
+                "measurement": ["used_percent"],
+                "resources": ["/var/lib/knowhere-opensearch"],
+                "drop_device": true,
+                "metrics_collection_interval": 60
+              },
+              "procstat": [
+                {
+                  "pattern": "org.opensearch.bootstrap.OpenSearch",
+                  "measurement": ["pid_count"],
+                  "metrics_collection_interval": 60
+                }
+              ]
+            }
+          }
+        }
+
+  # Individual alarms carry no actions; the composite alarm below notifies,
+  # matching the existing *-action-required alarms in this account.
+  StatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: knowhere-opensearch-status-check-failed
+      AlarmDescription: EC2 system or instance status check failed for 3 consecutive minutes on the shared OpenSearch host.
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref HostInstanceId
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Threshold: 1
+      TreatMissingData: notBreaching
+
+  ProcessDownAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: knowhere-opensearch-process-down
+      AlarmDescription: No OpenSearch process for 3 consecutive minutes. Missing data counts as down, so a dead host or agent also triggers it.
+      Namespace: CWAgent
+      MetricName: procstat_lookup_pid_count
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref HostInstanceId
+        - Name: pattern
+          Value: org.opensearch.bootstrap.OpenSearch
+        - Name: pid_finder
+          Value: native
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      ComparisonOperator: LessThanThreshold
+      Threshold: 1
+      TreatMissingData: breaching
+
+  DiskHighAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: knowhere-opensearch-data-disk-high
+      AlarmDescription: OpenSearch data volume at or above 75% for 15 minutes. OpenSearch stops allocating shards at 85% and blocks writes at 95%.
+      Namespace: CWAgent
+      MetricName: disk_used_percent
+      Dimensions:
+        - Name: path
+          Value: /var/lib/knowhere-opensearch
+        - Name: InstanceId
+          Value: !Ref HostInstanceId
+        - Name: fstype
+          Value: xfs
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Threshold: 75
+      TreatMissingData: notBreaching
+
+  CpuHighAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: knowhere-opensearch-cpu-high
+      AlarmDescription: Shared OpenSearch host CPU averaged 85% or more for 15 minutes.
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref HostInstanceId
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Threshold: 85
+      TreatMissingData: notBreaching
+
+  ActionRequiredAlarm:
+    Type: AWS::CloudWatch::CompositeAlarm
+    Properties:
+      AlarmName: knowhere-opensearch-action-required
+      AlarmDescription: The shared OpenSearch node (staging and production indexes) needs attention.
+      AlarmRule: !Sub >-
+        ALARM("${StatusCheckAlarm}") OR ALARM("${ProcessDownAlarm}")
+        OR ALARM("${DiskHighAlarm}") OR ALARM("${CpuHighAlarm}")
+      ActionsEnabled: true
+      AlarmActions:
+        - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${AlertTopicName}
+      OKActions:
+        - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${AlertTopicName}

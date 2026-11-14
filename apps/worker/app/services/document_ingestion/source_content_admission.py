@@ -12,11 +12,14 @@ from shared.core.database_sync import get_sync_db_context
 from shared.core.exceptions.domain_exceptions import (
     ConflictException,
     NotFoundException,
+    ValidationException,
 )
 from shared.models.database.document import Document
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
+from shared.models.schemas.source_integrity import SourceIntegrity
 
 _HASH_FIELD: str = "source_content_sha256"
 _SIZE_FIELD: str = "source_size_bytes"
@@ -34,6 +37,7 @@ class _SourceScope:
     namespace: str
     is_demo: bool
     reparse_document_id: str | None = None
+    source_integrity: SourceIntegrity | None = None
 
 
 class SourceContentAdmission:
@@ -52,6 +56,12 @@ class SourceContentAdmission:
         size: int = Path(local_file_path).stat().st_size
         fingerprint: dict[str, object] = {_HASH_FIELD: digest, _SIZE_FIELD: size}
         scope: _SourceScope = self._load_scope(job_id)
+        expected = scope.source_integrity
+        if expected is not None and (digest != expected.sha256 or size != expected.size_bytes):
+            raise ValidationException(
+                user_message="The downloaded file does not match the expected original",
+                violations=[{"field": "source_integrity", "description": "Downloaded length or SHA-256 does not match"}],
+            )
         with get_sync_db_context() as database:
             if not scope.is_demo:
                 self._lock_content_claim(database, scope, digest)
@@ -82,6 +92,7 @@ class SourceContentAdmission:
                 ),
                 is_demo=metadata.get("corpus_target") == "DEMO",
                 reparse_document_id=reparse_document_id,
+                source_integrity=JobMetadataHelper.get_source_integrity(metadata),
             )
 
     @staticmethod

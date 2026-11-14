@@ -13,7 +13,10 @@ from shared.core.exceptions.domain_exceptions import (
     NotFoundException,
 )
 from shared.models.database.job import Job
+from shared.models.schemas.job_metadata import JobMetadataHelper
+from shared.services.jobs.source_upload_deadline import get_remaining_source_upload_seconds
 from shared.services.retrieval.demo_job_scope import validate_job_corpus
+from shared.services.storage.file_upload_service import FileUploadService
 from shared.services.storage.job_file_storage import JobFileStorage
 
 
@@ -35,6 +38,22 @@ async def renew_source_upload(
             resource_id=job_id,
         )
     extension: str = "." + job.s3_key.rsplit(".", 1)[-1] if "." in job.s3_key else ""
+    source_integrity = JobMetadataHelper.get_source_integrity(job.job_metadata)
+    if source_integrity is not None:
+        remaining = get_remaining_source_upload_seconds(job.created_at)
+        if remaining == 0:
+            raise ConflictException(
+                user_message="The source upload has expired.",
+                reason="ABORTED",
+                resource="Job",
+                resource_id=job_id,
+            )
+        return await FileUploadService().generate_verified_upload_url(
+            storage_key=job.s3_key,
+            file_extension=extension,
+            source_integrity=source_integrity,
+            expiration=remaining,
+        )
     return await asyncio.to_thread(
         JobFileStorage().generate_upload_url, job_id=job_id, file_extension=extension
     )
