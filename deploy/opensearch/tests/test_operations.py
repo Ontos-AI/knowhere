@@ -138,15 +138,95 @@ def test_preserves_namespace_publication_and_deployment_probe_search(roleName: s
         "indices:monitor/stats", "indices:admin/create", "indices:admin/open", "indices:admin/close",
         "indices:data/write/bulk*", "indices:data/write/index", "indices:data/read/count",
     }
+    expectedClusterActions: set[str] = {
+        "cluster:monitor/main", "cluster:monitor/state", "cluster:monitor/health", "indices:data/write/bulk",
+    }
     if roleName == "knowhere_worker":
-        expectedNamespaceActions.add("indices:data/write/delete/byquery")
+        # Build cleanup is _delete_by_query?refresh=true: scroll, bulk delete, then refresh.
+        expectedNamespaceActions |= {
+            "indices:data/write/delete/byquery", "indices:data/write/delete", "indices:admin/refresh",
+        }
+        expectedClusterActions.add("indices:data/read/scroll")
 
     assert getIndexActions(role, f"{prefix}-{namespaceSuffix}") == expectedNamespaceActions
     assert getIndexActions(role, f"{prefix}-deployment-probe") == {"indices:data/read/search*"}
     assert getIndexActions(role, f"knowhere-prod-lexical-v1-{namespaceSuffix}") == set()
-    assert set(role["cluster_permissions"]) == {
-        "cluster:monitor/main", "cluster:monitor/state", "cluster:monitor/health", "indices:data/write/bulk",
+    assert set(role["cluster_permissions"]) == expectedClusterActions
+
+
+def createSharedNodeRole(prefix: str, cluster: list[str], actions: list[str]) -> dict[str, object]:
+    """A hand-maintained role on the shared node: one wildcard over the environment prefix."""
+    return {"reserved": False, "cluster_permissions": cluster, "tenant_permissions": [], "index_permissions": [
+        {"index_patterns": [f"{prefix}-*"], "allowed_actions": actions, "dls": "", "fls": [], "masked_fields": []},
+    ]}
+
+
+def test_application_role_check_passes_the_rendered_roles() -> None:
+    operations: type = loadOperations()
+    prefix: str = "knowhere-staging-lexical-v1"
+    roles: dict[str, object] = cast(dict[str, object], operations.renderBundle({**createManifest(), "index_prefix": prefix})["roles.yml"])
+
+    result: dict[str, object] = operations.checkApplicationRoles(roles, indexPrefix=prefix, rolePrefix="knowhere_")
+
+    assert result["passed"] is True
+    assert result["missing"] == {"knowhere_api": [], "knowhere_worker": []}
+
+
+def test_application_role_check_reports_the_read_only_production_api_role() -> None:
+    operations: type = loadOperations()
+    prefix: str = "knowhere-prod-lexical-v1"
+    namespace: str = f"{prefix}-{'0' * 48}"
+    manifest: str = f"{prefix}-published-manifests"
+    roles: dict[str, object] = {
+        "knowhere_prod_api": createSharedNodeRole(prefix,
+            ["cluster:monitor/main", "cluster:monitor/state", "cluster:monitor/health"],
+            ["indices:data/read/search*", "indices:admin/get", "indices:monitor/settings/get",
+                "indices:monitor/stats", "indices:data/read/count"]),
+        "knowhere_prod_worker": createSharedNodeRole(prefix,
+            ["cluster:monitor/main", "cluster:monitor/state", "cluster:monitor/health",
+                "indices:data/write/bulk", "indices:data/read/scroll"],
+            ["indices:data/read/search*", "indices:admin/get", "indices:monitor/settings/get",
+                "indices:monitor/stats", "indices:admin/create", "indices:admin/open", "indices:admin/close",
+                "indices:data/write/bulk*", "indices:data/write/index", "indices:data/read/count",
+                "indices:data/write/delete/byquery", "indices:data/write/delete", "indices:admin/refresh"]),
     }
+
+    result: dict[str, object] = operations.checkApplicationRoles(roles, indexPrefix=prefix, rolePrefix="knowhere_prod_")
+
+    assert result["passed"] is False
+    assert result["missing"] == {
+        "knowhere_prod_api": [
+            "cluster indices:data/write/bulk",
+            f"{namespace} indices:admin/create", f"{namespace} indices:admin/open",
+            f"{namespace} indices:admin/close", f"{namespace} indices:data/write/bulk*",
+            f"{namespace} indices:data/write/index",
+            f"{manifest} indices:admin/create", f"{manifest} indices:data/read/get",
+            f"{manifest} indices:data/write/index",
+        ],
+        "knowhere_prod_worker": [f"{manifest} indices:data/read/get"],
+    }
+
+
+def test_application_role_check_reports_a_missing_role_and_a_non_matching_regex() -> None:
+    operations: type = loadOperations()
+    prefix: str = "knowhere-staging-lexical-v1"
+    roles: dict[str, object] = cast(dict[str, object], operations.renderBundle({**createManifest(), "index_prefix": prefix})["roles.yml"])
+    worker: dict[str, object] = cast(dict[str, object], roles["knowhere_worker"])
+    # A pattern for 47-character fingerprints never matches a namespace index.
+    narrowed: list[dict[str, object]] = [
+        {**permission, "index_patterns": [f"/{prefix}-[a-f0-9]{{47}}/"]}
+        if str(permission["index_patterns"][0]).startswith("/") else permission
+        for permission in cast(list[dict[str, list[str]]], worker["index_permissions"])
+    ]
+
+    result: dict[str, object] = operations.checkApplicationRoles(
+        {"knowhere_worker": {**worker, "index_permissions": narrowed}}, indexPrefix=prefix, rolePrefix="knowhere_")
+
+    missing: dict[str, list[str]] = cast(dict[str, list[str]], result["missing"])
+    assert result["passed"] is False
+    assert "cluster cluster:monitor/main" in missing["knowhere_api"]
+    assert f"{prefix}-{'0' * 48} indices:admin/refresh" in missing["knowhere_worker"]
+    assert not any("published-manifests" in gap for gap in missing["knowhere_worker"])
 
 
 def getIndexActions(role: _Role, index: str) -> set[str]:

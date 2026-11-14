@@ -315,44 +315,76 @@ PRODUCTION_OPENSEARCH: dict[str, str] = {
 }
 
 
-@pytest.mark.parametrize("is_enabled", [False, True])
-def test_production_cli_requires_opt_in_and_keeps_postgresql(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, is_enabled: bool
-) -> None:
+def _renderProduction(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, isEnabled: bool, backend: str | None,
+) -> dict[str, dict[str, object]]:
     import sys
 
     from render_task_definitions import main
 
     for name, value in {**PRODUCTION_VARIABLES, **PRODUCTION_OPENSEARCH}.items():
         monkeypatch.setenv(name, value)
-    monkeypatch.setenv("PROD_LEXICAL_BACKEND", "opensearch")
+    if backend is None:
+        monkeypatch.delenv("PROD_LEXICAL_BACKEND", raising=False)
+    else:
+        monkeypatch.setenv("PROD_LEXICAL_BACKEND", backend)
     arguments = ["render", "--environment", "production", "--output-dir", str(tmp_path)]
-    if is_enabled:
+    if isEnabled:
         arguments.append("--production-opensearch")
     monkeypatch.setattr(sys, "argv", arguments)
-
     main()
+    return {
+        service: json.loads((tmp_path / f"knowhere-{service}-prod.json").read_text())["containerDefinitions"][0]
+        for service in ("api", "worker")
+    }
 
-    for service in ("api", "worker"):
-        container = json.loads(
-            (tmp_path / f"knowhere-{service}-prod.json").read_text()
-        )["containerDefinitions"][0]
+
+@pytest.mark.parametrize("backend", ["postgresql", "opensearch"])
+def test_production_cli_renders_the_backend_read_by_the_release(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, backend: str
+) -> None:
+    containers = _renderProduction(monkeypatch, tmp_path, isEnabled=True, backend=backend)
+    for service, container in containers.items():
         environment = {item["name"]: item["value"] for item in container["environment"]}
         secrets = {item["name"]: item["valueFrom"] for item in container["secrets"]}
-        if is_enabled:
-            assert environment["KNOWHERE_LEXICAL_BACKEND"] == "postgresql"
-            assert environment["KNOWHERE_OPENSEARCH_URL"] == PRODUCTION_OPENSEARCH["PROD_OPENSEARCH_URL"]
-            assert environment["KNOWHERE_OPENSEARCH_INDEX_PREFIX"] == "knowhere-prod-lexical-v1"
-            assert secrets["KNOWHERE_PROD_NATIVE_TLS"] == PRODUCTION_OPENSEARCH[
-                f"PROD_OPENSEARCH_{service.upper()}_TLS_PARAMETER"
-            ]
-            assert "KNOWHERE_STAGING_NATIVE_TLS" not in secrets
-            assert container["entryPoint"] == [
-                "/app/venv/bin/python", "-m", "shared.services.retrieval.lexical.ecs_entrypoint", service
-            ]
-        else:
-            assert "KNOWHERE_LEXICAL_BACKEND" not in environment
-            assert "KNOWHERE_PROD_NATIVE_TLS" not in secrets
+        assert environment["KNOWHERE_LEXICAL_BACKEND"] == backend
+        assert environment["KNOWHERE_OPENSEARCH_URL"] == PRODUCTION_OPENSEARCH["PROD_OPENSEARCH_URL"]
+        assert environment["KNOWHERE_OPENSEARCH_INDEX_PREFIX"] == "knowhere-prod-lexical-v1"
+        assert secrets["KNOWHERE_PROD_NATIVE_TLS"] == PRODUCTION_OPENSEARCH[
+            f"PROD_OPENSEARCH_{service.upper()}_TLS_PARAMETER"
+        ]
+        assert "KNOWHERE_STAGING_NATIVE_TLS" not in secrets
+        assert container["entryPoint"] == [
+            "/app/venv/bin/python", "-m", "shared.services.retrieval.lexical.ecs_entrypoint", service
+        ]
+
+
+@pytest.mark.parametrize("backend", [None, "postgresql"])
+def test_production_cli_without_opensearch_keeps_the_postgresql_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, backend: str | None
+) -> None:
+    containers = _renderProduction(monkeypatch, tmp_path, isEnabled=False, backend=backend)
+    for container in containers.values():
+        environment = {item["name"]: item["value"] for item in container["environment"]}
+        secrets = {item["name"]: item["valueFrom"] for item in container["secrets"]}
+        assert "KNOWHERE_LEXICAL_BACKEND" not in environment
+        assert "KNOWHERE_PROD_NATIVE_TLS" not in secrets
+
+
+def test_production_cli_refuses_opensearch_without_its_tls_attachment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with pytest.raises(ValueError, match="requires --production-opensearch"):
+        _renderProduction(monkeypatch, tmp_path, isEnabled=False, backend="opensearch")
+
+
+def test_production_render_rejects_an_unknown_backend(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Unsupported production lexical backend"):
+        render_template(
+            TEMPLATE_DIRECTORY / "task-definition-api.staging.json",
+            tmp_path / "api.json",
+            {**PRODUCTION_VARIABLES, **PRODUCTION_OPENSEARCH, "PROD_LEXICAL_BACKEND": "elastic"},
+        )
 
 
 @pytest.mark.parametrize(

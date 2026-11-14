@@ -320,7 +320,11 @@ def _parseArguments() -> argparse.Namespace:
     release.add_argument("--first-impact", required=True)
     release.add_argument("--restoration-seconds", required=True, type=int)
     release.add_argument("--margin-seconds", required=True, type=int)
-    for command in (preflight, cost, snapshot, cycle, bootstrap, verify, retention, restore, recovery, alerts, release):
+    roles = commands.add_parser("application-roles", help="Compare live API and worker roles with the rendered roles")
+    roles.add_argument("--roles", required=True, type=Path, help="GET /_plugins/_security/api/roles response")
+    roles.add_argument("--index-prefix", required=True)
+    roles.add_argument("--role-prefix", required=True, choices=("knowhere_", "knowhere_prod_"))
+    for command in (preflight, cost, snapshot, cycle, bootstrap, verify, retention, restore, recovery, alerts, release, roles):
         command.add_argument("--output", type=Path)
     return parser.parse_args()
 
@@ -387,10 +391,13 @@ def _main() -> int:
         previous: dict[str, object] = _requireObject(_readJson(arguments.state)) if arguments.state.exists() else {}
         result = OpenSearchOperations.evaluateAlerts(_readJson(arguments.metrics), previous, nowSeconds=int(datetime.now(timezone.utc).timestamp()), repeatSeconds=arguments.repeat_seconds)
         _writeJson(arguments.state, result["state"], replace=arguments.state.exists())
+    elif command == "application-roles":
+        result = OpenSearchOperations.checkApplicationRoles(_readJson(arguments.roles),
+            indexPrefix=arguments.index_prefix, rolePrefix=arguments.role_prefix)
     else:
         result = OpenSearchOperations.planRelease(datetime.fromisoformat(arguments.first_impact), restorationSeconds=arguments.restoration_seconds, marginSeconds=arguments.margin_seconds)
     _emit(result, arguments.output)
-    return 0
+    return 1 if command == "application-roles" and not result["passed"] else 0
 
 
 if __name__ == "__main__":

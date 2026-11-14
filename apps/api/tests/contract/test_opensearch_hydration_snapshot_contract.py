@@ -24,7 +24,6 @@ def test_build_hydration_keeps_replaced_chunks_and_shares_unchanged_payloads(
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
 
-    from shared.core.config import settings
     from shared.core.exceptions.domain_exceptions import UnavailableException
     from shared.models.database.document import Document, DocumentChunk, DocumentSection
     from shared.models.database.indexing import IndexingAttempt
@@ -226,9 +225,6 @@ def test_build_hydration_keeps_replaced_chunks_and_shares_unchanged_payloads(
                         inlineArguments.update(arguments)
                         return tuple(nativeHits)
 
-                    monkeypatch.setattr(
-                        settings, "KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP", True
-                    )
                     monkeypatch.setattr(reader, "searchAsync", searchInline)
                     filtered = await discover({"image"})
                     assert [

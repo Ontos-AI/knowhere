@@ -476,12 +476,12 @@ class IndexingWorker:
             prepared = publication.prepare(scope=claim.context.scope, documentId=claim.context.documentId,
                 buildId=claim.buildId, native=native)
             try:
-                return self._activate(claim) if prepared is None else self._activate(claim, prepared)
+                return self._activate(claim, prepared)
             except ManifestPublicationAdvanced:
                 continue
         raise ManifestPublicationAdvanced("Namespace manifest kept advancing during publication", isRetryable=True)
 
-    def _activate(self, claim: _Claim, prepared: PreparedManifest | None = None) -> Literal["completed"]:
+    def _activate(self, claim: _Claim, prepared: PreparedManifest) -> Literal["completed"]:
         eventId: str | None = None
         deferCopy: bool = settings.KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND
         with self._transaction() as db:
@@ -490,7 +490,7 @@ class IndexingWorker:
             context: _Context = claim.context
             metadata: dict[str, object] = dict(locked.job.job_metadata or {})
             oldBuildId: str | None = locked.document.current_indexing_build_id
-            if prepared is not None and oldBuildId is not None:
+            if oldBuildId is not None:
                 BuildSnapshot.capture(db, scope=context.scope, buildId=oldBuildId)
             locked.document.current_job_result_id = context.revisionId
             locked.document.current_indexing_build_id = claim.buildId
@@ -515,10 +515,8 @@ class IndexingWorker:
                     old.state = "retired"
                     old.retirementGeneration = generation.generation
                     old.cleanupState = "pending"
-                    old.retainForManifestReads = prepared is not None
+                    old.retainForManifestReads = True
             locked.build.state = "published"
-            if prepared is not None:
-                BuildSnapshot.capture(db, scope=context.scope, buildId=claim.buildId)
             ManifestPublication.activate(db, prepared, previousGeneration=generationBefore,
                 publishedGeneration=generation.generation)
             locked.build.activationGeneration = generation.generation

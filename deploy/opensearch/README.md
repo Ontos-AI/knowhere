@@ -368,9 +368,26 @@ lost-volume goals. Historical snapshot restoration is a separate result.
 Release 1 keeps PostgreSQL primary, deploys compatible API and worker artifacts,
 drains old ECS tasks, and performs bounded native shadow backfill and verification.
 Release 2 executes the source-owned gate/settle/backfill/verify/resume sequence
-under the original traffic disruption clock. The existing compatible PostgreSQL
+under the original traffic disruption clock. After a resume that selects
+OpenSearch, the bridge runs `seed-manifests` in batches until no namespace is
+left, before smoke tests and reopening. Resume retires every manifest; seeding
+writes only each namespace's current build list, so eligible reads use
+manifests from the first request instead of after each namespace's next
+publication. The existing compatible PostgreSQL
 rollback uses its own reviewed task definitions and source coverage verification.
 It preserves additive schema, parsed results, charges and logical events.
+
+Application roles on the shared node are maintained by hand, so check them
+against the rendered roles before Release 2 and after any role change. Save the
+security API's `GET /_plugins/_security/api/roles` response with the admin
+certificate, then run
+`manage.py application-roles --roles <saved-response> --index-prefix <prefix> --role-prefix <knowhere_prod_|knowhere_>`.
+It lists every rendered action that a live API or worker role does not grant
+and exits 1 until none are missing. Both roles write: the API publishes builds
+when it retries indexing and writes a manifest when it archives a document, and
+the worker's build cleanup scrolls, bulk-deletes and refreshes. A missing action
+shows up only as HTTP 403 on that path, for example retrieval returning 503 or
+retired builds that are never collected.
 
 Use `launch-issuer.py --kind operator` with the `release` child command shown
 by `operator.py --help`. Review separate plans for `phase:"prepare"`,
@@ -382,6 +399,10 @@ deployment record binds an existing ECS cluster/service, role (`api` or
 `worker`), container, expected prior and target task-definition ARNs, immutable
 image digest and reviewed task environment. Register and review the existing
 task definitions via the repository's approved ECS release process first.
+Ordinary releases render the backend recorded in `lexical_backend_control` and
+stop while it is gated, so render the forward target with
+`PROD_LEXICAL_BACKEND=opensearch` and `--production-opensearch` explicitly.
+After the switch, ordinary releases render OpenSearch on their own.
 
 Bind private/public HTTPS origins and smoke lists. Each list needs actual phase
 and retrieval/citation evidence cases. Read-only smoke runs behind the closed

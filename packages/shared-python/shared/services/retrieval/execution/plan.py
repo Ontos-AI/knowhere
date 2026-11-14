@@ -165,7 +165,7 @@ class RetrievalExecutionPlan:
                 namespace=request.namespace, bind=bind, isClassic=request.use_agentic is False,
                 preferContentCoverage=request.use_agentic is False and request.include_document_ids is not None)
             admittedManifest: bool = (
-                settings.KNOWHERE_OPENSEARCH_MANIFEST_LOOKUP and reader.isClassic
+                reader.isClassic
                 and reader.scope.corpusKind == "private" and not request.signal_paths
                 and await reader.startManifestAsync(documentScope=request.build_route_context().document_scope,
                     chunkTypes=request.resolve_allowed_chunk_types(), topK=request.top_k)

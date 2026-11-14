@@ -591,9 +591,13 @@ async def test_manual_retry_waits_in_original_async_handler_until_publication(
     async def rejectExecutor(*arguments: object, **options: object) -> None:
         raise AssertionError("Primary indexing was transferred to an executor")
 
+    async def writeManifest(self: AsyncOpenSearchLexicalIndex, **options: object) -> None:
+        return None
+
     monkeypatch.setattr(AsyncLexicalCoordination, "ensureIndex", ensure)
     monkeypatch.setattr(AsyncOpenSearchLexicalIndex, "getIndexUuid", getIdentity)
     monkeypatch.setattr(AsyncOpenSearchLexicalIndex, "writeBuild", write)
+    monkeypatch.setattr(AsyncOpenSearchLexicalIndex, "writePublishedManifest", writeManifest)
     monkeypatch.setattr(LegacyCopyDispatch, "submit", submitCopy)
     monkeypatch.setattr(asyncio, "to_thread", rejectExecutor)
     asyncEngine = create_async_engine(get_contract_database_url())
@@ -832,6 +836,7 @@ def test_expired_activation_does_not_commit_prepared_publication(
         writes.append(buildId)
 
     monkeypatch.setattr(OpenSearchLexicalIndex, "writeBuild", writeBuild)
+    monkeypatch.setattr(OpenSearchLexicalIndex, "writePublishedManifest", lambda self, **options: None)
     monkeypatch.setattr(LegacyCopyDispatch, "submit", staticmethod(lambda _buildId: False))
     elapsed: list[float] = [0.0]
     monkeypatch.setattr(deadline, "time", SimpleNamespace(monotonic=lambda: elapsed[0]))

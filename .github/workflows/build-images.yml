@@ -512,6 +512,44 @@ jobs:
           resolve_image knowhere-backend api_image
           resolve_image knowhere-worker worker_image
 
+      - name: Read lexical backend from the database control row
+        id: lexical_backend
+        # Render the backend the database serves. A gated control row means an
+        # operator backend transition is in progress, so the release stops.
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_MIGRATION_DATABASE_URL }}
+          API_IMAGE: ${{ steps.images.outputs.api_image }}
+          ENVIRONMENT: staging
+          S3_BUCKET_NAME: knowhere-storage-staging
+          S3_TEMP_PATH: /tmp
+          TMP_PATH: /tmp/aismart_bid
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecr get-login-password --region "${AWS_ECS_STAGING_REGION}" \
+            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+          selection="$(docker run --rm \
+            --env DATABASE_URL \
+            --env S3_BUCKET_NAME \
+            --env S3_TEMP_PATH \
+            --env TMP_PATH \
+            --env DB_SSL_MODE=require \
+            --env ENVIRONMENT \
+            --entrypoint python \
+            "${API_IMAGE}" \
+            -m shared.services.retrieval.lexical.deployment_backend)"
+          backend="$(printf '%s\n' "${selection}" | sed -n 's/^KNOWHERE_LEXICAL_BACKEND=//p' | tail -n 1)"
+          case "${backend}" in
+            postgresql|opensearch)
+              echo "Lexical backend from the control row: ${backend}"
+              echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
+              ;;
+            *)
+              echo "::error::The release could not read a serving lexical backend from the control row."
+              exit 1
+              ;;
+          esac
+
       - name: Render ECS task definitions
         env:
           API_IMAGE: ${{ steps.images.outputs.api_image }}
@@ -538,7 +576,7 @@ jobs:
           API_MEMORY: "1024"
           WORKER_CPU: "2048"
           WORKER_MEMORY: "4096"
-          STAGING_LEXICAL_BACKEND: ${{ vars.STAGING_LEXICAL_BACKEND }}
+          STAGING_LEXICAL_BACKEND: ${{ steps.lexical_backend.outputs.backend }}
           STAGING_OPENSEARCH_URL: ${{ secrets.STAGING_OPENSEARCH_URL }}
           STAGING_OPENSEARCH_INDEX_PREFIX: ${{ secrets.STAGING_OPENSEARCH_INDEX_PREFIX }}
           STAGING_OPENSEARCH_API_TLS_PARAMETER: ${{ secrets.STAGING_OPENSEARCH_API_TLS_PARAMETER }}
@@ -783,6 +821,44 @@ jobs:
           resolve_image knowhere-backend api_image
           resolve_image knowhere-worker worker_image
 
+      - name: Read lexical backend from the database control row
+        id: lexical_backend
+        # Render the backend the database serves. A gated control row means an
+        # operator backend transition is in progress, so the release stops.
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_MIGRATION_DATABASE_URL }}
+          API_IMAGE: ${{ steps.images.outputs.api_image }}
+          ENVIRONMENT: production
+          S3_BUCKET_NAME: knowhere-storage-prod
+          S3_TEMP_PATH: /tmp
+          TMP_PATH: /tmp/aismart_bid
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecr get-login-password --region "${AWS_ECS_PROD_REGION}" \
+            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+          selection="$(docker run --rm \
+            --env DATABASE_URL \
+            --env S3_BUCKET_NAME \
+            --env S3_TEMP_PATH \
+            --env TMP_PATH \
+            --env DB_SSL_MODE=disable \
+            --env ENVIRONMENT \
+            --entrypoint python \
+            "${API_IMAGE}" \
+            -m shared.services.retrieval.lexical.deployment_backend)"
+          backend="$(printf '%s\n' "${selection}" | sed -n 's/^KNOWHERE_LEXICAL_BACKEND=//p' | tail -n 1)"
+          case "${backend}" in
+            postgresql|opensearch)
+              echo "Lexical backend from the control row: ${backend}"
+              echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
+              ;;
+            *)
+              echo "::error::The release could not read a serving lexical backend from the control row."
+              exit 1
+              ;;
+          esac
+
       - name: Render ECS task definitions
         env:
           API_IMAGE: ${{ steps.images.outputs.api_image }}
@@ -813,6 +889,7 @@ jobs:
           PROD_OPENSEARCH_URL: ${{ secrets.PROD_OPENSEARCH_URL }}
           PROD_OPENSEARCH_API_TLS_PARAMETER: ${{ secrets.PROD_OPENSEARCH_API_TLS_PARAMETER }}
           PROD_OPENSEARCH_WORKER_TLS_PARAMETER: ${{ secrets.PROD_OPENSEARCH_WORKER_TLS_PARAMETER }}
+          PROD_LEXICAL_BACKEND: ${{ steps.lexical_backend.outputs.backend }}
         shell: bash
         run: |
           set -euo pipefail

@@ -79,12 +79,13 @@ def test_existing_gate_stays_closed_until_control_deployment_and_actual_smoke_ma
         assert cloud.actions[0]["Type"] == "fixed-response"
         return {"verb": verb, "errors": [], "execute": True, "sourceHash": "a" * 64,
             "control": {"backend": "opensearch", "mode": "serving" if verb in ("resume", "inspect") else "gated", "epoch": 4},
-            "coverage": {"complete": True}, "settledJobs": 0, "backfilledRevisions": 0}
+            "coverage": {"complete": True}, "settledJobs": 0, "backfilledRevisions": 0,
+            "seededNamespaces": 3 if stages.count("seed-manifests") == 1 else 0}
 
     def respond(_request: httpx.Request) -> httpx.Response:
         assert cloud.actions[0]["Type"] == "fixed-response"
         assert cloud.definition == "new-task"
-        assert stages[-1] == "resume"
+        assert stages[-1] == "seed-manifests"
         return httpx.Response(200, json={"status": "done"})
 
     with httpx.Client(base_url="http://127.0.0.1:19001", transport=httpx.MockTransport(respond)) as client:
@@ -92,7 +93,7 @@ def test_existing_gate_stays_closed_until_control_deployment_and_actual_smoke_ma
             persist=lambda value: journal.append(json.loads(json.dumps(value))))
     assert result["status"] == "serving-smoke-passed"
     assert cloud.calls[0] == "gate-closed" and cloud.calls[-1] == "gate-open"
-    assert stages == ["inspect", "gate", "settle", "backfill", "verify", "resume"]
+    assert stages == ["inspect", "gate", "settle", "backfill", "verify", "resume", "seed-manifests", "seed-manifests"]
     assert all(record.get("customer_gate") != "open" for record in journal[:-1])
 
 
@@ -113,7 +114,10 @@ def test_known_abort_rolls_back_to_original_pg_without_resetting_disruption_cloc
     bridge: type = loadBridge()
     cloud: FakeDeployment = FakeDeployment()
 
+    calls: list[tuple[str, str]] = []
+
     def transition(verb: str, backend: str) -> dict[str, object]:
+        calls.append((verb, backend))
         return {"verb": verb, "errors": [], "execute": True, "sourceHash": "a" * 64,
             "control": {"backend": backend, "mode": "serving" if verb in ("resume", "inspect") else "gated", "epoch": 4},
             "coverage": {"complete": True}, "settledJobs": 0, "backfilledRevisions": 0}
@@ -136,6 +140,7 @@ def test_known_abort_rolls_back_to_original_pg_without_resetting_disruption_cloc
     assert final["first_customer_impact_at"] == first["first_customer_impact_at"]
     assert final["status"] == "serving-smoke-passed"
     assert cloud.calls == ["gate-closed", "deploy", "deploy", "gate-open"]
+    assert ("seed-manifests", "postgresql") not in calls
 
 
 def test_lost_gate_issuance_retains_unknown_and_forbids_rollback() -> None:
