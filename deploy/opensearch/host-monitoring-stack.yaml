@@ -18,8 +18,31 @@ Parameters:
     Type: String
     Default: knowhere-staging-ecs-alerts
     Description: Existing SNS topic that receives the *-action-required alarms.
+  MetricsBucketName:
+    Type: String
+    Description: Existing bucket that receives the node metrics records (the shared OpenSearch bucket).
+  MetricsKeyPrefix:
+    Type: String
+    Default: opensearch/shared/metrics
+    Description: Key prefix for node metrics records; matches KNOWHERE_METRICS_PREFIX on the host.
 
 Resources:
+  # Write-only: the recorder can put records under its own prefix and cannot
+  # read, list or delete any object. The live store prefixes are not covered.
+  MetricsArchivePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: KnowhereOpenSearchMetricsArchive
+      Roles:
+        - !Ref HostRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: WriteMetricsRecordsOnly
+            Effect: Allow
+            Action: s3:PutObject
+            Resource: !Sub arn:${AWS::Partition}:s3:::${MetricsBucketName}/${MetricsKeyPrefix}/*
+
   AgentMetricsPolicy:
     Type: AWS::IAM::Policy
     Properties:
