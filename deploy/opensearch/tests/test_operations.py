@@ -343,12 +343,22 @@ def test_retention_keeps_three_verified_points_even_when_older_than_seven_days()
 
 def test_restore_reserves_before_each_batch_and_counts_open_reserved_uncertain() -> None:
     operations: type = loadOperations()
-    plan = operations.planRestore([f"index-{index}" for index in range(45)], openCount=350, reservedCount=20, uncertainCount=10, batchLimit=32)
+    plan = operations.planRestore([f"index-{index}" for index in range(45)], openCount=350, reservedCount=20, uncertainCount=10, batchLimit=32,
+        openIndexLimit=400)
     assert [len(batch["indices"]) for batch in plan["batches"]] == [20, 20, 5]
     assert plan["batches"][0]["actions"] == ["reserve", "restore", "verify-identities-and-boundary", "close-idle", "reconcile-and-release"]
     assert plan["recheck_capacity_before_each_batch"] is True
     with pytest.raises(ValueError, match="capacity"):
-        operations.planRestore(["index-one"], openCount=400, reservedCount=0, uncertainCount=0, batchLimit=32)
+        operations.planRestore(["index-one"], openCount=400, reservedCount=0, uncertainCount=0, batchLimit=32, openIndexLimit=400)
+
+
+def test_restore_plans_batches_within_the_environment_open_index_limit() -> None:
+    operations: type = loadOperations()
+    plan = operations.planRestore([f"index-{index}" for index in range(25)], openCount=85, reservedCount=0, uncertainCount=0, batchLimit=32,
+        openIndexLimit=100)
+    assert [len(batch["indices"]) for batch in plan["batches"]] == [15, 10]
+    with pytest.raises(ValueError, match="capacity"):
+        operations.planRestore(["index-one"], openCount=100, reservedCount=0, uncertainCount=0, batchLimit=32, openIndexLimit=100)
 
 
 def test_recovery_refuses_unfenced_issuer_or_missing_current_published_boundary() -> None:

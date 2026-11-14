@@ -106,6 +106,8 @@ def test_staging_opensearch_uses_role_specific_tls(
     assert environment["KNOWHERE_LEXICAL_BACKEND"] == (backend or "postgresql")
     assert environment["KNOWHERE_OPENSEARCH_URL"] == STAGING_OPENSEARCH["STAGING_OPENSEARCH_URL"]
     assert environment["KNOWHERE_OPENSEARCH_INDEX_PREFIX"] == STAGING_OPENSEARCH["STAGING_OPENSEARCH_INDEX_PREFIX"]
+    assert (environment["KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT"], environment["KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK"],
+        environment["KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK"]) == ("100", "90", "80")
     assert secrets["KNOWHERE_STAGING_NATIVE_TLS"] == STAGING_OPENSEARCH[
         f"STAGING_OPENSEARCH_{service.upper()}_TLS_PARAMETER"
     ]
@@ -350,6 +352,8 @@ def test_production_cli_renders_the_backend_read_by_the_release(
         assert environment["KNOWHERE_LEXICAL_BACKEND"] == backend
         assert environment["KNOWHERE_OPENSEARCH_URL"] == PRODUCTION_OPENSEARCH["PROD_OPENSEARCH_URL"]
         assert environment["KNOWHERE_OPENSEARCH_INDEX_PREFIX"] == "knowhere-prod-lexical-v1"
+        assert (environment["KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT"], environment["KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK"],
+            environment["KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK"]) == ("400", "360", "320")
         assert secrets["KNOWHERE_PROD_NATIVE_TLS"] == PRODUCTION_OPENSEARCH[
             f"PROD_OPENSEARCH_{service.upper()}_TLS_PARAMETER"
         ]

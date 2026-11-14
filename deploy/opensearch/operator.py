@@ -185,6 +185,7 @@ def _releaseEmptyShadow(arguments: argparse.Namespace, manifest: dict[str, objec
 
 def _backup(arguments: argparse.Namespace, manifest: dict[str, object], plan: dict[str, object],
         authority: OperatorAuthority, progress: dict[str, object], persist: Callable[[dict[str, object]], None]) -> dict[str, object]:
+    from shared.core.config import settings
     from shared.core.database_sync import get_sync_session_factory
     from shared.services.retrieval.lexical.backup_inventory import LexicalBackupInventory
     from shared.services.retrieval.lexical.clientconfig import NativeClientConfig
@@ -255,7 +256,7 @@ def _backup(arguments: argparse.Namespace, manifest: dict[str, object], plan: di
                 snapshotUuid=snapshotUuid, targetClusterUuid=str(plan["target_cluster_uuid"]),
                 targetIncarnation=str(plan["target_incarnation"]), operationId=str(uuid5(UUID(arguments.operation_id), snapshotUuid)),
                 batchLimit=int(str(plan["batch_limit"])), timeoutSeconds=float(str(plan["restore_timeout_seconds"])),
-                state=offline, verifyPayload=verifyPayload, admission=admission, readIssuer=authority.assertCurrent,
+                openIndexLimit=settings.KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT, state=offline, verifyPayload=verifyPayload, admission=admission, readIssuer=authority.assertCurrent,
                 cleanupClones=True, persist=saveOffline)
 
         result: dict[str, object] = BackupWorkflow.run(cast(_Source, source), sourceClient,

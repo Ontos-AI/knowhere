@@ -22,6 +22,12 @@ if TYPE_CHECKING:
         LexicalOfflineReservation,
     )
 
+def _capacity() -> int:
+    from shared.core.config import settings
+
+    return settings.KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT
+
+
 _NAME: re.Pattern[str] = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,254}$")
 _HASH: re.Pattern[str] = re.compile(r"^[a-f0-9]{64}$")
 _BINDINGS: tuple[str, ...] = (
@@ -91,8 +97,9 @@ def _parsePlan(value: dict[str, object]) -> dict[str, object]:
             )
         plan[name] = digest
     rows: list[dict[str, object]] = _records(value.get("indices"))
-    if not rows or len(rows) > 400:
-        raise ValueError("Offline restore batches require between one and 400 indices")
+    capacity: int = _capacity()
+    if not rows or len(rows) > capacity:
+        raise ValueError(f"Offline restore batches require between one and {capacity} indices")
     normalized: list[dict[str, object]] = []
     names: set[str] = set()
     originals: set[str] = set()
@@ -146,12 +153,13 @@ class LexicalOfflineAdmission:
         charged: set[str] = {name for name in chargedNames if not name.startswith(".")}
         selected: set[str] = set(selectedNames)
         after: int = len(native | charged | selected)
-        if after > 400:
+        capacity: int = _capacity()
+        if after > capacity:
             raise ValueError(
-                "Offline restore exceeds 400 native/open/reserved/uncertain business slots"
+                f"Offline restore exceeds {capacity} native/open/reserved/uncertain business slots"
             )
         return {
-            "cap": 400,
+            "cap": capacity,
             "charged_before": len(native | charged),
             "charged_after": after,
             "additional_slots": len(selected - native - charged),

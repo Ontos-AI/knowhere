@@ -89,7 +89,7 @@ class _Plan(BaseModel):
     recovery_source: Literal["snapshot", "live_remote"] = "snapshot"
     snapshot: _Snapshot | None = None
     remote_state: _RemoteState | None = None
-    indices: list[_Index] = Field(min_length=1, max_length=400)
+    indices: list[_Index] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validateSource(self) -> Self:
@@ -138,17 +138,17 @@ class RecoveryOperations:
 
     @staticmethod
     def validateReceipt(receipt: dict[str, object], inventory: object, *, verb: str, status: str,
-            epoch: int, operationId: str) -> None:
+            epoch: int, operationId: str, openIndexLimit: int) -> None:
         parsed: _Inventory = _Inventory.model_validate(inventory)
         if (receipt.get("mode") != verb or receipt.get("status") != status
                 or receipt.get("epoch") != epoch or receipt.get("operation_id") != operationId
                 or receipt.get("inventory_sha256") != RecoveryOperations.inventoryDigest(inventory)
                 or receipt.get("execute") is not True or receipt.get("errors") != []
-                or receipt.get("cap") != 400 or receipt.get("cluster_uuid") != parsed.plan.target_cluster_uuid):
+                or receipt.get("cap") != openIndexLimit or receipt.get("cluster_uuid") != parsed.plan.target_cluster_uuid):
             raise ValueError("Restore callback receipt is not an actual exact-epoch bound success")
         if verb == "reserve-restore":
             charged: object = receipt.get("charged_after")
-            if not isinstance(charged, int) or isinstance(charged, bool) or not 0 <= charged <= 400:
+            if not isinstance(charged, int) or isinstance(charged, bool) or not 0 <= charged <= openIndexLimit:
                 raise ValueError("Native restore requires the authoritative charged union to fit capacity")
 
     @staticmethod
@@ -179,13 +179,14 @@ class RecoveryOperations:
         return {name: mapping.restored_index_uuid for name, mapping in mappings.items()}
 
     @staticmethod
-    def submit(client: httpx.Client, inventory: object, *, epoch: int, operationId: str,
+    def submit(client: httpx.Client, inventory: object, *, epoch: int, operationId: str, openIndexLimit: int,
             reserve: Callable[[], dict[str, object]], persist: Callable[[dict[str, object]], None] | None = None) -> dict[str, object]:
         parsed: _Inventory = _Inventory.model_validate(inventory)
         if epoch < 1:
             raise ValueError("Restore requires a gated exact epoch")
         reservation: dict[str, object] = reserve()
-        RecoveryOperations.validateReceipt(reservation, inventory, verb="reserve-restore", status="reserved", epoch=epoch, operationId=operationId)
+        RecoveryOperations.validateReceipt(reservation, inventory, verb="reserve-restore", status="reserved", epoch=epoch,
+            operationId=operationId, openIndexLimit=openIndexLimit)
         result: dict[str, object] = {"operation_id": operationId, "epoch": epoch,
             "inventory_sha256": RecoveryOperations.inventoryDigest(inventory), "reservation": reservation,
             "reservation_held": True, "native_outcome": "intent", "reopen_traffic": False}
@@ -263,14 +264,15 @@ class RecoveryOperations:
 
 
     @staticmethod
-    def finish(client: httpx.Client, inventory: object, *, epoch: int, operationId: str,
+    def finish(client: httpx.Client, inventory: object, *, epoch: int, operationId: str, openIndexLimit: int,
             verify: Callable[[], dict[str, object]],
             release: Callable[[dict[str, object], dict[str, object]], dict[str, object]],
             persist: Callable[[dict[str, object]], None] | None = None) -> dict[str, object]:
         adopted: dict[str, str] = RecoveryOperations.validateAttestation(inventory)
         parsed: _Inventory = _Inventory.model_validate(inventory)
         verified: dict[str, object] = verify()
-        RecoveryOperations.validateReceipt(verified, inventory, verb="verify-restore", status="verified", epoch=epoch, operationId=operationId)
+        RecoveryOperations.validateReceipt(verified, inventory, verb="verify-restore", status="verified", epoch=epoch,
+            operationId=operationId, openIndexLimit=openIndexLimit)
         owners: dict[str, dict[str, object]] = {str(index["index_name"]): index for index in cast(list[dict[str, object]], verified.get("indices", []))}
         if set(owners) != set(adopted) or any(owners[name].get("restored_index_uuid") != identity or not owners[name].get("reservation_id") for name, identity in adopted.items()):
             raise ValueError("Verified close reservations do not cover the adopted index identities")
@@ -311,7 +313,8 @@ class RecoveryOperations:
             "identity_mapping": [mapping.model_dump(exclude_none=True) for mapping in parsed.attestation.identity_mapping],
         }}
         released: dict[str, object] = release(updated, verified)
-        RecoveryOperations.validateReceipt(released, updated, verb="release-restore", status="released", epoch=epoch, operationId=operationId)
+        RecoveryOperations.validateReceipt(released, updated, verb="release-restore", status="released", epoch=epoch,
+            operationId=operationId, openIndexLimit=openIndexLimit)
         result.update({"reservation_held": False, "native_outcome": "closed-and-reconciled", "release_receipt": released})
         if persist is not None:
             persist(result)
@@ -325,6 +328,8 @@ def _main() -> int:
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--inventory", required=True, type=Path)
     parser.add_argument("--epoch", required=True, type=int)
+    parser.add_argument("--open-index-limit", required=True, type=int,
+        help="KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT of the target environment")
     parser.add_argument("--operation-id", required=True)
     parser.add_argument("--journal", required=True, type=Path)
     parser.add_argument("--receipt-directory", required=True, type=Path)
@@ -348,6 +353,7 @@ def _main() -> int:
     installation: dict[str, object] = _requireObject(bundle["installation-receipt.json"])
     mode: str = "dry-run" if not arguments.execute else "execute"
     plan: dict[str, object] = {"mode": mode, "phase": arguments.phase, "epoch": arguments.epoch,
+        "open_index_limit": arguments.open_index_limit,
         "operation_id": arguments.operation_id, "inventory_sha256": digest,
         "transition_tool": str(transition), "source_hash": arguments.transition_source_hash,
         "operation_state_directory": str(arguments.operation_state_directory.resolve()),
@@ -420,7 +426,7 @@ def _main() -> int:
                 client.event_hooks["request"].append(guardMutation)
                 if arguments.phase == "submit":
                     result: dict[str, object] = RecoveryOperations.submit(client, inventory, epoch=arguments.epoch,
-                        operationId=arguments.operation_id, reserve=lambda: invoke("reserve-restore", arguments.inventory), persist=persist)
+                        operationId=arguments.operation_id, openIndexLimit=arguments.open_index_limit, reserve=lambda: invoke("reserve-restore", arguments.inventory), persist=persist)
                 else:
                     def release(updated: dict[str, object], _verified: dict[str, object]) -> dict[str, object]:
                         updatedPath: Path = arguments.receipt_directory / f"close-attestation-{uuid4().hex}.json"
@@ -428,7 +434,7 @@ def _main() -> int:
                         return invoke("release-restore", updatedPath, receipts["verify-restore"])
 
                     result = RecoveryOperations.finish(client, inventory, epoch=arguments.epoch, operationId=arguments.operation_id,
-                        verify=lambda: invoke("verify-restore", arguments.inventory, arguments.reservation), release=release, persist=persist)
+                        openIndexLimit=arguments.open_index_limit, verify=lambda: invoke("verify-restore", arguments.inventory, arguments.reservation), release=release, persist=persist)
             print(json.dumps({key: value for key, value in result.items() if key not in ("reservation", "verified_reservation", "release_receipt")}, indent=2))
             if result["native_outcome"] in ("submitted", "closed-and-reconciled"):
                 issuer.complete()

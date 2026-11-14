@@ -27,8 +27,16 @@ class PublicationConfig(BaseSettings):
         default=4 * 1024 * 1024, ge=1, le=32 * 1024 * 1024,
         description="Maximum UTF-8 NDJSON bytes per lexical bulk request.",
     )
-    KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK: int = Field(default=360, ge=1, le=400)
-    KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK: int = Field(default=320, ge=0, lt=400)
+    KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT: int = Field(
+        default=400, ge=1, le=1_000,
+        description=(
+            "Maximum opening, open, closing or uncertain business indexes under this prefix. "
+            "Environments sharing a node need limits that fit together; OpenSearch refuses "
+            "more than 1,000 open shards per node by default."
+        ),
+    )
+    KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK: int = Field(default=360, ge=1)
+    KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK: int = Field(default=320, ge=0)
     KNOWHERE_INDEXING_TIMEOUT_SECONDS: float = Field(default=10, gt=0, le=300)
     KNOWHERE_PG_INDEXING_TIMEOUT_SECONDS: float = Field(default=300, gt=0, le=3600)
     KNOWHERE_INDEXING_UNSTARTED_TIMEOUT_SECONDS: int = Field(default=300, ge=1, le=1800)
@@ -59,6 +67,8 @@ class PublicationConfig(BaseSettings):
 
     @model_validator(mode="after")
     def validateIdleWatermarks(self) -> Self:
+        if self.KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK > self.KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT:
+            raise ValueError("OpenSearch idle high watermark must not exceed the open index limit")
         if self.KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK >= self.KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK:
             raise ValueError("OpenSearch idle low watermark must be below the high watermark")
         return self
