@@ -63,7 +63,8 @@ INDEXES_PATH: Final[str] = "/_cat/indices?h=index,status,search.query_total&form
 
 
 class _Reader(Protocol):
-    def get(self, path: str) -> object: ...
+    def get(self, path: str) -> object:
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)
