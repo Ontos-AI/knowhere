@@ -32,7 +32,6 @@ from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
 from shared.services.retrieval.lexical.scope import LexicalScope
 
 _CHARGED: frozenset[str] = frozenset(("open", "opening", "closing", "uncertain"))
-_CAP: int = 400
 
 
 class _BuildPlan(BaseModel):
@@ -76,7 +75,7 @@ class _RemoteIndex(BaseModel):
 class _RemoteState(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     evidence_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    indices: tuple[_RemoteIndex, ...] = Field(min_length=1, max_length=400)
+    indices: tuple[_RemoteIndex, ...] = Field(min_length=1)
 
 
 class _RestorePlan(BaseModel):
@@ -90,7 +89,7 @@ class _RestorePlan(BaseModel):
     recovery_source: Literal["snapshot", "live_remote"] = "snapshot"
     snapshot: _SnapshotPlan | None = None
     remote_state: _RemoteState | None = None
-    indices: tuple[_IndexPlan, ...] = Field(min_length=1, max_length=400)
+    indices: tuple[_IndexPlan, ...] = Field(min_length=1)
 
 
 class _IdentityMapping(BaseModel):
@@ -145,6 +144,9 @@ class LexicalRestoreAdmission:
         if (plan.recovery_source == "snapshot" and (plan.snapshot is None or plan.remote_state is not None)
             or plan.recovery_source == "live_remote" and (plan.remote_state is None or plan.snapshot is not None)):
             raise ValueError("Restore inventory requires exactly its selected recovery source evidence")
+        capacity: int = settings.KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT
+        if len(plan.indices) > capacity or plan.remote_state is not None and len(plan.remote_state.indices) > capacity:
+            raise ValueError(f"Restore inventory exceeds the open index limit of {capacity}")
         planHash: str = sha256(json.dumps(inventory["plan"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         names: tuple[str, ...] = tuple(index.index_name for index in plan.indices)
         if len(set(names)) != len(names) or len({index.scope.fingerprint for index in plan.indices}) != len(names):
@@ -153,7 +155,7 @@ class LexicalRestoreAdmission:
             "epoch": expectedEpoch, "operation_id": operationId, "cluster_uuid": plan.target_cluster_uuid,
             "recovery_source": plan.recovery_source,
             "inventory_sha256": planHash, "indices": [], "charged_before": {"open": 0, "reserved": 0, "uncertain": 0},
-            "new_reservations": 0, "planned_new_reservations": 0, "cap": _CAP, "errors": []}
+            "new_reservations": 0, "planned_new_reservations": 0, "cap": capacity, "errors": []}
         native: OpenSearchLexicalIndex | None = None
         try:
             with self.sessions.begin() as db:
@@ -390,8 +392,9 @@ class LexicalRestoreAdmission:
                     raise _KnownRefusal("A closed namespace was restored open before reserving capacity")
                 newReservations += int(row.state not in _CHARGED)
                 additionalSlots += int(row.state not in _CHARGED and index.index_name not in extraOpen)
-            if len(charged) + len(extraOpen) + additionalSlots > _CAP:
-                raise _KnownRefusal("Restore batch exceeds the charged namespace capacity of 400")
+            capacity: int = settings.KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT
+            if len(charged) + len(extraOpen) + additionalSlots > capacity:
+                raise _KnownRefusal(f"Restore batch exceeds the charged namespace capacity of {capacity}")
             receipt["planned_new_reservations"] = newReservations
             receipt["additional_slots"] = additionalSlots
             receipt["charged_after"] = len(charged) + len(extraOpen) + additionalSlots

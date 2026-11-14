@@ -307,6 +307,8 @@ def _parseArguments() -> argparse.Namespace:
     for name in ("open", "reserved", "uncertain"):
         restore.add_argument("--" + name, required=True, type=int)
     restore.add_argument("--batch-limit", required=True, type=int)
+    restore.add_argument("--open-index-limit", required=True, type=int,
+        help="KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT of the target environment")
     recovery = commands.add_parser("recovery-plan")
     recovery.add_argument("--route", required=True, choices=("process", "healthy-volume", "live-remote", "full-snapshot"))
     recovery.add_argument("--fence", required=True, type=Path)
@@ -384,7 +386,8 @@ def _main() -> int:
     elif command == "retention":
         result = OpenSearchOperations.planRetention(cast(list[object], _readJson(arguments.points)), nowMillis=int(datetime.now(timezone.utc).timestamp() * 1000))
     elif command == "restore-plan":
-        result = OpenSearchOperations.planRestore(cast(list[str], _readJson(arguments.indices)), openCount=arguments.open, reservedCount=arguments.reserved, uncertainCount=arguments.uncertain, batchLimit=arguments.batch_limit)
+        result = OpenSearchOperations.planRestore(cast(list[str], _readJson(arguments.indices)), openCount=arguments.open, reservedCount=arguments.reserved, uncertainCount=arguments.uncertain, batchLimit=arguments.batch_limit,
+            openIndexLimit=arguments.open_index_limit)
     elif command == "recovery-plan":
         result = OpenSearchOperations.planRecovery(arguments.route, _readJson(arguments.fence), requiredBoundary=arguments.required_boundary, restoredBoundary=arguments.restored_boundary)
     elif command == "alerts":

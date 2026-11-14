@@ -293,9 +293,10 @@ class WorkloadSourceAdapter:
                     native.close()
             occupied: int = self._observeOccupied(coordinator, cohort.scopes[0].scope)
             actual: list[dict[str, object]] = [self._captureScope(selected, isPlanned=False) for selected in cohort.scopes]
-            if (actual != approved[name] or occupied > 400
-                or cohort.expected_slot_state == "closed_capacity_available" and occupied >= 400
-                or cohort.expected_slot_state == "closed_capacity_wait" and occupied != 400):
+            capacity: int = settings.KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT
+            if (actual != approved[name] or occupied > capacity
+                or cohort.expected_slot_state == "closed_capacity_available" and occupied >= capacity
+                or cohort.expected_slot_state == "closed_capacity_wait" and occupied != capacity):
                 raise ValueError("Precondition actual bindings/slots differ from the frozen cohort")
             cohorts[name] = {"mode": "actual", "artifact_sha256": cohort.artifact_sha256,
                 "observed_slot_state": cohort.expected_slot_state, "occupied_slots": occupied, "baseline": actual,

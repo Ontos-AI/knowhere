@@ -52,6 +52,18 @@ PROD_OPENSEARCH_VARIABLES: Final[tuple[str, ...]] = (
     "PROD_OPENSEARCH_WORKER_TLS_PARAMETER",
 )
 PROD_OPENSEARCH_INDEX_PREFIX: Final[str] = "knowhere-prod-lexical-v1"
+# Staging shares the production OpenSearch node, so it keeps a smaller open-index
+# budget. Production stays at 400 until the node is measured at a higher count.
+STAGING_OPENSEARCH_CAPACITY: Final[tuple[tuple[str, str], ...]] = (
+    ("KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT", "100"),
+    ("KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK", "90"),
+    ("KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK", "80"),
+)
+PROD_OPENSEARCH_CAPACITY: Final[tuple[tuple[str, str], ...]] = (
+    ("KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT", "400"),
+    ("KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK", "360"),
+    ("KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK", "320"),
+)
 LEXICAL_BACKENDS: Final[frozenset[str]] = frozenset({"postgresql", "opensearch"})
 
 
@@ -130,6 +142,7 @@ def configure_staging_opensearch(definition: object, variables: dict[str, str]) 
         backend=backend,
         url=variables["STAGING_OPENSEARCH_URL"],
         prefix=variables["STAGING_OPENSEARCH_INDEX_PREFIX"],
+        capacity=STAGING_OPENSEARCH_CAPACITY,
         parameters={"api": api_parameter, "worker": worker_parameter},
         secret_name="KNOWHERE_STAGING_NATIVE_TLS",
         module="staging_entrypoint",
@@ -168,6 +181,7 @@ def configure_production_opensearch(definition: object, variables: dict[str, str
         backend=backend,
         url=url,
         prefix=PROD_OPENSEARCH_INDEX_PREFIX,
+        capacity=PROD_OPENSEARCH_CAPACITY,
         parameters=parameters,
         secret_name="KNOWHERE_PROD_NATIVE_TLS",
         module="ecs_entrypoint",
@@ -180,6 +194,7 @@ def attach_opensearch(
     backend: str,
     url: str,
     prefix: str,
+    capacity: tuple[tuple[str, str], ...],
     parameters: dict[str, str],
     secret_name: str,
     module: str,
@@ -198,6 +213,7 @@ def attach_opensearch(
                 ("KNOWHERE_LEXICAL_BACKEND", backend),
                 ("KNOWHERE_OPENSEARCH_URL", url),
                 ("KNOWHERE_OPENSEARCH_INDEX_PREFIX", prefix),
+                *capacity,
             )
         )
         container["secrets"].append({"name": secret_name, "valueFrom": parameters[service]})

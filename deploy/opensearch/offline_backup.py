@@ -83,7 +83,7 @@ class OfflineBackupVerification:
     @staticmethod
     def run(client: httpx.Client, exportedReceipt: dict[str, object], *, snapshotName: str, snapshotUuid: str,
             targetClusterUuid: str, targetIncarnation: str, operationId: str, batchLimit: int, timeoutSeconds: float,
-            state: dict[str, object], verifyPayload: Callable[[dict[str, str], dict[str, object], list[str]], dict[str, object]],
+            openIndexLimit: int, state: dict[str, object], verifyPayload: Callable[[dict[str, str], dict[str, object], list[str]], dict[str, object]],
             admission: _Admission, readIssuer: Callable[[], dict[str, object]], cleanupClones: bool = False,
             persist: Callable[[dict[str, object]], None] | None = None, now: Callable[[], float] = time.monotonic,
             sleep: Callable[[float], None] = time.sleep) -> dict[str, object]:
@@ -92,7 +92,7 @@ class OfflineBackupVerification:
             raise ValueError("Offline restore issuer requires physical/native reconciliation before any new request")
         if persist is None:
             raise ValueError("Offline restore requires a durable write-ahead state callback")
-        if not 1 <= batchLimit <= 400 or timeoutSeconds <= 0 or re.fullmatch(r"[a-z0-9][a-z0-9_.-]+", snapshotName) is None:
+        if not 1 <= batchLimit <= openIndexLimit or timeoutSeconds <= 0 or re.fullmatch(r"[a-z0-9][a-z0-9_.-]+", snapshotName) is None:
             raise ValueError("Offline verification requires bounded capacity/time and exact snapshot name")
         inventory: list[dict[str, object]] = cast(list[dict[str, object]], exportedReceipt.get("inventory", []))
         names: list[str] = [str(index["name"]) for index in inventory]
@@ -169,8 +169,8 @@ class OfflineBackupVerification:
             if any(row.get("index") in mapping.values() for row in observed):
                 raise ValueError("Verification clone identity already exists; reconcile instead of replacing it")
             occupied: set[str] = {str(row["index"]) for row in observed if not str(row["index"]).startswith(".") and row.get("status") == "open"}
-            if len(occupied) + len(mapping) > 400:
-                raise ValueError("Offline restore cannot exceed 400 charged native/reserved/uncertain business slots")
+            if len(occupied) + len(mapping) > openIndexLimit:
+                raise ValueError(f"Offline restore cannot exceed {openIndexLimit} charged native/reserved/uncertain business slots")
             reservation: str = str(uuid5(token, ":".join(selected)))
             entries: list[dict[str, object]] = [{"original_index_name": original, "index_name": clone,
                 "reservation_id": reservation, "state": "opening"} for original, clone in mapping.items()]
@@ -184,7 +184,7 @@ class OfflineBackupVerification:
             progress["pending"] = pending
             save()
             proof: dict[str, object] = admission.reserve(plan, nativeOpenNames=tuple(sorted(occupied)), issuer=readIssuer())
-            if proof.get("status") != "reserved" or not isinstance(proof.get("charged_after"), int) or int(str(proof["charged_after"])) > 400:
+            if proof.get("status") != "reserved" or not isinstance(proof.get("charged_after"), int) or int(str(proof["charged_after"])) > openIndexLimit:
                 raise ValueError("Shared offline authority did not reserve the exact bounded batch")
             pending.update({"shared_reservation": proof, "charged_after": proof["charged_after"]})
             save()

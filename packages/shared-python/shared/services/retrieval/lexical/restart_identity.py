@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from shared.core.config import settings
 from shared.models.database.lexicalcontrol import LexicalBackendControl
 from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
 from shared.models.database.lexicaloperatorinvocation import LexicalOperatorInvocation
@@ -107,8 +108,9 @@ class LexicalRestartIdentity:
                     uncertain.append(row.indexName)
             charged: set[str] = {row.indexName for row in rows if row.state in ("open", "opening", "closing", "uncertain")}
             charged.update(name for name in observedNames if native.isOpen(name))
-            if len(charged) > 400:
-                raise LexicalIndexError("Native restart would exceed the 400-slot authoritative union")
+            capacity: int = settings.KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT
+            if len(charged) > capacity:
+                raise LexicalIndexError(f"Native restart would exceed the {capacity}-slot authoritative union")
             control.nodeIncarnation = expected.new_incarnation
             return {"status": "reconciled", "errors": [], "control": {"backend": control.backend,
                 "mode": control.mode, "epoch": control.epoch, "cluster_uuid": control.clusterUuid,

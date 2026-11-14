@@ -118,7 +118,7 @@ def test_full_backup_requires_actual_payload_read_and_releases_only_acknowledged
         def verify(sourceReceipt: dict[str, object], snapshot: dict[str, object]) -> dict[str, object]:
             assert snapshot["uuid"] == "snapshot-one"
             return verification.run(client, sourceReceipt, snapshotName="full-one", snapshotUuid="snapshot-one", targetClusterUuid="offline",
-                targetIncarnation="offline-node", operationId="11111111-1111-1111-1111-111111111111", batchLimit=2,
+                targetIncarnation="offline-node", operationId="11111111-1111-1111-1111-111111111111", batchLimit=2, openIndexLimit=400,
                 timeoutSeconds=10, state={}, verifyPayload=read, persist=persist, admission=LocalAdmission(), readIssuer=lambda: {"invocation_token": "local-issuer"}, cleanupClones=shouldCleanup)
 
         if shouldCleanup:
@@ -163,7 +163,7 @@ def test_full_backup_requires_actual_payload_read_and_releases_only_acknowledged
         else:
             result = verify(exported, {"uuid": "snapshot-one"})
         resumed = verification.run(client, exported, snapshotName="full-one", snapshotUuid="snapshot-one", targetClusterUuid="offline",
-            targetIncarnation="offline-node", operationId="11111111-1111-1111-1111-111111111111", batchLimit=2,
+            targetIncarnation="offline-node", operationId="11111111-1111-1111-1111-111111111111", batchLimit=2, openIndexLimit=400,
             timeoutSeconds=10, state=dict(state), verifyPayload=lambda *_arguments: pytest.fail("Known sealed batch was replayed"),
             persist=persist, admission=LocalAdmission(), readIssuer=lambda: {"invocation_token": "new-local-issuer"}, cleanupClones=shouldCleanup)
     assert result["data_verified"] is True
@@ -182,6 +182,6 @@ def test_unknown_restore_keeps_charge_and_never_reads_or_sends_opposite_close() 
     with httpx.Client(base_url="http://127.0.0.1:19201", transport=httpx.MockTransport(lambda _request: pytest.fail("Unknown issuer cannot issue another native request"))) as client:
         with pytest.raises(ValueError, match="reconciliation"):
             verification.run(client, createExport(), snapshotName="full-one", snapshotUuid="snapshot-one", targetClusterUuid="offline",
-                targetIncarnation="offline-node", operationId="11111111-1111-1111-1111-111111111111", batchLimit=2,
+                targetIncarnation="offline-node", operationId="11111111-1111-1111-1111-111111111111", batchLimit=2, openIndexLimit=400,
                 timeoutSeconds=10, state=state, verifyPayload=lambda *_values: pytest.fail("No read"),
                 admission=LocalAdmission(), readIssuer=lambda: {})

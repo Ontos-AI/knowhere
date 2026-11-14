@@ -240,7 +240,8 @@ actual host fingerprint and canonical operation-state directory. Keep the same
 workflow UUID and journal for recurring submissions; physical issuer UUIDs are
 always one-use. Use a new output receipt on each run.
 
-Before each restore batch, PostgreSQL admits at most 400 combined open,
+Before each restore batch, PostgreSQL admits at most
+`KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT` (400 by default) combined open,
 reserved and uncertain target indices. The verifier reads actual restored units
 and checks their frozen fingerprints. Close must acknowledge the exact verified
 clone, then source admission observes CLOSED before releasing its slot. Cleanup
@@ -325,7 +326,7 @@ namespaces created after the last snapshot. No snapshot catalog is required ther
 uv run --offline --frozen python deploy/opensearch/recovery.py submit \
   --manifest /private/knowhere-native/installation.json \
   --inventory /private/knowhere-native/restore-batch.json \
-  --epoch 42 --operation-id APPROVED_OPERATION_UUID \
+  --epoch 42 --open-index-limit 400 --operation-id APPROVED_OPERATION_UUID \
   --journal /private/knowhere-native/recovery/batch-journal.json \
   --receipt-directory /private/knowhere-native/recovery/receipts \
   --transition-source-hash APPROVED_SOURCE_HASH \
@@ -335,7 +336,9 @@ uv run --offline --frozen python deploy/opensearch/recovery.py submit \
 The default prints a plan. Approved execution uses `launch-issuer.py --kind recovery`
 with the same child arguments and an approval
 whose `restore_inventory_sha256` binds the exact reviewed plan. Admission happens
-before native restore and checks the authoritative charged union against 400.
+before native restore and checks the authoritative charged union against
+`KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT`. Pass the target environment's value as
+`--open-index-limit`; the plan records it and every admission receipt must match it.
 Already occupied native/registry slots are counted once. For live remote recovery,
 the adapter uses each reserve-phase ID as `X-Opaque-Id`, selecting all-shard restore
 for a closed index and unassigned-shard restore for an open index. Async acceptance
@@ -388,6 +391,16 @@ when it retries indexing and writes a manifest when it archives a document, and
 the worker's build cleanup scrolls, bulk-deletes and refreshes. A missing action
 shows up only as HTTP 403 on that path, for example retrieval returning 503 or
 retired builds that are never collected.
+
+Each environment caps its open namespace indexes with
+`KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT` and closes idle ones from
+`KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK` down to
+`KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK`. `deploy/ecs/render_task_definitions.py`
+renders 400/360/320 for production and 100/90/80 for staging. Staging shares the
+production node and neither limit counts the other prefix, so keep both limits
+plus system indexes below the node's `cluster.max_shards_per_node` (1,000 by
+default). Measure heap use and cold-open latency on the node before raising a
+limit.
 
 Use `launch-issuer.py --kind operator` with the `release` child command shown
 by `operator.py --help`. Review separate plans for `phase:"prepare"`,

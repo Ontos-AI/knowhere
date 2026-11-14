@@ -534,10 +534,11 @@ class OpenSearchOperations:
             "deletion_api": "DELETE /_snapshot/knowhere-full/{snapshot}", "s3_object_ttl": False}
 
     @staticmethod
-    def planRestore(indices: list[str], *, openCount: int, reservedCount: int, uncertainCount: int, batchLimit: int) -> dict[str, object]:
+    def planRestore(indices: list[str], *, openCount: int, reservedCount: int, uncertainCount: int, batchLimit: int,
+            openIndexLimit: int) -> dict[str, object]:
         if min(openCount, reservedCount, uncertainCount) < 0 or batchLimit < 1 or len(set(indices)) != len(indices):
             raise ValueError("Restore requires exact nonnegative capacity and unique index identities")
-        available: int = 400 - openCount - reservedCount - uncertainCount
+        available: int = openIndexLimit - openCount - reservedCount - uncertainCount
         if available <= 0:
             raise ValueError("No business restore capacity is available before reservation")
         size: int = min(available, batchLimit)
