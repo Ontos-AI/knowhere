@@ -342,6 +342,18 @@ publication. The existing compatible PostgreSQL
 rollback uses its own reviewed task definitions and source coverage verification.
 It preserves additive schema, parsed results, charges and logical events.
 
+Application roles on the shared node are maintained by hand, so check them
+against the rendered roles before Release 2 and after any role change. Save the
+security API's `GET /_plugins/_security/api/roles` response with the admin
+certificate, then run
+`manage.py application-roles --roles <saved-response> --index-prefix <prefix> --role-prefix <knowhere_prod_|knowhere_>`.
+It lists every rendered action that a live API or worker role does not grant
+and exits 1 until none are missing. Both roles write: the API publishes builds
+when it retries indexing and writes a manifest when it archives a document, and
+the worker's build cleanup scrolls, bulk-deletes and refreshes. A missing action
+shows up only as HTTP 403 on that path, for example retrieval returning 503 or
+retired builds that are never collected.
+
 Use `launch-issuer.py --kind operator` with the `release` child command shown
 by `operator.py --help`. Review separate plans for `phase:"prepare"`,
 `"forward"` and `"rollback"`. Each plan binds `account_id`, exact source hash,
