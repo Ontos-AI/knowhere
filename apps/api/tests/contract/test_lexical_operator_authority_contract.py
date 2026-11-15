@@ -615,3 +615,108 @@ def test_release_empty_shadow_while_postgresql_serves(
                 control = db.get(LexicalBackendControl, 1)
                 assert control is not None and (control.backend, control.mode, control.epoch) == ("postgresql", "serving", 7)
             assert _claim(authority, str(uuid4()))["status"] == "active"
+
+
+@pytest.mark.parametrize("unsafe", ["active", "stale", "gated", "running-migration", "writing-build", "lease",
+    "lifecycle", "index-operation", "fenced", None])
+def test_release_stopped_shadow_after_native_writes_while_postgresql_serves(
+    issuerRuntime: tuple[Engine, sessionmaker[Session]], unsafe: str | None
+) -> None:
+    from shared.models.database.document import Document
+    from shared.models.database.indexing import IndexingAttempt
+    from shared.models.database.job import Job
+    from shared.models.database.job_result import JobResult
+    from shared.models.database.lexicalbuild import LexicalBuild
+    from shared.models.database.lexicalcontrol import LexicalBackendControl
+    from shared.models.database.lexicallease import LexicalLease
+    from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
+    from shared.models.database.lexicaloperatorfence import LexicalOperatorFence
+    from shared.models.database.lexicaloperatorissuer import LexicalOperatorIssuer
+    from shared.models.database.user import User
+    from shared.services.retrieval.lexical.error import LexicalIndexError
+
+    _, factory = issuerRuntime
+    authority = _getAuthority(factory)
+    token = str(uuid4())
+    owner = _claim(authority, token)
+    authority.finish(invocationToken=token, hostIdentity=_HOST, operationId="restore-operation", isKnownOutcome=False)
+    with factory.begin() as db:
+        control = db.get(LexicalBackendControl, 1)
+        assert control is not None
+        control.backend = "postgresql"
+        control.mode = "gated" if unsafe == "gated" else "serving"
+        control.nodeIncarnation = "node-one"
+        db.add(User(id="shadow-owner", name="Shadow owner", email="shadow-owner@example.invalid"))
+        db.add(LexicalNamespaceIndex(id="scope", ownerId="shadow-owner", namespace="ns", corpusKind="private",
+            indexName="knowhere-prod-lexical-v1-" + "a" * 48, indexUuid="uuid-one",
+            state="opening" if unsafe == "lifecycle" else "open",
+            operationId=str(uuid4()) if unsafe == "index-operation" else None))
+        db.flush()
+        # The stopped issuer already published one build; a second write may still be in flight.
+        for position, state in enumerate(("succeeded", "running" if unsafe == "running-migration" else "succeeded")):
+            identity: str = f"shadow_{position}"
+            db.add_all([Document(document_id=f"doc_{identity}", user_id="shadow-owner", namespace="ns"),
+                Job(job_id=f"job_{identity}", user_id="shadow-owner", job_type="document_ingestion",
+                    source_type="file", status="done")])
+            db.flush()
+            db.add(JobResult(id=f"revision_{identity}", job_id=f"job_{identity}", document_id=f"doc_{identity}",
+                delivery_mode="url"))
+            db.flush()
+            db.add(IndexingAttempt(id=f"attempt_{identity}", jobId=f"job_{identity}", revisionId=f"revision_{identity}",
+                state=state, origin="migration"))
+            db.flush()
+            db.add(LexicalBuild(id=f"build_{identity}", attemptId=f"attempt_{identity}", namespaceIndexId="scope",
+                documentId=f"doc_{identity}", revisionId=f"revision_{identity}", ownerToken=token,
+                state="writing" if unsafe == "writing-build" and position == 1 else "published", legacyCopyState="completed"))
+        db.add(LexicalLease(namespaceIndexId="scope", kind="index_use", ownerToken=token, backendEpoch=7,
+            buildId="build_shadow_0", state="active" if unsafe == "lease" else "released",
+            expiresAt=datetime.now(timezone.utc) + timedelta(minutes=5)))
+
+    def setMode(mode: str) -> None:
+        with factory.begin() as db:
+            current = db.get(LexicalBackendControl, 1)
+            assert current is not None
+            current.mode = mode
+
+    if unsafe == "fenced":
+        # A host fence already reserved for this issuer keeps its own reconciliation path.
+        setMode("gated")
+        _reserveFence(authority, owner, str(uuid4()))
+        setMode("serving")
+    proof = _fence(owner)
+    proof["driver"] = "aws-ssm-stopped-issuer-v1"
+    proof["status"] = "stopped"
+    del proof["native_issuer_fenced"], proof["native_fence"]
+    cast(dict[str, object], proof["external"])["load_state"] = "not-found"
+    if unsafe == "stale":
+        proof["verified_at_utc"] = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
+    if unsafe == "active":
+        cast(dict[str, object], proof["external"])["cgroup_empty"] = False
+    fenceToken = str(uuid4())
+
+    def release() -> dict[str, object]:
+        return authority.releaseStoppedShadow(fenceToken=fenceToken, expectedSourceHash=_SOURCE_HASH,
+            expectedEpoch=7, stoppedReceipt=proof)
+
+    if unsafe:
+        with pytest.raises(LexicalIndexError):
+            release()
+        with factory() as db:
+            issuer = db.get(LexicalOperatorIssuer, _LOGICAL_CLUSTER)
+            assert issuer is not None and issuer.state == "unknown"
+            intent = db.get(LexicalOperatorFence, token)
+            assert intent is None or intent.state == "pending"
+        return
+    receipt = release()
+    assert receipt["status"] == "released" and receipt["invocation_token"] == token
+    assert receipt["control"] == {"backend": "postgresql", "mode": "serving", "epoch": 7,
+        "cluster_uuid": "cluster-one", "node_incarnation": "node-one"}
+    with pytest.raises(LexicalIndexError):
+        release()
+    with factory() as db:
+        intent = db.get(LexicalOperatorFence, token)
+        assert intent is not None and intent.state == "consumed" and intent.proofSha256 == receipt["fence_receipt_sha256"]
+        control = db.get(LexicalBackendControl, 1)
+        assert control is not None and (control.backend, control.mode, control.epoch) == ("postgresql", "serving", 7)
+        assert db.scalar(select(LexicalBuild.state).where(LexicalBuild.id == "build_shadow_0")) == "published"
+    assert _claim(authority, str(uuid4()))["status"] == "active"

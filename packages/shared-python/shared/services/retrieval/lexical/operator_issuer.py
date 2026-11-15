@@ -437,6 +437,58 @@ class LexicalOperatorAuthority:
             db.flush()
             return {**_project(issuer), "native_indexes": catalog, "node_incarnation": control.nodeIncarnation}
 
+    def releaseStoppedShadow(self, *, fenceToken: str, expectedSourceHash: str, expectedEpoch: int,
+                             stoppedReceipt: dict[str, object]) -> dict[str, object]:
+        """Release a stopped shadow backfill issuer while PostgreSQL still serves.
+
+        Unlike an empty shadow, the old issuer may have published native builds. Those builds
+        serve nothing until a cutover, which verifies coverage itself, so release requires only
+        the observed stopped unit and no migration, lease, reservation or lifecycle work left in
+        flight. Fencing the native service instead would stop a node other environments share.
+        """
+        _checkToken(fenceToken)
+        _checkSource(expectedSourceHash)
+        try:
+            proof: _StoppedIssuer = _StoppedIssuer.model_validate(stoppedReceipt)
+        except ValidationError as error:
+            raise LexicalIndexError("Stopped shadow recovery requires an observed stopped issuer") from error
+        with self._lockControl() as (db, control):
+            _checkEpoch(control, expectedEpoch)
+            if (control.backend, control.mode, control.clusterUuid) != ("postgresql", "serving", proof.old_issuer.cluster_uuid):
+                raise LexicalIndexError("Stopped shadow recovery requires the exact PG-serving control")
+            issuer = db.scalar(select(LexicalOperatorIssuer).where(LexicalOperatorIssuer.controlId == 1).with_for_update())
+            if issuer is None or issuer.state != "unknown" or issuer.epoch != control.epoch:
+                raise LexicalIndexError("Stopped shadow recovery requires the exact unknown issuer in this epoch")
+            now: datetime = db.scalars(select(func.clock_timestamp())).one()
+            verifiedAt: datetime = _checkStoppedIssuer(proof, issuer, earliest=now - timedelta(minutes=2), now=now)
+            if (db.get(LexicalOperatorFence, issuer.invocationToken) is not None
+                or db.get(LexicalOperatorInvocation, fenceToken) is not None
+                or db.scalar(select(LexicalOperatorFence.fenceToken).where(LexicalOperatorFence.fenceToken == fenceToken)) is not None):
+                raise LexicalIndexError("Stopped shadow recovery cannot reuse a fence or invocation")
+            if (db.scalar(select(IndexingAttempt.id).where(IndexingAttempt.origin == "migration",
+                    IndexingAttempt.state.in_(("pending", "running"))).limit(1)) is not None
+                or db.scalar(select(LexicalBuild.id).join(IndexingAttempt, IndexingAttempt.id == LexicalBuild.attemptId).where(
+                    IndexingAttempt.origin == "migration", LexicalBuild.state == "writing").limit(1)) is not None
+                or db.scalar(select(LexicalLease.id).where(LexicalLease.state != "released").limit(1)) is not None
+                or db.scalar(select(LexicalOfflineReservation.indexName).where(LexicalOfflineReservation.state != "closed").limit(1)) is not None
+                or db.scalar(select(LexicalNamespaceIndex.id).where(
+                    (LexicalNamespaceIndex.operationId.is_not(None)) | LexicalNamespaceIndex.state.not_in(("open", "closed"))).limit(1)) is not None):
+                raise LexicalIndexError("Stopped shadow recovery found unfinished migration, lease or native lifecycle work")
+            binding: dict[str, object] = {"backend": control.backend, "mode": control.mode, "epoch": control.epoch,
+                "cluster_uuid": control.clusterUuid, "node_incarnation": control.nodeIncarnation}
+            proofHash: str = sha256(json.dumps({"issuer": stoppedReceipt, "control": binding},
+                sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            now = db.scalars(select(func.clock_timestamp())).one()
+            db.add(LexicalOperatorFence(oldInvocationToken=issuer.invocationToken, fenceToken=fenceToken,
+                oldBindingSha256=_getOwnerBindingHash(issuer), sourceHash=expectedSourceHash, epoch=control.epoch,
+                clusterUuid=control.clusterUuid, controlBackend=control.backend, nodeIncarnation=control.nodeIncarnation,
+                state="consumed", reservedAt=verifiedAt, proofSha256=proofHash, provenAt=now, consumedAt=now))
+            issuer.state = "released"
+            issuer.releasedAt = now
+            issuer.fenceReceiptSha256 = proofHash
+            db.flush()
+            return {**_project(issuer), "control": binding}
+
     def reserveFence(self, *, expectedOwnerReceipt: dict[str, object], fenceToken: str,
                      expectedSourceHash: str, expectedEpoch: int, expectedClusterUuid: str) -> dict[str, object]:
         _checkToken(fenceToken)
