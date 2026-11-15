@@ -191,8 +191,9 @@ def _releaseStoppedShadow(arguments: argparse.Namespace, manifest: dict[str, obj
 
     if LexicalTransition.getSourceHash() != arguments.source_hash:
         raise ValueError("Stopped shadow recovery source differs from its reviewed identity")
-    if progress.get("status") == "released":
-        raise ValueError("Stopped shadow authority was already released; use its existing journal")
+    if progress and progress.get("status") != "stopped-shadow-observed":
+        # Another recovery's journal, such as a reserved fence, must keep its own reconciliation path.
+        raise ValueError("Stopped shadow recovery requires a new journal or its own observed retry")
     owner: dict[str, object] = _getPlanOwner(arguments.plan.parent, manifest, plan)
     token: str = str(UUID(arguments.issuer_token))
     if token == owner["invocation_token"] or owner["epoch"] != arguments.epoch:

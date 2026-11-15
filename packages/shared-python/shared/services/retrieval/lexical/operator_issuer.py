@@ -445,6 +445,12 @@ class LexicalOperatorAuthority:
         serve nothing until a cutover, which verifies coverage itself, so release requires only
         the observed stopped unit and no migration, lease, reservation or lifecycle work left in
         flight. Fencing the native service instead would stop a node other environments share.
+
+        The observation covers the issuer's own transient unit, where every reviewed launcher
+        runs its children. A writer started by hand outside that unit with the old token is not
+        observed, and the operation kind is not enforced: use this only for a shadow backfill
+        issuer, not for a backup issuer whose native snapshot work could still be running. A
+        process killed mid-build leaves work in flight, so this refuses and fence-host remains.
         """
         _checkToken(fenceToken)
         _checkSource(expectedSourceHash)
