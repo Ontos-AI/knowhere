@@ -129,7 +129,8 @@ aws cloudformation create-change-set --stack-name knowhere-opensearch-monitoring
   --change-set-name <name> --capabilities CAPABILITY_IAM \
   --template-body file://deploy/opensearch/host-monitoring-stack.yaml \
   --parameters ParameterKey=HostRoleName,ParameterValue=<host role> \
-               ParameterKey=HostInstanceId,ParameterValue=<instance id>
+               ParameterKey=HostInstanceId,ParameterValue=<instance id> \
+               ParameterKey=MetricsBucketName,ParameterValue=<shared bucket>
 ```
 
 Install the agent once with the `AWS-ConfigureAWSPackage` SSM document
@@ -138,6 +139,57 @@ Install the agent once with the `AWS-ConfigureAWSPackage` SSM document
 parameter name from the stack. A replacement host needs both steps again and a
 stack update with its instance ID. These alarms watch the host and process,
 not search correctness.
+
+### Node metrics records
+
+`metrics_recorder.py` records the node every 30 minutes for later analysis. It
+raises no alarm and changes nothing on the node. Each run:
+
+- makes three filtered GET requests: node stats, cluster health and the index
+  listing;
+- reads only the JSON server log lines written since the previous run, and
+  counts completed opens and closes per namespace prefix plus the most opens in
+  any 10 seconds. Concurrent opens queue on the cluster manager, so that burst
+  is what makes cold opens slow;
+- writes one gzip JSON record of about 1 KB to `/var/lib/knowhere-metrics/outbox`
+  on the root volume and uploads it to
+  `s3://<shared bucket>/opensearch/shared/metrics/YYYY/MM/DD/`. A failed upload
+  stays in the outbox for the next run. Local copies are kept for 30 days and
+  200 MB at most.
+
+`counters` are cumulative: subtract consecutive records, and treat a smaller
+`node.jvmUptimeMillis` as a node restart. `activeNamespaces` counts open
+namespace indexes whose search count changed since the previous record. It
+includes non-user searches such as backfill verification, and a namespace opened
+and closed within one window appears only in `opens` and `closes`.
+`lifecycle.isComplete` is false on the first run and whenever a rotated log could
+not be read.
+
+The service runs at the lowest CPU and I/O priority with a 10% CPU and 128 MB
+memory cap. It reads OpenSearch with a client certificate already on the host
+and only sends GET requests. `MetricsArchivePolicy` lets the host role put
+objects under the metrics prefix and nothing else.
+
+Install or reinstall it on the host through SSM `AWS-RunShellScript` with the
+three files from this directory, then run it once and read its summary line. The
+environment file names the bucket, the region and the certificate files:
+
+```bash
+install -d -m 0700 /opt/knowhere-opensearch-metrics /etc/knowhere-opensearch-metrics
+install -m 0600 metrics_recorder.py /opt/knowhere-opensearch-metrics/
+install -m 0644 knowhere-opensearch-metrics.service knowhere-opensearch-metrics.timer /etc/systemd/system/
+cat > /etc/knowhere-opensearch-metrics/environment <<'EOF'
+KNOWHERE_METRICS_BUCKET=<shared bucket>
+KNOWHERE_METRICS_REGION=<region>
+KNOWHERE_OPENSEARCH_CA_FILE=<CA certificate>
+KNOWHERE_OPENSEARCH_CLIENT_CERT_FILE=<client certificate>
+KNOWHERE_OPENSEARCH_CLIENT_KEY_FILE=<client key>
+EOF
+systemctl daemon-reload
+systemctl start knowhere-opensearch-metrics.service
+journalctl -u knowhere-opensearch-metrics.service -n 1 --no-pager
+systemctl enable --now knowhere-opensearch-metrics.timer
+```
 
 ## Hourly independent full backups
 
@@ -240,7 +292,8 @@ actual host fingerprint and canonical operation-state directory. Keep the same
 workflow UUID and journal for recurring submissions; physical issuer UUIDs are
 always one-use. Use a new output receipt on each run.
 
-Before each restore batch, PostgreSQL admits at most 400 combined open,
+Before each restore batch, PostgreSQL admits at most
+`KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT` (400 by default) combined open,
 reserved and uncertain target indices. The verifier reads actual restored units
 and checks their frozen fingerprints. Close must acknowledge the exact verified
 clone, then source admission observes CLOSED before releasing its slot. Cleanup
@@ -287,6 +340,19 @@ does not prove that a native issuer stopped.
   release only before any migration attempt or native write. The shared native
   service stays online. Run the selected inputs through the read-only
   preflight under the pilot's temporary database role before retrying.
+- A shadow backfill that stopped after native writes while PostgreSQL is
+  serving can use `operator.py release-stopped-shadow` with the same
+  old-issuer plan. It observes the collected transient unit through SSM like
+  `release-empty-shadow`, then releases only when no migration attempt is
+  pending or running, no migration build is writing, no lease is unreleased,
+  no offline reservation is open, and no namespace index is mid-lifecycle.
+  Published shadow builds stay; they serve nothing until a cutover verifies
+  coverage. Use it instead of `fence-host` on a node that other environments
+  share, because `fence-host` stops `knowhere-opensearch.service`. It observes
+  only the issuer's own unit, so use it only for a shadow backfill issuer,
+  never for a backup issuer. An issuer killed mid-build leaves a running
+  attempt, writing build or uncertain lease, and the command refuses; use
+  `fence-host` then. Check each condition with read-only SQL before running it.
 - After a successful host restart, execute the source-owned
   `operator.py reconcile-restart` against the same recovery operation UUID in
   a new physical invocation. The plan binds `inventory_path`, `inventory_sha256`,
@@ -307,8 +373,8 @@ does not prove that a native issuer stopped.
   or restored durability. Newer published data can remain unavailable.
 
 Use the `launch-issuer.py --kind operator` form above with `fence-host`,
-`reconcile-fence`, `release-empty-shadow`, `recover-process`, `recover-volume`,
-or `reconcile-restart`.
+`reconcile-fence`, `release-empty-shadow`, `release-stopped-shadow`, `recover-process`,
+`recover-volume`, or `reconcile-restart`.
 For a takeover supply `--expected-issuer-token OLD_UUID --fence-receipt
 /private/actual-fence.json` to the child command. Never start both old and new
 native hosts against the retained data.
@@ -325,7 +391,7 @@ namespaces created after the last snapshot. No snapshot catalog is required ther
 uv run --offline --frozen python deploy/opensearch/recovery.py submit \
   --manifest /private/knowhere-native/installation.json \
   --inventory /private/knowhere-native/restore-batch.json \
-  --epoch 42 --operation-id APPROVED_OPERATION_UUID \
+  --epoch 42 --open-index-limit 600 --operation-id APPROVED_OPERATION_UUID \
   --journal /private/knowhere-native/recovery/batch-journal.json \
   --receipt-directory /private/knowhere-native/recovery/receipts \
   --transition-source-hash APPROVED_SOURCE_HASH \
@@ -335,7 +401,9 @@ uv run --offline --frozen python deploy/opensearch/recovery.py submit \
 The default prints a plan. Approved execution uses `launch-issuer.py --kind recovery`
 with the same child arguments and an approval
 whose `restore_inventory_sha256` binds the exact reviewed plan. Admission happens
-before native restore and checks the authoritative charged union against 400.
+before native restore and checks the authoritative charged union against
+`KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT`. Pass the target environment's value as
+`--open-index-limit`; the plan records it and every admission receipt must match it.
 Already occupied native/registry slots are counted once. For live remote recovery,
 the adapter uses each reserve-phase ID as `X-Opaque-Id`, selecting all-shard restore
 for a closed index and unassigned-shard restore for an open index. Async acceptance
@@ -388,6 +456,30 @@ when it retries indexing and writes a manifest when it archives a document, and
 the worker's build cleanup scrolls, bulk-deletes and refreshes. A missing action
 shows up only as HTTP 403 on that path, for example retrieval returning 503 or
 retired builds that are never collected.
+
+Each environment caps its open namespace indexes with
+`KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT` and closes idle ones from
+`KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK` down to
+`KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK`. `deploy/ecs/render_task_definitions.py`
+renders 600/540/480 for production and 100/90/80 for staging. Staging shares the
+production node and neither limit counts the other prefix, so keep both limits
+plus system indexes below the node's `cluster.max_shards_per_node` (1,000 by
+default). Measure heap use and cold-open latency on the node before raising a
+limit.
+
+The shared node (16 GiB heap, remote store) was measured with synthetic indexes
+of about 100 units each:
+
+- Old generation stayed at 0.27 GiB from 186 to 786 open shards, and searches on
+  open indexes stayed near 12 ms at p95. Heap is not the limit at these counts.
+- One cold open takes 0.9–1.1 s until the index is searchable. Concurrent opens
+  queue on the cluster manager at about 0.4 s each while CPU stays below 25%:
+  10 at once took up to 4 s, 20 up to 8 s and 50 up to 20 s. Searches on
+  already open indexes were unaffected.
+- Each lifecycle operation waits at most 5 s (`_WAIT_SECONDS` in
+  `coordination.py`), so a burst of more than about 12 cold opens fails the
+  later ones as retryable and journals those rows as uncertain. A higher open
+  limit keeps more namespaces warm and makes such bursts rarer.
 
 Use `launch-issuer.py --kind operator` with the `release` child command shown
 by `operator.py --help`. Review separate plans for `phase:"prepare"`,

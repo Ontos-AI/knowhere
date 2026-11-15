@@ -47,6 +47,14 @@ def createIdentityResponse() -> httpx.Response:
     return httpx.Response(200, json={"cluster_uuid": "new-cluster", "nodes": {"node-one": {"ephemeral_id": "new-node"}}})
 
 
+def test_restore_rejects_a_receipt_reserved_under_another_open_index_limit() -> None:
+    recovery: type = loadRecovery()
+    reservation: dict[str, object] = createReservation(recovery, createRestoreInventory(), verb="reserve-restore", status="reserved")
+    with pytest.raises(ValueError, match="exact-epoch bound success"):
+        recovery.validateReceipt(reservation, createRestoreInventory(), verb="reserve-restore", status="reserved", epoch=4,
+            operationId="operation-one", openIndexLimit=100)
+
+
 def test_restore_reserves_before_native_http_and_keeps_reservation_on_unknown_reply() -> None:
     recovery: type = loadRecovery()
     calls: list[str] = []
@@ -62,7 +70,7 @@ def test_restore_reserves_before_native_http_and_keeps_reservation_on_unknown_re
         raise httpx.ReadTimeout("Injected ambiguous restore reply", request=request)
 
     with httpx.Client(base_url="http://127.0.0.1:19200", transport=httpx.MockTransport(respond)) as client:
-        result = recovery.submit(client, createRestoreInventory(), epoch=4, operationId="operation-one", reserve=reserve)
+        result = recovery.submit(client, createRestoreInventory(), epoch=4, operationId="operation-one", openIndexLimit=400, reserve=reserve)
     assert calls == ["reserve", "native-restore"]
     assert result["native_outcome"] == "unknown"
     assert result["reservation_held"] is True
@@ -78,7 +86,7 @@ def test_adapter_target_identity_must_match_before_native_restore_even_after_adm
         return httpx.Response(200, json={"cluster_uuid": "different-cluster", "nodes": {"node-one": {"ephemeral_id": "new-node"}}})
 
     with httpx.Client(base_url="http://127.0.0.1:19200", transport=httpx.MockTransport(respond)) as client:
-        result = recovery.submit(client, createRestoreInventory(), epoch=4, operationId="operation-one",
+        result = recovery.submit(client, createRestoreInventory(), epoch=4, operationId="operation-one", openIndexLimit=400,
             reserve=lambda: createReservation(recovery, createRestoreInventory(), verb="reserve-restore", status="reserved"))
     assert calls == ["GET"]
     assert result["native_outcome"] == "unknown"
@@ -108,7 +116,7 @@ def test_refuses_native_restore_when_gate_or_admission_is_missing() -> None:
 
     with httpx.Client(base_url="http://127.0.0.1:19200", transport=httpx.MockTransport(respond)) as client:
         with pytest.raises(ValueError):
-            recovery.submit(client, createRestoreInventory(), epoch=4, operationId="operation-one", reserve=lambda: {"status": "unknown"})
+            recovery.submit(client, createRestoreInventory(), epoch=4, operationId="operation-one", openIndexLimit=400, reserve=lambda: {"status": "unknown"})
     assert count == 0
 
 
@@ -127,7 +135,7 @@ def test_refuses_authoritative_capacity_overflow_without_adding_fences_twice() -
     reservation["charged_after"] = 401
     with httpx.Client(base_url="http://127.0.0.1:19200", transport=httpx.MockTransport(lambda _request: pytest.fail("No native request is allowed over capacity"))) as client:
         with pytest.raises(ValueError):
-            recovery.submit(client, inventory, epoch=4, operationId="operation-one", reserve=lambda: reservation)
+            recovery.submit(client, inventory, epoch=4, operationId="operation-one", openIndexLimit=400, reserve=lambda: reservation)
 
 
 def test_closes_only_under_verified_reservation_and_releases_after_acknowledged_close() -> None:
@@ -155,7 +163,7 @@ def test_closes_only_under_verified_reservation_and_releases_after_acknowledged_
         return createReservation(recovery, inventory, verb="release-restore", status="released")
 
     with httpx.Client(base_url="http://127.0.0.1:19200", transport=httpx.MockTransport(respond)) as client:
-        result = recovery.finish(client, inventory, epoch=4, operationId="operation-one", verify=verify, release=release)
+        result = recovery.finish(client, inventory, epoch=4, operationId="operation-one", openIndexLimit=400, verify=verify, release=release)
     assert calls == ["verify", "close", "release"]
     assert result["reservation_held"] is False
     assert result["reopen_traffic"] is False
@@ -182,7 +190,7 @@ def test_live_remote_uses_held_reservation_and_needs_no_snapshot_catalog(state: 
         return httpx.Response(202, json={"accepted": True})
 
     with httpx.Client(base_url="http://127.0.0.1:19200", transport=httpx.MockTransport(respond)) as client:
-        result = recovery.submit(client, inventory, epoch=4, operationId="operation-one",
+        result = recovery.submit(client, inventory, epoch=4, operationId="operation-one", openIndexLimit=400,
             reserve=lambda: createReservation(recovery, inventory, verb="reserve-restore", status="reserved"))
     assert [request.method for request in calls] == ["GET", "POST"]
     assert result["native_outcome"] == "submitted"

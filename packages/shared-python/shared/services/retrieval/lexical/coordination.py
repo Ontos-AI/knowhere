@@ -30,7 +30,6 @@ from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.lexical.stage_observer import StageObserver
 
 
-_OPEN_LIMIT: int = 400
 _WAIT_SECONDS: float = 5.0
 _OPERATION_EXPIRY: timedelta = timedelta(seconds=15)
 _CHARGED_STATES: frozenset[str] = frozenset({"opening", "open", "closing", "uncertain"})
@@ -376,7 +375,7 @@ class LexicalCoordination:
                 return LexicalIndexError(
                     "Native index has no matching registry ownership"
                 )
-            if self._countOccupied(rows, inventory) >= _OPEN_LIMIT:
+            if self._countOccupied(rows, inventory) >= settings.KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT:
                 if any(item.state == "closing" for item in rows):
                     return _CAPACITY_WAIT
                 return self._reserveVictim(db, control, inventory) or _CAPACITY_WAIT

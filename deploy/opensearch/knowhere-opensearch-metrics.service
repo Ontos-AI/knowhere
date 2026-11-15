@@ -1,0 +1,23 @@
+# Installed as /etc/systemd/system/knowhere-opensearch-metrics.service; see
+# deploy/opensearch/README.md. Runs at the lowest CPU and I/O priority with hard
+# CPU and memory caps so recording never competes with OpenSearch.
+[Unit]
+Description=Record Knowhere OpenSearch node metrics for later analysis
+After=network-online.target knowhere-opensearch.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/knowhere-opensearch-metrics/environment
+ExecStart=/usr/bin/python3 -I /opt/knowhere-opensearch-metrics/metrics_recorder.py
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=10%
+MemoryMax=128M
+TimeoutStartSec=120
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only

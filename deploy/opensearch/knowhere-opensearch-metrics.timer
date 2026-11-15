@@ -1,0 +1,12 @@
+# Installed as /etc/systemd/system/knowhere-opensearch-metrics.timer. Minutes 05
+# and 35 keep runs clear of the server log's midnight rotation.
+[Unit]
+Description=Record Knowhere OpenSearch node metrics every 30 minutes
+
+[Timer]
+OnCalendar=*-*-* *:05,35:00
+Persistent=true
+Unit=knowhere-opensearch-metrics.service
+
+[Install]
+WantedBy=timers.target

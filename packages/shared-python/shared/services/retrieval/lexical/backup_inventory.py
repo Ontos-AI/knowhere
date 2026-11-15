@@ -546,8 +546,8 @@ class LexicalBackupInventory:
             or not snapshot
             or proof.get("inventory_sha256") != exported.get("inventory_sha256")
             or proof.get("boundary_sha256") != exported.get("boundary_sha256")
-            or proof.get("cap") != 400
-            or _integer(proof.get("charged_after")) > 400
+            or proof.get("cap") != settings.KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT
+            or _integer(proof.get("charged_after")) > settings.KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT
         ):
             raise LexicalIndexError(
                 "Offline restore admission does not bind this source, snapshot, target and capacity"
