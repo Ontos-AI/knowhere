@@ -183,6 +183,33 @@ def _releaseEmptyShadow(arguments: argparse.Namespace, manifest: dict[str, objec
     return result
 
 
+def _releaseStoppedShadow(arguments: argparse.Namespace, manifest: dict[str, object], plan: dict[str, object],
+                          progress: dict[str, object], persist: Callable[[dict[str, object]], None]) -> dict[str, object]:
+    from shared.core.database_sync import get_sync_session_factory
+    from shared.services.retrieval.lexical.operator_issuer import LexicalOperatorAuthority
+    from shared.services.retrieval.lexical.transition import LexicalTransition
+
+    if LexicalTransition.getSourceHash() != arguments.source_hash:
+        raise ValueError("Stopped shadow recovery source differs from its reviewed identity")
+    if progress and progress.get("status") != "stopped-shadow-observed":
+        # Another recovery's journal, such as a reserved fence, must keep its own reconciliation path.
+        raise ValueError("Stopped shadow recovery requires a new journal or its own observed retry")
+    owner: dict[str, object] = _getPlanOwner(arguments.plan.parent, manifest, plan)
+    token: str = str(UUID(arguments.issuer_token))
+    if token == owner["invocation_token"] or owner["epoch"] != arguments.epoch:
+        raise ValueError("Stopped shadow recovery requires a fresh invocation and the exact configured epoch")
+    cloud = _cloud(plan, manifest, token)
+    stopped: dict[str, object] = HostRecovery.observeStoppedIssuer(plan, ec2=cast(_EC2, cloud("ec2")),
+        ssm=cast(_SSM, cloud("ssm")), commandIdentity=token)
+    progress.update({"status": "stopped-shadow-observed", "stopped_issuer": stopped})
+    persist(progress)
+    result: dict[str, object] = LexicalOperatorAuthority(sessionFactory=get_sync_session_factory()).releaseStoppedShadow(
+        fenceToken=token, expectedSourceHash=arguments.source_hash, expectedEpoch=arguments.epoch, stoppedReceipt=stopped)
+    progress.update({"status": "released", "authority": result})
+    persist(progress)
+    return result
+
+
 def _backup(arguments: argparse.Namespace, manifest: dict[str, object], plan: dict[str, object],
         authority: OperatorAuthority, progress: dict[str, object], persist: Callable[[dict[str, object]], None]) -> dict[str, object]:
     from shared.core.config import settings
@@ -462,7 +489,7 @@ def _seedManifests(command: list[str], timeout: float, sourceReceipt: Path, auth
 def _main() -> int:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=(
-        "fence-host", "reconcile-fence", "release-empty-shadow", "recover-process", "recover-volume",
+        "fence-host", "reconcile-fence", "release-empty-shadow", "release-stopped-shadow", "recover-process", "recover-volume",
         "reconcile-restart", "backup", "release", "seed-manifests",
     ))
     parser.add_argument("--manifest", required=True, type=Path)
@@ -512,7 +539,7 @@ def _main() -> int:
     def persist(value: dict[str, object]) -> None:
         _writeJson(arguments.journal, {**value, "binding": binding}, replace=arguments.journal.exists())
 
-    if arguments.operation in ("fence-host", "reconcile-fence", "release-empty-shadow"):
+    if arguments.operation in ("fence-host", "reconcile-fence", "release-empty-shadow", "release-stopped-shadow"):
         lockPath: Path = arguments.journal.with_name(arguments.journal.name + ".lock")
         with lockPath.open("a") as lock:
             lockPath.chmod(0o600)
@@ -520,7 +547,8 @@ def _main() -> int:
             current: dict[str, object] = _requireObject(_readJson(arguments.journal)) if arguments.journal.exists() else {}
             if current != progress:
                 raise ValueError("Fence journal changed before physical admission; inspect its actual current state")
-            execute = _releaseEmptyShadow if arguments.operation == "release-empty-shadow" else _runFence
+            execute = {"release-empty-shadow": _releaseEmptyShadow,
+                "release-stopped-shadow": _releaseStoppedShadow}.get(arguments.operation, _runFence)
             result: dict[str, object] = execute(arguments, manifest, plan, progress, persist)
             _writeJson(arguments.output, result)
         return 0
