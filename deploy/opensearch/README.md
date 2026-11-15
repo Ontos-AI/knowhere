@@ -340,6 +340,15 @@ does not prove that a native issuer stopped.
   release only before any migration attempt or native write. The shared native
   service stays online. Run the selected inputs through the read-only
   preflight under the pilot's temporary database role before retrying.
+- A shadow backfill that stopped after native writes while PostgreSQL is
+  serving can use `operator.py release-stopped-shadow` with the same
+  old-issuer plan. It observes the collected transient unit through SSM like
+  `release-empty-shadow`, then releases only when no migration attempt is
+  pending or running, no migration build is writing, no lease is unreleased,
+  no offline reservation is open, and no namespace index is mid-lifecycle.
+  Published shadow builds stay; they serve nothing until a cutover verifies
+  coverage. Use it instead of `fence-host` on a node that other environments
+  share, because `fence-host` stops `knowhere-opensearch.service`.
 - After a successful host restart, execute the source-owned
   `operator.py reconcile-restart` against the same recovery operation UUID in
   a new physical invocation. The plan binds `inventory_path`, `inventory_sha256`,
@@ -360,8 +369,8 @@ does not prove that a native issuer stopped.
   or restored durability. Newer published data can remain unavailable.
 
 Use the `launch-issuer.py --kind operator` form above with `fence-host`,
-`reconcile-fence`, `release-empty-shadow`, `recover-process`, `recover-volume`,
-or `reconcile-restart`.
+`reconcile-fence`, `release-empty-shadow`, `release-stopped-shadow`, `recover-process`,
+`recover-volume`, or `reconcile-restart`.
 For a takeover supply `--expected-issuer-token OLD_UUID --fence-receipt
 /private/actual-fence.json` to the child command. Never start both old and new
 native hosts against the retained data.
