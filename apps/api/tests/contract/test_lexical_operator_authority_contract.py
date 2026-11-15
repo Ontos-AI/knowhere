@@ -617,8 +617,17 @@ def test_release_empty_shadow_while_postgresql_serves(
             assert _claim(authority, str(uuid4()))["status"] == "active"
 
 
-@pytest.mark.parametrize("unsafe", ["active", "stale", "gated", "running-migration", "writing-build", "lease",
-    "lifecycle", "index-operation", "fenced", None])
+# Each unsafe state maps to the refusal it must reach, so a reordered check cannot pass silently.
+_STOPPED_SHADOW_REFUSALS: dict[str, str] = {
+    "active": "fresh stopped unit", "stale": "fresh stopped unit", "gated": "exact PG-serving control",
+    "wrong-epoch": "exact backend epoch", "pending-migration": "unfinished", "running-migration": "unfinished",
+    "writing-build": "unfinished", "lease": "unfinished", "reservation": "unfinished", "lifecycle": "unfinished",
+    "uncertain-index": "unfinished", "index-operation": "unfinished", "fenced": "cannot reuse",
+    "reused-token": "cannot reuse",
+}
+
+
+@pytest.mark.parametrize("unsafe", [*_STOPPED_SHADOW_REFUSALS, None])
 def test_release_stopped_shadow_after_native_writes_while_postgresql_serves(
     issuerRuntime: tuple[Engine, sessionmaker[Session]], unsafe: str | None
 ) -> None:
@@ -630,6 +639,7 @@ def test_release_stopped_shadow_after_native_writes_while_postgresql_serves(
     from shared.models.database.lexicalcontrol import LexicalBackendControl
     from shared.models.database.lexicallease import LexicalLease
     from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
+    from shared.models.database.lexicalofflinereservation import LexicalOfflineReservation
     from shared.models.database.lexicaloperatorfence import LexicalOperatorFence
     from shared.models.database.lexicaloperatorissuer import LexicalOperatorIssuer
     from shared.models.database.user import User
@@ -640,20 +650,26 @@ def test_release_stopped_shadow_after_native_writes_while_postgresql_serves(
     token = str(uuid4())
     owner = _claim(authority, token)
     authority.finish(invocationToken=token, hostIdentity=_HOST, operationId="restore-operation", isKnownOutcome=False)
+    indexState: str = {"lifecycle": "opening", "uncertain-index": "uncertain"}.get(unsafe or "", "open")
     with factory.begin() as db:
         control = db.get(LexicalBackendControl, 1)
         assert control is not None
         control.backend = "postgresql"
         control.mode = "gated" if unsafe == "gated" else "serving"
         control.nodeIncarnation = "node-one"
+        if unsafe == "stale":
+            # Acquired well before the stale proof, so only the two-minute freshness bound refuses it.
+            issuer = db.get(LexicalOperatorIssuer, _LOGICAL_CLUSTER)
+            assert issuer is not None
+            issuer.acquiredAt = datetime.now(timezone.utc) - timedelta(minutes=10)
         db.add(User(id="shadow-owner", name="Shadow owner", email="shadow-owner@example.invalid"))
         db.add(LexicalNamespaceIndex(id="scope", ownerId="shadow-owner", namespace="ns", corpusKind="private",
-            indexName="knowhere-prod-lexical-v1-" + "a" * 48, indexUuid="uuid-one",
-            state="opening" if unsafe == "lifecycle" else "open",
+            indexName="knowhere-prod-lexical-v1-" + "a" * 48, indexUuid="uuid-one", state=indexState,
             operationId=str(uuid4()) if unsafe == "index-operation" else None))
         db.flush()
         # The stopped issuer already published one build; a second write may still be in flight.
-        for position, state in enumerate(("succeeded", "running" if unsafe == "running-migration" else "succeeded")):
+        secondAttempt: str = {"pending-migration": "pending", "running-migration": "running"}.get(unsafe or "", "succeeded")
+        for position, state in enumerate(("succeeded", secondAttempt)):
             identity: str = f"shadow_{position}"
             db.add_all([Document(document_id=f"doc_{identity}", user_id="shadow-owner", namespace="ns"),
                 Job(job_id=f"job_{identity}", user_id="shadow-owner", job_type="document_ingestion",
@@ -671,6 +687,11 @@ def test_release_stopped_shadow_after_native_writes_while_postgresql_serves(
         db.add(LexicalLease(namespaceIndexId="scope", kind="index_use", ownerToken=token, backendEpoch=7,
             buildId="build_shadow_0", state="active" if unsafe == "lease" else "released",
             expiresAt=datetime.now(timezone.utc) + timedelta(minutes=5)))
+        if unsafe == "reservation":
+            db.add(LexicalOfflineReservation(targetClusterUuid="offline-target", indexName="offline-index",
+                targetIncarnation="offline-node", sourceClusterUuid="cluster-one", state="opening",
+                operationId=str(uuid4()), issuerToken=token, snapshotUuid="snapshot", batchReservationId=str(uuid4()),
+                inventorySha256="c" * 64, boundarySha256="d" * 64))
 
     def setMode(mode: str) -> None:
         with factory.begin() as db:
@@ -692,26 +713,27 @@ def test_release_stopped_shadow_after_native_writes_while_postgresql_serves(
         proof["verified_at_utc"] = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
     if unsafe == "active":
         cast(dict[str, object], proof["external"])["cgroup_empty"] = False
-    fenceToken = str(uuid4())
+    # Reusing the old issuer's own invocation token as the fence token must be refused.
+    fenceToken = token if unsafe == "reused-token" else str(uuid4())
 
     def release() -> dict[str, object]:
         return authority.releaseStoppedShadow(fenceToken=fenceToken, expectedSourceHash=_SOURCE_HASH,
-            expectedEpoch=7, stoppedReceipt=proof)
+            expectedEpoch=8 if unsafe == "wrong-epoch" else 7, stoppedReceipt=proof)
 
     if unsafe:
-        with pytest.raises(LexicalIndexError):
+        with pytest.raises(LexicalIndexError, match=_STOPPED_SHADOW_REFUSALS[unsafe]):
             release()
         with factory() as db:
             issuer = db.get(LexicalOperatorIssuer, _LOGICAL_CLUSTER)
             assert issuer is not None and issuer.state == "unknown"
             intent = db.get(LexicalOperatorFence, token)
-            assert intent is None or intent.state == "pending"
+            assert (intent is not None and intent.state == "pending") if unsafe == "fenced" else intent is None
         return
     receipt = release()
     assert receipt["status"] == "released" and receipt["invocation_token"] == token
     assert receipt["control"] == {"backend": "postgresql", "mode": "serving", "epoch": 7,
         "cluster_uuid": "cluster-one", "node_incarnation": "node-one"}
-    with pytest.raises(LexicalIndexError):
+    with pytest.raises(LexicalIndexError, match="exact unknown issuer"):
         release()
     with factory() as db:
         intent = db.get(LexicalOperatorFence, token)

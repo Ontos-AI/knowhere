@@ -348,7 +348,11 @@ does not prove that a native issuer stopped.
   no offline reservation is open, and no namespace index is mid-lifecycle.
   Published shadow builds stay; they serve nothing until a cutover verifies
   coverage. Use it instead of `fence-host` on a node that other environments
-  share, because `fence-host` stops `knowhere-opensearch.service`.
+  share, because `fence-host` stops `knowhere-opensearch.service`. It observes
+  only the issuer's own unit, so use it only for a shadow backfill issuer,
+  never for a backup issuer. An issuer killed mid-build leaves a running
+  attempt, writing build or uncertain lease, and the command refuses; use
+  `fence-host` then. Check each condition with read-only SQL before running it.
 - After a successful host restart, execute the source-owned
   `operator.py reconcile-restart` against the same recovery operation UUID in
   a new physical invocation. The plan binds `inventory_path`, `inventory_sha256`,
