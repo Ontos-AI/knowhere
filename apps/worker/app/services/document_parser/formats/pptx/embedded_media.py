@@ -246,6 +246,10 @@ class _SlideRewrite:
             for media in extension.findall("p14:media", _NAMESPACES)
             if (value := media.get(f"{{{_R}}}embed"))
         ]
+        if not rel_ids:
+            raise EmbeddedMediaSeparationError(
+                f"Media shape {shape_id} has no media relationship on slide {self._slide_number}"
+            )
         targets = [self._media_relationship(rel_id) for rel_id in rel_ids]
         embedded = [rel for rel in targets if not rel.is_external]
         linked = [rel for rel in targets if rel.is_external]

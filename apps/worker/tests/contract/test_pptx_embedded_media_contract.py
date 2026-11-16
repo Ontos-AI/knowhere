@@ -450,7 +450,7 @@ def test_presentation_media_is_stored_with_manifest(
     assert video_row["summary"] == "A product demo screen"
     assert video_row["content"] == (
         f"[video: Demo · 01:05 · asset:{first['asset_id']}]\n\n"
-        "A product demo screen\n\nS1: Welcome"
+        "A product demo screen\n\n[00:00:00–00:00:00] S1: Welcome"
     )
     assert video_row["length"] == len(video_row["content"])
     assert video_row["extra_metadata"]["asset"]["asset_id"] == first["asset_id"]
@@ -639,7 +639,7 @@ def test_silent_video_is_described_without_transcription(
     assert separated.media_rows[1]["summary"] == ""
 
 
-def test_unreadable_first_frame_leaves_the_description_empty(
+def test_unreadable_first_frame_fails_the_parse(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     probe_duration: None,
@@ -654,22 +654,22 @@ def test_unreadable_first_frame_leaves_the_description_empty(
     monkeypatch.setattr(presentation_media, "extract_first_frame", no_frame)
     source = tmp_path / "deck.pptx"
     source.write_bytes(_build_package())
+    storage = _RecordingStorage()
 
-    separated = separate_presentation_media(
-        file_path=str(source),
-        filename="deck.pptx",
-        job_id="job_1",
-        work_dir=str(tmp_path),
-        asset_model=None,
-        storage=_RecordingStorage(),  # type: ignore[arg-type]
-        transcriber_factory=media_reading["factory"],
-    )
+    with pytest.raises(PresentationParsingException) as raised:
+        separate_presentation_media(
+            file_path=str(source),
+            filename="deck.pptx",
+            job_id="job_1",
+            work_dir=str(tmp_path),
+            asset_model=None,
+            storage=storage,  # type: ignore[arg-type]
+            transcriber_factory=media_reading["factory"],
+        )
 
+    assert raised.value.details["reason"] == EMBEDDED_MEDIA_SEPARATION_FAILED
     assert media_reading["vision"] == []
-    video_row = separated.media_rows[0]
-    assert video_row["summary"] == ""
-    assert video_row["extra_metadata"]["asset"]["summary"] is None
-    assert video_row["content"].endswith("S1: Welcome")
+    assert storage.uploads == {}
 
 
 def test_empty_frame_description_is_not_stored(
@@ -718,3 +718,19 @@ def test_first_frame_is_written_as_png(tmp_path: Path) -> None:
     not_video.write_bytes(b"not a video")
     with pytest.raises(ValidationException):
         extract_first_frame(str(not_video), str(tmp_path / "noise"))
+
+
+def test_media_shape_without_a_relationship_fails_separation() -> None:
+    package = _build_package()
+    broken = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(package)) as source, zipfile.ZipFile(broken, "w") as target:
+        for item in source.infolist():
+            payload = source.read(item.filename)
+            if item.filename == "ppt/slides/slide2.xml":
+                payload = _slide(
+                    _media_picture(4, "Linked", "videoFile", "", None, _xfrm(0, 0, 1, 1))
+                ).encode()
+            target.writestr(item, payload)
+
+    with pytest.raises(EmbeddedMediaSeparationError, match="no media relationship"):
+        separate_embedded_media(broken.getvalue(), source_name="deck.pptx")

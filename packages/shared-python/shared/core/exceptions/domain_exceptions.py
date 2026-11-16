@@ -569,7 +569,7 @@ class PresentationParsingException(KnowhereException):
     def __init__(
         self,
         user_message: str,
-        reason: str = "PARSING_FAILED",
+        reason: str,
         internal_message: Optional[str] = None,
         original_exception: Optional[Exception] = None,
     ):

@@ -13,6 +13,7 @@ from shared.models.database.job import Job
 from shared.services.jobs.lifecycle.success_finalizer import SyncJobSuccessFinalizer
 from shared.services.retrieval.agent_tools.registry import ToolContext
 from shared.services.retrieval.agent_tools.tools.assets import assets
+from shared.services.retrieval.agent_tools.tools.grep import grep
 from shared.services.retrieval.lexical.worker import IndexingWorker
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.publication_scope_content import (
@@ -51,13 +52,14 @@ _MARKER = "[video: Product demo · 00:53 · asset:asset_demo_video]"
 _VIDEO_CHUNK = {
     "chunk_id": "asset_demo_video",
     "type": "video",
-    "content": f"{_MARKER}\n\nA product demo screen\n\nS1: Welcome to the launch",
+    "content": f"{_MARKER}\n\nA product demo screen\n\n[00:00:00–00:00:04] S1: Welcome to the launch",
     "path": "embedded_media/asset_demo_video",
     "metadata": {
         "page_nums": [2],
         "summary": "A product demo screen",
         "asset_title": "Product demo",
         "asset": _VIDEO,
+        "connect_to": [{"target": "media-m0-p2", "relation": "embedded_by"}],
     },
 }
 
@@ -182,6 +184,9 @@ def test_coarse_republish_keeps_page_media_and_assets_lists_it(
             assert video.chunk_type == "video"
             assert video.content == _VIDEO_CHUNK["content"]
             assert (video.chunk_metadata or {})["asset"] == _VIDEO
+            assert (video.chunk_metadata or {})["connect_to"] == [
+                {"target": "coarse-plan", "relation": "embedded_by"}
+            ]
             assert (plan.chunk_metadata or {})["connect_to"] == [
                 {"target": "asset_demo_video", "relation": "embeds"}
             ]
@@ -232,6 +237,9 @@ def test_coarse_republish_keeps_page_media_and_assets_lists_it(
                 {"target": "asset_demo_video", "relation": "embeds"}
             ]
             assert refined["refined-plan"].content == f"Launch roadmap\n{_MARKER}"
+            assert (refined["asset_demo_video"].chunk_metadata or {})["connect_to"] == [
+                {"target": "refined-plan", "relation": "embedded_by"}
+            ]
             plan_section_path = session.execute(
                 select(DocumentSection.section_path).where(
                     DocumentSection.section_id == refined["refined-plan"].section_id
@@ -251,6 +259,26 @@ def test_coarse_republish_keeps_page_media_and_assets_lists_it(
                 )
                 assert result.error is None
                 return result.payload["rows"]
+
+        async def _grep(pattern: str) -> list[dict[str, object]]:
+            async with get_db_context() as db:
+                result = await grep(
+                    ToolContext(
+                        db=db,
+                        user_id=scope.user_ref,
+                        namespace=scope.namespace_ref,
+                        db_factory=get_db_context,
+                    ),
+                    {"pattern": pattern},
+                )
+                assert result.error is None
+                return result.payload["rows"]
+
+        transcript_hits = asyncio.run(_grep("Welcome to the launch"))
+        assert [(row["kind"], row["chunk_id"]) for row in transcript_hits] == [
+            ("video", "asset_demo_video")
+        ]
+        assert transcript_hits[0]["section_path"] == plan_section_path
 
         video_rows = asyncio.run(_list_assets("video"))
         assert [(row["kind"], row["chunk_id"]) for row in video_rows] == [

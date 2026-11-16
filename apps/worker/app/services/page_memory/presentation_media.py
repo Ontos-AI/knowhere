@@ -61,6 +61,7 @@ from shared.services.chunks.asset_descriptor import (
 )
 from shared.services.chunks.chunk_connections import merge_connections
 from shared.services.chunks.dataframe_chunk_converter import parse_connect_to
+from shared.services.chunks.time_ranges import format_time_ranges
 from shared.services.storage.job_file_storage import JobFileStorage
 
 EMBEDDED_MEDIA_MANIFEST_NAME = "manifest.json"
@@ -163,14 +164,7 @@ def separate_presentation_media(
         conversion_path=slim_path,
         page_media=PageMedia.from_descriptors(assets, separated.hidden_slide_numbers),
         media_rows=tuple(
-            _media_row(
-                asset,
-                transcript=(
-                    contents[asset["checksum_sha256"]].transcript
-                    if asset["checksum_sha256"] in contents
-                    else ""
-                ),
-            )
+            _media_row(asset, content=contents.get(asset["checksum_sha256"] or ""))
             for asset in assets
         ),
     )
@@ -224,16 +218,21 @@ def _row_pages(page_nums: object) -> list[int]:
     return [int(item) for item in str(page_nums or "").split(",") if item.strip().isdigit()]
 
 
-def _media_row(asset: dict[str, Any], *, transcript: str) -> dict[str, Any]:
+def _media_row(asset: dict[str, Any], *, content: _PartContent | None) -> dict[str, Any]:
+    """One video/audio row: marker line, first-frame description, transcript.
+
+    A linked item has no bytes, so its row carries the marker line only.
+    """
     description = asset["summary"] or ""
-    content = "\n\n".join(
+    transcript = content.transcript if content is not None else ""
+    text = "\n\n".join(
         part for part in (page_media_marker(asset), description, transcript) if part
     )
     return {
-        "content": content,
+        "content": text,
         "path": f"{EMBEDDED_MEDIA_DIR}/{asset['asset_id']}",
         "type": asset["kind"],
-        "length": len(content),
+        "length": len(text),
         "keywords": "",
         "summary": description,
         "know_id": asset["asset_id"],
@@ -318,6 +317,7 @@ def _read_media_parts(
                 _describe_first_frame(
                     probed,
                     title=title,
+                    filename=filename,
                     output_dir=part_dir,
                     asset_model=asset_model,
                 )
@@ -336,7 +336,7 @@ def _transcribe(
     output_dir: str,
     transcriber: SpeechTranscriber,
 ) -> str:
-    """Speaker-labelled transcript; empty when nothing was said."""
+    """Timestamped, speaker-labelled transcript segments; empty when nothing was said."""
     try:
         audio_path = extract_source_audio(probed.local_path, output_dir)
     except ValidationException as exc:
@@ -349,28 +349,30 @@ def _transcribe(
         language_hint=None,
         usage_task=EMBEDDED_MEDIA_ASR_USAGE_TASK,
     )
-    return "\n\n".join(segment.text for segment in segment_transcript(transcript.sentences))
+    return "\n\n".join(
+        f"{format_time_ranges([{'start_ms': segment.start_ms, 'end_ms': segment.end_ms}])} "
+        f"{segment.text}"
+        for segment in segment_transcript(transcript.sentences)
+    )
 
 
 def _describe_first_frame(
     probed: _ProbedPart,
     *,
     title: str | None,
+    filename: str,
     output_dir: str,
     asset_model: str | None,
 ) -> str | None:
-    """Describe the video's first frame; None when no frame or description comes back."""
+    """Describe the video's first frame; None when the vision call returns nothing."""
     from shared.services.ai.summary.engine import summarize
 
     try:
         frame_path = extract_first_frame(probed.local_path, output_dir)
     except ValidationException as exc:
-        logger.warning(
-            "[page_memory] Embedded video {} has no readable first frame: {}",
-            probed.safe_name,
-            exc.internal_message,
-        )
-        return None
+        raise _separation_failed(
+            filename, f"First frame of media part {probed.safe_name} could not be read", exc
+        ) from exc
     result = summarize(
         mode="asset",
         image_paths=[frame_path],

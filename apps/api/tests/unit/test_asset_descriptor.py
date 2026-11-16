@@ -256,6 +256,7 @@ def test_media_rows_become_root_parked_chunks_embedded_by_their_page() -> None:
     assert page_metadata["connect_to"] == [{"target": "asset_a", "relation": "embeds"}]
     assert audio["type"] == "audio"
     assert audio_metadata["asset"] == _AUDIO
+    assert audio_metadata["connect_to"] == [{"target": "page-3", "relation": "embedded_by"}]
     assert split_document_path("embedded_media/asset_a", source_file_name="deck.pptx") == (
         ["embedded_media"],
         [],

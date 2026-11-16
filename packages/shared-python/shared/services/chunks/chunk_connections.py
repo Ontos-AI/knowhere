@@ -29,7 +29,7 @@ FORWARD_RELATIONS: Final = frozenset(
     {RELATION_EMBEDS, RELATION_RELATED, RELATION_DERIVES}
 )
 
-_ASSET_CHUNK_TYPES: Final = frozenset({"image", "table"})
+_ASSET_CHUNK_TYPES: Final = frozenset({"image", "table", "video", "audio"})
 
 
 class ConnectionPayload(TypedDict, total=False):
@@ -207,7 +207,7 @@ def merge_connections(
 
 
 def attach_embedded_by_connections(chunks: Sequence[Mapping[str, Any]]) -> None:
-    """Give every embedded image/table an ``embedded_by`` edge to its owner.
+    """Give every embedded asset chunk an ``embedded_by`` edge to its owner.
 
     Mutates each asset chunk's ``metadata["connect_to"]`` in place. ``chunks``
     must already carry their final forward ``embeds`` edges, with targets
