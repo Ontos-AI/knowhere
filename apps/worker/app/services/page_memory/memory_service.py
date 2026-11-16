@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -18,6 +21,7 @@ from app.services.document_parser.profiling.profile_model import ParserDocumentP
 from app.services.document_parser.support.parser_rows import PARSER_DF_COLUMNS
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.page_memory.normalizer import normalize_to_pdf
+from app.services.page_memory.presentation_media import separate_presentation_media
 from app.services.page_memory._utils import (
     CoarseScope,
     collapse_page_ranges,
@@ -83,13 +87,14 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
     final_status = "failed"
     trace_summary: dict[str, Any] = {}
     try:
-        with stage_timer("page_memory.normalize_to_pdf", filename=request.filename):
-            pdf_path, pdf_filename = normalize_to_pdf(
-                file_path=request.file_path,
-                filename=request.filename,
-                output_dir=full_output_dir,
-                base_url=request.base_url,
-            )
+        with _conversion_source(request, full_output_dir) as conversion_source_path:
+            with stage_timer("page_memory.normalize_to_pdf", filename=request.filename):
+                pdf_path, pdf_filename = normalize_to_pdf(
+                    file_path=conversion_source_path,
+                    filename=request.filename,
+                    output_dir=full_output_dir,
+                    base_url=request.base_url,
+                )
         _persist_source_pdf(pdf_path=pdf_path, output_dir=full_output_dir)
         is_progressive = str(request.ingestion_mode or "full").strip().lower() == "progressive"
         visual_m0_enabled = is_progressive and bool(
@@ -163,6 +168,24 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
             _remove_nested_doc_agent_trace(full_output_dir)
         if not visual_debug_enabled():
             purge_debug_visual_dirs(full_output_dir)
+
+
+@contextmanager
+def _conversion_source(request: PageMemoryInput, output_dir: str) -> Iterator[str]:
+    """Yield the file to convert; a presentation's slim package exists only until then."""
+    if Path(request.filename).suffix.lower() != ".pptx":
+        yield request.file_path
+        return
+    # A dot-prefixed directory is never uploaded as a raw result file.
+    with tempfile.TemporaryDirectory(prefix=".presentation-media-", dir=output_dir) as work_dir:
+        with stage_timer("page_memory.embedded_media_separation", filename=request.filename):
+            source_path = separate_presentation_media(
+                file_path=request.file_path,
+                filename=request.filename,
+                job_id=request.job_id,
+                work_dir=work_dir,
+            )
+        yield source_path
 
 
 def _resolve_output_dir(request: PageMemoryInput) -> str:

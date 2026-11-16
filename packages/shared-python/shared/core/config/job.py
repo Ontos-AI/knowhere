@@ -19,3 +19,7 @@ class JobConfig(BaseSettings):
         default=14400,
         description="Max seconds a job can stay in running or converting before auto-failing (default: 4 hours).",
     )
+    LIBREOFFICE_CONVERSION_TIMEOUT_SECONDS: int = Field(
+        default=600,
+        description="Max seconds one LibreOffice conversion may run before it is stopped and the conversion fails.",
+    )

@@ -147,7 +147,7 @@ This is the typed `ParseOutput` entry for all file types. The parser flow:
 | `.pdf` | `page_memory.memory_service.run` | v1/v2 both use the page-memory pipeline (M0 → coarse → fine). MinerU is an optional fine-stage text extractor, default off. |
 | `.docx` | `formats.docx.parser.parse_docx` + `convert_doc2dics` | OXML iteration → heading detection → hierarchical tree |
 | `.doc` | `conversion.legacy_converter.doc_to_docx` → `.docx` pipeline | LibreOffice headless conversion first |
-| `.pptx` | `page_memory.normalizer.normalize_to_pdf` → page-memory | PPTX→PDF then the same page-memory pipeline as PDF. |
+| `.pptx` | `page_memory.presentation_media.separate_presentation_media` → `page_memory.normalizer.normalize_to_pdf` → page-memory | Embedded audio/video is separated first: media bytes and `embedded_media/manifest.json` go to `results/{job_id}/embedded_media/`, hidden slides are made visible, and the slim package converts to PDF. Then the same page-memory pipeline as PDF. |
 | `.xlsx` | `formats.excel.table_parser.parse_xlsx` | `parse_track=sheet`. Sheets are grouped by resolved cross-sheet formulas; each group is LUNA-split, header-detected and formula-linked as one unit. Progressive: `formats.excel.baseline` publishes one coarse table per sheet (no LLM) and a retrieval hit refines its whole sheet group (`enrich_sheet_group_scope`) |
 | `.xls` / `.csv` / `.tsv` | `formats.excel.normalize.normalize_table_source` → `.xlsx` pipeline | LibreOffice / delimited-text conversion first |
 | `.md` | `formats.markdown.parser.parse_md` | Markdown heading parsing + LLM summaries |

@@ -555,6 +555,33 @@ class DocxParsingException(KnowhereException):
         )
 
 
+class PresentationParsingException(KnowhereException):
+    """
+    PPTX parsing failed (package structure or embedded media issues).
+
+    4xx Error: User's file is problematic; they need to fix it.
+    Developer provides `user_message` that user sees directly.
+
+    Details schema:
+        {"file_type": "pptx", "reason": "..."}
+    """
+
+    def __init__(
+        self,
+        user_message: str,
+        reason: str = "PARSING_FAILED",
+        internal_message: Optional[str] = None,
+        original_exception: Optional[Exception] = None,
+    ):
+        super().__init__(
+            code=ErrorCode.INVALID_ARGUMENT,
+            internal_message=internal_message or user_message,
+            user_message=user_message,
+            details={"file_type": "pptx", "reason": reason},
+            original_exception=original_exception,
+        )
+
+
 class TableParsingException(KnowhereException):
     """
     Table extraction failed.
