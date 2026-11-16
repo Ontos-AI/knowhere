@@ -9,6 +9,7 @@ from typing import Any
 
 from app.services.document_ingestion.job_state_gate import mark_job_running
 from app.services.document_ingestion.media_duration_policy import (
+    build_embedded_media_admission_rejection,
     build_media_admission_rejection,
 )
 from app.services.document_ingestion.page_estimator import PageEstimator
@@ -174,6 +175,9 @@ def _run_parse_job(
         ) or build_media_admission_rejection(
             file_extension=prepared_source.file_extension,
             local_file_path=prepared_source.local_file_path,
+            job_user_id=job_context.job_user_id,
+        ) or build_embedded_media_admission_rejection(
+            embedded_media_durations_ms=workload_estimate.embedded_media_durations_ms,
             job_user_id=job_context.job_user_id,
         )
         if admission_rejection is not None:

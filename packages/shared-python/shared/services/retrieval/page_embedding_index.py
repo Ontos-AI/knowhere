@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.dml import Delete
 
 from shared.core.config import settings
-from shared.services.chunks.asset_descriptor import PageMedia
+from shared.services.chunks.asset_descriptor import PageMedia, page_media_connections
+from shared.services.chunks.chunk_connections import merge_connections
 from shared.services.ai.embedding import embed_query, resolve_embedding_model
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.publication_models import DocumentPublicationScope
@@ -110,7 +111,7 @@ def inherit_missing_page_media(
     chunk_metadata: dict[str, Any],
     page_media: PageMedia,
 ) -> None:
-    """Attach prior embedded media and marker lines when a page chunk lacks them."""
+    """Attach prior embedded media, marker lines and media edges a page chunk lacks."""
     if page_media.is_empty:
         return
     content = str(chunk.get("content") or chunk.get("text") or "")
@@ -122,6 +123,11 @@ def inherit_missing_page_media(
     if updated != content:
         chunk["content"] = updated
         chunk_metadata["length"] = len(updated)
+    if connections := page_media_connections(chunk_metadata):
+        connect_to = chunk_metadata.get("connect_to")
+        chunk_metadata["connect_to"] = merge_connections(
+            connect_to if isinstance(connect_to, list) else [], connections
+        )
 
 
 def inherit_missing_page_assets(

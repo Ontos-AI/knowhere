@@ -1,4 +1,4 @@
-"""Page-level embedded media survives republishing and is visible to corpus.assets."""
+"""Embedded media survives republishing: page fields, media chunks, and their hosts."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
-from shared.models.database.document import Document, DocumentChunk
+from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job import Job
 from shared.services.jobs.lifecycle.success_finalizer import SyncJobSuccessFinalizer
 from shared.services.retrieval.agent_tools.registry import ToolContext
@@ -38,7 +38,7 @@ _VIDEO = {
     "kind": "video",
     "origin": "embedded",
     "title": "Product demo",
-    "summary": None,
+    "summary": "A product demo screen",
     "page_nums": [2],
     "region": {"page_num": 2, "bbox": [0.1, 0.2, 0.6, 0.8], "coord_system": "page_fraction"},
     "content_type": "video/mp4",
@@ -48,6 +48,18 @@ _VIDEO = {
     "ref": {"kind": "artifact", "path": "embedded_media/aaaaaaaaaaaa-media1.mp4"},
 }
 _MARKER = "[video: Product demo · 00:53 · asset:asset_demo_video]"
+_VIDEO_CHUNK = {
+    "chunk_id": "asset_demo_video",
+    "type": "video",
+    "content": f"{_MARKER}\n\nA product demo screen\n\nS1: Welcome to the launch",
+    "path": "embedded_media/asset_demo_video",
+    "metadata": {
+        "page_nums": [2],
+        "summary": "A product demo screen",
+        "asset_title": "Product demo",
+        "asset": _VIDEO,
+    },
+}
 
 
 def _m0_page(page: int, *, content: str, media: bool) -> dict[str, object]:
@@ -59,6 +71,7 @@ def _m0_page(page: int, *, content: str, media: bool) -> dict[str, object]:
     if media:
         metadata["assets"] = [dict(_VIDEO)]
         metadata["hidden_page_nums"] = [page]
+        metadata["connect_to"] = [{"target": _VIDEO["asset_id"], "relation": "embeds"}]
     return {
         "chunk_id": f"media-m0-p{page}",
         "type": "page",
@@ -101,6 +114,7 @@ def test_coarse_republish_keeps_page_media_and_assets_lists_it(
             chunks = [
                 _m0_page(1, content="Welcome", media=False),
                 _m0_page(2, content=f"Roadmap\n{_MARKER}", media=True),
+                _VIDEO_CHUNK,
             ]
             finalization = SyncJobSuccessFinalizer().finalize(
                 session,
@@ -162,13 +176,67 @@ def test_coarse_republish_keeps_page_media_and_assets_lists_it(
                     select(DocumentChunk).where(DocumentChunk.document_id == document_id)
                 ).all()
             }
+            assert set(by_id) == {"coarse-intro", "coarse-plan", "asset_demo_video"}
             intro, plan = by_id["coarse-intro"], by_id["coarse-plan"]
+            video = by_id["asset_demo_video"]
+            assert video.chunk_type == "video"
+            assert video.content == _VIDEO_CHUNK["content"]
+            assert (video.chunk_metadata or {})["asset"] == _VIDEO
+            assert (plan.chunk_metadata or {})["connect_to"] == [
+                {"target": "asset_demo_video", "relation": "embeds"}
+            ]
+            plan_section_path = session.execute(
+                select(DocumentSection.section_path).where(
+                    DocumentSection.section_id == plan.section_id
+                )
+            ).scalar_one()
             assert "assets" not in (intro.chunk_metadata or {})
             assert intro.content == "Welcome"
             assert plan.content == f"Roadmap and launch plan\n{_MARKER}"
             assert (plan.chunk_metadata or {})["assets"] == [_VIDEO]
             assert (plan.chunk_metadata or {})["hidden_page_nums"] == [2]
-            assert (plan.chunk_metadata or {})["length"] == len(plan.content)
+            assert (plan.chunk_metadata or {})["length"] == len(plan.content or "")
+
+        with Session(engine) as session:
+            replace_document_scope_content(
+                session,
+                scope=DocumentPublicationScope(
+                    user_id=scope.user_ref,
+                    namespace=scope.namespace_ref,
+                    document_id=document_id,
+                    job_result_id=scope.revision_ref,
+                    source_file_name=scope.source_file_name,
+                ),
+                scope_id="p2-3",
+                chunks=[
+                    {
+                        "chunk_id": "refined-plan",
+                        "type": "page",
+                        "content": "Launch roadmap",
+                        "path": "page-media.pptx/Plan/Launch",
+                        "metadata": {"page_nums": [2, 3]},
+                    },
+                ],
+            )
+            session.commit()
+
+        with Session(engine) as session:
+            refined = {
+                chunk.chunk_id: chunk
+                for chunk in session.scalars(
+                    select(DocumentChunk).where(DocumentChunk.document_id == document_id)
+                ).all()
+            }
+            assert set(refined) == {"coarse-intro", "refined-plan", "asset_demo_video"}
+            assert (refined["refined-plan"].chunk_metadata or {})["connect_to"] == [
+                {"target": "asset_demo_video", "relation": "embeds"}
+            ]
+            assert refined["refined-plan"].content == f"Launch roadmap\n{_MARKER}"
+            plan_section_path = session.execute(
+                select(DocumentSection.section_path).where(
+                    DocumentSection.section_id == refined["refined-plan"].section_id
+                )
+            ).scalar_one()
 
         async def _list_assets(asset_type: str) -> list[dict[str, object]]:
             async with get_db_context() as db:
@@ -186,10 +254,12 @@ def test_coarse_republish_keeps_page_media_and_assets_lists_it(
 
         video_rows = asyncio.run(_list_assets("video"))
         assert [(row["kind"], row["chunk_id"]) for row in video_rows] == [
-            ("video", "coarse-plan")
+            ("video", "asset_demo_video")
         ]
         assert video_rows[0]["asset"] == _VIDEO
-        assert video_rows[0]["summary"] == _MARKER
+        assert video_rows[0]["summary"] == f"{_MARKER} A product demo screen"
+        assert video_rows[0]["hosted"] is True
+        assert video_rows[0]["section_path"] == plan_section_path
         assert asyncio.run(_list_assets("audio")) == []
         assert asyncio.run(_list_assets("image")) == []
     finally:

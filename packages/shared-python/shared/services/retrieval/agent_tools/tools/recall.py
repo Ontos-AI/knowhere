@@ -40,7 +40,7 @@ from shared.services.retrieval.hydration.row_utils import (
     coerce_page_nums,
     normalize_chunk_type,
 )
-from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
+from shared.services.retrieval.settings import HOSTED_ASSET_CHUNK_TYPES
 from shared.services.retrieval.search.visual_discovery import hybrid_discovery
 
 _DEFAULT_LIMIT = 10
@@ -173,7 +173,7 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     for hit in rows:
         snippet = _identifier_snippet(hit)
         chunk_type = str(hit.get("chunk_type") or "").strip()
-        is_asset = chunk_type in ASSET_CHUNK_TYPES
+        is_asset = chunk_type in HOSTED_ASSET_CHUNK_TYPES
         key = (str(hit.get("document_id") or ""), str(hit.get("chunk_id") or ""))
         section_path, hosted = (
             host_paths[key]

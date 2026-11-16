@@ -17,6 +17,7 @@ from shared.models.database.job_result import JobResult
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.lexical.input_budget import LexicalInputBudget
 from shared.services.retrieval.publication_trace_stage import trace_publication_stage
+from shared.services.retrieval.settings import HOSTED_ASSET_CHUNK_TYPES
 
 if TYPE_CHECKING:
     from shared.services.jobs.lifecycle.publication_trace import PublicationTrace
@@ -73,7 +74,7 @@ def build_revision_serving_payload(
     root_asset_ids = {
         chunk.chunk_id
         for chunk in chunks
-        if chunk.chunk_type in {"image", "table"}
+        if chunk.chunk_type in HOSTED_ASSET_CHUNK_TYPES
         and chunk.section_id is not None
         and section_path_by_id.get(chunk.section_id) == "Root"
     }

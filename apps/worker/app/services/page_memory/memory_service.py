@@ -23,7 +23,7 @@ from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.page_memory.normalizer import normalize_to_pdf
 from app.services.page_memory.presentation_media import (
     PresentationMedia,
-    attach_page_media_to_rows,
+    attach_presentation_media,
     separate_presentation_media,
 )
 from app.services.page_memory._utils import (
@@ -157,7 +157,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 page_memory_config=page_memory_config,
                 trace_recorder=trace_recorder,
             )
-        parsed_df = attach_page_media_to_rows(parsed_df, presentation_media.page_media)
+        parsed_df = attach_presentation_media(parsed_df, presentation_media)
         final_status = "success"
         trace_summary["rows_count"] = len(parsed_df)
         return full_output_dir, parsed_df
@@ -192,6 +192,9 @@ def _conversion_source(
                 filename=request.filename,
                 job_id=request.job_id,
                 work_dir=work_dir,
+                asset_model=(
+                    request.page_memory_config.asset_model or resolve_asset_model()
+                ),
             )
         yield presentation_media
 

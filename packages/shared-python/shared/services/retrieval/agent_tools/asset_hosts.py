@@ -1,6 +1,6 @@
 """Asset -> hosting body section, shared by grep, recall and assets.
 
-Image/table chunks are stored under their document's ``Root`` section; the
+Image, table, video and audio chunks are stored under their document's ``Root`` section; the
 real placement is ``chunk_metadata.connect_to`` on the body chunk that embeds
 them. Hosts are keyed by ``(document_id,
 asset chunk_id)`` — chunk ids are content hashes and repeat across
@@ -24,7 +24,7 @@ from sqlalchemy import select
 from shared.services.retrieval.agent_tools.registry import ToolContext
 from shared.services.retrieval.agent_tools.scope import ScopeTarget
 from shared.services.retrieval.hydration.row_utils import iter_connected_target_ids
-from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
+from shared.services.retrieval.settings import HOSTED_ASSET_CHUNK_TYPES
 
 _BODY_CHUNK_TYPES = ("text", "page")
 
@@ -145,11 +145,11 @@ async def host_paths_for_hits(
     hits: list[dict[str, Any]],
     scope: list[ScopeTarget],
 ) -> dict[AssetKey, tuple[str, bool]]:
-    """``(section_path, hosted)`` for every image/table hit, same rule as assets."""
+    """``(section_path, hosted)`` for every hosted asset hit, same rule as assets."""
     asset_hits = [
         hit
         for hit in hits
-        if str(hit.get("chunk_type") or "").strip() in ASSET_CHUNK_TYPES
+        if str(hit.get("chunk_type") or "").strip() in HOSTED_ASSET_CHUNK_TYPES
     ]
     if not asset_hits:
         return {}

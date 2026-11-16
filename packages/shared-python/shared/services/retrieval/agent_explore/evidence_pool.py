@@ -20,7 +20,7 @@ from shared.services.retrieval.hydration.row_utils import (
     iter_connected_target_ids,
     normalize_chunk_type,
 )
-from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
+from shared.services.retrieval.settings import HOSTED_ASSET_CHUNK_TYPES
 
 
 @dataclass(frozen=True)
@@ -465,7 +465,7 @@ def _lit_pages_from_rows(
 def _read_summary(row: dict[str, Any] | None, chunk_type: str) -> str:
     if not row:
         return ""
-    if chunk_type in ASSET_CHUNK_TYPES:
+    if chunk_type in HOSTED_ASSET_CHUNK_TYPES:
         metadata = row.get("chunk_metadata") or {}
         if isinstance(metadata, dict):
             return str(metadata.get("summary") or "").strip()

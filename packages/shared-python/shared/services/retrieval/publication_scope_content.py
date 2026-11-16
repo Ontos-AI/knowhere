@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import delete, event, select
+from sqlalchemy import delete, event, or_, select
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import (
@@ -13,7 +13,7 @@ from shared.models.database.document import (
     DocumentChunk,
     DocumentSection,
 )
-from shared.services.chunks.asset_descriptor import PageMedia
+from shared.services.chunks.asset_descriptor import PAGE_MEDIA_KINDS, PageMedia
 from shared.services.chunks.chunk_connections import merge_connections
 from shared.services.retrieval.cache_service import (
     bump_retrieval_namespace_cache_version_sync,
@@ -82,10 +82,23 @@ def replace_document_scope_content(
 
     with trace_publication_stage(trace, "chunks_persist"):
         if scope_id == "*":
+            # Video/audio chunks come only from the first build, so a whole-
+            # document republish keeps them unless it carries its own copy.
+            incoming_chunk_ids = sorted(
+                {str(chunk.get("chunk_id") or "") for chunk in deduped_chunks} - {""}
+            )
             db.execute(
                 delete(corpusStorage.DocumentChunk)
                 .where(corpusStorage.DocumentChunk.document_id == scope.document_id)
                 .where(corpusStorage.DocumentChunk.job_result_id == scope.job_result_id)
+                .where(
+                    or_(
+                        corpusStorage.DocumentChunk.chunk_type.not_in(
+                            sorted(PAGE_MEDIA_KINDS)
+                        ),
+                        corpusStorage.DocumentChunk.chunk_id.in_(incoming_chunk_ids),
+                    )
+                )
             )
         else:
             _delete_or_transfer_scope_chunks(

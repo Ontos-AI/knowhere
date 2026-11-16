@@ -8,8 +8,10 @@ from shared.services.chunks.asset_descriptor import (
     EXTRACTED_ASSET_KEY,
     HIDDEN_PAGE_NUMS_KEY,
     PAGE_MEDIA_ASSETS_KEY,
+    PAGE_MEDIA_KINDS,
     describe_extracted_asset,
     normalize_hidden_page_nums,
+    normalize_page_media_asset,
     normalize_page_media_assets,
 )
 from shared.services.chunks.chunk_connections import (
@@ -27,7 +29,8 @@ class ZipChunkSchemaBuilder:
         text_chunks = 0
         image_chunks = 0
         table_chunks = 0
-
+        video_chunks = 0
+        audio_chunks = 0
         page_chunks = 0
 
         for chunk in chunks:
@@ -39,6 +42,10 @@ class ZipChunkSchemaBuilder:
                 table_chunks += 1
             elif normalized_type == "page":
                 page_chunks += 1
+            elif normalized_type == "video":
+                video_chunks += 1
+            elif normalized_type == "audio":
+                audio_chunks += 1
             else:
                 text_chunks += 1
 
@@ -48,6 +55,8 @@ class ZipChunkSchemaBuilder:
             "image_chunks": image_chunks,
             "table_chunks": table_chunks,
             "page_chunks": page_chunks,
+            "video_chunks": video_chunks,
+            "audio_chunks": audio_chunks,
             "total_pages": None,
         }
 
@@ -76,6 +85,8 @@ class ZipChunkSchemaBuilder:
                 chunk_type = "table"
             elif normalized_type == "page":
                 chunk_type = "page"
+            elif normalized_type in PAGE_MEDIA_KINDS:
+                chunk_type = normalized_type
             else:
                 chunk_type = "text"
 
@@ -165,6 +176,12 @@ class ZipChunkSchemaBuilder:
                     existing_metadata.get(HIDDEN_PAGE_NUMS_KEY)
                 ):
                     metadata[HIDDEN_PAGE_NUMS_KEY] = hidden_page_nums
+            elif chunk_type in PAGE_MEDIA_KINDS:
+                metadata["connect_to"] = existing_metadata.get("connect_to") or []
+                if media_asset := normalize_page_media_asset(
+                    existing_metadata.get(EXTRACTED_ASSET_KEY)
+                ):
+                    metadata[EXTRACTED_ASSET_KEY] = media_asset
             if descriptor := describe_extracted_asset(
                 chunk_id=chunk_id, chunk_type=chunk_type, metadata=metadata
             ):

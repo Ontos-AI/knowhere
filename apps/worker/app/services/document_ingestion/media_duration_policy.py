@@ -38,6 +38,43 @@ def build_media_admission_rejection(
         duration_ms = measure_media_duration_ms(local_file_path, info)
     except ValidationException as exc:
         return exc
+    return _duration_rejection(
+        duration_ms=duration_ms,
+        job_user_id=job_user_id,
+        subject="This recording is",
+        unit="file",
+        trim_hint="trim the file and upload it again",
+        split_hint="Split it into shorter parts and upload them again.",
+    )
+
+
+def build_embedded_media_admission_rejection(
+    *,
+    embedded_media_durations_ms: tuple[int, ...],
+    job_user_id: str | None,
+) -> ValidationException | None:
+    """Reject a presentation whose longest embedded recording is over the tier cap."""
+    if not embedded_media_durations_ms:
+        return None
+    return _duration_rejection(
+        duration_ms=max(embedded_media_durations_ms),
+        job_user_id=job_user_id,
+        subject="This presentation contains a recording that is",
+        unit="recording",
+        trim_hint="trim the recording in the presentation and upload it again",
+        split_hint="Shorten the recording in the presentation and upload it again.",
+    )
+
+
+def _duration_rejection(
+    *,
+    duration_ms: int,
+    job_user_id: str | None,
+    subject: str,
+    unit: str,
+    trim_hint: str,
+    split_hint: str,
+) -> ValidationException | None:
     is_free_tier = _load_user_tier(job_user_id) in FREE_MEDIA_TIERS
     limit_seconds = (
         settings.MEDIA_MAX_DURATION_FREE_SECONDS
@@ -53,16 +90,15 @@ def build_media_admission_rejection(
             settings.MEDIA_MAX_DURATION_PAID_SECONDS * 1000 // _MS_PER_MINUTE
         )
         user_message = (
-            f"This recording is {duration_minutes} minutes long. The free plan "
-            f"supports up to {limit_minutes} minutes per file. Upgrade to process "
-            f"recordings up to {paid_limit_minutes} minutes, or trim the file and "
-            "upload it again."
+            f"{subject} {duration_minutes} minutes long. The free plan "
+            f"supports up to {limit_minutes} minutes per {unit}. Upgrade to "
+            f"process recordings up to {paid_limit_minutes} minutes, or "
+            f"{trim_hint}."
         )
     else:
         user_message = (
-            f"This recording is {duration_minutes} minutes long. The maximum is "
-            f"{limit_minutes} minutes per file. Split it into shorter parts and "
-            "upload them again."
+            f"{subject} {duration_minutes} minutes long. The maximum is "
+            f"{limit_minutes} minutes per {unit}. {split_hint}"
         )
     return ValidationException(
         user_message=user_message,

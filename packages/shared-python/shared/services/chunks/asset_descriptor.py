@@ -1,10 +1,10 @@
 """Asset descriptors shared by extracted assets and page-level embedded media.
 
-Image and table chunks describe themselves with ``metadata.asset``. Page rows
-carry the page's video and audio as ``metadata.assets`` plus one marker line
-per item in their content, so text retrieval and agents see the media too.
-Media bytes live under the job's result prefix in ``embedded_media/`` and are
-reached through signed URLs only.
+Image, table, video and audio chunks describe themselves with
+``metadata.asset``. Page rows carry the page's video and audio as
+``metadata.assets``, one marker line per item in their content, and an
+``embeds`` edge to each item's chunk. Media bytes live under the job's result
+prefix in ``embedded_media/`` and are reached through signed URLs only.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import posixpath
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final
+
+from shared.services.chunks.chunk_connections import RELATION_EMBEDS, ConnectionPayload
 
 PAGE_MEDIA_ASSETS_KEY: Final = "assets"
 HIDDEN_PAGE_NUMS_KEY: Final = "hidden_page_nums"
@@ -97,6 +99,14 @@ def page_media_marker(asset: Mapping[str, Any]) -> str:
         parts.append(_format_duration(int(asset["duration_ms"])))
     parts.append(f"asset:{asset['asset_id']}")
     return f"[{asset['kind']}: {' · '.join(parts)}]"
+
+
+def page_media_connections(metadata: Mapping[str, Any]) -> list[ConnectionPayload]:
+    """``embeds`` edges from a page row to the media chunks it carries."""
+    return [
+        {"target": asset["asset_id"], "relation": RELATION_EMBEDS}
+        for asset in normalize_page_media_assets(metadata.get(PAGE_MEDIA_ASSETS_KEY))
+    ]
 
 
 @dataclass(frozen=True)

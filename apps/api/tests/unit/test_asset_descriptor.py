@@ -5,6 +5,7 @@ from shared.services.chunks.asset_descriptor import (
     describe_extracted_asset,
     embedded_media_path,
     normalize_page_media_assets,
+    page_media_connections,
     page_media_marker,
 )
 from shared.services.storage.result_storage import JobResultStorage
@@ -180,3 +181,104 @@ def test_document_chunks_sign_embedded_media_and_pass_links_through() -> None:
         result_storage=storage,
     )
     assert "url" not in unsigned[0]
+
+
+def test_page_rows_embed_the_media_they_carry() -> None:
+    assert page_media_connections({"assets": [_AUDIO, _LINKED, {"kind": "video"}]}) == [
+        {"target": "asset_a", "relation": "embeds"},
+        {"target": "asset_l", "relation": "embeds"},
+    ]
+    assert page_media_connections({}) == []
+
+
+def test_media_chunks_keep_their_descriptor_and_are_counted() -> None:
+    builder = ZipChunkSchemaBuilder()
+    media_chunks = [
+        {
+            "chunk_id": "asset_a",
+            "type": "audio",
+            "content": "[audio: 1:02:05 · asset:asset_a]",
+            "path": "embedded_media/asset_a",
+            "metadata": {"page_nums": [3], "asset": {**_AUDIO, "unknown": 1}},
+        },
+        {
+            "chunk_id": "asset_l",
+            "type": "video",
+            "content": "[video: Talk · linked · asset:asset_l]",
+            "path": "embedded_media/asset_l",
+            "metadata": {"page_nums": [3], "asset": _LINKED},
+        },
+    ]
+    audio, video = builder.format_chunks(media_chunks, image_files_map={}, table_files_map={})
+    assert audio["type"] == "audio"
+    assert audio["metadata"]["asset"] == normalize_page_media_assets([_AUDIO])[0]
+    assert video["type"] == "video"
+    assert video["metadata"]["asset"]["ref"] == _LINKED["ref"]
+    statistics = builder.calculate_statistics(media_chunks)
+    assert (statistics["audio_chunks"], statistics["video_chunks"], statistics["text_chunks"]) == (1, 1, 0)
+
+
+def test_media_rows_become_root_parked_chunks_embedded_by_their_page() -> None:
+    import json
+
+    import pandas as pd
+
+    from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
+    from shared.services.chunks.document_path import split_document_path
+
+    chunks = dataframe_to_chunks(
+        pd.DataFrame(
+            [
+                {
+                    "know_id": "page-3",
+                    "type": "page",
+                    "content": "Slide",
+                    "path": "deck.pptx/p3",
+                    "page_nums": "3",
+                    "connectto": json.dumps([{"target": "asset_a", "relation": "embeds"}]),
+                    "extra_metadata": {"assets": [_AUDIO]},
+                },
+                {
+                    "know_id": "asset_a",
+                    "type": "audio",
+                    "content": "[audio: 1:02:05 · asset:asset_a]",
+                    "path": "embedded_media/asset_a",
+                    "page_nums": "3",
+                    "connectto": "",
+                    "extra_metadata": {"asset": _AUDIO},
+                },
+            ]
+        )
+    )
+    page, audio = chunks
+    page_metadata, audio_metadata = page["metadata"], audio["metadata"]
+    assert isinstance(page_metadata, dict) and isinstance(audio_metadata, dict)
+    assert page_metadata["connect_to"] == [{"target": "asset_a", "relation": "embeds"}]
+    assert audio["type"] == "audio"
+    assert audio_metadata["asset"] == _AUDIO
+    assert split_document_path("embedded_media/asset_a", source_file_name="deck.pptx") == (
+        ["embedded_media"],
+        [],
+    )
+
+
+def test_document_media_chunks_are_signed_from_their_descriptor() -> None:
+    from app.services.documents.lifecycle_service import _document_media_chunk_asset
+
+    storage = _SigningStorage()
+    signed = _document_media_chunk_asset(
+        chunk_type="audio",
+        metadata={"asset": _AUDIO},
+        job_id="job_1",
+        include_asset_urls=True,
+        result_storage=storage,
+    )
+    assert signed is not None
+    assert signed["url"] == "https://signed.test/results/job_1/embedded_media/abc-click.wav"
+    assert _document_media_chunk_asset(
+        chunk_type="image",
+        metadata={"asset": _AUDIO},
+        job_id="job_1",
+        include_asset_urls=True,
+        result_storage=storage,
+    ) is None
