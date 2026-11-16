@@ -363,6 +363,9 @@ chunk objects. Three chunk types exist:
 | `metadata.connect_to[].relation` | `str` | `"embeds"` (body → inline asset), `"embedded_by"` (asset → owning body), `"related"` (same-page body → asset); `"cross_doc_entity"` / `"intra_doc_ref"` are reserved and not generated yet |
 | `metadata.connect_to[].ref` | `str` | Original reference string: `"[images/image-1.png]"` |
 | `metadata.connect_to[].position` | `{start, end}` | Character offset of the reference in content |
+| `metadata.asset` | `AssetDescriptor` | Image/table only, derived when served: `asset_id`, `kind`, `origin` (`extracted`), `title`, `summary`, `page_nums`, `region`, `content_type`, `ref` (`{kind: artifact, path}`) |
+| `metadata.assets` | `list[AssetDescriptor]` | Page chunks only: the page's video/audio separated from a presentation (`origin` `embedded` or `linked`, `duration_ms`, `ref` `{kind: artifact, path: embedded_media/...}` or `{kind: external, url}`). The content ends with one `[video\|audio: title · mm:ss · asset:{asset_id}]` line per item. Inherited by restructured page chunks like `page_assets`; signed as `url` with `include_asset_urls` |
+| `metadata.hidden_page_nums` | `list[int]` | Page chunks only: pages that were hidden slides in the source presentation |
 
 ### `doc_nav.json` — Hierarchical Navigation Tree
 

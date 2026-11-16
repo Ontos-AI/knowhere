@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.dml import Delete
 
 from shared.core.config import settings
+from shared.services.chunks.asset_descriptor import PageMedia
 from shared.services.ai.embedding import embed_query, resolve_embedding_model
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.publication_models import DocumentPublicationScope
@@ -18,7 +19,9 @@ from shared.services.retrieval.publication_models import DocumentPublicationScop
 __all__ = [
     "extract_and_strip_page_embeddings",
     "inherit_missing_page_assets",
-    "load_revision_page_assets_by_page",
+    "inherit_missing_page_media",
+    "load_revision_page_metadatas",
+    "page_assets_by_page",
     "load_missing_document_page_embedding_pages",
     "query_visual_candidate_pages",
     "replace_document_page_embeddings",
@@ -60,23 +63,29 @@ def extract_and_strip_page_embeddings(
     return {pages[0]: vector}
 
 
-def load_revision_page_assets_by_page(
+def load_revision_page_metadatas(
     db: Session,
     *,
     scope: DocumentPublicationScope,
-) -> dict[int, dict[str, Any]]:
-    """Load existing ``page_assets`` keyed by ``page_num`` before chunk replacement."""
+) -> list[object]:
+    """Load the revision's page-row metadata before chunk replacement."""
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
-    metadatas = db.scalars(
-        select(corpusStorage.DocumentChunk.chunk_metadata)
-        .where(corpusStorage.DocumentChunk.document_id == scope.document_id)
-        .where(corpusStorage.DocumentChunk.job_result_id == scope.job_result_id)
-        .where(corpusStorage.DocumentChunk.chunk_type == "page")
-        .order_by(
-            corpusStorage.DocumentChunk.sort_order,
-            corpusStorage.DocumentChunk.id,
-        )
-    ).all()
+    return list(
+        db.scalars(
+            select(corpusStorage.DocumentChunk.chunk_metadata)
+            .where(corpusStorage.DocumentChunk.document_id == scope.document_id)
+            .where(corpusStorage.DocumentChunk.job_result_id == scope.job_result_id)
+            .where(corpusStorage.DocumentChunk.chunk_type == "page")
+            .order_by(
+                corpusStorage.DocumentChunk.sort_order,
+                corpusStorage.DocumentChunk.id,
+            )
+        ).all()
+    )
+
+
+def page_assets_by_page(metadatas: list[object]) -> dict[int, dict[str, Any]]:
+    """Key existing ``page_assets`` by ``page_num``; the first row's entry wins."""
     assets_by_page: dict[int, dict[str, Any]] = {}
     for metadata in metadatas:
         if not isinstance(metadata, dict):
@@ -94,6 +103,25 @@ def load_revision_page_assets_by_page(
             if page_num > 0 and page_num not in assets_by_page:
                 assets_by_page[page_num] = dict(item)
     return assets_by_page
+
+
+def inherit_missing_page_media(
+    chunk: dict[str, Any],
+    chunk_metadata: dict[str, Any],
+    page_media: PageMedia,
+) -> None:
+    """Attach prior embedded media and marker lines when a page chunk lacks them."""
+    if page_media.is_empty:
+        return
+    content = str(chunk.get("content") or chunk.get("text") or "")
+    updated = page_media.attach(
+        content=content,
+        metadata=chunk_metadata,
+        pages=_coerce_page_nums(chunk_metadata.get("page_nums")),
+    )
+    if updated != content:
+        chunk["content"] = updated
+        chunk_metadata["length"] = len(updated)
 
 
 def inherit_missing_page_assets(

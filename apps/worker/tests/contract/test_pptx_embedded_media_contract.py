@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import pytest
 from lxml import etree
 
@@ -17,6 +18,7 @@ from app.services.document_parser.formats.pptx.embedded_media import (
 from app.services.page_memory import presentation_media
 from app.services.page_memory.presentation_media import (
     EMBEDDED_MEDIA_SEPARATION_FAILED,
+    attach_page_media_to_rows,
     separate_presentation_media,
 )
 
@@ -24,6 +26,7 @@ from shared.core.exceptions.domain_exceptions import (
     PresentationParsingException,
     ValidationException,
 )
+from shared.services.chunks.asset_descriptor import PageMedia
 
 P = "http://schemas.openxmlformats.org/presentationml/2006/main"
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -313,7 +316,7 @@ def test_presentation_media_is_stored_with_manifest(tmp_path: Path, probe_durati
     work_dir.mkdir()
     storage = _RecordingStorage()
 
-    slim_path = separate_presentation_media(
+    separated = separate_presentation_media(
         file_path=str(source),
         filename="deck.pptx",
         job_id="job_1",
@@ -321,6 +324,7 @@ def test_presentation_media_is_stored_with_manifest(tmp_path: Path, probe_durati
         storage=storage,  # type: ignore[arg-type]
     )
 
+    slim_path = separated.conversion_path
     assert slim_path == str(work_dir / "deck.pptx")
     with zipfile.ZipFile(slim_path) as slim:
         assert "ppt/media/media1.mp4" not in slim.namelist()
@@ -351,6 +355,42 @@ def test_presentation_media_is_stored_with_manifest(tmp_path: Path, probe_durati
     linked = manifest["assets"][2]
     assert linked["ref"] == {"kind": "external", "url": "https://example.com/talk.mp4"}
     assert linked["duration_ms"] is None
+    assert separated.page_media.hidden_pages == frozenset({2})
+    assert [asset["asset_id"] for asset in separated.page_media.assets_by_page[1]] == [
+        first["asset_id"]
+    ]
+
+
+def test_page_rows_carry_their_media_and_markers() -> None:
+    video = {
+        "asset_id": "asset_v",
+        "kind": "video",
+        "origin": "embedded",
+        "title": "Demo",
+        "page_nums": [2],
+        "region": None,
+        "duration_ms": 65_000,
+        "ref": {"kind": "artifact", "path": "embedded_media/abc-media1.mp4"},
+    }
+    page_media = PageMedia.from_descriptors([video], [2])
+    rows = pd.DataFrame(
+        [
+            {"type": "page", "content": "Intro", "page_nums": "1", "length": 5, "extra_metadata": {}},
+            {"type": "page", "content": "Body", "page_nums": "2,3", "length": 4, "extra_metadata": {"scope_id": "p2-3"}},
+            {"type": "image", "content": "Chart", "page_nums": "2", "length": 5, "extra_metadata": {}},
+        ]
+    )
+
+    attached = attach_page_media_to_rows(rows, page_media).to_dict("records")
+
+    assert attached[0]["content"] == "Intro"
+    assert "assets" not in attached[0]["extra_metadata"]
+    assert attached[1]["content"] == "Body\n[video: Demo · 01:05 · asset:asset_v]"
+    assert attached[1]["length"] == len(attached[1]["content"])
+    assert attached[1]["extra_metadata"]["scope_id"] == "p2-3"
+    assert attached[1]["extra_metadata"]["assets"][0]["asset_id"] == "asset_v"
+    assert attached[1]["extra_metadata"]["hidden_page_nums"] == [2]
+    assert "assets" not in attached[2]["extra_metadata"]
 
 
 def test_identical_media_bytes_are_stored_once(tmp_path: Path, probe_duration: None) -> None:
@@ -399,7 +439,8 @@ def test_presentation_without_media_converts_the_original(tmp_path: Path) -> Non
         storage=storage,  # type: ignore[arg-type]
     )
 
-    assert result == str(source_path)
+    assert result.conversion_path == str(source_path)
+    assert result.page_media.is_empty
     assert storage.uploads == {}
 
 

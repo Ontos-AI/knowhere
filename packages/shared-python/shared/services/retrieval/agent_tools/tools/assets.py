@@ -31,7 +31,14 @@ from typing import Any
 
 from sqlalchemy import select
 
+from shared.services.chunks.asset_descriptor import (
+    PAGE_MEDIA_ASSETS_KEY,
+    PAGE_MEDIA_KINDS,
+    normalize_page_media_assets,
+    page_media_marker,
+)
 from shared.services.retrieval.agent_tools.asset_hosts import (
+    host_in_scope,
     hosted_section_path,
     in_scope_hosts,
     load_asset_hosts,
@@ -61,10 +68,12 @@ from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 @register_tool(
     name="corpus.assets",
     description=(
-        "Find image and table chunks by type or query, or, given asset "
-        "chunk_ids (host_of), list the sections that contain them. Rows "
-        "show the containing section_path; an asset that no section "
-        "contains is marked (not in any section). A plain listing does not "
+        "Find image and table chunks, and the video and audio a page "
+        "carries, by type or query, or, given asset chunk_ids (host_of), "
+        "list the sections that contain them. Rows show the containing "
+        "section_path; an asset that no section contains is marked (not in "
+        "any section). A video or audio row names its page chunk and its "
+        "asset id. A plain listing does not "
         "tell you which assets matter: scope it to a section from a prior "
         "corpus.grep/corpus.recall hit, or use host_of on chunk_ids you "
         "already have."
@@ -75,13 +84,13 @@ from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
             "scope": SCOPE_SCHEMA,
             "type": {
                 "type": "string",
-                "enum": ["image", "table", "any"],
+                "enum": ["image", "table", "video", "audio", "any"],
                 "default": "any",
                 "description": "Forward-search asset type. Ignored for host_of.",
             },
             "query": {
                 "type": "string",
-                "description": "Substring match against summary/keywords (forward search only).",
+                "description": "Substring match against summary/keywords, or a media title (forward search only).",
             },
             "host_of": {
                 "type": "array",
@@ -125,8 +134,53 @@ async def _forward_search(
     asset_type: str,
     query: str,
 ) -> ToolResult:
+    if asset_type in PAGE_MEDIA_KINDS:
+        types: set[str] = set()
+        media_kinds: set[str] = {asset_type}
+    elif asset_type in ASSET_CHUNK_TYPES:
+        types = {asset_type}
+        media_kinds = set()
+    else:
+        types = set(ASSET_CHUNK_TYPES)
+        media_kinds = set(PAGE_MEDIA_KINDS)
+    rows: list[dict[str, Any]] = []
+    if types:
+        rows.extend(await _chunk_asset_rows(ctx, scope=scope, types=types, query=query))
+    if media_kinds and len(rows) < ctx.budget.max_items:
+        rows.extend(
+            await _page_media_rows(
+                ctx,
+                scope=scope,
+                kinds=media_kinds,
+                query=query,
+                limit=ctx.budget.max_items - len(rows),
+            )
+        )
+
+    if not rows:
+        unrefined_note = await _check_unrefined_assets_note(ctx, scope=scope)
+        if unrefined_note is not None:
+            return ToolResult(
+                text=unrefined_note,
+                payload={"rows": [], "details": {"unrefined": True}},
+                refs=[],
+            )
+    lines = [f"assets={len(rows)}", *(format_row(row) for row in rows)]
+    return ToolResult(
+        text="\n".join(lines),
+        payload={"rows": rows, "details": {}},
+        refs=[{"document_id": row["document_id"], "chunk_id": row["chunk_id"]} for row in rows],
+    )
+
+
+async def _chunk_asset_rows(
+    ctx: ToolContext,
+    *,
+    scope: list[ScopeTarget],
+    types: set[str],
+    query: str,
+) -> list[dict[str, Any]]:
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
-    types = {asset_type} if asset_type in ASSET_CHUNK_TYPES else set(ASSET_CHUNK_TYPES)
     stmt = (
         select(corpusStorage.DocumentChunk, corpusStorage.DocumentSection.section_path, corpusStorage.Document.source_file_name)
         .select_from(corpusStorage.DocumentChunk)
@@ -195,21 +249,61 @@ async def _forward_search(
         )
         if len(rows) >= ctx.budget.max_items:
             break
+    return rows
 
-    if not rows:
-        unrefined_note = await _check_unrefined_assets_note(ctx, scope=scope)
-        if unrefined_note is not None:
-            return ToolResult(
-                text=unrefined_note,
-                payload={"rows": [], "details": {"unrefined": True}},
-                refs=[],
-            )
-    lines = [f"assets={len(rows)}", *(format_row(row) for row in rows)]
-    return ToolResult(
-        text="\n".join(lines),
-        payload={"rows": rows, "details": {}},
-        refs=[{"document_id": row["document_id"], "chunk_id": row["chunk_id"]} for row in rows],
+
+async def _page_media_rows(
+    ctx: ToolContext,
+    *,
+    scope: list[ScopeTarget],
+    kinds: set[str],
+    query: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Video and audio carried by current page chunks, one row per media item."""
+    corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
+    stmt = (
+        select(corpusStorage.DocumentChunk, corpusStorage.DocumentSection.section_path, corpusStorage.Document.source_file_name)
+        .select_from(corpusStorage.DocumentChunk)
+        .join(corpusStorage.Document, corpusStorage.Document.document_id == corpusStorage.DocumentChunk.document_id)
+        .outerjoin(corpusStorage.DocumentSection, corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id)
+        .where(
+            ctx.document_scope.predicate(corpusStorage.Document.document_id),
+            corpusStorage.Document.user_id == corpusStorage.resolve_owner(ctx.user_id),
+            corpusStorage.Document.namespace == ctx.namespace,
+            corpusStorage.Document.status == "active",
+            CorpusRevisionContext.build_revision_column(corpusStorage.Document) == corpusStorage.DocumentChunk.job_result_id,
+            corpusStorage.DocumentChunk.chunk_type == "page",
+            corpusStorage.DocumentChunk.chunk_metadata[PAGE_MEDIA_ASSETS_KEY].is_not(None),
+        )
+        .order_by(corpusStorage.DocumentChunk.document_id, corpusStorage.DocumentChunk.sort_order, corpusStorage.DocumentChunk.chunk_id)
     )
+    if scope:
+        stmt = stmt.where(corpusStorage.Document.document_id.in_(scope_document_ids(scope)))
+    rows: list[dict[str, Any]] = []
+    for chunk, stored_path, source_file_name in (await ctx.db.execute(stmt)).all():
+        section_path = str(stored_path or "Root")
+        if not host_in_scope(scope, document_id=chunk.document_id, section_path=section_path):
+            continue
+        metadata = chunk.chunk_metadata if isinstance(chunk.chunk_metadata, dict) else {}
+        for asset in normalize_page_media_assets(metadata.get(PAGE_MEDIA_ASSETS_KEY)):
+            if asset["kind"] not in kinds:
+                continue
+            if query and query not in str(asset["title"] or "").lower():
+                continue
+            row = build_row(
+                kind=asset["kind"],
+                document_id=chunk.document_id,
+                section_path=section_path,
+                title=source_file_name,
+                chunk_id=chunk.chunk_id,
+                summary=page_media_marker(asset),
+            )
+            row["asset"] = asset
+            rows.append(row)
+            if len(rows) >= limit:
+                return rows
+    return rows
 
 
 async def _check_unrefined_assets_note(

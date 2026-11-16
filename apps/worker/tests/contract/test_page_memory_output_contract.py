@@ -14,6 +14,10 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
 from app.services.page_memory.page_assets import PageAsset, build_asset_rows
+from shared.services.chunks.asset_descriptor import (
+    EXTRACTED_ASSET_KEY,
+    describe_extracted_asset,
+)
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.storage.zip_chunk_schema import ZipChunkSchemaBuilder
 
@@ -82,12 +86,18 @@ def test_asset_region_and_metadata_match_between_chunks_and_zip() -> None:
     assert "asset_region" not in table_zip
     assert table_chunk["page_nums"] == [5]
     assert table_zip["page_nums"] == [5]
-    for chunk_metadata, zip_metadata in (
-        (figure_chunk, figure_zip),
-        (table_chunk, table_zip),
+    for chunk_id, chunk_metadata, zip_metadata in (
+        ("asset_figure_1", figure_chunk, figure_zip),
+        ("asset_table_2", table_chunk, table_zip),
     ):
         assert "image_uri" not in chunk_metadata
-        assert set(zip_metadata) <= set(chunk_metadata)
+        # The asset descriptor is derived from stored fields when served.
+        assert set(zip_metadata) - {EXTRACTED_ASSET_KEY} <= set(chunk_metadata)
+        assert zip_metadata[EXTRACTED_ASSET_KEY] == describe_extracted_asset(
+            chunk_id=chunk_id,
+            chunk_type="image" if chunk_id == "asset_figure_1" else "table",
+            metadata=zip_metadata,
+        )
         for key in (
             "entities",
             "asset_title",

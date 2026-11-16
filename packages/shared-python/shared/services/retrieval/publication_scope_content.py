@@ -13,6 +13,7 @@ from shared.models.database.document import (
     DocumentChunk,
     DocumentSection,
 )
+from shared.services.chunks.asset_descriptor import PageMedia
 from shared.services.chunks.chunk_connections import merge_connections
 from shared.services.retrieval.cache_service import (
     bump_retrieval_namespace_cache_version_sync,
@@ -26,7 +27,9 @@ from shared.services.retrieval.namespace_map_snapshot import (
 from shared.services.retrieval.page_embedding_index import (
     extract_and_strip_page_embeddings,
     inherit_missing_page_assets,
-    load_revision_page_assets_by_page,
+    inherit_missing_page_media,
+    load_revision_page_metadatas,
+    page_assets_by_page,
     replace_document_page_embeddings,
     upsert_document_page_embeddings,
 )
@@ -73,10 +76,9 @@ def replace_document_scope_content(
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
     with trace_publication_stage(trace, "chunks_prepare"):
         deduped_chunks = deduplicate_chunks_by_source_path(chunks)
-        prior_page_assets_by_page = load_revision_page_assets_by_page(
-            db,
-            scope=scope,
-        )
+        prior_page_metadatas = load_revision_page_metadatas(db, scope=scope)
+        prior_page_assets_by_page = page_assets_by_page(prior_page_metadatas)
+        prior_page_media = PageMedia.from_page_metadatas(prior_page_metadatas)
 
     with trace_publication_stage(trace, "chunks_persist"):
         if scope_id == "*":
@@ -139,6 +141,7 @@ def replace_document_scope_content(
                     chunk_metadata,
                     prior_page_assets_by_page,
                 )
+                inherit_missing_page_media(safe_chunk, chunk_metadata, prior_page_media)
             source_path = _get_source_path(
                 chunk=safe_chunk,
                 chunk_metadata=chunk_metadata,

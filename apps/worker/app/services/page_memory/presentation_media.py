@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 from loguru import logger
 
 from app.services.document_parser.formats.media.probe import probe_media
@@ -32,12 +33,20 @@ from shared.core.exceptions.domain_exceptions import (
     PresentationParsingException,
     ValidationException,
 )
+from shared.services.chunks.asset_descriptor import EMBEDDED_MEDIA_DIR, PageMedia
 from shared.services.storage.job_file_storage import JobFileStorage
 
-EMBEDDED_MEDIA_DIR = "embedded_media"
 EMBEDDED_MEDIA_MANIFEST_NAME = "manifest.json"
 EMBEDDED_MEDIA_SEPARATION_FAILED = "EMBEDDED_MEDIA_SEPARATION_FAILED"
 _UNSAFE_NAME_CHARACTERS = re.compile(r"[^A-Za-z0-9._-]")
+
+
+@dataclass(frozen=True)
+class PresentationMedia:
+    """The package to convert and the media its pages carry."""
+
+    conversion_path: str
+    page_media: PageMedia
 
 
 @dataclass(frozen=True)
@@ -55,15 +64,15 @@ def separate_presentation_media(
     job_id: str | None,
     work_dir: str,
     storage: JobFileStorage | None = None,
-) -> str:
-    """Return the path of the package to convert: slim when anything was separated."""
+) -> PresentationMedia:
+    """Return the package to convert (slim when anything was separated) and its media."""
     package_bytes = Path(file_path).read_bytes()
     try:
         separated = separate_embedded_media(package_bytes, source_name=filename)
     except EmbeddedMediaSeparationError as exc:
         raise _separation_failed(filename, str(exc), exc) from exc
     if not separated.references and not separated.hidden_slide_numbers:
-        return file_path
+        return PresentationMedia(conversion_path=file_path, page_media=PageMedia())
     if not job_id:
         raise _separation_failed(filename, "No job id to store embedded media under", None)
 
@@ -75,11 +84,8 @@ def separate_presentation_media(
         work_dir=work_dir,
         storage=job_storage,
     )
-    _store_manifest(
-        manifest=_manifest(separated, stored_parts),
-        job_id=job_id,
-        storage=job_storage,
-    )
+    manifest = _manifest(separated, stored_parts)
+    _store_manifest(manifest=manifest, job_id=job_id, storage=job_storage)
     slim_path = os.path.join(work_dir, filename)
     with open(slim_path, "wb") as handle:
         handle.write(separated.package_bytes)
@@ -91,7 +97,37 @@ def separate_presentation_media(
         original_bytes=len(package_bytes),
         slim_bytes=len(separated.package_bytes),
     ).info("[page_memory] Separated embedded presentation media")
-    return slim_path
+    return PresentationMedia(
+        conversion_path=slim_path,
+        page_media=PageMedia.from_descriptors(
+            manifest["assets"], separated.hidden_slide_numbers
+        ),
+    )
+
+
+def attach_page_media_to_rows(parsed_df: pd.DataFrame, page_media: PageMedia) -> pd.DataFrame:
+    """Give each page row its pages' media descriptors and marker lines."""
+    if page_media.is_empty or parsed_df.empty:
+        return parsed_df
+    rows = parsed_df.to_dict("records")
+    for row in rows:
+        if row.get("type") != "page":
+            continue
+        extra_metadata = row.get("extra_metadata")
+        metadata: dict[str, Any] = dict(extra_metadata) if isinstance(extra_metadata, dict) else {}
+        content = page_media.attach(
+            content=str(row.get("content") or ""),
+            metadata=metadata,
+            pages=_row_pages(row.get("page_nums")),
+        )
+        row["extra_metadata"] = metadata
+        row["content"] = content
+        row["length"] = len(content)
+    return pd.DataFrame(rows, columns=parsed_df.columns)
+
+
+def _row_pages(page_nums: object) -> list[int]:
+    return [int(item) for item in str(page_nums or "").split(",") if item.strip().isdigit()]
 
 
 def _store_media_parts(

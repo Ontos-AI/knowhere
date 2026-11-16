@@ -16,6 +16,7 @@ import logfire
 from loguru import logger
 
 from shared.core.config import settings
+from shared.services.chunks.asset_descriptor import embedded_media_path
 from shared.services.storage.job_file_storage import JobFileStorage
 from shared.services.storage.storage_adapter import StorageAdapter
 
@@ -65,6 +66,15 @@ class ResultStorage(Protocol):
         job_id: str,
         artifact_ref: str,
         raw_prefix: str | None = None,
+        expires_in: int = 3600,
+    ) -> str | None:
+        raise NotImplementedError
+
+    def generate_embedded_media_url(
+        self,
+        *,
+        job_id: str,
+        media_path: str,
         expires_in: int = 3600,
     ) -> str | None:
         raise NotImplementedError
@@ -450,6 +460,22 @@ class JobResultStorage:
                 relative_path=normalized_ref,
                 raw_prefix=raw_prefix,
             ),
+            expires_in=expires_in,
+        )
+
+    def generate_embedded_media_url(
+        self,
+        *,
+        job_id: str,
+        media_path: str,
+        expires_in: int = 3600,
+    ) -> str | None:
+        """Sign media separated from the job's source, stored outside any snapshot."""
+        normalized_path = embedded_media_path(media_path)
+        if not normalized_path:
+            return None
+        return self.generate_url(
+            storage_key=f"{self.build_raw_prefix(job_id=job_id)}{normalized_path}",
             expires_in=expires_in,
         )
 

@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from shared.services.chunks.asset_descriptor import (
+    EXTRACTED_ASSET_KEY,
+    HIDDEN_PAGE_NUMS_KEY,
+    PAGE_MEDIA_ASSETS_KEY,
+    describe_extracted_asset,
+    normalize_hidden_page_nums,
+    normalize_page_media_assets,
+)
 from shared.services.chunks.chunk_connections import (
     build_resource_target_map,
     convert_refs_to_embed_connections,
@@ -149,6 +157,18 @@ class ZipChunkSchemaBuilder:
                     metadata["page_assets"] = page_assets
                 if isinstance(existing_metadata.get("body_text_preview"), str):
                     metadata["body_text_preview"] = existing_metadata["body_text_preview"]
+                if media_assets := normalize_page_media_assets(
+                    existing_metadata.get(PAGE_MEDIA_ASSETS_KEY)
+                ):
+                    metadata[PAGE_MEDIA_ASSETS_KEY] = media_assets
+                if hidden_page_nums := normalize_hidden_page_nums(
+                    existing_metadata.get(HIDDEN_PAGE_NUMS_KEY)
+                ):
+                    metadata[HIDDEN_PAGE_NUMS_KEY] = hidden_page_nums
+            if descriptor := describe_extracted_asset(
+                chunk_id=chunk_id, chunk_type=chunk_type, metadata=metadata
+            ):
+                metadata[EXTRACTED_ASSET_KEY] = descriptor
 
             formatted_chunk = {
                 "chunk_id": chunk_id,
