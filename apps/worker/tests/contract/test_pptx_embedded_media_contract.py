@@ -656,3 +656,26 @@ def test_media_without_a_duration_header_is_measured_like_a_standalone_upload(
         7_000,
         None,
     ]
+
+
+def test_media_whose_audio_has_no_words_keeps_its_marker(
+    tmp_path: Path, probe_duration: None, media_reading: dict[str, Any]
+) -> None:
+    class _NoWords:
+        def transcribe(self, audio: MediaAudio, **_kwargs: Any) -> Transcript:
+            return Transcript(sentences=())
+
+    source = tmp_path / "deck.pptx"
+    source.write_bytes(_build_package())
+
+    separated = separate_presentation_media(
+        file_path=str(source),
+        filename="deck.pptx",
+        job_id="job_1",
+        work_dir=str(tmp_path),
+        storage=_RecordingStorage(),  # type: ignore[arg-type]
+        transcriber_factory=lambda _checksum: _NoWords(),
+    )
+
+    video_row = separated.media_rows[0]
+    assert video_row["content"] == f"[video: Demo · 01:05 · asset:{video_row['know_id']}]"
