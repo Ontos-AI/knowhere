@@ -283,3 +283,30 @@ def test_document_media_chunks_are_signed_from_their_descriptor() -> None:
         include_asset_urls=True,
         result_storage=storage,
     ) is None
+
+
+def test_retrieval_hits_on_media_chunks_link_to_their_media(monkeypatch) -> None:
+    import asyncio
+
+    from shared.services.retrieval.hydration import assets as hydration_assets
+
+    storage = _SigningStorage()
+    monkeypatch.setattr(hydration_assets, "get_result_storage", lambda: storage)
+    rows = asyncio.run(
+        hydration_assets.enrich_rows_with_retrieval_asset_url(
+            [
+                {"chunk_id": "asset_a", "chunk_type": "audio", "job_id": "job_1",
+                 "chunk_metadata": {"asset": _AUDIO}},
+                {"chunk_id": "asset_l", "chunk_type": "video", "job_id": "job_1",
+                 "chunk_metadata": {"asset": _LINKED}},
+                {"chunk_id": "broken", "chunk_type": "video", "job_id": "job_1",
+                 "chunk_metadata": {}},
+            ],
+            log_context="test",
+        )
+    )
+    assert [row.get("asset_url") for row in rows] == [
+        "https://signed.test/results/job_1/embedded_media/abc-click.wav",
+        "https://example.com/talk.mp4",
+        None,
+    ]

@@ -186,17 +186,12 @@ def _conversion_source(
         return
     # A dot-prefixed directory is never uploaded as a raw result file.
     with tempfile.TemporaryDirectory(prefix=".presentation-media-", dir=output_dir) as work_dir:
-        with stage_timer("page_memory.embedded_media_separation", filename=request.filename):
-            presentation_media = separate_presentation_media(
-                file_path=request.file_path,
-                filename=request.filename,
-                job_id=request.job_id,
-                work_dir=work_dir,
-                asset_model=(
-                    request.page_memory_config.asset_model or resolve_asset_model()
-                ),
-            )
-        yield presentation_media
+        yield separate_presentation_media(
+            file_path=request.file_path,
+            filename=request.filename,
+            job_id=request.job_id,
+            work_dir=work_dir,
+        )
 
 
 def _resolve_output_dir(request: PageMemoryInput) -> str:

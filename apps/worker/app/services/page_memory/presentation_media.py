@@ -1,11 +1,12 @@
 """Separate embedded media from a presentation before PDF conversion.
 
 The slim package is written to ``work_dir`` for conversion only. Each distinct
-embedded media part is probed, transcribed when it has audio, described from
-its first frame when it is a video, and stored once per content hash under the
-job's result prefix, with a manifest beside it. Media bytes never enter the
-result ZIP or snapshot inventory. Every media reference becomes one video or
-audio row, and the page row that shows it embeds that row.
+embedded media part is probed, stored once per content hash under the job's
+result prefix with a manifest beside it, and transcribed when it has audio.
+Media bytes never enter the result ZIP or snapshot inventory. Every media
+reference becomes one video or audio row, and the page row that shows it
+embeds that row. The slide's own text names the media; its poster picture
+stays on the converted page.
 """
 
 from __future__ import annotations
@@ -28,11 +29,11 @@ from loguru import logger
 from app.services.document_parser.formats.media.asr_task_store import (
     EmbeddedMediaAsrTaskStore,
 )
-from app.services.document_parser.formats.media.extract import (
-    extract_first_frame,
-    extract_source_audio,
+from app.services.document_parser.formats.media.extract import extract_source_audio
+from app.services.document_parser.formats.media.probe import (
+    measure_media_duration_ms,
+    probe_media,
 )
-from app.services.document_parser.formats.media.probe import MediaInfo, probe_media
 from app.services.document_parser.formats.media.segments import segment_transcript
 from app.services.document_parser.formats.media.transcriber import (
     FunAsrSpeechTranscriber,
@@ -46,6 +47,7 @@ from app.services.document_parser.formats.pptx.embedded_media import (
     separate_embedded_media,
 )
 from app.services.document_parser.support.identifiers import get_str_time
+from app.services.document_parser.support.stage_profiler import stage_timer
 
 from shared.core.exceptions.domain_exceptions import (
     PresentationParsingException,
@@ -67,7 +69,6 @@ from shared.services.storage.job_file_storage import JobFileStorage
 EMBEDDED_MEDIA_MANIFEST_NAME = "manifest.json"
 EMBEDDED_MEDIA_SEPARATION_FAILED = "EMBEDDED_MEDIA_SEPARATION_FAILED"
 EMBEDDED_MEDIA_ASR_USAGE_TASK = "page_memory.embedded_media_asr"
-EMBEDDED_MEDIA_FRAME_USAGE_TASK = "page_memory.embedded_media_frame"
 _UNSAFE_NAME_CHARACTERS = re.compile(r"[^A-Za-z0-9._-]")
 
 TranscriberFactory = Callable[[str], SpeechTranscriber]
@@ -93,18 +94,11 @@ class _ProbedPart:
 
 
 @dataclass(frozen=True)
-class _PartContent:
-    transcript: str
-    description: str | None
-
-
-@dataclass(frozen=True)
 class _StoredPart:
     path: str
     size_bytes: int
     checksum_sha256: str
     duration_ms: int
-    description: str | None
 
 
 def separate_presentation_media(
@@ -113,48 +107,56 @@ def separate_presentation_media(
     filename: str,
     job_id: str | None,
     work_dir: str,
-    asset_model: str | None,
     storage: JobFileStorage | None = None,
     transcriber_factory: TranscriberFactory | None = None,
 ) -> PresentationMedia:
     """Return the package to convert (slim when anything was separated) and its media."""
-    package_bytes = Path(file_path).read_bytes()
-    try:
-        separated = separate_embedded_media(package_bytes, source_name=filename)
-    except EmbeddedMediaSeparationError as exc:
-        raise _separation_failed(filename, str(exc), exc) from exc
-    if not separated.references and not separated.hidden_slide_numbers:
-        return PresentationMedia(conversion_path=file_path, page_media=PageMedia())
-    if not job_id:
-        raise _separation_failed(filename, "No job id to store embedded media under", None)
-
-    job_storage = storage or JobFileStorage()
-    probed_parts = _probe_media_parts(separated=separated, filename=filename, work_dir=work_dir)
-    contents = _read_media_parts(
-        separated=separated,
-        probed_parts=probed_parts,
-        filename=filename,
-        job_id=job_id,
-        work_dir=work_dir,
-        asset_model=asset_model,
-        transcriber_factory=transcriber_factory or _fun_asr_transcriber,
-    )
-    stored_parts = _store_media_parts(
-        separated=separated,
-        probed_parts=probed_parts,
-        contents=contents,
-        job_id=job_id,
-        storage=job_storage,
-    )
-    manifest = _manifest(separated, stored_parts)
-    _store_manifest(manifest=manifest, job_id=job_id, storage=job_storage)
-    slim_path = os.path.join(work_dir, filename)
-    with open(slim_path, "wb") as handle:
-        handle.write(separated.package_bytes)
+    with stage_timer("page_memory.embedded_media_separation", filename=filename):
+        package_bytes = Path(file_path).read_bytes()
+        try:
+            separated = separate_embedded_media(package_bytes, source_name=filename)
+        except EmbeddedMediaSeparationError as exc:
+            raise _separation_failed(filename, str(exc), exc) from exc
+        if not separated.references and not separated.hidden_slide_numbers:
+            return PresentationMedia(conversion_path=file_path, page_media=PageMedia())
+        if not job_id:
+            raise _separation_failed(filename, "No job id to store embedded media under", None)
+        job_storage = storage or JobFileStorage()
+        probed_parts = _probe_media_parts(
+            separated=separated, filename=filename, work_dir=work_dir
+        )
+        stored_parts = _store_media_parts(
+            separated=separated, probed_parts=probed_parts, job_id=job_id, storage=job_storage
+        )
+        manifest = _manifest(separated, stored_parts)
+        _store_manifest(manifest=manifest, job_id=job_id, storage=job_storage)
+        slim_path = os.path.join(work_dir, filename)
+        with open(slim_path, "wb") as handle:
+            handle.write(separated.package_bytes)
+    audible_parts = {
+        probed.checksum_sha256: probed for probed in probed_parts.values() if probed.has_audio
+    }
+    transcripts: dict[str, str] = {}
+    if audible_parts:
+        with stage_timer(
+            "page_memory.embedded_media_asr", filename=filename, part_count=len(audible_parts)
+        ):
+            transcribe_with = transcriber_factory or _fun_asr_transcriber
+            transcripts = {
+                checksum: _transcribe(
+                    probed,
+                    filename=filename,
+                    job_id=job_id,
+                    output_dir=os.path.join(work_dir, checksum),
+                    transcriber=transcribe_with(checksum),
+                )
+                for checksum, probed in audible_parts.items()
+            }
     logger.bind(
         filename=filename,
         media_count=len(separated.references),
-        stored_part_count=len(contents),
+        stored_part_count=len({part.checksum_sha256 for part in stored_parts.values()}),
+        transcribed_part_count=len(transcripts),
         hidden_slide_count=len(separated.hidden_slide_numbers),
         original_bytes=len(package_bytes),
         slim_bytes=len(separated.package_bytes),
@@ -164,7 +166,7 @@ def separate_presentation_media(
         conversion_path=slim_path,
         page_media=PageMedia.from_descriptors(assets, separated.hidden_slide_numbers),
         media_rows=tuple(
-            _media_row(asset, content=contents.get(asset["checksum_sha256"] or ""))
+            _media_row(asset, transcript=transcripts.get(asset["checksum_sha256"] or "", ""))
             for asset in assets
         ),
     )
@@ -218,23 +220,19 @@ def _row_pages(page_nums: object) -> list[int]:
     return [int(item) for item in str(page_nums or "").split(",") if item.strip().isdigit()]
 
 
-def _media_row(asset: dict[str, Any], *, content: _PartContent | None) -> dict[str, Any]:
-    """One video/audio row: marker line, first-frame description, transcript.
+def _media_row(asset: dict[str, Any], *, transcript: str) -> dict[str, Any]:
+    """One video/audio row: marker line (title, duration, asset id), then transcript.
 
     A linked item has no bytes, so its row carries the marker line only.
     """
-    description = asset["summary"] or ""
-    transcript = content.transcript if content is not None else ""
-    text = "\n\n".join(
-        part for part in (page_media_marker(asset), description, transcript) if part
-    )
+    text = "\n\n".join(part for part in (page_media_marker(asset), transcript) if part)
     return {
         "content": text,
         "path": f"{EMBEDDED_MEDIA_DIR}/{asset['asset_id']}",
         "type": asset["kind"],
         "length": len(text),
         "keywords": "",
-        "summary": description,
+        "summary": "",
         "know_id": asset["asset_id"],
         "tokens": "",
         "connectto": "",
@@ -265,67 +263,17 @@ def _probe_media_parts(
         local_path = os.path.join(work_dir, f"{checksum}-{safe_name}")
         with open(local_path, "wb") as handle:
             handle.write(payload)
-        info, duration_ms = _probe(local_path, filename=filename, part_name=part_name)
-        probed = _ProbedPart(
-            local_path=local_path,
+        probed = _probe(
+            local_path,
             safe_name=safe_name,
             size_bytes=len(payload),
             checksum_sha256=checksum,
-            duration_ms=duration_ms,
-            has_audio=info.has_audio,
+            filename=filename,
+            part_name=part_name,
         )
         probed_by_checksum[checksum] = probed
         probed_by_part[part_name] = probed
     return probed_by_part
-
-
-def _read_media_parts(
-    *,
-    separated: SeparatedPresentation,
-    probed_parts: dict[str, _ProbedPart],
-    filename: str,
-    job_id: str,
-    work_dir: str,
-    asset_model: str | None,
-    transcriber_factory: TranscriberFactory,
-) -> dict[str, _PartContent]:
-    """Transcript and first-frame description of each distinct part, by checksum."""
-    references_by_checksum: dict[str, list[MediaReference]] = {}
-    for reference in separated.references:
-        probed = probed_parts.get(reference.part_name or "")
-        if probed is not None:
-            references_by_checksum.setdefault(probed.checksum_sha256, []).append(reference)
-    probed_by_checksum = {part.checksum_sha256: part for part in probed_parts.values()}
-    contents: dict[str, _PartContent] = {}
-    for checksum, probed in probed_by_checksum.items():
-        references = references_by_checksum.get(checksum, [])
-        title = next((reference.title for reference in references if reference.title), None)
-        part_dir = os.path.join(work_dir, checksum)
-        contents[checksum] = _PartContent(
-            transcript=(
-                _transcribe(
-                    probed,
-                    filename=filename,
-                    job_id=job_id,
-                    output_dir=part_dir,
-                    transcriber=transcriber_factory(checksum),
-                )
-                if probed.has_audio
-                else ""
-            ),
-            description=(
-                _describe_first_frame(
-                    probed,
-                    title=title,
-                    filename=filename,
-                    output_dir=part_dir,
-                    asset_model=asset_model,
-                )
-                if any(reference.kind == "video" for reference in references)
-                else None
-            ),
-        )
-    return contents
 
 
 def _transcribe(
@@ -356,34 +304,6 @@ def _transcribe(
     )
 
 
-def _describe_first_frame(
-    probed: _ProbedPart,
-    *,
-    title: str | None,
-    filename: str,
-    output_dir: str,
-    asset_model: str | None,
-) -> str | None:
-    """Describe the video's first frame; None when the vision call returns nothing."""
-    from shared.services.ai.summary.engine import summarize
-
-    try:
-        frame_path = extract_first_frame(probed.local_path, output_dir)
-    except ValidationException as exc:
-        raise _separation_failed(
-            filename, f"First frame of media part {probed.safe_name} could not be read", exc
-        ) from exc
-    result = summarize(
-        mode="asset",
-        image_paths=[frame_path],
-        text=title or "",
-        model=asset_model,
-        usage_task=EMBEDDED_MEDIA_FRAME_USAGE_TASK,
-        asset_title_hint=title or "",
-    )
-    return result.summary or None
-
-
 def _fun_asr_transcriber(checksum_sha256: str) -> SpeechTranscriber:
     return FunAsrSpeechTranscriber(task_store=EmbeddedMediaAsrTaskStore(checksum_sha256))
 
@@ -392,7 +312,6 @@ def _store_media_parts(
     *,
     separated: SeparatedPresentation,
     probed_parts: dict[str, _ProbedPart],
-    contents: dict[str, _PartContent],
     job_id: str,
     storage: JobFileStorage,
 ) -> dict[str, _StoredPart]:
@@ -421,25 +340,37 @@ def _store_media_parts(
                 size_bytes=probed.size_bytes,
                 checksum_sha256=probed.checksum_sha256,
                 duration_ms=probed.duration_ms,
-                description=contents[probed.checksum_sha256].description,
             )
             stored_by_checksum[probed.checksum_sha256] = stored
         stored_by_part[part_name] = stored
     return stored_by_part
 
 
-def _probe(local_path: str, *, filename: str, part_name: str) -> tuple[MediaInfo, int]:
+def _probe(
+    local_path: str,
+    *,
+    safe_name: str,
+    size_bytes: int,
+    checksum_sha256: str,
+    filename: str,
+    part_name: str,
+) -> _ProbedPart:
+    """Probe one part; its duration is read the same way as a standalone media upload."""
     try:
         info = probe_media(local_path)
+        duration_ms = measure_media_duration_ms(local_path, info)
     except ValidationException as exc:
         raise _separation_failed(
             filename, f"Media part {part_name} could not be probed", exc
         ) from exc
-    if info.duration_ms is None:
-        raise _separation_failed(
-            filename, f"Media part {part_name} has no readable duration", None
-        )
-    return info, info.duration_ms
+    return _ProbedPart(
+        local_path=local_path,
+        safe_name=safe_name,
+        size_bytes=size_bytes,
+        checksum_sha256=checksum_sha256,
+        duration_ms=duration_ms,
+        has_audio=info.has_audio,
+    )
 
 
 def _manifest(
@@ -462,7 +393,6 @@ def _asset_descriptor(
         "kind": reference.kind,
         "origin": reference.origin,
         "title": reference.title,
-        "summary": stored.description if stored else None,
         "page_nums": [reference.slide_number],
         "region": (
             {

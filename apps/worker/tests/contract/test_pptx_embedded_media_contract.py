@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import io
 import json
-import shutil
-import subprocess
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -25,7 +23,6 @@ from app.services.document_parser.formats.pptx.embedded_media import (
 from app.services.page_memory import presentation_media
 from app.services.page_memory.presentation_media import (
     EMBEDDED_MEDIA_ASR_USAGE_TASK,
-    EMBEDDED_MEDIA_FRAME_USAGE_TASK,
     EMBEDDED_MEDIA_SEPARATION_FAILED,
     PresentationMedia,
     attach_presentation_media,
@@ -36,8 +33,6 @@ from shared.core.exceptions.domain_exceptions import (
     PresentationParsingException,
     ValidationException,
 )
-from shared.services.ai.summary import engine as summary_engine
-from shared.services.ai.summary.model import AssetSummary
 from shared.services.chunks.asset_descriptor import PageMedia
 
 P = "http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -206,21 +201,20 @@ def test_references_follow_slide_list_order_and_carry_regions() -> None:
         (1, "6", "video", "embedded", "ppt/media/media1.mp4", "video/mp4"),
         (2, "9", "audio", "embedded", "ppt/media/media2.m4a", "audio/mp4"),
         (3, "4", "video", "linked", None, None),
-        (4, "sound-1", "audio", "embedded", "ppt/media/click.wav", "audio/wav"),
     ]
     by_slide = {ref.slide_number: ref for ref in separated.references}
     assert by_slide[1].region == (0.0, 0.0, 0.5, 0.5)
     # The group maps its full-slide child space onto a half-size box at (0.1, 0.1).
     assert by_slide[2].region == pytest.approx((0.1, 0.1, 0.35, 0.35))
     assert by_slide[3].external_url == "https://example.com/talk.mp4"
-    assert by_slide[4].region is None
+    # Slide 4 only has a transition sound, which is not a media item.
+    assert 4 not in by_slide
     assert by_slide[1].title == "Demo"
     assert by_slide[1].asset_id.startswith("asset_")
     assert separated.hidden_slide_numbers == (2,)
     assert set(separated.media_parts) == {
         "ppt/media/media1.mp4",
         "ppt/media/media2.m4a",
-        "ppt/media/click.wav",
     }
 
 
@@ -231,7 +225,7 @@ def test_slim_package_strips_media_and_keeps_posters() -> None:
         names = set(slim.namelist())
         assert "ppt/media/media1.mp4" not in names
         assert "ppt/media/media2.m4a" not in names
-        # Sounds stay, because their timing trees are not rewritten.
+        # Transition and animation sounds are left untouched.
         assert "ppt/media/click.wav" in names
         assert "ppt/media/image1.png" in names
         assert b"media2.m4a" not in slim.read("[Content_Types].xml")
@@ -347,25 +341,14 @@ class _RecordingTranscriber:
 
 @pytest.fixture
 def media_reading(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Fake audio/frame extraction and vision; record what was asked."""
-    recorded: dict[str, Any] = {"asr": [], "frames": [], "vision": []}
+    """Fake audio extraction and transcription; record what was transcribed."""
+    recorded: dict[str, Any] = {"asr": []}
 
     def extract_audio(file_path: str, output_dir: str) -> str:
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         return str(Path(output_dir) / "source_audio.wav")
 
-    def extract_frame(file_path: str, output_dir: str) -> str:
-        recorded["frames"].append(Path(file_path).read_bytes())
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        return str(Path(output_dir) / "first_frame.png")
-
-    def summarize(**kwargs: Any) -> AssetSummary:
-        recorded["vision"].append(kwargs)
-        return AssetSummary(summary="A product demo screen")
-
     monkeypatch.setattr(presentation_media, "extract_source_audio", extract_audio)
-    monkeypatch.setattr(presentation_media, "extract_first_frame", extract_frame)
-    monkeypatch.setattr(summary_engine, "summarize", summarize)
     recorded["factory"] = lambda checksum: _RecordingTranscriber(recorded["asr"], checksum)
     return recorded
 
@@ -384,7 +367,6 @@ def test_presentation_media_is_stored_with_manifest(
         filename="deck.pptx",
         job_id="job_1",
         work_dir=str(work_dir),
-        asset_model="vision-model",
         storage=storage,  # type: ignore[arg-type]
         transcriber_factory=media_reading["factory"],
     )
@@ -401,7 +383,6 @@ def test_presentation_media_is_stored_with_manifest(
     assert stored == {
         "media1.mp4": (b"video-bytes", "video/mp4"),
         "media2.m4a": (b"audio-bytes", "audio/mp4"),
-        "click.wav": (b"wav-bytes", "audio/wav"),
     }
     manifest = json.loads(manifest_bytes)
     assert manifest["hidden_slide_numbers"] == [2]
@@ -424,21 +405,12 @@ def test_presentation_media_is_stored_with_manifest(
     assert [asset["asset_id"] for asset in separated.page_media.assets_by_page[1]] == [
         first["asset_id"]
     ]
-    # One transcript per distinct part with audio; one frame per video part.
+    # One transcript per distinct part with audio.
     assert sorted(media_reading["asr"]) == sorted(
         (asset["checksum_sha256"], EMBEDDED_MEDIA_ASR_USAGE_TASK)
         for asset in manifest["assets"]
         if asset["checksum_sha256"]
     )
-    assert media_reading["frames"] == [b"video-bytes"]
-    [vision_call] = media_reading["vision"]
-    assert vision_call["mode"] == "asset"
-    assert vision_call["model"] == "vision-model"
-    assert vision_call["usage_task"] == EMBEDDED_MEDIA_FRAME_USAGE_TASK
-    assert vision_call["asset_title_hint"] == "Demo"
-    assert first["summary"] == "A product demo screen"
-    assert manifest["assets"][1]["summary"] is None
-    assert linked["summary"] is None
 
     rows = {row["know_id"]: row for row in separated.media_rows}
     assert list(rows) == [asset["asset_id"] for asset in manifest["assets"]]
@@ -447,14 +419,14 @@ def test_presentation_media_is_stored_with_manifest(
     assert video_row["path"] == f"embedded_media/{first['asset_id']}"
     assert video_row["page_nums"] == "1"
     assert video_row["asset_title"] == "Demo"
-    assert video_row["summary"] == "A product demo screen"
+    assert video_row["summary"] == ""
     assert video_row["content"] == (
         f"[video: Demo · 01:05 · asset:{first['asset_id']}]\n\n"
-        "A product demo screen\n\n[00:00:00–00:00:00] S1: Welcome"
+        "[00:00:00–00:00:00] S1: Welcome"
     )
     assert video_row["length"] == len(video_row["content"])
     assert video_row["extra_metadata"]["asset"]["asset_id"] == first["asset_id"]
-    assert video_row["extra_metadata"]["asset"]["summary"] == "A product demo screen"
+    assert video_row["extra_metadata"]["asset"]["summary"] is None
     linked_row = rows[linked["asset_id"]]
     assert linked_row["content"] == f"[video: Linked · linked · asset:{linked['asset_id']}]"
 
@@ -531,14 +503,14 @@ def test_identical_media_bytes_are_stored_once(
         filename="deck.pptx",
         job_id="job_1",
         work_dir=str(tmp_path),
-        asset_model=None,
         storage=storage,  # type: ignore[arg-type]
         transcriber_factory=media_reading["factory"],
     )
 
     media_keys = [key for key in storage.uploads if not key.endswith("manifest.json")]
-    assert len(media_keys) == 2
-    assert len(media_reading["asr"]) == 2
+    # The audio part now has the video's bytes, so one part is stored and transcribed.
+    assert len(media_keys) == 1
+    assert len(media_reading["asr"]) == 1
 
 
 def test_presentation_without_media_converts_the_original(tmp_path: Path) -> None:
@@ -559,7 +531,6 @@ def test_presentation_without_media_converts_the_original(tmp_path: Path) -> Non
         filename="deck.pptx",
         job_id=None,
         work_dir=str(tmp_path),
-        asset_model=None,
         storage=storage,  # type: ignore[arg-type]
     )
 
@@ -585,8 +556,7 @@ def test_unreadable_media_fails_the_parse(tmp_path: Path, monkeypatch: pytest.Mo
             filename="deck.pptx",
             job_id="job_1",
             work_dir=str(tmp_path),
-            asset_model=None,
-            storage=_RecordingStorage(),  # type: ignore[arg-type]
+                storage=_RecordingStorage(),  # type: ignore[arg-type]
         )
 
     assert raised.value.details["reason"] == EMBEDDED_MEDIA_SEPARATION_FAILED
@@ -602,8 +572,7 @@ def test_broken_package_fails_the_parse(tmp_path: Path) -> None:
             filename="deck.pptx",
             job_id="job_1",
             work_dir=str(tmp_path),
-            asset_model=None,
-            storage=_RecordingStorage(),  # type: ignore[arg-type]
+                storage=_RecordingStorage(),  # type: ignore[arg-type]
         )
 
     assert raised.value.details == {
@@ -612,7 +581,7 @@ def test_broken_package_fails_the_parse(tmp_path: Path) -> None:
     }
 
 
-def test_silent_video_is_described_without_transcription(
+def test_silent_video_keeps_its_marker_without_transcription(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, media_reading: dict[str, Any]
 ) -> None:
     monkeypatch.setattr(
@@ -628,96 +597,13 @@ def test_silent_video_is_described_without_transcription(
         filename="deck.pptx",
         job_id="job_1",
         work_dir=str(tmp_path),
-        asset_model=None,
         storage=_RecordingStorage(),  # type: ignore[arg-type]
         transcriber_factory=media_reading["factory"],
     )
 
     assert media_reading["asr"] == []
     video_row = separated.media_rows[0]
-    assert video_row["content"].endswith("A product demo screen")
-    assert separated.media_rows[1]["summary"] == ""
-
-
-def test_unreadable_first_frame_fails_the_parse(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    probe_duration: None,
-    media_reading: dict[str, Any],
-) -> None:
-    def no_frame(file_path: str, output_dir: str) -> str:
-        raise ValidationException(
-            user_message="Could not read a frame from this video.",
-            violations=[{"field": "file", "description": "no frame"}],
-        )
-
-    monkeypatch.setattr(presentation_media, "extract_first_frame", no_frame)
-    source = tmp_path / "deck.pptx"
-    source.write_bytes(_build_package())
-    storage = _RecordingStorage()
-
-    with pytest.raises(PresentationParsingException) as raised:
-        separate_presentation_media(
-            file_path=str(source),
-            filename="deck.pptx",
-            job_id="job_1",
-            work_dir=str(tmp_path),
-            asset_model=None,
-            storage=storage,  # type: ignore[arg-type]
-            transcriber_factory=media_reading["factory"],
-        )
-
-    assert raised.value.details["reason"] == EMBEDDED_MEDIA_SEPARATION_FAILED
-    assert media_reading["vision"] == []
-    assert storage.uploads == {}
-
-
-def test_empty_frame_description_is_not_stored(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    probe_duration: None,
-    media_reading: dict[str, Any],
-) -> None:
-    monkeypatch.setattr(summary_engine, "summarize", lambda **_kwargs: AssetSummary())
-    source = tmp_path / "deck.pptx"
-    source.write_bytes(_build_package())
-
-    separated = separate_presentation_media(
-        file_path=str(source),
-        filename="deck.pptx",
-        job_id="job_1",
-        work_dir=str(tmp_path),
-        asset_model=None,
-        storage=_RecordingStorage(),  # type: ignore[arg-type]
-        transcriber_factory=media_reading["factory"],
-    )
-
-    assert separated.media_rows[0]["extra_metadata"]["asset"]["summary"] is None
-
-
-@pytest.mark.skipif(
-    shutil.which("ffmpeg") is None, reason="ffmpeg is required to render a frame"
-)
-def test_first_frame_is_written_as_png(tmp_path: Path) -> None:
-    from app.services.document_parser.formats.media.extract import extract_first_frame
-
-    video = tmp_path / "clip.mp4"
-    subprocess.run(
-        [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "testsrc=size=64x48:rate=5:duration=1",
-            "-pix_fmt", "yuv420p", str(video),
-        ],
-        check=True,
-    )
-
-    frame = Path(extract_first_frame(str(video), str(tmp_path / "frame")))
-
-    assert frame.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
-    not_video = tmp_path / "noise.mp4"
-    not_video.write_bytes(b"not a video")
-    with pytest.raises(ValidationException):
-        extract_first_frame(str(not_video), str(tmp_path / "noise"))
+    assert video_row["content"] == f"[video: Demo · 00:04 · asset:{video_row['know_id']}]"
 
 
 def test_media_shape_without_a_relationship_fails_separation() -> None:
@@ -734,3 +620,39 @@ def test_media_shape_without_a_relationship_fails_separation() -> None:
 
     with pytest.raises(EmbeddedMediaSeparationError, match="no media relationship"):
         separate_embedded_media(broken.getvalue(), source_name="deck.pptx")
+
+
+def test_media_without_a_duration_header_is_measured_like_a_standalone_upload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, media_reading: dict[str, Any]
+) -> None:
+    measured: list[str] = []
+
+    def measure(file_path: str, info: MediaInfo) -> int:
+        assert info.duration_ms is None
+        measured.append(file_path)
+        return 7_000
+
+    monkeypatch.setattr(
+        presentation_media,
+        "probe_media",
+        lambda _path: MediaInfo(duration_ms=None, has_audio=True, codec="opus", channels=1),
+    )
+    monkeypatch.setattr(presentation_media, "measure_media_duration_ms", measure)
+    source = tmp_path / "deck.pptx"
+    source.write_bytes(_build_package())
+
+    separated = separate_presentation_media(
+        file_path=str(source),
+        filename="deck.pptx",
+        job_id="job_1",
+        work_dir=str(tmp_path),
+        storage=_RecordingStorage(),  # type: ignore[arg-type]
+        transcriber_factory=media_reading["factory"],
+    )
+
+    assert len(measured) == 2
+    assert [row["extra_metadata"]["asset"]["duration_ms"] for row in separated.media_rows] == [
+        7_000,
+        7_000,
+        None,
+    ]

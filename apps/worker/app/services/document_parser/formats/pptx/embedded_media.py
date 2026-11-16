@@ -11,8 +11,8 @@ for PDF conversion:
   nodes of those shapes are removed; a media part is dropped only when no
   relationship in the package still targets it.
 - Hidden slides are made visible so slide numbers equal PDF page numbers.
-- Transition and animation sounds are recorded as audio but stay in the
-  package, because removing them means rewriting animation timing trees.
+- Transition and animation sounds are not media items: they are neither
+  recorded nor removed.
 
 The module is pure: bytes in, bytes and records out. Storage and probing
 belong to the caller.
@@ -72,8 +72,8 @@ class MediaReference:
     kind: MediaKind
     origin: MediaOrigin
     title: str
-    # Shape box as [x0, y0, x1, y1] fractions of the slide; None without a
-    # visible shape (sounds) or without an explicit transform.
+    # Shape box as [x0, y0, x1, y1] fractions of the slide; None without an
+    # explicit transform.
     region: tuple[float, float, float, float] | None
     part_name: str | None
     external_url: str | None
@@ -204,7 +204,6 @@ class _SlideRewrite:
                 stripped_shape_ids.add(shape_id)
         if stripped_shape_ids:
             self._strip_timing_media(stripped_shape_ids)
-        self._record_sounds()
         if self.root.get("show") == "0":
             del self.root.attrib["show"]
             self.was_hidden = True
@@ -325,36 +324,6 @@ class _SlideRewrite:
                 }
                 if targets & shape_ids:
                     node.getparent().remove(node)
-
-    def _record_sounds(self) -> None:
-        sound_rel_ids = [
-            value
-            for element in (
-                *self.root.iter(f"{{{_P}}}snd"),
-                *self.root.iter(f"{{{_P}}}sndTgt"),
-            )
-            if (value := element.get(f"{{{_R}}}embed"))
-        ]
-        for ordinal, rel_id in enumerate(sound_rel_ids, start=1):
-            relationship = self._media_relationship(rel_id)
-            part_name = None if relationship.is_external else self._resolve(relationship.target)
-            shape_id = f"sound-{ordinal}"
-            self.references.append(
-                MediaReference(
-                    asset_id=self._asset_id(shape_id, "audio"),
-                    slide_number=self._slide_number,
-                    shape_id=shape_id,
-                    kind="audio",
-                    origin="embedded" if part_name else "linked",
-                    title=posixpath.basename(relationship.target),
-                    region=None,
-                    part_name=part_name,
-                    external_url=relationship.target if relationship.is_external else None,
-                    content_type=(
-                        _content_type(self._content_types, part_name) if part_name else None
-                    ),
-                )
-            )
 
     def _drop_unreferenced_media_relationships(self) -> None:
         referenced = {

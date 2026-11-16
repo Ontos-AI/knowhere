@@ -556,5 +556,22 @@ class JobResultStorage:
             logger.debug(f"Failed to clean up result file {file_path}: {exc}")
 
 
+def media_asset_url(
+    ref: dict[str, str],
+    *,
+    job_id: str | None,
+    storage: ResultStorage | None,
+    expires_in: int = 3600,
+) -> str | None:
+    """Where a video/audio descriptor's media plays: its link, or the job's separated copy."""
+    if ref["kind"] == "external":
+        return ref["url"]
+    if not job_id or storage is None:
+        return None
+    return storage.generate_embedded_media_url(
+        job_id=job_id, media_path=ref["path"], expires_in=expires_in
+    )
+
+
 def get_result_storage() -> ResultStorage:
     return JobResultStorage()

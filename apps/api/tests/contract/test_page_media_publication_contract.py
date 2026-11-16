@@ -39,7 +39,7 @@ _VIDEO = {
     "kind": "video",
     "origin": "embedded",
     "title": "Product demo",
-    "summary": "A product demo screen",
+    "summary": None,
     "page_nums": [2],
     "region": {"page_num": 2, "bbox": [0.1, 0.2, 0.6, 0.8], "coord_system": "page_fraction"},
     "content_type": "video/mp4",
@@ -52,11 +52,10 @@ _MARKER = "[video: Product demo · 00:53 · asset:asset_demo_video]"
 _VIDEO_CHUNK = {
     "chunk_id": "asset_demo_video",
     "type": "video",
-    "content": f"{_MARKER}\n\nA product demo screen\n\n[00:00:00–00:00:04] S1: Welcome to the launch",
+    "content": f"{_MARKER}\n\n[00:00:00–00:00:04] S1: Welcome to the launch",
     "path": "embedded_media/asset_demo_video",
     "metadata": {
         "page_nums": [2],
-        "summary": "A product demo screen",
         "asset_title": "Product demo",
         "asset": _VIDEO,
         "connect_to": [{"target": "media-m0-p2", "relation": "embedded_by"}],
@@ -285,7 +284,7 @@ def test_coarse_republish_keeps_page_media_and_assets_lists_it(
             ("video", "asset_demo_video")
         ]
         assert video_rows[0]["asset"] == _VIDEO
-        assert video_rows[0]["summary"] == f"{_MARKER} A product demo screen"
+        assert video_rows[0]["summary"] == _MARKER
         assert video_rows[0]["hosted"] is True
         assert video_rows[0]["section_path"] == plan_section_path
         assert asyncio.run(_list_assets("audio")) == []

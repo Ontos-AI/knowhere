@@ -44,7 +44,11 @@ from shared.services.chunks.asset_descriptor import (
     normalize_page_media_asset,
     normalize_page_media_assets,
 )
-from shared.services.storage.result_storage import ResultStorage, get_result_storage
+from shared.services.storage.result_storage import (
+    ResultStorage,
+    get_result_storage,
+    media_asset_url,
+)
 from shared.services.storage.demo_asset_signer import DemoAssetSigner
 
 _DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS = 7 * 24 * 60 * 60
@@ -163,16 +167,11 @@ def _sign_media_asset(
     job_id: str | None,
     result_storage: ResultStorage | None,
 ) -> None:
-    ref = asset["ref"]
-    if ref["kind"] == "external":
-        asset["url"] = ref["url"]
-        return
-    if not job_id or result_storage is None:
-        return
     try:
-        url = result_storage.generate_embedded_media_url(
+        url = media_asset_url(
+            asset["ref"],
             job_id=job_id,
-            media_path=ref["path"],
+            storage=result_storage,
             expires_in=_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS,
         )
     except Exception as exc:

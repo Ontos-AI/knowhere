@@ -202,9 +202,7 @@ async def _chunk_asset_rows(
             else None
         )
         if media_asset is not None:
-            summary = " ".join(
-                part for part in (page_media_marker(media_asset), summary) if part
-            )
+            summary = page_media_marker(media_asset)
         asset_title = str(metadata.get("asset_title") or "").strip()
         entities = metadata.get("entities")
         if isinstance(entities, list) and entities:
