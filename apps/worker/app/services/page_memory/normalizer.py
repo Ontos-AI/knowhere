@@ -18,7 +18,6 @@ def normalize_to_pdf(
     file_path: str,
     filename: str,
     output_dir: str,
-    base_url: str = "",
 ) -> tuple[str, str]:
     """Return a local PDF path and filename for page-memory processing."""
     extension = os.path.splitext(filename)[1].lower()
@@ -29,7 +28,6 @@ def normalize_to_pdf(
             file_path=file_path,
             filename=filename,
             output_dir=output_dir,
-            base_url=base_url,
         )
     raise ValidationException(
         user_message="page_memory parse track only supports PDF and PPTX",
@@ -47,9 +45,8 @@ def _normalize_pptx_to_pdf(
     file_path: str,
     filename: str,
     output_dir: str,
-    base_url: str,
 ) -> tuple[str, str]:
-    pptx_data = load_file_bytes(file_path, file_url=base_url)
+    pptx_data = load_file_bytes(file_path)
     pdf_filename = f"{os.path.splitext(filename)[0]}.pdf"
     pdf_path = os.path.join(output_dir, pdf_filename)
     started_at = time.monotonic()

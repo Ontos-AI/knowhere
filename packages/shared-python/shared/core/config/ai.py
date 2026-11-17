@@ -123,6 +123,38 @@ class AIConfig(BaseModel):
         default=3,
         description="Local per-job title detection concurrency for page-memory.",
     )
+    SLIDE_STRUCTURE_SHEET_COLS: int = Field(
+        default=3,
+        description="Columns of the numbered slide grid used to screen slides and fill gaps.",
+    )
+    SLIDE_STRUCTURE_SHEET_ROWS: int = Field(
+        default=3,
+        description="Rows of the numbered slide grid used to screen slides and fill gaps.",
+    )
+    SLIDE_STRUCTURE_SHEET_THUMB_WIDTH: int = Field(
+        default=320,
+        description="Pixel width of each slide thumbnail in a screening/gap grid.",
+    )
+    SLIDE_STRUCTURE_CANDIDATE_COLS: int = Field(
+        default=2,
+        description="Columns of the grid that shows candidate structural slides.",
+    )
+    SLIDE_STRUCTURE_CANDIDATE_ROWS: int = Field(
+        default=2,
+        description="Rows of the grid that shows candidate structural slides.",
+    )
+    SLIDE_STRUCTURE_CANDIDATE_THUMB_WIDTH: int = Field(
+        default=800,
+        description="Pixel width of each candidate slide in the structure grid.",
+    )
+    SLIDE_STRUCTURE_VLM_CONCURRENCY: int = Field(
+        default=3,
+        description="Local per-job concurrency for slide-structure VLM calls.",
+    )
+    SLIDE_STRUCTURE_VLM_MAX_TOKENS: int = Field(
+        default=4000,
+        description="Completion budget for each slide-structure VLM call.",
+    )
     PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY: int = Field(
         default=3,
         description="Local per-job node OCR and summary concurrency for page-memory.",

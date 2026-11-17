@@ -12,15 +12,11 @@ from shared.core.exceptions.domain_exceptions import ValidationException
 
 class DocumentFormat(str, Enum):
     TEXT = "text"
-    FRAGMENT = "fragment"
     IMAGE = "image"
-    PDF = "pdf"
     DOC = "doc"
     DOCX = "docx"
     SPREADSHEET = "spreadsheet"
-    PPTX = "pptx"
     MARKDOWN = "markdown"
-    JSON = "json"
     HTML = "html"
     MEDIA = "media"
 
@@ -67,43 +63,31 @@ MEDIA_SOURCE_EXTENSIONS: tuple[str, ...] = (
 
 SUPPORTED_FILE_TYPES: tuple[str, ...] = (
     ".txt",
-    ".fragment",
     *IMAGE_SOURCE_EXTENSIONS,
-    ".pdf",
     ".doc",
     ".docx",
     *TABLE_SOURCE_EXTENSIONS,
-    ".pptx",
     ".md",
     ".html",
     ".htm",
-    ".json",
     *MEDIA_SOURCE_EXTENSIONS,
 )
 
 
 def resolve_document_format(file_path: str) -> DocumentFormat:
     extension = os.path.splitext(file_path)[1].lower()
-    if extension == ".fragment":
-        return DocumentFormat.FRAGMENT
     if extension == ".txt":
         return DocumentFormat.TEXT
     if extension in IMAGE_SOURCE_EXTENSIONS:
         return DocumentFormat.IMAGE
-    if extension == ".pdf":
-        return DocumentFormat.PDF
     if extension == ".doc":
         return DocumentFormat.DOC
     if extension == ".docx":
         return DocumentFormat.DOCX
     if extension in TABLE_SOURCE_EXTENSIONS:
         return DocumentFormat.SPREADSHEET
-    if extension == ".pptx":
-        return DocumentFormat.PPTX
     if extension == ".md":
         return DocumentFormat.MARKDOWN
-    if extension == ".json":
-        return DocumentFormat.JSON
     if extension in (".html", ".htm"):
         return DocumentFormat.HTML
     if extension in MEDIA_SOURCE_EXTENSIONS:
@@ -122,19 +106,15 @@ def resolve_document_format(file_path: str) -> DocumentFormat:
 
 def get_document_parse_adapter(document_format: DocumentFormat) -> DocumentParseAdapter:
     adapter_by_format: dict[DocumentFormat, DocumentParseAdapter] = {
-        DocumentFormat.FRAGMENT: format_adapters.FragmentParseAdapter(document_format),
         DocumentFormat.TEXT: format_adapters.TextParseAdapter(document_format),
         DocumentFormat.IMAGE: format_adapters.ImageParseAdapter(document_format),
-        DocumentFormat.PDF: format_adapters.PdfParseAdapter(document_format),
         DocumentFormat.DOC: format_adapters.DocParseAdapter(document_format),
         DocumentFormat.DOCX: format_adapters.DocxParseAdapter(document_format),
         DocumentFormat.SPREADSHEET: format_adapters.SpreadsheetParseAdapter(
             document_format
         ),
-        DocumentFormat.PPTX: format_adapters.PptxParseAdapter(document_format),
         DocumentFormat.MARKDOWN: format_adapters.MarkdownParseAdapter(document_format),
         DocumentFormat.HTML: format_adapters.HtmlParseAdapter(document_format),
-        DocumentFormat.JSON: format_adapters.JsonParseAdapter(document_format),
         DocumentFormat.MEDIA: format_adapters.MediaParseAdapter(document_format),
     }
     return adapter_by_format[document_format]

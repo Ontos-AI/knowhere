@@ -102,7 +102,6 @@ class ParseRunRecorder:
                     page_plan_id=f"dpp_{uuid4().hex[:12]}",
                     job_id=self.job_id,
                     page_count=int(doc_profile.get("page_count") or 0),
-                    shard_plan=None,
                     doc_profile=doc_profile,
                     global_signals=None,
                 )
@@ -258,14 +257,12 @@ class ParseRunRecorder:
                         page_plan_id=f"dpp_{uuid4().hex[:12]}",
                         job_id=self.job_id,
                         page_count=self._anatomy.page_count,
-                        shard_plan=self._anatomy.shard_plan.to_dict(),
                         doc_profile=doc_profile,
                         global_signals=self._anatomy.global_signals,
                     )
                     self._db.add(self._profile_plan_row)
                 else:
                     self._profile_plan_row.page_count = self._anatomy.page_count
-                    self._profile_plan_row.shard_plan = self._anatomy.shard_plan.to_dict()
                     self._profile_plan_row.doc_profile = doc_profile
                     self._profile_plan_row.global_signals = self._anatomy.global_signals
             self._db.flush()

@@ -203,18 +203,14 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
         PageAnatomyMap,
         PageFeature,
         PageLabel,
-        Shard,
-        ShardPlan,
         TocAnchorPage,
         TocEvidence,
         TocResult,
-        ValidationReport,
     )
 
     logger.info(f"⏩ Reusing cached anatomy: {cache_path}")
     data = json.loads(cache_path.read_text(encoding="utf-8"))
     toc = data.get("toc_result") or {}
-    sp = data.get("shard_plan") or {}
 
     page_features = []
     for pf in data.get("page_features", []):
@@ -270,7 +266,7 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
         )
 
     method = toc.get("method", "none")
-    if method not in {"vlm_batch", "pdf_outline", "none"}:
+    if method not in {"vlm_batch", "pdf_outline", "slide_structure", "none"}:
         method = "none"
 
     return PageAnatomyMap(
@@ -286,27 +282,6 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
             method=method,  # type: ignore[arg-type]
             notes=str(toc.get("notes") or ""),
             failure_kind=toc.get("failure_kind", "none"),
-        ),
-        shard_plan=ShardPlan(
-            enabled=bool(sp.get("enabled", False)),
-            reason=sp.get("reason", "not_needed"),
-            shards=[
-                Shard(
-                    shard_index=int(s.get("shard_index", i)),
-                    page_start=int(s.get("page_start", 1)),
-                    page_end=int(s.get("page_end", 1)),
-                    page_offset=int(s.get("page_offset", 0)),
-                    anchor_type=s.get("anchor_type", "forced_max_size"),
-                    anchor_evidence=s.get("anchor_evidence", ""),
-                    toc_hierarchies=(
-                        list(s["toc_hierarchies"])
-                        if isinstance(s.get("toc_hierarchies"), list)
-                        else None
-                    ),
-                )
-                for i, s in enumerate(sp.get("shards", []))
-            ],
-            validation=ValidationReport(valid=True),
         ),
         toc_hierarchies=data.get("toc_hierarchies"),
         document_profile=_document_profile_from_dict(data.get("document_profile")),
@@ -346,7 +321,6 @@ def _build_debug_coordinator(
     agent_output_dir.mkdir(parents=True, exist_ok=True)
     merged = {
         "vlm_model": settings.IMAGE_MODEL,
-        "toc_profile_enabled": True,
         "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
     }
     if settings_extra:
@@ -364,13 +338,17 @@ def _build_debug_coordinator(
 def _document_profile_from_dict(data: dict[str, Any] | None):
     from app.services.document_agent.manifest import DocumentProfile
     from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
+    from app.services.document_parser.profiling.taxonomy import split_persisted_scanned_routing
 
     raw = data or {}
+    routing, is_scanned = split_persisted_scanned_routing(
+        raw.get("routing_category"), bool(raw.get("is_scanned", False))
+    )
     return DocumentProfile(
-        is_scanned=bool(raw.get("is_scanned", False)),
+        is_scanned=is_scanned,
         category=list(raw.get("category") or [OTHER_CODE]),
         category_label=str(raw.get("category_label") or "unknown"),
-        routing_category=str(raw.get("routing_category") or "generic"),
+        routing_category=routing.value,
         language=str(raw.get("language") or "unknown"),
         header_y=raw.get("header_y"),
         footer_y=raw.get("footer_y"),
@@ -587,7 +565,6 @@ def run_stage1_toc(
         build_anatomy_map,
         persist_anatomy_map,
     )
-    from app.services.document_agent.validators import single_shard_plan
     from shared.core.config import settings
 
     logger.info("=" * 70)
@@ -605,10 +582,7 @@ def run_stage1_toc(
             settings_extra={"skip_toc_anchoring": True},
         )
         load_stage0_into_coordinator(coordinator, out_dir)
-        coordinator._ensure_toc_profile(strict=False)
-        coordinator.blackboard.shard_plan = single_shard_plan(
-            coordinator.blackboard.page_count
-        )
+        coordinator._ensure_toc_profile()
         anatomy = build_anatomy_map(coordinator.ctx)
         persist_anatomy_map(coordinator.ctx, {})
         profile_path = out_dir / DOC_PROFILE_FILENAME
@@ -835,16 +809,10 @@ def load_stage1_into_coordinator_for_anchoring(
     anatomy, restores outline roots, and clears any prior skeleton_* so
     anchoring writes a fresh result.
     """
-    from app.services.document_agent.validators import single_shard_plan
-
     load_stage0_into_coordinator(coordinator, out_dir)
     bb = coordinator.blackboard
-    page_count = int(getattr(anatomy, "page_count", None) or bb.page_count or 0)
     bb.toc_result = anatomy.toc_result
     bb.toc_hierarchies = list(getattr(anatomy, "toc_hierarchies", None) or [])
-    bb.shard_plan = getattr(anatomy, "shard_plan", None) or single_shard_plan(
-        page_count
-    )
     bb.skeleton_anchor = None
     bb.skeleton_nodes = None
     bb.pending_skeleton_anchors = []

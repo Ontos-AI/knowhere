@@ -2,39 +2,10 @@
 
 import os
 
-import pandas as pd
 
 # Shared cap for cosmetic asset filename stems (images/tables). Keeps OS
 # basename limits safe while preserving a short debug-friendly context.
 MAX_ASSET_FILE_NAME_CHARS = 80
-
-
-def clean_file(path_, mode="remove", cols=None):
-    """
-    Clean or remove a file.
-
-    Args:
-        path_: File path.
-        mode: Cleanup mode ('remove' deletes the file, 'clean' clears content).
-        cols: Column names used when recreating a CSV.
-    """
-    try:
-        if mode == "remove":
-            os.remove(path_)
-        elif mode == "clean":
-            if ".txt" in path_:
-                pass
-            elif ".csv" in path_:
-                exist_df = pd.read_csv(path_, encoding="utf-8", keep_default_na=False)
-                if cols is not None:
-                    empty_df = pd.DataFrame(columns=cols)
-                else:
-                    empty_df = pd.DataFrame(columns=exist_df.columns)
-                empty_df.to_csv(path_, index=False)
-        else:
-            pass
-    except Exception:
-        pass
 
 
 def path_handle(path, mode):

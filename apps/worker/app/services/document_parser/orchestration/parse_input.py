@@ -23,6 +23,4 @@ class ParseInput:
     internal_output_filename: str
     job_id: str | None = None
     options: ParseOptions = field(default_factory=ParseOptions)
-    base_url: str = ""
-    fragment_content: str = ""
     s3_key: str | None = None

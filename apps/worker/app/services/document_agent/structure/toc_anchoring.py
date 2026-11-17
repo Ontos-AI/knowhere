@@ -23,6 +23,7 @@ from app.services.document_agent.structure.anchoring_primitives import (
 )
 from app.services.document_agent.structure.hierarchy_locator import (
     TitleMatch,
+    TitleMatchSource,
     TitleNode,
     collapse_intermediate_single_child_chains,
     extract_toc_nodes,
@@ -227,13 +228,14 @@ def _try_outline_anchoring_route(
         "source": "pdf_outline",
         "toc_with_level": toc_with_level,
     }
-    if not _write_outline_skeleton(
+    if not write_physical_page_skeleton(
         ctx,
         hierarchies=[hierarchy],
         page_texts=page_texts,
         body_pages=body_pages,
         page_count=page_count,
         toc_pages=toc_pages,
+        source="pdf_outline",
     ):
         return False
 
@@ -247,7 +249,7 @@ def _try_outline_anchoring_route(
     return True
 
 
-def _write_outline_skeleton(
+def write_physical_page_skeleton(
     ctx: ToolContext,
     *,
     hierarchies: list[dict[str, Any]],
@@ -255,16 +257,18 @@ def _write_outline_skeleton(
     body_pages: list[int],
     page_count: int,
     toc_pages: list[int] | None = None,
+    source: TitleMatchSource,
 ) -> bool:
-    """Anchor outline rows via physical overrides (no calibrate VLM).
+    """Anchor rows that already carry ``physical_page`` (no calibrate VLM).
 
-    Trust outline tree shape: do not collapse single-child chains (VLM path still
-    collapses). Path keys must stay aligned with ``outline_physical_overrides``.
+    Used by the PDF outline route and the slide-structure route. Trust the tree
+    shape: do not collapse single-child chains (VLM path still collapses). Path
+    keys must stay aligned with ``physical_page_overrides``.
     """
     nodes = extract_toc_nodes(hierarchies)
     if not nodes:
         return False
-    overrides = outline_physical_overrides(hierarchies)
+    overrides = physical_page_overrides(hierarchies, source=source)
     resolve_nodes, skeleton_anchor = anchor_hierarchy_from_offset(
         nodes=nodes,
         offset_hint=0,
@@ -274,7 +278,7 @@ def _write_outline_skeleton(
         page_count=page_count,
         ctx=ctx,
     )
-    skeleton_anchor = replace(skeleton_anchor, source="pdf_outline")
+    skeleton_anchor = replace(skeleton_anchor, source=source)
     # scope-local TOC pre-pass: future hook (no-op this period)
     resolve_nodes, skeleton_anchor = _rehome_calibrated_forest(
         resolve_nodes,
@@ -287,8 +291,9 @@ def _write_outline_skeleton(
     ]
     ctx.blackboard.pending_skeleton_anchors = []
     logger.info(
-        "{} outline anchoring: overrides={} pruned={} nodes={}",
+        "{} physical-page anchoring ({}): overrides={} pruned={} nodes={}",
         _LOG_PREFIX,
+        source,
         len(skeleton_anchor.match_overrides),
         skeleton_anchor.pruned_count,
         len(resolve_nodes),
@@ -340,10 +345,12 @@ def _rehome_pending_records(
         record["skeleton_anchor"] = serialize_skeleton_anchor(rehomed_anchor)
 
 
-def outline_physical_overrides(
+def physical_page_overrides(
     hierarchies: list[dict[str, Any]],
+    *,
+    source: TitleMatchSource,
 ) -> dict[tuple[str, ...], TitleMatch]:
-    """Build path→physical TitleMatch from outline rows carrying ``physical_page``."""
+    """Build path→physical TitleMatch from rows carrying ``physical_page``."""
     overrides: dict[tuple[str, ...], TitleMatch] = {}
     for hierarchy in hierarchies:
         entries = hierarchy.get("toc_with_level") or []
@@ -375,7 +382,7 @@ def outline_physical_overrides(
                 continue
             overrides[path] = TitleMatch(
                 page=page,
-                source="pdf_outline",
+                source=source,
                 matched_line="",
                 candidates=[page],
             )
@@ -610,27 +617,6 @@ def _toc_range_for_host(
         if isinstance(toc, dict):
             return list(toc.get("toc_range") or [])
     return []
-
-
-def classify_toc_relationship(
-    *,
-    candidate_span: tuple[int, int] | None,
-    host_spans: list[tuple[int, int]],
-) -> str:
-    """Classify a TOC unit vs peer evidenced physical spans.
-
-    contained: some peer span fully covers the candidate span
-    parallel:  no peer covers it
-    unresolvable: candidate has no evidenced pages
-
-    Spans are min/max override pages only — never extrapolated to document end.
-    """
-    if candidate_span is None:
-        return "unresolvable"
-    hosts = [(index, span) for index, span in enumerate(host_spans)]
-    if find_tightest_containing_host(candidate_span, hosts) is None:
-        return "parallel"
-    return "contained"
 
 
 def _assign_toc_relationships(

@@ -135,12 +135,6 @@ def _inspect_mineru_source_s3_key(s3_key: Optional[str]) -> tuple[Optional[str],
     return None, True
 
 
-def get_existing_mineru_source_s3_key(s3_key: Optional[str]) -> Optional[str]:
-    """Return an existing S3 source key for URL mode, or None if it is unavailable."""
-    existing_s3_key, _ = _inspect_mineru_source_s3_key(s3_key)
-    return existing_s3_key
-
-
 def resolve_mineru_source_s3_key(
     s3_key: Optional[str],
     local_file_path: Optional[str] = None,
@@ -174,7 +168,6 @@ def resolve_mineru_source_s3_key(
         local_file_path=local_file_path,
     ).info("Uploaded local PDF to S3 for MinerU URL mode")
     return s3_key
-
 
 
 def _request_upload_target(pdf_url: str, filename: str) -> tuple[str, str, str]:

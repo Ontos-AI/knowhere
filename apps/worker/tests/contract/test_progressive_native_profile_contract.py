@@ -305,7 +305,6 @@ def test_native_progressive_baseline_keeps_text_source_and_eager_images_without_
     ("is_scanned", "routing_category", "include_text", "stop_after"),
     [
         (True, "generic", True, "native_baseline"),
-        (False, "scanned", True, "native_baseline"),
         (False, "generic", False, "native_baseline"),
         (False, "generic", True, None),
     ],
@@ -334,7 +333,6 @@ def test_scanned_empty_and_full_profiles_keep_detailed_asset_probe(
     profile = profile_document(
         str(source),
         output_dir=str(tmp_path / "profile"),
-        oversized_policy="page_memory",
         stop_after=stop_after,
     )
     blackboard = getattr(profile, "blackboard")
@@ -581,7 +579,6 @@ def test_native_profile_boundary_can_defer_assets_before_producer_activation(
     profile = profile_document(
         str(source),
         output_dir=str(tmp_path / "profile"),
-        oversized_policy="page_memory",
         stop_after="native_baseline",
     )
     blackboard = getattr(profile, "blackboard")

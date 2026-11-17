@@ -56,10 +56,6 @@ class PageAsset:
     extraction_status: str = "pending"
 
 
-def page_asset_extraction_enabled() -> bool:
-    return True
-
-
 def page_asset_summary_enabled() -> bool:
     """Whether detected page assets are summarized via the engine (§4.3).
 
@@ -71,12 +67,6 @@ def page_asset_summary_enabled() -> bool:
 
 def get_asset_confidence_threshold() -> float:
     return 0.3
-
-
-def get_asset_model() -> str | None:
-    from shared.models.schemas.page_memory_config import resolve_asset_model
-
-    return resolve_asset_model() or None
 
 
 def detect_page_assets(
@@ -599,13 +589,6 @@ def _asset_extra_metadata(asset: PageAsset) -> dict[str, Any]:
     }
 
 
-def asset_reference(asset: PageAsset) -> str:
-    uri = (
-        asset.html_uri if asset.kind == "table" and asset.html_uri else asset.image_uri
-    )
-    return f"[{uri}]" if uri else ""
-
-
 def _asset_content(asset: PageAsset, *, row_type: str) -> str:
     if row_type == "table" and asset.html_uri:
         return asset.html_uri
@@ -941,13 +924,10 @@ def _merge_table_html_files(
 __all__ = [
     "PageAsset",
     "annotate_page_assets",
-    "asset_reference",
     "build_asset_rows",
     "extract_page_assets_from_renders",
     "get_asset_confidence_threshold",
-    "get_asset_model",
     "merge_cross_page_tables",
-    "page_asset_extraction_enabled",
     "page_asset_summary_enabled",
     "summarize_page_asset",
 ]

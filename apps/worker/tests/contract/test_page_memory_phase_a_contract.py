@@ -71,6 +71,7 @@ def _profile(
     )
     return SimpleNamespace(
         page_count=4,
+        is_scanned=False,
         anatomy=_anatomy(toc_pages=toc_pages),
         page_full_text_cache=page_texts,
         page_body_text_cache=body_texts,
@@ -716,62 +717,3 @@ def test_native_baseline_defers_visual_vectors_without_losing_required_work(
     chunks = dataframe_to_chunks(dataframe)
     assert [chunk["metadata"]["embedding_status"] for chunk in chunks] == ["pending", "pending"]
     assert all("_page_embedding" not in chunk["metadata"] for chunk in chunks)
-
-
-def test_routing_scanned_progressive_m0_also_embeds_pages(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from app.services.page_memory import memory_service, page_renderer
-    from app.services.page_memory.memory_service import PageMemoryInput
-    from shared.core.config import settings
-    from shared.services.ai import embedding as embedding_pkg
-    from shared.services.ai.embedding import DEFAULT_EMBEDDING_DIM
-
-    source = tmp_path / "routing_scan.pdf"
-    source.write_bytes(b"%PDF")
-    profile = _profile(
-        skeletons=[],
-        page_texts={1: "ocr hint"},
-        body_texts={1: "ocr hint"},
-        monkeypatch=monkeypatch,
-    )
-    profile.is_scanned = False
-    profile.routing_category = "scanned"
-    profile.page_count = 1
-
-    def fake_render(**kwargs: object) -> list[SimpleNamespace]:
-        out_dir = Path(str(kwargs["output_dir"])) / "pages" / "m0"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        img_path = out_dir / "page-1.png"
-        img_path.write_bytes(b"\x89PNG\r\n\x1a\n\x01")
-        return [SimpleNamespace(page_index=1, image_path=str(img_path))]
-
-    vec_p1 = [1.0] + [0.0] * (DEFAULT_EMBEDDING_DIM - 1)
-    monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
-    monkeypatch.setattr(
-        memory_service,
-        "normalize_to_pdf",
-        lambda **kwargs: (str(source), "routing_scan.pdf"),
-    )
-    monkeypatch.setattr(
-        memory_service, "profile_document", lambda *_a, **_kw: profile
-    )
-    monkeypatch.setattr(page_renderer, "render_document_pages", fake_render)
-    monkeypatch.setattr(
-        embedding_pkg,
-        "embed_images",
-        lambda inputs, **kw: [vec_p1 for _ in inputs],
-    )
-
-    _output_dir, dataframe = memory_service.run(
-        PageMemoryInput(
-            file_path=str(source),
-            filename="routing_scan.pdf",
-            output_dir=str(tmp_path / "out_routing_scan"),
-            page_memory_config=PageMemoryConfig(asset_extraction_enabled=False),
-            ingestion_mode="progressive",
-        )
-    )
-    chunks = dataframe_to_chunks(dataframe)
-    assert len(chunks) == 1
-    assert chunks[0]["metadata"]["_page_embedding"][0] == 1.0

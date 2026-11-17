@@ -75,7 +75,6 @@ def main() -> int:
 
     from app.services.document_agent.persist import DOC_PROFILE_FILENAME
     from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
-    from app.services.document_agent.validators import single_shard_plan
     from app.services.page_memory.phase_a import build_phase_a
     from shared.core.config import settings
 
@@ -134,7 +133,6 @@ def main() -> int:
         # Persist the same PROFILE fields production anatomy carries.
         from app.services.document_agent.persist import build_anatomy_map
 
-        bb.shard_plan = bb.shard_plan or single_shard_plan(page_count)
         anchored = build_anatomy_map(coordinator.ctx)
         profile_path = out_dir / DOC_PROFILE_FILENAME
         write_debug_json(profile_path, anchored.to_dict())

@@ -14,7 +14,6 @@ from app.services.document_agent.manifest import (
     PageAnatomyMap,
     PageFeature,
     PageLabel,
-    ShardPlan,
     TocResult,
 )
 from app.services.page_memory._utils import build_hierarchy_scopes
@@ -519,7 +518,6 @@ def _build_storage_inputs() -> dict[str, bytes]:
         ],
         page_labels=[PageLabel(page=page, kind="normal") for page in range(1, 5)],
         toc_result=TocResult(toc_pages=[]),
-        shard_plan=ShardPlan(enabled=False, reason="not_needed"),
     )
     return {
         PHASE_B_SOURCE_PDF_REL: b"%PDF-1.4",
@@ -1246,7 +1244,6 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
         page_features=[],
         page_labels=[],
         toc_result=TocResult(toc_pages=[]),
-        shard_plan=ShardPlan(enabled=False, reason="not_needed"),
     )
     from types import SimpleNamespace
 
