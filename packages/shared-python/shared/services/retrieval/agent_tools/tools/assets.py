@@ -1,7 +1,7 @@
 """``corpus.assets`` — forward asset search and reverse asset -> hosts lookup.
 
-Image/table chunks are parked under their document's synthetic ``Root``
-section in the DB; the real association to a
+Image, table, video and audio chunks are parked under their document's
+synthetic ``Root`` section in the DB; the real association to a
 body section lives in ``chunk_metadata.connect_to`` on the *body* chunk.
 Both directions resolve hosts through ``agent_tools.asset_hosts`` (keyed by
 document + chunk, current revision only), the same resolver ``corpus.grep``
@@ -31,6 +31,12 @@ from typing import Any
 
 from sqlalchemy import select
 
+from shared.services.chunks.asset_descriptor import (
+    EXTRACTED_ASSET_KEY,
+    PAGE_MEDIA_KINDS,
+    normalize_page_media_asset,
+    page_media_marker,
+)
 from shared.services.retrieval.agent_tools.asset_hosts import (
     hosted_section_path,
     in_scope_hosts,
@@ -55,16 +61,17 @@ from shared.services.retrieval.agent_tools.scope import (
     scope_document_ids,
 )
 from shared.services.retrieval.agent_tools.snippet import build_row, format_row
-from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
+from shared.services.retrieval.settings import HOSTED_ASSET_CHUNK_TYPES
 
 
 @register_tool(
     name="corpus.assets",
     description=(
-        "Find image and table chunks by type or query, or, given asset "
-        "chunk_ids (host_of), list the sections that contain them. Rows "
-        "show the containing section_path; an asset that no section "
-        "contains is marked (not in any section). A plain listing does not "
+        "Find image, table, video and audio chunks by type or query, or, "
+        "given asset chunk_ids (host_of), list the sections that contain "
+        "them. Rows show the containing section_path; an asset that no "
+        "section contains is marked (not in any section). A plain listing "
+        "does not "
         "tell you which assets matter: scope it to a section from a prior "
         "corpus.grep/corpus.recall hit, or use host_of on chunk_ids you "
         "already have."
@@ -75,13 +82,13 @@ from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
             "scope": SCOPE_SCHEMA,
             "type": {
                 "type": "string",
-                "enum": ["image", "table", "any"],
+                "enum": ["image", "table", "video", "audio", "any"],
                 "default": "any",
                 "description": "Forward-search asset type. Ignored for host_of.",
             },
             "query": {
                 "type": "string",
-                "description": "Substring match against summary/keywords (forward search only).",
+                "description": "Substring match against title/summary/keywords (forward search only).",
             },
             "host_of": {
                 "type": "array",
@@ -125,8 +132,37 @@ async def _forward_search(
     asset_type: str,
     query: str,
 ) -> ToolResult:
+    types = (
+        {asset_type}
+        if asset_type in HOSTED_ASSET_CHUNK_TYPES
+        else set(HOSTED_ASSET_CHUNK_TYPES)
+    )
+    rows = await _chunk_asset_rows(ctx, scope=scope, types=types, query=query)
+
+    if not rows:
+        unrefined_note = await _check_unrefined_assets_note(ctx, scope=scope)
+        if unrefined_note is not None:
+            return ToolResult(
+                text=unrefined_note,
+                payload={"rows": [], "details": {"unrefined": True}},
+                refs=[],
+            )
+    lines = [f"assets={len(rows)}", *(format_row(row) for row in rows)]
+    return ToolResult(
+        text="\n".join(lines),
+        payload={"rows": rows, "details": {}},
+        refs=[{"document_id": row["document_id"], "chunk_id": row["chunk_id"]} for row in rows],
+    )
+
+
+async def _chunk_asset_rows(
+    ctx: ToolContext,
+    *,
+    scope: list[ScopeTarget],
+    types: set[str],
+    query: str,
+) -> list[dict[str, Any]]:
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
-    types = {asset_type} if asset_type in ASSET_CHUNK_TYPES else set(ASSET_CHUNK_TYPES)
     stmt = (
         select(corpusStorage.DocumentChunk, corpusStorage.DocumentSection.section_path, corpusStorage.Document.source_file_name)
         .select_from(corpusStorage.DocumentChunk)
@@ -160,6 +196,13 @@ async def _forward_search(
             continue
         metadata = chunk.chunk_metadata if isinstance(chunk.chunk_metadata, dict) else {}
         summary = str(metadata.get("summary") or "").strip()
+        media_asset = (
+            normalize_page_media_asset(metadata.get(EXTRACTED_ASSET_KEY))
+            if chunk.chunk_type in PAGE_MEDIA_KINDS
+            else None
+        )
+        if media_asset is not None:
+            summary = page_media_marker(media_asset)
         asset_title = str(metadata.get("asset_title") or "").strip()
         entities = metadata.get("entities")
         if isinstance(entities, list) and entities:
@@ -182,34 +225,21 @@ async def _forward_search(
             if query not in haystack:
                 continue
         section_path, hosted = hosted_section_path(hosts, key, scope, stored_path=stored_path)
-        rows.append(
-            build_row(
-                kind=str(chunk.chunk_type or ""),
-                document_id=chunk.document_id,
-                section_path=section_path,
-                title=source_file_name,
-                chunk_id=chunk.chunk_id,
-                summary=summary,
-                hosted=hosted,
-            )
+        row = build_row(
+            kind=str(chunk.chunk_type or ""),
+            document_id=chunk.document_id,
+            section_path=section_path,
+            title=source_file_name,
+            chunk_id=chunk.chunk_id,
+            summary=summary,
+            hosted=hosted,
         )
+        if media_asset is not None:
+            row["asset"] = media_asset
+        rows.append(row)
         if len(rows) >= ctx.budget.max_items:
             break
-
-    if not rows:
-        unrefined_note = await _check_unrefined_assets_note(ctx, scope=scope)
-        if unrefined_note is not None:
-            return ToolResult(
-                text=unrefined_note,
-                payload={"rows": [], "details": {"unrefined": True}},
-                refs=[],
-            )
-    lines = [f"assets={len(rows)}", *(format_row(row) for row in rows)]
-    return ToolResult(
-        text="\n".join(lines),
-        payload={"rows": rows, "details": {}},
-        refs=[{"document_id": row["document_id"], "chunk_id": row["chunk_id"]} for row in rows],
-    )
+    return rows
 
 
 async def _check_unrefined_assets_note(

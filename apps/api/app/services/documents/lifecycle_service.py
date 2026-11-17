@@ -36,7 +36,19 @@ from shared.services.retrieval.serving_generation import (
     advance_namespace_generation,
     lock_namespace_generation,
 )
-from shared.services.storage.result_storage import ResultStorage, get_result_storage
+from shared.services.chunks.asset_descriptor import (
+    EXTRACTED_ASSET_KEY,
+    PAGE_MEDIA_ASSETS_KEY,
+    PAGE_MEDIA_KINDS,
+    describe_extracted_asset,
+    normalize_page_media_asset,
+    normalize_page_media_assets,
+)
+from shared.services.storage.result_storage import (
+    ResultStorage,
+    get_result_storage,
+    media_asset_url,
+)
 from shared.services.storage.demo_asset_signer import DemoAssetSigner
 
 _DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS = 7 * 24 * 60 * 60
@@ -114,6 +126,59 @@ def _document_page_assets(
                 asset["asset_url"] = asset_url
         page_assets.append(asset)
     return page_assets
+
+
+def _document_page_media(
+    *,
+    metadata: dict[str, Any] | None,
+    job_id: str | None,
+    include_asset_urls: bool,
+    result_storage: ResultStorage | None,
+) -> list[dict[str, Any]]:
+    if not isinstance(metadata, dict):
+        return []
+    media_assets = normalize_page_media_assets(metadata.get(PAGE_MEDIA_ASSETS_KEY))
+    if include_asset_urls:
+        for asset in media_assets:
+            _sign_media_asset(asset, job_id=job_id, result_storage=result_storage)
+    return media_assets
+
+
+def _document_media_chunk_asset(
+    *,
+    chunk_type: str,
+    metadata: dict[str, Any] | None,
+    job_id: str | None,
+    include_asset_urls: bool,
+    result_storage: ResultStorage | None,
+) -> dict[str, Any] | None:
+    """The descriptor a video/audio chunk carries, signed when URLs are requested."""
+    if chunk_type not in PAGE_MEDIA_KINDS or not isinstance(metadata, dict):
+        return None
+    asset = normalize_page_media_asset(metadata.get(EXTRACTED_ASSET_KEY))
+    if asset is not None and include_asset_urls:
+        _sign_media_asset(asset, job_id=job_id, result_storage=result_storage)
+    return asset
+
+
+def _sign_media_asset(
+    asset: dict[str, Any],
+    *,
+    job_id: str | None,
+    result_storage: ResultStorage | None,
+) -> None:
+    try:
+        url = media_asset_url(
+            asset["ref"],
+            job_id=job_id,
+            storage=result_storage,
+            expires_in=_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning(f"Failed to generate embedded media URL (ignored): {exc}")
+        return
+    if url:
+        asset["url"] = url
 
 
 def _normalize_page_asset(raw_asset: dict[str, Any]) -> dict[str, Any] | None:
@@ -545,9 +610,34 @@ class DocumentService:
             include_asset_urls=include_asset_urls,
             result_storage=result_storage,
         )
+        media_assets = _document_page_media(
+            metadata=raw_metadata,
+            job_id=job_id,
+            include_asset_urls=include_asset_urls,
+            result_storage=result_storage,
+        )
+        media_chunk_asset = _document_media_chunk_asset(
+            chunk_type=chunk_type,
+            metadata=raw_metadata,
+            job_id=job_id,
+            include_asset_urls=include_asset_urls,
+            result_storage=result_storage,
+        )
         metadata = dict(raw_metadata)
         if include_asset_urls and page_assets:
             metadata["page_assets"] = page_assets
+        if media_assets:
+            metadata[PAGE_MEDIA_ASSETS_KEY] = media_assets
+        if chunk_type in PAGE_MEDIA_KINDS:
+            metadata.pop(EXTRACTED_ASSET_KEY, None)
+            if media_chunk_asset is not None:
+                metadata[EXTRACTED_ASSET_KEY] = media_chunk_asset
+        elif extracted_asset := describe_extracted_asset(
+            chunk_id=chunk.chunk_id,
+            chunk_type=chunk_type,
+            metadata={**raw_metadata, "file_path": file_path},
+        ):
+            metadata[EXTRACTED_ASSET_KEY] = extracted_asset
         payload = {
             "id": chunk.id,
             "chunk_id": chunk.chunk_id,
@@ -559,13 +649,17 @@ class DocumentService:
             "file_path": file_path,
             "sort_order": chunk.sort_order,
             "metadata": metadata,
-            "asset_url": _document_chunk_asset_url(
-                chunk_type=chunk_type,
-                job_id=job_id,
-                raw_prefix=raw_prefix,
-                file_path=file_path,
-                include_asset_urls=include_asset_urls,
-                result_storage=result_storage,
+            "asset_url": (
+                media_chunk_asset.get("url")
+                if media_chunk_asset is not None
+                else _document_chunk_asset_url(
+                    chunk_type=chunk_type,
+                    job_id=job_id,
+                    raw_prefix=raw_prefix,
+                    file_path=file_path,
+                    include_asset_urls=include_asset_urls,
+                    result_storage=result_storage,
+                )
             ),
             "created_at": _datetime_payload(chunk.created_at),
         }
@@ -578,6 +672,14 @@ class DocumentService:
                     asset["asset_url"] = url
             if page_assets:
                 metadata["page_assets"] = page_assets
+            # Demo signing is limited to the published demo asset manifest.
+            for media_asset in media_assets:
+                if media_asset["ref"]["kind"] == "artifact":
+                    media_asset.pop("url", None)
+            if media_chunk_asset is not None:
+                if media_chunk_asset["ref"]["kind"] == "artifact":
+                    media_chunk_asset.pop("url", None)
+                payload["asset_url"] = media_chunk_asset.get("url")
         return payload
 
     async def archive_document(

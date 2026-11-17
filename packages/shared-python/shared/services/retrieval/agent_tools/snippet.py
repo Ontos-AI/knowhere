@@ -96,8 +96,8 @@ def build_row(
     ``payload["rows"]`` and renders them with ``format_row``.
 
     ``kind`` is ``section`` (outline/node_filter node), ``text``/``page``
-    (body hit), or ``image``/``table`` (asset — its own body chunk or a hit
-    on one). For ``image``/``table`` rows ``section_path`` is the *hosting*
+    (body hit), or ``image``/``table``/``video``/``audio`` (asset — its own
+    chunk or a hit on one). For asset rows ``section_path`` is the *hosting*
     section, and ``hosted`` says whether a host was found (``False`` keeps
     the asset's own ``Root`` path); it is ``None`` for every other kind.
     ``summary`` is a map-row field; ``snippet``/``score`` are hit-row

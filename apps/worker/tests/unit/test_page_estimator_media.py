@@ -83,3 +83,58 @@ def test_unreadable_media_falls_back_to_one_page_for_admission_to_reject(
     assert estimate.method == "media_duration"
     assert estimate.page_count == 1
     assert estimate.fallback_reason == "media_duration_error:ValidationException"
+
+
+def test_pptx_bills_slides_plus_each_distinct_embedded_recording(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    presentation_media = importlib.import_module(
+        "app.services.page_memory.presentation_media"
+    )
+    monkeypatch.setattr(PageEstimator, "_count_pptx", classmethod(lambda _cls, _path: 10))
+    monkeypatch.setattr(
+        presentation_media,
+        "measure_embedded_media_durations",
+        lambda _path: (53_700, 2 * _MINUTE_MS, 2 * _MINUTE_MS + 1),
+    )
+
+    estimate = PageEstimator.estimate_workload("/tmp/deck.pptx")
+
+    assert estimate.method == "pptx_slides"
+    assert estimate.used_fallback is False
+    assert estimate.page_count == 10 + 1 + 1 + 2
+    assert estimate.embedded_media_durations_ms == (53_700, 2 * _MINUTE_MS, 2 * _MINUTE_MS + 1)
+
+
+def test_pptx_without_embedded_media_bills_slides(monkeypatch: pytest.MonkeyPatch) -> None:
+    presentation_media = importlib.import_module(
+        "app.services.page_memory.presentation_media"
+    )
+    monkeypatch.setattr(PageEstimator, "_count_pptx", classmethod(lambda _cls, _path: 7))
+    monkeypatch.setattr(presentation_media, "measure_embedded_media_durations", lambda _path: ())
+
+    estimate = PageEstimator.estimate_workload("/tmp/deck.pptx")
+
+    assert estimate.page_count == 7
+    assert estimate.embedded_media_durations_ms == ()
+
+
+def test_unmeasurable_pptx_media_falls_back_to_one_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    presentation_media = importlib.import_module(
+        "app.services.page_memory.presentation_media"
+    )
+
+    def _fail(_path: str) -> tuple[int, ...]:
+        raise ValidationException(
+            user_message="Could not read this media file.",
+            violations=[{"field": "file", "description": "unreadable"}],
+        )
+
+    monkeypatch.setattr(PageEstimator, "_count_pptx", classmethod(lambda _cls, _path: 7))
+    monkeypatch.setattr(presentation_media, "measure_embedded_media_durations", _fail)
+
+    estimate = PageEstimator.estimate_workload("/tmp/deck.pptx")
+
+    assert estimate.page_count == 1
+    assert estimate.fallback_reason == "pptx_slides_error:ValidationException"
+    assert estimate.embedded_media_durations_ms == ()

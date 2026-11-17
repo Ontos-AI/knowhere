@@ -2,7 +2,9 @@
 
 Table/image hits are rendered with the same explore table/image functions
 ``corpus.read`` uses. Body hits that already list ``connect_to`` targets get
-those assets rendered and labeled as mounted, not as the body match itself.
+those assets rendered and labeled as mounted, not as the body match itself;
+a page's video and audio mount as marker, link and transcript. An unrefined
+page hit mounts only the media on the pages the query lit.
 Each returned row lists the asset ids it rendered in ``mounted_chunk_ids``.
 """
 
@@ -10,16 +12,19 @@ from __future__ import annotations
 
 from typing import Any
 
+from shared.services.chunks.asset_descriptor import PAGE_MEDIA_KINDS
 from shared.services.retrieval.agent_tools.registry import ToolContext
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 from shared.services.retrieval.hydration.assets import (
     enrich_rows_with_retrieval_asset_url,
 )
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
+from shared.services.retrieval.hydration.page_media import media_display
 from shared.services.retrieval.hydration.result_assembly import _image_display_content
 from shared.services.retrieval.hydration.row_utils import (
     iter_connected_target_ids,
     normalize_chunk_type,
+    with_lit_pages,
 )
 from shared.services.retrieval.hydration.table_grid import render_explore_table
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
@@ -63,6 +68,7 @@ async def mount_explore_hits(
     if not hits:
         return hits, []
 
+    hits = [with_lit_pages(hit) for hit in hits]
     body_hits = [
         hit
         for hit in hits
@@ -132,6 +138,13 @@ async def mount_explore_hits(
                         parts.append(f"mounted image chunk_id={target_id}:\n{body}")
                         mounted_ids.append(target_id)
                     _append_image_media(target, media, seen_urls)
+                elif target_type in PAGE_MEDIA_KINDS:
+                    body = media_display(target)
+                    if body:
+                        parts.append(
+                            f"mounted {target_type} chunk_id={target_id}:\n{body}"
+                        )
+                        mounted_ids.append(target_id)
             row["rendered"] = "\n\n".join(parts)
         row["mounted_chunk_ids"] = mounted_ids
         mounted.append(row)

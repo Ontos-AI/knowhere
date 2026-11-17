@@ -4,6 +4,7 @@ from shared.services.chunks.chunk_connections import (
     FORWARD_RELATIONS,
     RELATION_RELATED,
 )
+from shared.services.chunks.page_texts import narrow_to_pages
 from shared.services.retrieval.document_scope import DocumentScope
 
 from typing import Any
@@ -104,9 +105,24 @@ def apply_matched_page_nums(row: dict[str, Any], pages: list[int]) -> None:
         metadata['page_assets'] = [
             assets_by_page[page] for page in matched if page in assets_by_page
         ]
+    lit_content = narrow_to_pages(metadata, matched)
+    if lit_content is not None:
+        row['content'] = lit_content
     row['chunk_metadata'] = metadata
     if isinstance(row.get('metadata'), dict) or 'metadata' in row:
         row['metadata'] = metadata
+
+
+def with_lit_pages(row: dict[str, Any]) -> dict[str, Any]:
+    """An unrefined page row narrowed to the pages the query lit; others as is."""
+    if normalize_chunk_type(row.get('chunk_type')) != 'page' or not is_unrefined_page(row):
+        return row
+    matched = extract_matched_page_nums(row)
+    if not matched:
+        return row
+    narrowed = dict(row)
+    apply_matched_page_nums(narrowed, matched)
+    return narrowed
 
 
 def page_summary(row: dict[str, Any]) -> str:

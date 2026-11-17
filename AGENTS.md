@@ -147,7 +147,7 @@ This is the typed `ParseOutput` entry for all file types. The parser flow:
 | `.pdf` | `page_memory.memory_service.run` | v1/v2 both use the page-memory pipeline (M0 → coarse → fine). MinerU is an optional fine-stage text extractor, default off. |
 | `.docx` | `formats.docx.parser.parse_docx` + `convert_doc2dics` | OXML iteration → heading detection → hierarchical tree |
 | `.doc` | `conversion.legacy_converter.doc_to_docx` → `.docx` pipeline | LibreOffice headless conversion first |
-| `.pptx` | `page_memory.normalizer.normalize_to_pdf` → page-memory | PPTX→PDF then the same page-memory pipeline as PDF. |
+| `.pptx` | `page_memory.presentation_media.separate_presentation_media` → `page_memory.normalizer.normalize_to_pdf` → page-memory | Embedded audio/video is separated first (transition and animation sounds are not media and are left alone): each distinct recording is transcribed (Fun-ASR) when it has audio; media bytes and `embedded_media/manifest.json` go to `results/{job_id}/embedded_media/`, hidden slides are made visible, and the slim package converts to PDF. Then the same page-memory pipeline as PDF, plus one `video`/`audio` chunk per media item. Billed as slides plus each distinct recording at the audio/video rate; each recording is checked against the tier duration cap. |
 | `.xlsx` | `formats.excel.table_parser.parse_xlsx` | `parse_track=sheet`. Sheets are grouped by resolved cross-sheet formulas; each group is LUNA-split, header-detected and formula-linked as one unit. Progressive: `formats.excel.baseline` publishes one coarse table per sheet (no LLM) and a retrieval hit refines its whole sheet group (`enrich_sheet_group_scope`) |
 | `.xls` / `.csv` / `.tsv` | `formats.excel.normalize.normalize_table_source` → `.xlsx` pipeline | LibreOffice / delimited-text conversion first |
 | `.md` | `formats.markdown.parser.parse_md` | Markdown heading parsing + LLM summaries |
@@ -348,7 +348,7 @@ chunk objects. Three chunk types exist:
 | Field | Type | Description |
 |:---|:---|:---|
 | `chunk_id` | `str` | Deterministic UUID5 hash from content (`gen_str_codes`) — enables cross-doc dedup |
-| `type` | `str` | `"text"` / `"image"` / `"table"` |
+| `type` | `str` | `"text"` / `"image"` / `"table"` / `"page"` / `"video"` / `"audio"` |
 | `content` | `str` | Raw text, VLM description + asset ref, or HTML `<table>` |
 | `path` | `str` | Hierarchical path: `{kb}/{file}/{section1}/{section2}/...` for text; `images/...` or `tables/...` for assets |
 | `metadata.length` | `int` | Character count of content |
@@ -363,6 +363,11 @@ chunk objects. Three chunk types exist:
 | `metadata.connect_to[].relation` | `str` | `"embeds"` (body → inline asset), `"embedded_by"` (asset → owning body), `"related"` (same-page body → asset); `"cross_doc_entity"` / `"intra_doc_ref"` are reserved and not generated yet |
 | `metadata.connect_to[].ref` | `str` | Original reference string: `"[images/image-1.png]"` |
 | `metadata.connect_to[].position` | `{start, end}` | Character offset of the reference in content |
+| `metadata.asset` | `AssetDescriptor` | Image/table: derived when served (`origin` `extracted`, `ref` `{kind: artifact, path}`). Video/audio: stored on the chunk, the same descriptor its page carries. Fields: `asset_id`, `kind`, `origin`, `title`, `summary`, `page_nums`, `region`, `content_type`, `size_bytes`, `checksum_sha256`, `duration_ms`, `ref` |
+| `metadata.assets` | `list[AssetDescriptor]` | Page chunks only: the page's video/audio separated from a presentation (`origin` `embedded` or `linked`, `title` = the shape name or alt text, usually the inserted file name and possibly empty or meaningless, `summary` empty, `duration_ms`, `ref` `{kind: artifact, path: embedded_media/...}` or `{kind: external, url}`). The content ends with one `[video\|audio: title · mm:ss · asset:{asset_id}]` line per item, and `connect_to` has an `embeds` edge to each item's chunk. Inherited by restructured page chunks like `page_assets`; signed as `url` with `include_asset_urls` |
+| `metadata.page_texts` | `list[{page_num, text}]` | Coarse page chunks only: each page's text in page order. A page shared with an earlier skeleton holds a `[SAME-AS <owner path> p<page>]` pointer, as refined nodes do, and the content repeats that pointer. Retrieval narrows a coarse hit to the pages the query lit (`matched_page_nums`): their images, their text with each page's media marker after it, and their media |
+| video/audio chunks | — | One per presentation media item: `chunk_id` = `asset_id`, `path` `embedded_media/{asset_id}` (parked at Root, placed by the embedding page), content = marker line (title, duration, asset id), then the timestamped speaker-labelled transcript (`[00:00:00–00:00:04] S1: …`; none when the track is music or silence, which Fun-ASR reports as `ASR_RESPONSE_HAVE_NO_WORDS`); `connect_to` has one `embedded_by` edge per embedding body chunk, rebuilt after each scope publish. They have no `scope_id`, survive scope and whole-document republishes, and are not `chunk_types` retrieval filter values. The map-unit index counts their text with the embedding page, as it does Root-parked images and tables. Retrieval returns them with their page: the page's evidence replaces each marker line with marker, signed link and transcript, and `results` lists the media rows after the page, scored as the page. Retrieval hits and document chunks carry `asset_url` from `metadata.asset.ref` (signed embedded copy, or the external link) |
+| `metadata.hidden_page_nums` | `list[int]` | Page chunks only: pages that were hidden slides in the source presentation |
 
 ### `doc_nav.json` — Hierarchical Navigation Tree
 
@@ -470,7 +475,7 @@ debug CSVs (`preds_*.csv`) are saved alongside for troubleshooting.
 | `chunk_id` | `String(64)` | Content hash (deterministic dedup key) |
 | `document_id` | FK → `documents` | Parent document |
 | `section_id` | FK → `document_sections` | Parent section |
-| `chunk_type` | `String(64)` | `text` / `image` / `table` |
+| `chunk_type` | `String(64)` | `text` / `image` / `table` / `page` / `video` / `audio` |
 | `content` | `Text` | Chunk content (text/HTML) |
 | `content_search_text` | `Text` | Pre-tokenized for BM25 content channel |
 | `path_search_text` | `Text` | Pre-tokenized for BM25 path channel |

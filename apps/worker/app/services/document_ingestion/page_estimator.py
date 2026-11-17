@@ -3,7 +3,7 @@ Page estimator for worker-side Document Ingestion billing.
 
 Calculates page counts for billing based on:
 - PDF: Physical page count from metadata
-- PPTX: Slide count
+- PPTX: Slide count, plus each distinct embedded recording at the audio/video rate
 - Text-based (DOC, DOCX, TXT, MD, JSON): Word-based estimation using count_cn_en
 - Spreadsheet-based (XLS, XLSX, CSV, TSV): Visible non-empty cells, 1000 cells per page
 - Audio/video: Audio duration, 2 minutes per page
@@ -33,6 +33,8 @@ class WorkloadEstimate:
     page_count: int
     method: str
     fallback_reason: str | None = None
+    # Durations of a presentation's distinct embedded recordings.
+    embedded_media_durations_ms: tuple[int, ...] = ()
 
     @property
     def used_fallback(self) -> bool:
@@ -56,7 +58,7 @@ class PageEstimator:
         if suffix == ".pdf":
             return cls._estimate_with_fallback("pdf_metadata", cls._count_pdf, file_path)
         if suffix == ".pptx":
-            return cls._estimate_with_fallback("pptx_slides", cls._count_pptx, file_path)
+            return cls._estimate_pptx(file_path)
         if suffix == ".doc":
             return cls._estimate_with_fallback("doc_conversion", cls._count_doc, file_path)
         if suffix == ".docx":
@@ -95,16 +97,44 @@ class PageEstimator:
     ) -> WorkloadEstimate:
         try:
             page_count = max(1, estimator(file_path))
-            return WorkloadEstimate(page_count=page_count, method=method)
-        except ImportError as exc:
+        except Exception as exc:
+            return cls._fallback_estimate(method, file_path, exc)
+        return WorkloadEstimate(page_count=page_count, method=method)
+
+    @classmethod
+    def _estimate_pptx(cls, file_path: str) -> WorkloadEstimate:
+        """Slides plus each distinct embedded recording, billed like a media file."""
+        from app.services.page_memory.presentation_media import (
+            measure_embedded_media_durations,
+        )
+
+        method = "pptx_slides"
+        try:
+            slide_count = cls._count_pptx(file_path)
+            durations_ms = measure_embedded_media_durations(file_path)
+        except Exception as exc:
+            return cls._fallback_estimate(method, file_path, exc)
+        media_pages = sum(
+            math.ceil(duration_ms / MEDIA_MS_PER_PAGE) for duration_ms in durations_ms
+        )
+        return WorkloadEstimate(
+            page_count=max(1, slide_count) + media_pages,
+            method=method,
+            embedded_media_durations_ms=durations_ms,
+        )
+
+    @classmethod
+    def _fallback_estimate(
+        cls, method: str, file_path: str, exc: Exception
+    ) -> WorkloadEstimate:
+        if isinstance(exc, ImportError):
             fallback_reason = f"missing_dependency:{exc.name or exc}"
             logger.warning(
                 f"Missing dependency for {method} page estimation, defaulting to 1 page: {exc}"
             )
-        except Exception as exc:
+        else:
             fallback_reason = f"{method}_error:{type(exc).__name__}"
             logger.error(f"Error estimating pages for {file_path}: {exc}")
-
         return WorkloadEstimate(
             page_count=1,
             method=method,

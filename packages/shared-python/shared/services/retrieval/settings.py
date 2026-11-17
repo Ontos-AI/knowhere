@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shared.services.chunks.asset_descriptor import PAGE_MEDIA_KINDS
+
 INTERNAL_RECALL_K_MULTIPLIER = 2
 DEFAULT_TOP_K = 10
 
@@ -14,6 +16,9 @@ QUERY_TABLE_NAME = "t"
 
 VALID_CHUNK_TYPES: set[str] = {"text", "image", "table", "page"}
 ASSET_CHUNK_TYPES: set[str] = {"image", "table"}
+# Chunks parked at the document Root and placed by the body chunk that embeds
+# them. Video/audio are not chunk_types filter values.
+HOSTED_ASSET_CHUNK_TYPES: frozenset[str] = frozenset(ASSET_CHUNK_TYPES | PAGE_MEDIA_KINDS)
 
 
 def normalize_chunk_types(chunk_types: list[str] | set[str] | None) -> set[str] | None:
