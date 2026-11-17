@@ -22,6 +22,7 @@ _DEBUG_VISUAL_DIRS = {
     "toc_pages",
     "inspect_pages",
     "profile_visuals",
+    "slide_structure",
     # Legacy artifact dirs from older runs; keep listed so purge still cleans them.
     "ocr_pages",
     "agent_visuals",

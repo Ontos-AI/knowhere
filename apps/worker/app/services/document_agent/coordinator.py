@@ -22,12 +22,14 @@ from app.services.document_agent.manifest import (
 from app.services.document_agent.pdf_text import page_content, read_page_text_bands
 from app.services.document_agent.persist import build_anatomy_map, persist_anatomy_map
 from app.services.document_agent.coarse_profile import CoarseProfiler
+from app.services.document_agent.slide_structure import run_slide_structure_route
 from app.services.document_agent.registry import REGISTRY
 from app.services.document_agent.state import ProfileBlackboard, ProfileState
 from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
 from app.services.document_agent import tools as _registered_tools  # noqa: F401
 from app.services.document_agent.trace import ParseRunRecorder
 from app.services.document_agent.validators import single_shard_plan
+from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 from app.services.document_parser.support.stage_profiler import stage_timer
 
 
@@ -311,7 +313,10 @@ class ProfileCoordinator:
 
         self.blackboard.global_signals["toc_profile_attempted"] = True
         try:
-            self._run_toc_extraction_pipeline()
+            if self._is_slide_deck():
+                self._run_slide_structure_route()
+            else:
+                self._run_toc_extraction_pipeline()
         except Exception as exc:
             logger.warning(
                 "[document_agent] TOC profiling failed: {}",
@@ -361,6 +366,22 @@ class ProfileCoordinator:
             raise RuntimeError(result.error or f"{tool_name} failed")
         self.round_index += 1
         return result
+
+    def _is_slide_deck(self) -> bool:
+        profile = self._ensure_coarse_profile(actor="coarse_profile")
+        return PdfRoutingCategory.normalize(profile.routing_category) is PdfRoutingCategory.SLIDES
+
+    def _run_slide_structure_route(self) -> None:
+        result = run_slide_structure_route(self.ctx)
+        self.trace.record_step(
+            round_index=self.round_index,
+            actor="structure:slide_structure",
+            action_type="toc",
+            result=result,
+            tool_name=None,
+            tool_args={},
+        )
+        self.round_index += 1
 
     def _clear_toc_anchor_state(self) -> None:
         self.blackboard.skeleton_anchor = None

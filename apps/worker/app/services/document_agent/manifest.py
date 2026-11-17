@@ -100,15 +100,15 @@ class TocResult:
     toc_pages: list[int] = field(default_factory=list)
     candidates: list[TocAnchorPage] = field(default_factory=list)
     evidence: list[TocEvidence] = field(default_factory=list)
-    method: Literal["vlm_batch", "pdf_outline", "none"] = "none"
+    method: Literal["vlm_batch", "pdf_outline", "slide_structure", "none"] = "none"
     notes: str = ""
     failure_kind: TocFailureKind = "none"
 
     @property
     def profile_source(self) -> str:
         """Honest profile ``source`` label derived from ``method``."""
-        if self.method == "pdf_outline":
-            return "pdf_outline"
+        if self.method in ("pdf_outline", "slide_structure"):
+            return self.method
         if self.method == "vlm_batch":
             return "pdf_vlm"
         return "none"
