@@ -72,11 +72,7 @@ def _write_m0_workspace(
                     "is_scanned": is_scanned,
                     "category": ["OTHER"],
                     "category_label": "Scanned Book",
-                    "routing_category": (
-                        routing_category
-                        if routing_category is not None
-                        else ("scanned" if is_scanned else "generic")
-                    ),
+                    "routing_category": routing_category or "generic",
                     "language": "en",
                     "header_y": 0.06,
                     "footer_y": 0.95,
@@ -236,10 +232,11 @@ def test_resume_born_digital_skips_visual_candidate_query_until_after_coarse(
     assert injected == []
 
 
-def test_resume_routing_scanned_injects_visual_candidate_pages(
+def test_resume_legacy_scanned_routing_injects_visual_candidate_pages(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """An M0 profile persisted with the old ``scanned`` routing still resumes as scanned."""
     called: list[str] = []
     injected: list[int] = []
 

@@ -1189,7 +1189,7 @@ def test_find_toc_anchor_pages_scanned_unions_text_and_visual(
         is_scanned=True,
         category=["OTHER"],
         category_label="Scanned Book",
-        routing_category="scanned",
+        routing_category="generic",
     )
     blackboard.page_labels = [PageLabel(page=page, kind="normal") for page in range(1, 21)]
     blackboard.page_full_text_cache = {

@@ -179,6 +179,12 @@ class CoarseProfiler:
     def __init__(self, ctx: ToolContext) -> None:
         self.ctx = ctx
 
+    def _with_source_format(self, profile: DocumentProfile) -> DocumentProfile:
+        """A PDF converted from a presentation file is a slide deck, whatever its pages look like."""
+        if self.ctx.settings.get("presentation_source"):
+            profile.routing_category = PdfRoutingCategory.SLIDES.value
+        return profile
+
     def classify(self) -> tuple[DocumentProfile, ToolResult]:
         start = time.monotonic()
         model = self.ctx.settings.get("vlm_model") or os.environ.get("IMAGE_MODEL")
@@ -205,11 +211,13 @@ class CoarseProfiler:
             random_extra=random_extra,
         )
         if not model:
-            profile = DocumentProfile(
-                is_scanned=False,
-                category=[OTHER_CODE],
-                category_label="unknown document",
-                routing_category=PdfRoutingCategory.GENERIC.value,
+            profile = self._with_source_format(
+                DocumentProfile(
+                    is_scanned=False,
+                    category=[OTHER_CODE],
+                    category_label="unknown document",
+                    routing_category=PdfRoutingCategory.GENERIC.value,
+                )
             )
             return profile, ToolResult(
                 status="ok",
@@ -278,7 +286,7 @@ class CoarseProfiler:
             response_format={"type": "json_object"},
             usage_task="document_agent.coarse_profile",
         )
-        profile = _parse_profile(raw)
+        profile = self._with_source_format(_parse_profile(raw))
         return profile, ToolResult(
             status="ok",
             payload={"source": "llm", "sampled_pages": pages},

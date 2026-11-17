@@ -108,3 +108,28 @@ def test_parse_profile_rejects_invalid_header_footer_order() -> None:
     profile = _parse_profile(raw)
     assert profile.header_y is None
     assert profile.footer_y is None
+
+
+@pytest.mark.parametrize(
+    ("presentation_source", "expected_routing"),
+    [(True, "slides"), (False, "generic")],
+)
+def test_presentation_source_routes_to_slides(
+    monkeypatch: pytest.MonkeyPatch,
+    presentation_source: bool,
+    expected_routing: str,
+) -> None:
+    from app.services.document_agent.coarse_profile.classifier import CoarseProfiler
+    from app.services.document_agent.manifest import ToolContext
+    from app.services.document_agent.state import ProfileBlackboard
+
+    monkeypatch.delenv("IMAGE_MODEL", raising=False)
+    ctx = ToolContext(
+        pdf_path="deck.pdf",
+        job_id="job-deck",
+        blackboard=ProfileBlackboard(page_count=3),
+        trace=None,
+        settings={"presentation_source": presentation_source},
+    )
+    profile, _result = CoarseProfiler(ctx).classify()
+    assert profile.routing_category == expected_routing

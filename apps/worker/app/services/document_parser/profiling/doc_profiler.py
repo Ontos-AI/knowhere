@@ -36,6 +36,7 @@ def profile_document(
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
     stop_after: Literal["asset_probe", "native_baseline"] | None = None,
+    presentation_source: bool = False,
 ) -> ParserDocumentProfile:
     """
     General document profiling entry point.
@@ -55,6 +56,8 @@ def profile_document(
         stop_after: Internal profiling boundary. ``native_baseline`` defers
             detailed assets only after native classification and a complete
             text scan; scanned or empty-text profiles still probe assets.
+        presentation_source: The PDF was converted from a presentation
+            file, so its pages are slides whatever the page images look like.
 
     Returns:
         ParserDocumentProfile
@@ -73,6 +76,7 @@ def profile_document(
                 oversized_policy=oversized_policy,
                 skip_toc_anchoring=skip_toc_anchoring,
                 stop_after=stop_after,
+                presentation_source=presentation_source,
             )
         finally:
             if not visual_debug_enabled():
@@ -95,6 +99,7 @@ def _profile_pdf(
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
     stop_after: Literal["asset_probe", "native_baseline"] | None = None,
+    presentation_source: bool = False,
 ) -> ParserDocumentProfile:
     with _profile_db_context(enabled=bool(job_id)) as db:
         return _profile_pdf_with_db(
@@ -106,6 +111,7 @@ def _profile_pdf(
             oversized_policy=oversized_policy,
             skip_toc_anchoring=skip_toc_anchoring,
             stop_after=stop_after,
+            presentation_source=presentation_source,
         )
 
 
@@ -119,6 +125,7 @@ def _profile_pdf_with_db(
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
     skip_toc_anchoring: bool = False,
     stop_after: Literal["asset_probe", "native_baseline"] | None = None,
+    presentation_source: bool = False,
 ) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
@@ -139,6 +146,7 @@ def _profile_pdf_with_db(
             "skip_toc_anchoring": bool(skip_toc_anchoring),
             "stop_after_asset_probe": stop_after is not None,
             "stop_after_native_baseline": stop_after == "native_baseline",
+            "presentation_source": presentation_source,
             "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
         },
     )

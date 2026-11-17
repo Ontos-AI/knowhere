@@ -305,7 +305,6 @@ def test_native_progressive_baseline_keeps_text_source_and_eager_images_without_
     ("is_scanned", "routing_category", "include_text", "stop_after"),
     [
         (True, "generic", True, "native_baseline"),
-        (False, "scanned", True, "native_baseline"),
         (False, "generic", False, "native_baseline"),
         (False, "generic", True, None),
     ],

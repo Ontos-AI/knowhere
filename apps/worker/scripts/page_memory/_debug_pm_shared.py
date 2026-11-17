@@ -364,13 +364,17 @@ def _build_debug_coordinator(
 def _document_profile_from_dict(data: dict[str, Any] | None):
     from app.services.document_agent.manifest import DocumentProfile
     from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
+    from app.services.document_parser.profiling.taxonomy import split_persisted_scanned_routing
 
     raw = data or {}
+    routing, is_scanned = split_persisted_scanned_routing(
+        raw.get("routing_category"), bool(raw.get("is_scanned", False))
+    )
     return DocumentProfile(
-        is_scanned=bool(raw.get("is_scanned", False)),
+        is_scanned=is_scanned,
         category=list(raw.get("category") or [OTHER_CODE]),
         category_label=str(raw.get("category_label") or "unknown"),
-        routing_category=str(raw.get("routing_category") or "generic"),
+        routing_category=routing.value,
         language=str(raw.get("language") or "unknown"),
         header_y=raw.get("header_y"),
         footer_y=raw.get("footer_y"),

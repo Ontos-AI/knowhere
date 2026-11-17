@@ -100,7 +100,6 @@ class ProfileCoordinator:
         if (
             self.ctx.settings.get("stop_after_native_baseline")
             and not profile.is_scanned
-            and profile.routing_category.strip().lower() != "scanned"
             and any(
                 page_content(bands).strip()
                 for bands in self.blackboard.page_full_text_cache.values()
