@@ -7,6 +7,11 @@ from loguru import logger
 from sqlalchemy import select
 
 from shared.core.database import get_db_context
+from shared.services.chunks.asset_descriptor import (
+    EXTRACTED_ASSET_KEY,
+    PAGE_MEDIA_KINDS,
+    normalize_page_media_asset,
+)
 from shared.models.database.demo_corpus import DemoDocument, DemoDocumentMapUnitIndex
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.corpus_storage import CorpusStorage
@@ -22,7 +27,7 @@ from shared.services.retrieval.hydration.row_utils import (
 )
 from shared.services.storage.page_pdf_crop import crop_source_pdf_pages
 from shared.services.storage.raw_prefix_arguments import RawPrefixArguments
-from shared.services.storage.result_storage import get_result_storage
+from shared.services.storage.result_storage import get_result_storage, media_asset_url
 
 AssetUrlValue = str
 PagePdfRequestKey = tuple[str, tuple[int, ...], str]
@@ -72,6 +77,15 @@ def _normalize_artifact_ref(asset_ref: object) -> str | None:
 def _is_retrieval_media_row(row: dict[str, Any]) -> bool:
     raw_chunk_type = row.get("chunk_type") or row.get("type")
     return normalize_chunk_type(raw_chunk_type) in MEDIA_CHUNK_TYPES
+
+
+def _media_chunk_ref(row: dict[str, Any]) -> dict[str, str] | None:
+    """The media reference of a video/audio row; None for every other row."""
+    raw_chunk_type = row.get("chunk_type") or row.get("type")
+    if normalize_chunk_type(raw_chunk_type) not in PAGE_MEDIA_KINDS:
+        return None
+    asset = normalize_page_media_asset(_metadata_for_row(row).get(EXTRACTED_ASSET_KEY))
+    return asset["ref"] if asset is not None else None
 
 
 def _is_page_row(row: dict[str, Any]) -> bool:
@@ -166,6 +180,8 @@ async def _generate_retrieval_asset_url(
     row: dict[str, Any],
     log_context: str,
 ) -> str | None:
+    if (media_ref := _media_chunk_ref(row)) is not None:
+        return _generate_media_chunk_url(row=row, ref=media_ref, log_context=log_context)
     request = _resolve_asset_request(row)
     if request is None:
         return None
@@ -182,6 +198,29 @@ async def _generate_retrieval_asset_url(
         )
     except Exception as exc:
         logger.warning(f"Failed to generate {log_context} asset URL (ignored): {exc}")
+        return None
+
+
+def _generate_media_chunk_url(
+    *,
+    row: dict[str, Any],
+    ref: dict[str, str],
+    log_context: str,
+) -> str | None:
+    """A video/audio hit links to its media, as the documents API does.
+
+    Demo bundles carry no separated media, so only external links survive there.
+    """
+    if _is_demo_row(row) and ref["kind"] != "external":
+        return None
+    try:
+        return media_asset_url(
+            ref,
+            job_id=str(row.get("job_id") or "").strip(),
+            storage=get_result_storage(),
+        )
+    except Exception as exc:
+        logger.warning(f"Failed to generate {log_context} media URL (ignored): {exc}")
         return None
 
 
@@ -362,6 +401,23 @@ async def enrich_rows_with_retrieval_asset_url(
             enriched["asset_url"] = page_pdf_url
         enriched_rows.append(enriched)
     return enriched_rows
+
+
+async def sign_page_media_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Give loaded video and audio rows the link their page's evidence shows."""
+    media_indexes = [
+        index for index, row in enumerate(rows) if _media_chunk_ref(row) is not None
+    ]
+    if not media_indexes:
+        return rows
+    signed = await enrich_rows_with_retrieval_asset_url(
+        [rows[index] for index in media_indexes],
+        log_context="page media",
+    )
+    result = list(rows)
+    for index, row in zip(media_indexes, signed, strict=True):
+        result[index] = row
+    return result
 
 
 async def build_retrieval_asset_url_map(

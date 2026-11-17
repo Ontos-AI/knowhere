@@ -1199,7 +1199,24 @@ async def test_should_return_one_document_chunk_by_document_chunk_id(
         "?method=GET&expires_in=604800"
     )
     assert default_chunk["asset_url"] is None
-    assert chunk["metadata"] == {"summary": "Figure", "page_nums": []}
+    assert chunk["metadata"] == {
+        "summary": "Figure",
+        "page_nums": [],
+        "asset": {
+            "asset_id": "parser-chunk-1",
+            "kind": "image",
+            "origin": "extracted",
+            "title": None,
+            "summary": "Figure",
+            "page_nums": [],
+            "region": None,
+            "content_type": "image/png",
+            "size_bytes": None,
+            "checksum_sha256": None,
+            "duration_ms": None,
+            "ref": {"kind": "artifact", "path": "images/figure-1.png"},
+        },
+    }
     assert chunk["created_at"]
 
 

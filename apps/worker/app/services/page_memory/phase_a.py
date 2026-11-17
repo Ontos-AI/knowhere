@@ -30,7 +30,9 @@ from app.services.page_memory.fine_hierarchy import (
     EndTitleAnchor,
     build_next_title_by_path,
 )
+from app.services.page_memory.node_assembler import SAME_AS_PREFIX
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
+from shared.services.chunks.page_texts import PAGE_TEXTS_KEY
 from shared.services.chunks.path_segments import join_document_path
 
 
@@ -265,8 +267,15 @@ def build_coarse_dataframe(
     page_count: int,
     filename: str,
 ) -> pd.DataFrame:
-    """One coarse page row per scoped skeleton: raw cache text, no VLM."""
+    """One coarse page row per scoped skeleton: raw cache text, no VLM.
+
+    The row keeps each page's text under ``page_texts`` so retrieval can return
+    only the pages a query lit. A page shared by adjacent skeletons keeps its
+    text under the first one in reading order; the others carry a
+    ``SAME-AS <owner path> p<page>`` pointer, as refined nodes do.
+    """
     rows: list[dict[str, Any]] = []
+    page_owner: dict[int, str] = {}
     for scope in coarse_scopes:
         for skeleton in scope.skeletons:
             pages = _skeleton_pages(
@@ -274,8 +283,19 @@ def build_coarse_dataframe(
                 page_count=page_count,
                 toc_pages=toc_pages,
             )
-            content = "\n\n".join(page_texts.get(page, "") for page in pages).strip()
             path = str(skeleton.section_path)
+            page_text_entries: list[dict[str, Any]] = []
+            for page in pages:
+                owner = page_owner.setdefault(page, path)
+                text = (
+                    page_texts.get(page, "").strip()
+                    if owner == path
+                    else f"[{SAME_AS_PREFIX} {owner} p{page}]"
+                )
+                page_text_entries.append({"page_num": page, "text": text})
+            content = "\n\n".join(
+                entry["text"] for entry in page_text_entries if entry["text"]
+            )
             rows.append(
                 {
                     "content": content,
@@ -295,6 +315,7 @@ def build_coarse_dataframe(
                         "body_text_preview": build_body_text_preview(
                             body_text_by_page.get(page, "") for page in pages
                         ),
+                        PAGE_TEXTS_KEY: page_text_entries,
                     },
                 }
             )

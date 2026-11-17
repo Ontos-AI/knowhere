@@ -20,7 +20,7 @@ from shared.models.schemas.document_directory import DocumentDirectoryResponse
 router = APIRouter(tags=["Documents"])
 
 _document_service = DocumentService()
-DocumentChunkType = Literal["text", "image", "table", "page"]
+DocumentChunkType = Literal["text", "image", "table", "page", "video", "audio"]
 
 
 @router.get("/{document_id}/structure", response_model=DocumentDirectoryResponse)

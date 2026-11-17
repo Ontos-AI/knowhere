@@ -48,7 +48,7 @@ _DOCUMENT_FILE_EXTENSIONS = {
     ".xlsm",
     ".xlsx",
 }
-_MEDIA_ROOT_SEGMENTS = {"images", "tables"}
+_MEDIA_ROOT_SEGMENTS = {"images", "tables", "embedded_media"}
 
 
 def split_document_path(

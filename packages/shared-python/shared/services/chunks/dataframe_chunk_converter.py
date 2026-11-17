@@ -40,7 +40,7 @@ JsonValue: TypeAlias = Union[
     list["JsonValue"],
     dict[str, "JsonValue"],
 ]
-ChunkType: TypeAlias = Literal["text", "image", "table", "page"]
+ChunkType: TypeAlias = Literal["text", "image", "table", "page", "video", "audio"]
 
 
 class ChunkMetadata(TypedDict, total=False):
@@ -163,7 +163,7 @@ def _find_embedded_resource_path(
     return ""
 
 
-def _parse_connect_to(value: object) -> list[ConnectionValue]:
+def parse_connect_to(value: object) -> list[ConnectionValue]:
     if not value or _is_missing(value):
         return []
     if isinstance(value, list):
@@ -219,6 +219,10 @@ def _get_chunk_type(value: object) -> ChunkType:
         return "table"
     if normalized_type == "page":
         return "page"
+    if normalized_type == "video":
+        return "video"
+    if normalized_type == "audio":
+        return "audio"
     return "text"
 
 
@@ -298,7 +302,7 @@ def dataframe_to_chunks(df: _ParserDataFrame | None) -> list[Dict[str, JsonValue
             "keywords": _safe_split_keywords(row.get("keywords")),
             "summary": str(row.get("summary", "")),
             "length": _safe_int(row.get("length")) or len(content),
-            "connect_to": _parse_connect_to(row.get("connectto")),
+            "connect_to": parse_connect_to(row.get("connectto")),
             "_relationship_refs": relationship_refs,
             "page_nums": _parse_page_numbers(row.get("page_nums", "")),
         }

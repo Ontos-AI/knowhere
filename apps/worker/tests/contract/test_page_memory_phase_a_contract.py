@@ -202,6 +202,37 @@ def test_coarse_rows_omit_excluded_toc_pages(
     assert phase_a.manifest["scopes"][0]["excluded_toc_pages"] == [2]
 
 
+def test_coarse_rows_keep_page_text_once_across_a_shared_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skeletons = [
+        SectionSkeleton("doc.pdf/A", 1, 1, 2, "A", "doc.pdf"),
+        SectionSkeleton("doc.pdf/B", 1, 2, 4, "B", "doc.pdf"),
+    ]
+    page_texts = {1: "page one", 2: "page two", 3: "page three", 4: "page four"}
+    profile = _profile(
+        skeletons=skeletons,
+        page_texts=page_texts,
+        body_texts=page_texts,
+        monkeypatch=monkeypatch,
+    )
+    chunks = dataframe_to_chunks(build_phase_a(profile=profile, filename="doc.pdf").coarse_df)
+    by_path = {chunk["path"]: chunk for chunk in chunks}
+    first, second = by_path["doc.pdf/A"], by_path["doc.pdf/B"]
+    assert first["content"] == "page one\n\npage two"
+    assert first["metadata"]["page_texts"] == [
+        {"page_num": 1, "text": "page one"},
+        {"page_num": 2, "text": "page two"},
+    ]
+    assert second["metadata"]["page_nums"] == [2, 3, 4]
+    assert second["metadata"]["page_texts"] == [
+        {"page_num": 2, "text": "[SAME-AS doc.pdf/A p2]"},
+        {"page_num": 3, "text": "page three"},
+        {"page_num": 4, "text": "page four"},
+    ]
+    assert second["content"] == "[SAME-AS doc.pdf/A p2]\n\npage three\n\npage four"
+
+
 def test_progressive_run_returns_m0_text_baseline_without_toc_or_scope_vlm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

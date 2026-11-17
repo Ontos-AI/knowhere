@@ -186,3 +186,49 @@ def test_duration_is_measured_when_webm_header_has_no_duration(tmp_path: Path) -
     assert info.duration_ms is None
     duration_ms = measure_media_duration_ms(str(streamed), info)
     assert 2900 <= duration_ms <= 3100
+
+
+def test_presentation_is_rejected_by_its_longest_recording(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = _patch_media(monkeypatch, duration_ms=0, user_tier="free")
+    rejection = policy.build_embedded_media_admission_rejection(
+        embedded_media_durations_ms=(5 * _MINUTE_MS, 95 * _MINUTE_MS),
+        job_user_id="user_1",
+    )
+    assert rejection is not None
+    assert rejection.user_message.startswith(
+        "This presentation contains a recording that is 95 minutes long."
+    )
+    assert "free plan supports up to 60 minutes per recording" in rejection.user_message
+    assert rejection.details["violations"][0]["field"] == "media_duration"
+
+
+def test_presentation_recordings_within_cap_are_admitted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = _patch_media(monkeypatch, duration_ms=0, user_tier="free")
+    assert (
+        policy.build_embedded_media_admission_rejection(
+            embedded_media_durations_ms=(30 * _MINUTE_MS, 60 * _MINUTE_MS),
+            job_user_id="user_1",
+        )
+        is None
+    )
+
+
+def test_presentation_without_recordings_skips_the_tier_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.document_ingestion import media_duration_policy as policy
+
+    def _unexpected(_user_id: str | None) -> str:
+        raise AssertionError("tier lookup without recordings")
+
+    monkeypatch.setattr(policy, "_load_user_tier", _unexpected)
+    assert (
+        policy.build_embedded_media_admission_rejection(
+            embedded_media_durations_ms=(), job_user_id=None
+        )
+        is None
+    )

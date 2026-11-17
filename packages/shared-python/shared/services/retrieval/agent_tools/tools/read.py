@@ -53,6 +53,7 @@ from shared.services.retrieval.agent_tools.registry import (
     register_tool,
 )
 from shared.services.retrieval.hydration.asset_inline import inline_assets_at_placeholders
+from shared.services.retrieval.hydration.page_media import inline_page_media
 from shared.services.retrieval.hydration.assets import (
     enrich_rows_with_retrieval_asset_url,
 )
@@ -179,6 +180,10 @@ async def _resolve_same_as_markers(
     for index, row in enumerate(rows):
         if normalize_chunk_type(row.get("chunk_type")) != "page":
             continue
+        # A coarse row's pointer names one page of a whole neighboring
+        # skeleton; that skeleton's content is not this page's text.
+        if is_unrefined_page(row):
+            continue
         content = str(row.get("content") or "")
         found = list(_SAME_AS_MARKER_RE.finditer(content))
         if not found:
@@ -298,7 +303,9 @@ def _compose_explore_text(
     *,
     char_budget: int,
 ) -> str:
-    base_content = str(row.get("content") or "")
+    base_content = inline_page_media(
+        str(row.get("content") or ""), row, rows_by_chunk_id
+    )
     if (
         not base_content.strip()
         and normalize_chunk_type(row.get("chunk_type")) == "page"
