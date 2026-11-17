@@ -19,6 +19,7 @@ import os
 import posixpath
 import re
 import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -111,6 +112,10 @@ def separate_presentation_media(
     transcriber_factory: TranscriberFactory | None = None,
 ) -> PresentationMedia:
     """Return the package to convert (slim when anything was separated) and its media."""
+    # A legacy .ppt saved under .pptx, or an encrypted deck, is not a ZIP
+    # package and has no OOXML media; the converter decides whether it opens.
+    if not zipfile.is_zipfile(file_path):
+        return PresentationMedia(conversion_path=file_path, page_media=PageMedia())
     with stage_timer("page_memory.embedded_media_separation", filename=filename):
         package_bytes = Path(file_path).read_bytes()
         try:

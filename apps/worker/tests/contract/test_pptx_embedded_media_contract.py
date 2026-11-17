@@ -556,29 +556,28 @@ def test_unreadable_media_fails_the_parse(tmp_path: Path, monkeypatch: pytest.Mo
             filename="deck.pptx",
             job_id="job_1",
             work_dir=str(tmp_path),
-                storage=_RecordingStorage(),  # type: ignore[arg-type]
+            storage=_RecordingStorage(),  # type: ignore[arg-type]
         )
 
     assert raised.value.details["reason"] == EMBEDDED_MEDIA_SEPARATION_FAILED
 
 
-def test_broken_package_fails_the_parse(tmp_path: Path) -> None:
+def test_presentation_that_is_not_a_zip_package_converts_the_original(tmp_path: Path) -> None:
     source_path = tmp_path / "deck.pptx"
-    source_path.write_bytes(b"not a zip")
+    source_path.write_bytes(bytes.fromhex("D0CF11E0A1B11AE1") + b"legacy ppt")
+    storage = _RecordingStorage()
 
-    with pytest.raises(PresentationParsingException) as raised:
-        separate_presentation_media(
-            file_path=str(source_path),
-            filename="deck.pptx",
-            job_id="job_1",
-            work_dir=str(tmp_path),
-                storage=_RecordingStorage(),  # type: ignore[arg-type]
-        )
+    result = separate_presentation_media(
+        file_path=str(source_path),
+        filename="deck.pptx",
+        job_id="job_1",
+        work_dir=str(tmp_path),
+        storage=storage,  # type: ignore[arg-type]
+    )
 
-    assert raised.value.details == {
-        "file_type": "pptx",
-        "reason": EMBEDDED_MEDIA_SEPARATION_FAILED,
-    }
+    assert result.conversion_path == str(source_path)
+    assert result.page_media.is_empty
+    assert storage.uploads == {}
 
 
 def test_silent_video_keeps_its_marker_without_transcription(

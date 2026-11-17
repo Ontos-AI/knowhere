@@ -67,6 +67,24 @@ def test_attaching_is_idempotent_and_keeps_existing_fields() -> None:
     assert kept == {"assets": []}
 
 
+def test_a_shared_page_keeps_its_media_with_the_row_that_owns_its_text() -> None:
+    page_media = PageMedia.from_descriptors([_AUDIO], [3])
+    owner: dict[str, object] = {}
+    assert page_media.attach(content="Slide", metadata=owner, pages=[3]) == (
+        "Slide\n[audio: 1:02:05 · asset:asset_a]"
+    )
+    assert [asset["asset_id"] for asset in owner["assets"]] == ["asset_a"]
+
+    pointer = "[SAME-AS Deck.pptx/Root/Pricing p3]"
+    sharer: dict[str, object] = {}
+    assert page_media.attach(content=pointer, metadata=sharer, pages=[3]) == pointer
+    assert sharer == {"hidden_page_nums": [3]}
+
+    spanning: dict[str, object] = {}
+    page_media.attach(content=f"Intro\n\n{pointer}", metadata=spanning, pages=[2, 3])
+    assert "assets" not in spanning
+
+
 def test_extracted_assets_reuse_the_descriptor_shape() -> None:
     descriptor = describe_extracted_asset(
         chunk_id="asset_img",

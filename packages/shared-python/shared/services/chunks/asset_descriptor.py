@@ -1,16 +1,18 @@
 """Asset descriptors shared by extracted assets and page-level embedded media.
 
 Image, table, video and audio chunks describe themselves with
-``metadata.asset``. Page rows carry the page's video and audio as
-``metadata.assets``, one marker line per item in their content, and an
-``embeds`` edge to each item's chunk. Media bytes live under the job's result
-prefix in ``embedded_media/`` and are reached through signed URLs only.
+``metadata.asset``. The page row that owns a page's text carries that
+page's video and audio as ``metadata.assets``, one marker line per item in its
+content, and an ``embeds`` edge to each item's chunk. Media bytes live under
+the job's result prefix in ``embedded_media/`` and are reached through signed
+URLs only.
 """
 
 from __future__ import annotations
 
 import mimetypes
 import posixpath
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final
@@ -26,6 +28,9 @@ _PAGE_MEDIA_ORIGINS: Final = frozenset({"embedded", "linked"})
 _EXTRACTED_ASSET_KINDS: Final = frozenset({"image", "table"})
 _OPTIONAL_TEXT_KEYS: Final = ("title", "summary", "content_type", "checksum_sha256")
 _OPTIONAL_COUNT_KEYS: Final = ("size_bytes", "duration_ms")
+# Page-track rows store a shared page's text once, under its owning leaf; the
+# other leaves covering the page carry this pointer (see node_assembler).
+_SAME_AS_PAGE_RE: Final = re.compile(r"\[SAME-AS .+? p(\d+)\]")
 
 
 def embedded_media_path(value: object) -> str | None:
@@ -153,10 +158,15 @@ class PageMedia:
         return not self.assets_by_page and not self.hidden_pages
 
     def attach(self, *, content: str, metadata: dict[str, Any], pages: Iterable[int]) -> str:
-        """Set the page row's media fields when absent; return content with markers."""
+        """Set the page row's media fields when absent; return content with markers.
+
+        Media go only to pages whose text the row owns; a page it shows through
+        a ``[SAME-AS ... p<page>]`` pointer keeps its media with the owner.
+        """
         page_list = list(pages)
         if PAGE_MEDIA_ASSETS_KEY not in metadata:
-            assets = self._assets_for_pages(page_list)
+            pointed = {int(page) for page in _SAME_AS_PAGE_RE.findall(content)}
+            assets = self._assets_for_pages([page for page in page_list if page not in pointed])
             if assets:
                 metadata[PAGE_MEDIA_ASSETS_KEY] = assets
         if HIDDEN_PAGE_NUMS_KEY not in metadata:
