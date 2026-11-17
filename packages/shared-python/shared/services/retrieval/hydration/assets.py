@@ -403,6 +403,23 @@ async def enrich_rows_with_retrieval_asset_url(
     return enriched_rows
 
 
+async def sign_page_media_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Give loaded video and audio rows the link their page's evidence shows."""
+    media_indexes = [
+        index for index, row in enumerate(rows) if _media_chunk_ref(row) is not None
+    ]
+    if not media_indexes:
+        return rows
+    signed = await enrich_rows_with_retrieval_asset_url(
+        [rows[index] for index in media_indexes],
+        log_context="page media",
+    )
+    result = list(rows)
+    for index, row in zip(media_indexes, signed, strict=True):
+        result[index] = row
+    return result
+
+
 async def build_retrieval_asset_url_map(
     rows: list[dict[str, Any]],
     *,

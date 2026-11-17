@@ -23,7 +23,11 @@ from shared.services.retrieval.lexical.manifest_filters import buildManifestFilt
 from shared.services.retrieval.lexical.reader import PublishedLexicalRead
 from shared.services.retrieval.lexical.asyncread import AsyncPublishedLexicalRead
 from shared.services.retrieval.scoring.knowhere_hybrid import tokenize_query_for_ranker
-from shared.services.retrieval.search.map_unit_discovery import DiscoveryResult, _hydrate_winning_units
+from shared.services.retrieval.search.map_unit_discovery import (
+    DiscoveryResult,
+    _hydrate_winning_units,
+    _is_parked_root_asset,
+)
 from shared.services.retrieval.search.scoring import normalize_row_scores
 from shared.services.retrieval.search.section_filters import is_excluded_section
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
@@ -149,21 +153,27 @@ async def _hydrateBuildHits(
         db, scope=reader.scope, sectionKeys=sectionKeys, allowCurrent=allowCurrent,
         readCurrentBuilds=readCurrentBuilds,
     )
-    # Match PG discovery's last chunk in sort order when a section has multiple rows.
-    rowsBySection: dict[tuple[object, object], dict[str, object]] = {
-        (row["build_id"], row["section_id"]): row for row in snapshots
-    }
+    # As in PG discovery: a hit returns the rows its section owns, not Root's parked assets.
+    foundSections: set[tuple[object, object]] = set()
+    rowsBySection: dict[tuple[object, object], list[dict[str, object]]] = {}
+    for row in snapshots:
+        sectionKey: tuple[object, object] = (row["build_id"], row["section_id"])
+        foundSections.add(sectionKey)
+        if not _is_parked_root_asset(row):
+            rowsBySection.setdefault(sectionKey, []).append(row)
     primaries: list[dict[str, object]] = []
+    hasUnhydratedHits: bool = False
     for hit in hits:
-        row: dict[str, object] | None = rowsBySection.get((hit.buildId, hit.unit.sectionId))
-        if row is None:
+        hitSection: tuple[object, object] = (hit.buildId, hit.unit.sectionId)
+        if hitSection not in foundSections:
             if allowCurrent:
+                hasUnhydratedHits = True
                 continue
             raise LexicalIndexError("Published native hit has no immutable hydration row", isRetryable=True)
-        if row["document_id"] != hit.unit.documentId or row["job_result_id"] != hit.unit.revisionId:
-            raise LexicalIndexError("Native hit does not match its captured build document and revision")
-        primaries.append({**row, "score": hit.score})
-    hasUnhydratedHits: bool = len(primaries) != len(hits)
+        for row in rowsBySection.get(hitSection, []):
+            if row["document_id"] != hit.unit.documentId or row["job_result_id"] != hit.unit.revisionId:
+                raise LexicalIndexError("Native hit does not match its captured build document and revision")
+            primaries.append({**row, "score": hit.score})
     if chunkTypes is None or not chunkTypes.issubset(ASSET_CHUNK_TYPES):
         return primaries, hasUnhydratedHits
 
