@@ -96,6 +96,7 @@ def refine_fat_leaf_skeletons(
         deeper = _run_hierarchy_on_candidates(
             candidates=candidates,
             skeleton=skeleton,
+            scan_end_page=exclusive_end,
             model_name=model_name,
             max_tokens=max_tokens,
             max_depth=max_depth,
@@ -364,6 +365,7 @@ def _run_hierarchy_on_candidates(
     *,
     candidates: list[dict[str, Any]],
     skeleton: SectionSkeleton,
+    scan_end_page: int,
     model_name: str | None,
     max_tokens: int,
     max_depth: int,
@@ -376,6 +378,11 @@ def _run_hierarchy_on_candidates(
     fine structure (e.g. L1→L2→L3 inside the leaf) is preserved instead of
     being flattened, then offset every level by ``skeleton.level`` to make it
     absolute under the coarse leaf.
+
+    ``scan_end_page`` is the last page scanned for candidates under
+    ``skeleton``. A fine section with no later same-or-shallower fine section
+    ends there, not at ``skeleton.end_page``, which runs past any coarse
+    sections starting inside the skeleton.
     """
     if not candidates:
         return None
@@ -438,10 +445,11 @@ def _run_hierarchy_on_candidates(
         })
 
     # end_page: a section runs until the next section at the same-or-shallower
-    # relative level starts; descendants are nested inside that span.
+    # relative level starts, else at the scanned span's end; descendants are
+    # nested inside that span.
     deeper: list[SectionSkeleton] = []
     for idx, node in enumerate(nodes):
-        end_page = skeleton.end_page
+        end_page = scan_end_page
         for nxt in nodes[idx + 1:]:
             if nxt["rel_level"] <= node["rel_level"]:
                 end_page = max(nxt["start_page"] - 1, node["start_page"])
