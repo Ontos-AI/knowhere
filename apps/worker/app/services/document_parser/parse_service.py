@@ -21,8 +21,6 @@ def checkerboard_parse_output(
     stopwords: list[str] | None = None,
     doc_type: str = "auto",
     add_frag_desc: str = "",
-    base_url: str = "",
-    fragment_content: str = "",
     s3_key: str | None = None,
 ) -> ParsePipelineResult:
     """Run the stable parser seam and return the parser output contract."""
@@ -42,8 +40,6 @@ def checkerboard_parse_output(
             summary_table=summary_table,
             summary_txt=summary_txt,
         ),
-        base_url=base_url,
-        fragment_content=fragment_content,
         s3_key=s3_key,
     )
     return run_parse_pipeline(parse_input)

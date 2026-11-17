@@ -36,8 +36,7 @@ def run_slide_structure_route(ctx: ToolContext) -> ToolResult:
     """Detect the deck structure and anchor it onto the blackboard.
 
     A failed detection degrades like a failed TOC extraction: no hierarchy,
-    ``failure_kind="degraded"`` (a strict profile retries it), and the profile
-    goes on with the deck flat.
+    ``failure_kind="degraded"``, and the profile goes on with the deck flat.
     """
     started = time.monotonic()
     config = SlideStructureConfig.from_settings()

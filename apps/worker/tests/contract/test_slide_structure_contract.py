@@ -342,7 +342,7 @@ def test_coordinator_routes_slide_decks_to_slide_structure(
             routing_category=routing,
         )
 
-    coordinator._ensure_toc_profile(strict=False)  # noqa: SLF001
+    coordinator._ensure_toc_profile()  # noqa: SLF001
 
     assert called == [expected_route]
 

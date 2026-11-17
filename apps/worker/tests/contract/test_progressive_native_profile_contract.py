@@ -333,7 +333,6 @@ def test_scanned_empty_and_full_profiles_keep_detailed_asset_probe(
     profile = profile_document(
         str(source),
         output_dir=str(tmp_path / "profile"),
-        oversized_policy="page_memory",
         stop_after=stop_after,
     )
     blackboard = getattr(profile, "blackboard")
@@ -580,7 +579,6 @@ def test_native_profile_boundary_can_defer_assets_before_producer_activation(
     profile = profile_document(
         str(source),
         output_dir=str(tmp_path / "profile"),
-        oversized_policy="page_memory",
         stop_after="native_baseline",
     )
     blackboard = getattr(profile, "blackboard")

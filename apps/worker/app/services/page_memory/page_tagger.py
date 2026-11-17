@@ -190,11 +190,6 @@ def _tag_vlm_lite(
 # ── Step 2: Independent title candidate extraction ───────────────────
 
 
-def get_fine_min_pages() -> int:
-    """Default fat-leaf gating threshold."""
-    return _DEFAULT_FINE_MIN_PAGES
-
-
 def tag_page_titles(
     *,
     pages: list[PageRenderResult],

@@ -203,7 +203,6 @@ def parse_image(
     image_path,
     filename=None,
     output_dir=None,
-    baseurl="",
     base_llm_paras=None,
     auto_rename=True,
     relative_root=None,
@@ -219,7 +218,7 @@ def parse_image(
         # Store standalone image uploads under images/ so downstream packaging
         # can collect them with the same convention as document-extracted images.
         img_path = os.path.join(img_dir, filename)
-        img_bytes = load_file_bytes(image_path, file_url=baseurl)
+        img_bytes = load_file_bytes(image_path)
         with open(img_path, "wb") as image_file:
             image_file.write(img_bytes)
 

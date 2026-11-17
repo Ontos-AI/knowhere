@@ -8,8 +8,6 @@ from app.services.document_parser.orchestration.path_segment import (
     build_parser_path_segment,
 )
 from app.services.document_parser.orchestration.parse_input import ParseInput
-from app.services.document_parser.profiling.doc_profiler import profile_document
-from app.services.document_parser.support.stage_profiler import stage_timer
 from loguru import logger
 
 from shared.core.config import settings
@@ -19,15 +17,12 @@ from shared.models.schemas.job_metadata import JobMetadataHelper
 @dataclass(frozen=True)
 class ParseSession:
     base_llm_paras: dict[str, object]
-    base_url: str
     file_full_path: str
     filename: str
-    fragment_content: str
     full_output_dir: str
     internal_output_filename: str
     job_id: str | None
     output_dir: str
-    profile: Any
     relative_root: str
     s3_key: str | None
 
@@ -38,20 +33,16 @@ class ParseSession:
         parse_input: ParseInput,
         base_llm_paras: dict[str, object],
         full_output_dir: str,
-        profile: Any,
         relative_root: str,
     ) -> "ParseSession":
         return cls(
             base_llm_paras=base_llm_paras,
-            base_url=parse_input.base_url,
             file_full_path=parse_input.file_full_path,
             filename=parse_input.filename,
-            fragment_content=parse_input.fragment_content,
             full_output_dir=full_output_dir,
             internal_output_filename=parse_input.internal_output_filename,
             job_id=parse_input.job_id,
             output_dir=parse_input.output_dir,
-            profile=profile,
             relative_root=relative_root,
             s3_key=parse_input.s3_key,
         )
@@ -73,7 +64,6 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
         "hierarchy_model_name": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
     }
 
-    logger.debug(f"baseurl: {parse_input.base_url}")
     logger.debug(f"file_full_path: {parse_input.file_full_path}")
 
     relative_root, full_output_dir = _resolve_output_paths(
@@ -84,20 +74,10 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
     logger.debug(f"relative_root: {relative_root}")
     logger.debug(f"full_output_dir: {full_output_dir}")
 
-    with stage_timer("document.profile", filename=parse_input.filename):
-        profile = profile_document(
-            parse_input.file_full_path,
-            parse_input.internal_output_filename,
-            job_id=parse_input.job_id,
-            output_dir=full_output_dir,
-        )
-    logger.info(f"📋 DOC_PROFILE: {profile.summary()}")
-
     return ParseSession.from_input(
         parse_input=parse_input,
         base_llm_paras=base_llm_paras,
         full_output_dir=full_output_dir,
-        profile=profile,
         relative_root=relative_root,
 )
 

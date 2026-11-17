@@ -619,27 +619,6 @@ def _toc_range_for_host(
     return []
 
 
-def classify_toc_relationship(
-    *,
-    candidate_span: tuple[int, int] | None,
-    host_spans: list[tuple[int, int]],
-) -> str:
-    """Classify a TOC unit vs peer evidenced physical spans.
-
-    contained: some peer span fully covers the candidate span
-    parallel:  no peer covers it
-    unresolvable: candidate has no evidenced pages
-
-    Spans are min/max override pages only — never extrapolated to document end.
-    """
-    if candidate_span is None:
-        return "unresolvable"
-    hosts = [(index, span) for index, span in enumerate(host_spans)]
-    if find_tightest_containing_host(candidate_span, hosts) is None:
-        return "parallel"
-    return "contained"
-
-
 def _assign_toc_relationships(
     *,
     root_anchor: SkeletonAnchor,

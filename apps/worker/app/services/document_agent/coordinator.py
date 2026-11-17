@@ -28,7 +28,6 @@ from app.services.document_agent.state import ProfileBlackboard, ProfileState
 from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
 from app.services.document_agent import tools as _registered_tools  # noqa: F401
 from app.services.document_agent.trace import ParseRunRecorder
-from app.services.document_agent.validators import single_shard_plan
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 from app.services.document_parser.support.stage_profiler import stage_timer
 
@@ -69,16 +68,13 @@ class ProfileCoordinator:
             self._record_failure(exc)
             raise
 
-    def run_structural(self) -> PageAnatomyMap:
+    def run_anatomy(self) -> PageAnatomyMap:
+        """Build and persist the anatomy map once coarse profiling and TOC are done."""
         try:
-            return self._run_structural()
-        except Exception as exc:
-            self._record_failure(exc)
-            raise
-
-    def run_lightweight_anatomy(self) -> PageAnatomyMap:
-        try:
-            return self._run_lightweight_anatomy()
+            self.state = ProfileState.RUNNING
+            anatomy = build_anatomy_map(self.ctx)
+            self._persist_ready_anatomy()
+            return anatomy
         except Exception as exc:
             self._record_failure(exc)
             raise
@@ -117,56 +113,10 @@ class ProfileCoordinator:
         if self.ctx.settings.get("stop_after_asset_probe"):
             # Debug Stage-0: bootstrap → coarse VLM → text scan → asset probe.
             return profile
-        if self._toc_profile_enabled():
-            self._ensure_toc_profile(strict=False)
-        else:
-            self._ensure_disabled_toc_placeholder()
+        self._ensure_toc_profile()
         return profile
 
-    def _run_structural(self) -> PageAnatomyMap:
-        self.state = ProfileState.RUNNING
-        if not self.blackboard.page_features:
-            self._run_bootstrap()
-        # Prefer assets before TOC so cold structural matches coarse order.
-        # After ``run_coarse`` this is a no-op (assets_probed already set with
-        # coarse header/footer margins).
-        self._ensure_asset_probe()
-        if self._toc_profile_enabled():
-            self._ensure_toc_profile(strict=True)
-        else:
-            self._ensure_disabled_toc_placeholder()
-        self._ensure_coarse_profile(actor="coarse_profile")
-        # Anatomy still requires a non-empty plan object; keep a single-document
-        # placeholder.
-        self._apply_single_shard_placeholder()
-        anatomy = build_anatomy_map(self.ctx)
-        self._persist_ready_anatomy(anatomy)
-        return anatomy
-
-    def _run_lightweight_anatomy(self) -> PageAnatomyMap:
-        self.state = ProfileState.RUNNING
-        if not self.blackboard.page_features:
-            self._run_bootstrap()
-        # Same relative order as coarse: assets before any TOC placeholder.
-        # After ``run_coarse`` this is a no-op.
-        self._ensure_asset_probe()
-        if self.blackboard.toc_result is None:
-            if self._toc_profile_enabled():
-                self.blackboard.toc_result = TocResult(
-                    method="none",
-                    notes="TOC profiling not attempted",
-                )
-            else:
-                self._ensure_disabled_toc_placeholder()
-        self._apply_single_shard_placeholder()
-        anatomy = build_anatomy_map(self.ctx)
-        self._persist_ready_anatomy(anatomy)
-        return anatomy
-
-    def _apply_single_shard_placeholder(self) -> None:
-        self.blackboard.shard_plan = single_shard_plan(self.blackboard.page_count)
-
-    def _persist_ready_anatomy(self, anatomy: PageAnatomyMap) -> None:
+    def _persist_ready_anatomy(self) -> None:
         persist_result = persist_anatomy_map(self.ctx, {})
         self.trace.record_step(
             round_index=self.round_index,
@@ -180,11 +130,11 @@ class ProfileCoordinator:
         self.trace.write_trace_artifact(
             self.ctx.output_dir,
             final_status="ready",
-            summary=anatomy.trace_summary | self.trace.summary(),
+            summary=self.trace.summary(),
         )
         self.trace.flush(
             final_status="ready",
-            summary=anatomy.trace_summary | self.trace.summary(),
+            summary=self.trace.summary(),
         )
 
     def _record_failure(self, exc: Exception) -> None:
@@ -243,17 +193,6 @@ class ProfileCoordinator:
                     raise RuntimeError(result.error or f"{tool_name} failed")
                 self.round_index += 1
 
-    def _toc_result_requires_strict_retry(self) -> bool:
-        toc_result = self.blackboard.toc_result
-        return bool(
-            toc_result
-            and toc_result.method == "none"
-            and toc_result.failure_kind in {"confirm_failed", "degraded"}
-        )
-
-    def _toc_profile_enabled(self) -> bool:
-        return bool(self.ctx.settings.get("toc_profile_enabled", True))
-
     def _run_text_scan(self) -> None:
         profile = self.blackboard.document_profile
         if profile is None:
@@ -291,24 +230,8 @@ class ProfileCoordinator:
         )
         self.round_index += 1
 
-    def _ensure_disabled_toc_placeholder(self) -> None:
-        self.blackboard.toc_result = TocResult(
-            method="none",
-            notes="TOC profiling disabled by PDF_PROFILE_TOC_ENABLED",
-        )
-        self.blackboard.toc_hierarchies = None
-        self._clear_toc_anchor_state()
-        self.blackboard.global_signals["toc_profile_attempted"] = False
-
-    def _ensure_toc_profile(self, *, strict: bool) -> None:
-        should_run = self.blackboard.toc_result is None
-        if strict and self._toc_result_requires_strict_retry():
-            self.blackboard.toc_result = None
-            self.blackboard.toc_hierarchies = None
-            self._clear_toc_anchor_state()
-            should_run = True
-
-        if not should_run:
+    def _ensure_toc_profile(self) -> None:
+        if self.blackboard.toc_result is not None:
             return
 
         self.blackboard.global_signals["toc_profile_attempted"] = True

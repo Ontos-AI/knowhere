@@ -48,7 +48,6 @@ from app.services.page_memory.phase_a import (
 from loguru import logger
 
 from shared.core.config import settings
-from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.models.schemas.page_memory_config import PageMemoryConfig, resolve_asset_model
 from shared.services.chunks.asset_descriptor import PageMedia
 
@@ -64,7 +63,6 @@ class PageMemoryInput:
     output_dir: str
     job_id: str | None = None
     internal_output_filename: str | None = None
-    base_url: str = ""
     page_memory_config: PageMemoryConfig = field(
         default_factory=PageMemoryConfig.default,
     )
@@ -98,7 +96,6 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                     file_path=presentation_media.conversion_path,
                     filename=request.filename,
                     output_dir=full_output_dir,
-                    base_url=request.base_url,
                 )
         _persist_source_pdf(pdf_path=pdf_path, output_dir=full_output_dir)
         is_progressive = str(request.ingestion_mode or "full").strip().lower() == "progressive"
@@ -111,23 +108,11 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 pdf_filename,
                 job_id=request.job_id,
                 output_dir=full_output_dir,
-                oversized_policy="page_memory",
                 stop_after="native_baseline" if is_progressive else None,
                 presentation_source=_is_presentation(request),
             )
         trace_recorder = getattr(profile, "trace_recorder", None)
         page_count = max(int(profile.page_count or 0), 0)
-        if page_count > page_memory_config.max_pages:
-            raise ValidationException(
-                user_message=(
-                    f"Document too large: {page_count} pages exceeds the "
-                    f"{page_memory_config.max_pages}-page limit for page-based processing."
-                ),
-                violations=[{
-                    "field": "page_count",
-                    "description": f"PDF has {page_count} pages, limit is {page_memory_config.max_pages}",
-                }],
-            )
         verdict = "page"
         trace_summary = {
             "page_count": page_count,

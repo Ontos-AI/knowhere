@@ -729,8 +729,6 @@ def _resume_profile_from_m0_workspace(
         model=settings.IMAGE_MODEL,
         settings={
             "vlm_model": settings.IMAGE_MODEL,
-            "toc_profile_enabled": True,
-            "skip_toc_anchoring": False,
             "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
         },
     )
@@ -776,7 +774,7 @@ def _resume_profile_from_m0_workspace(
     # M0 may contain only native text features. Finish detection before TOC
     # and anatomy consumers, then persist the completed features for fine tasks.
     coordinator._ensure_asset_probe()
-    coordinator._ensure_toc_profile(strict=False)
+    coordinator._ensure_toc_profile()
 
     profile = ParserDocumentProfile(
         file_type="pdf",
@@ -800,10 +798,7 @@ def _resume_profile_from_m0_workspace(
             coordinator.blackboard.page_full_text_cache
         ),
     )
-    if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
-        profile.anatomy = coordinator.run_structural()
-    else:
-        profile.anatomy = coordinator.run_lightweight_anatomy()
+    profile.anatomy = coordinator.run_anatomy()
     profile.toc = _map_toc_profile(coordinator)
     return profile
 

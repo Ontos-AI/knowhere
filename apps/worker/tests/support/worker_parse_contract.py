@@ -60,52 +60,6 @@ class WorkerParseContract:
                     is_enabled,
                     raising=False,
                 )
-    def use_pdf_page_limit(self, monkeypatch: MonkeyPatch, page_limit: int) -> None:
-        monkeypatch.setenv("MAX_PDF_PAGE_LIMIT", str(page_limit))
-        monkeypatch.setattr(self.settings, "MAX_PDF_PAGE_LIMIT", page_limit)
-        for loaded_module in list(sys.modules.values()):
-            module_settings = getattr(loaded_module, "settings", None)
-            if hasattr(module_settings, "MAX_PDF_PAGE_LIMIT"):
-                monkeypatch.setattr(
-                    module_settings,
-                    "MAX_PDF_PAGE_LIMIT",
-                    page_limit,
-                    raising=False,
-                )
-
-    def use_oversized_pdf_shard_enabled(
-        self,
-        monkeypatch: MonkeyPatch,
-        enabled: bool,
-    ) -> None:
-        monkeypatch.setenv("OVERSIZED_PDF_SHARD_ENABLED", "true" if enabled else "false")
-        monkeypatch.setattr(self.settings, "OVERSIZED_PDF_SHARD_ENABLED", enabled)
-        for loaded_module in list(sys.modules.values()):
-            module_settings = getattr(loaded_module, "settings", None)
-            if hasattr(module_settings, "OVERSIZED_PDF_SHARD_ENABLED"):
-                monkeypatch.setattr(
-                    module_settings,
-                    "OVERSIZED_PDF_SHARD_ENABLED",
-                    enabled,
-                    raising=False,
-                )
-
-    def use_oversized_pdf_soft_limit(
-        self,
-        monkeypatch: MonkeyPatch,
-        soft_limit: int,
-    ) -> None:
-        monkeypatch.setenv("OVERSIZED_PDF_SOFT_LIMIT", str(soft_limit))
-        monkeypatch.setattr(self.settings, "OVERSIZED_PDF_SOFT_LIMIT", soft_limit)
-        for loaded_module in list(sys.modules.values()):
-            module_settings = getattr(loaded_module, "settings", None)
-            if hasattr(module_settings, "OVERSIZED_PDF_SOFT_LIMIT"):
-                monkeypatch.setattr(
-                    module_settings,
-                    "OVERSIZED_PDF_SOFT_LIMIT",
-                    soft_limit,
-                    raising=False,
-                )
 
     def create_file_job(
         self,
@@ -115,6 +69,7 @@ class WorkerParseContract:
         status: str = "pending",
         billing_status: str = "pending",
         job_id_prefix: str = "job_parse",
+        extra_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         effective_user_id = user_id or f"worker-contract-user-{uuid4().hex[:12]}"
         job_id = f"{job_id_prefix}_{uuid4().hex[:12]}"
@@ -143,6 +98,7 @@ class WorkerParseContract:
                         "summary_table": False,
                         "summary_txt": False,
                     },
+                    **(extra_metadata or {}),
                 },
                 billing_status=billing_status,
             )

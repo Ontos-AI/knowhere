@@ -134,8 +134,7 @@ def test_resume_scanned_injects_visual_candidate_pages(
         captured["db"] = db
         return {14, 15}
 
-    def fake_toc(self, *, strict: bool) -> None:
-        captured["toc_strict"] = strict
+    def fake_toc(self) -> None:
         captured["injected"] = list(
             self.ctx.settings.get("toc_visual_candidate_pages") or []
         )
@@ -158,7 +157,7 @@ def test_resume_scanned_injects_visual_candidate_pages(
     )
     monkeypatch.setattr(
         coordinator_mod.ProfileCoordinator,
-        "run_lightweight_anatomy",
+        "run_anatomy",
         lambda self: SimpleNamespace(),
     )
     monkeypatch.setattr(
@@ -183,7 +182,6 @@ def test_resume_scanned_injects_visual_candidate_pages(
     assert captured["queries"] == expected_queries
     assert set(expected_queries) >= set(TOC_KEYWORDS)
     assert captured["injected"] == [14, 15]
-    assert captured["toc_strict"] is False
 
 
 def test_resume_born_digital_skips_visual_candidate_query_until_after_coarse(
@@ -198,8 +196,7 @@ def test_resume_born_digital_skips_visual_candidate_query_until_after_coarse(
             "Electronic PDF has no M0 page embeddings; must not query before coarse publish"
         )
 
-    def fake_toc(self, *, strict: bool) -> None:
-        del strict
+    def fake_toc(self) -> None:
         called.append("toc")
         injected.extend(self.ctx.settings.get("toc_visual_candidate_pages") or [])
 
@@ -215,7 +212,7 @@ def test_resume_born_digital_skips_visual_candidate_query_until_after_coarse(
     )
     monkeypatch.setattr(
         coordinator_mod.ProfileCoordinator,
-        "run_lightweight_anatomy",
+        "run_anatomy",
         lambda self: SimpleNamespace(),
     )
     monkeypatch.setattr(
@@ -244,8 +241,7 @@ def test_resume_legacy_scanned_routing_injects_visual_candidate_pages(
         called.append("query")
         return {4, 5}
 
-    def fake_toc(self, *, strict: bool) -> None:
-        del strict
+    def fake_toc(self) -> None:
         called.append("toc")
         injected.extend(self.ctx.settings.get("toc_visual_candidate_pages") or [])
 
@@ -267,7 +263,7 @@ def test_resume_legacy_scanned_routing_injects_visual_candidate_pages(
     )
     monkeypatch.setattr(
         coordinator_mod.ProfileCoordinator,
-        "run_lightweight_anatomy",
+        "run_anatomy",
         lambda self: SimpleNamespace(),
     )
     monkeypatch.setattr(
