@@ -1,4 +1,4 @@
-"""Parser-entry document profiling."""
+"""Page-memory PDF profiling."""
 
 from __future__ import annotations
 
@@ -10,12 +10,6 @@ from loguru import logger
 from app.services.document_agent.coordinator import ProfileCoordinator
 from app.services.document_agent.pdf_text import page_body_content_map, page_content_map
 from app.services.document_agent.visual import purge_debug_visual_dirs, visual_debug_enabled
-from app.services.document_parser.orchestration.oversized_pdf_policy import (
-    build_oversized_pdf_profile_failed_exception,
-    build_oversized_pdf_processing_failed_exception,
-    raise_if_oversized_pdf_not_supported,
-)
-from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
 from app.services.document_parser.profiling.profile_model import (
     ParserDocumentProfile,
     ParserTocProfile,
@@ -33,80 +27,42 @@ def profile_document(
     *,
     job_id: str | None = None,
     output_dir: str | None = None,
-    oversized_policy: Literal["chunk", "page_memory"] = "chunk",
-    skip_toc_anchoring: bool = False,
-    stop_after: Literal["asset_probe", "native_baseline"] | None = None,
+    stop_after: Literal["native_baseline"] | None = None,
+    presentation_source: bool = False,
 ) -> ParserDocumentProfile:
     """
-    General document profiling entry point.
+    Profile a page-memory PDF: coarse classification, then TOC or slide structure.
 
     Args:
-        file_path: Local file path
-        filename: File name (used to infer type)
+        file_path: Local PDF path
+        filename: PDF file name (the trace job id when ``job_id`` is unset)
         job_id: Parse job id for profile trace artifacts
         output_dir: Parser output directory
-        oversized_policy: Controls oversized PDF admission. ``chunk`` applies
-            the page-limit / oversized-admission gate; ``page_memory`` continues
-            to structural profiling.
-        skip_toc_anchoring: When True, TOC find/extract still run, but
-            ``run_toc_anchoring`` is skipped. Used by the staged debug path
-            (Stage-1 TOC after Stage-0 bootstrap) so calibration stays in
-            Stage-2.
         stop_after: Internal profiling boundary. ``native_baseline`` defers
             detailed assets only after native classification and a complete
             text scan; scanned or empty-text profiles still probe assets.
+        presentation_source: The PDF was converted from a presentation
+            file, so its pages are slides whatever the page images look like.
 
     Returns:
         ParserDocumentProfile
     """
     if not filename:
         filename = os.path.basename(file_path)
-
-    ext = os.path.splitext(filename)[1].lower()
-    if ext == ".pdf":
-        try:
-            return _profile_pdf(
-                file_path,
-                filename,
+    try:
+        with _profile_db_context(enabled=bool(job_id)) as db:
+            return _profile_pdf_with_db(
+                file_path=file_path,
+                filename=filename,
                 job_id=job_id,
                 output_dir=output_dir,
-                oversized_policy=oversized_policy,
-                skip_toc_anchoring=skip_toc_anchoring,
+                db=db,
                 stop_after=stop_after,
+                presentation_source=presentation_source,
             )
-        finally:
-            if not visual_debug_enabled():
-                purge_debug_visual_dirs(output_dir)
-
-    return ParserDocumentProfile(
-        file_type=ext.lstrip("."),
-        category=[OTHER_CODE],
-        category_label=f"{ext.lstrip('.') or 'unknown'} document",
-        routing_category=PdfRoutingCategory.GENERIC,
-    )
-
-
-def _profile_pdf(
-    file_path: str,
-    filename: str,
-    *,
-    job_id: str | None,
-    output_dir: str | None,
-    oversized_policy: Literal["chunk", "page_memory"] = "chunk",
-    skip_toc_anchoring: bool = False,
-    stop_after: Literal["asset_probe", "native_baseline"] | None = None,
-) -> ParserDocumentProfile:
-    with _profile_db_context(enabled=bool(job_id)) as db:
-        return _profile_pdf_with_db(
-            file_path=file_path,
-            filename=filename,
-            job_id=job_id,
-            output_dir=output_dir,
-            db=db,
-            oversized_policy=oversized_policy,
-            skip_toc_anchoring=skip_toc_anchoring,
-            stop_after=stop_after,
-        )
+    finally:
+        if not visual_debug_enabled():
+            purge_debug_visual_dirs(output_dir)
 
 
 def _profile_pdf_with_db(
@@ -116,17 +72,11 @@ def _profile_pdf_with_db(
     job_id: str | None,
     output_dir: str | None,
     db: Any | None,
-    oversized_policy: Literal["chunk", "page_memory"] = "chunk",
-    skip_toc_anchoring: bool = False,
-    stop_after: Literal["asset_probe", "native_baseline"] | None = None,
+    stop_after: Literal["native_baseline"] | None,
+    presentation_source: bool,
 ) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
-    # PROFILE TOC is default-on. page_memory always forces it on (sections are
-    # TOC-anchored) even if PDF_PROFILE_TOC_ENABLED is off.
-    page_toc_enabled = (
-        oversized_policy == "page_memory" or settings.PDF_PROFILE_TOC_ENABLED
-    )
     coordinator = ProfileCoordinator(
         pdf_path=file_path,
         job_id=profile_job_id,
@@ -135,10 +85,9 @@ def _profile_pdf_with_db(
         model=settings.IMAGE_MODEL,
         settings={
             "vlm_model": settings.IMAGE_MODEL,
-            "toc_profile_enabled": page_toc_enabled,
-            "skip_toc_anchoring": bool(skip_toc_anchoring),
             "stop_after_asset_probe": stop_after is not None,
-            "stop_after_native_baseline": stop_after == "native_baseline",
+            "stop_after_native_baseline": stop_after is not None,
+            "presentation_source": presentation_source,
             "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
         },
     )
@@ -173,25 +122,8 @@ def _profile_pdf_with_db(
             trace.persist_doc_profile(profile)
             setattr(profile, "trace_recorder", trace)
         return profile
-    if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
-        if oversized_policy != "page_memory":
-            raise_if_oversized_pdf_not_supported(page_count=profile.page_count)
-        try:
-            profile.anatomy = coordinator.run_structural()
-            profile.toc = _map_toc_profile(coordinator)
-        except Exception as exc:
-            if oversized_policy == "page_memory":
-                raise build_oversized_pdf_profile_failed_exception(
-                    page_count=profile.page_count,
-                    original_exception=exc,
-                ) from exc
-            raise build_oversized_pdf_processing_failed_exception(
-                page_count=profile.page_count,
-                original_exception=exc,
-            ) from exc
-    else:
-        profile.anatomy = coordinator.run_lightweight_anatomy()
-        profile.toc = _map_toc_profile(coordinator)
+    profile.anatomy = coordinator.run_anatomy()
+    profile.toc = _map_toc_profile(coordinator)
 
     if trace := getattr(coordinator, "trace", None):
         trace.persist_doc_profile(profile)

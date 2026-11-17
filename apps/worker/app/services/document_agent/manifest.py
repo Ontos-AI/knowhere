@@ -10,9 +10,6 @@ from typing import Any, Literal
 PageKind = Literal["normal", "landscape"]
 TocFailureKind = Literal["none", "confirm_failed", "rejected_all", "degraded"]
 
-# Profile success/abort is owned exclusively by the ``verdict`` tool.
-VerdictStatus = Literal["success", "abort"]
-
 
 @dataclass
 class PageFeature:
@@ -65,15 +62,6 @@ class DocumentProfile:
 
 
 @dataclass
-class ProfileVerdict:
-    status: VerdictStatus
-    rationale: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
 class TocAnchorPage:
     """A candidate TOC start page identified by keyword scan, pending VLM confirmation."""
 
@@ -100,15 +88,15 @@ class TocResult:
     toc_pages: list[int] = field(default_factory=list)
     candidates: list[TocAnchorPage] = field(default_factory=list)
     evidence: list[TocEvidence] = field(default_factory=list)
-    method: Literal["vlm_batch", "pdf_outline", "none"] = "none"
+    method: Literal["vlm_batch", "pdf_outline", "slide_structure", "none"] = "none"
     notes: str = ""
     failure_kind: TocFailureKind = "none"
 
     @property
     def profile_source(self) -> str:
         """Honest profile ``source`` label derived from ``method``."""
-        if self.method == "pdf_outline":
-            return "pdf_outline"
+        if self.method in ("pdf_outline", "slide_structure"):
+            return self.method
         if self.method == "vlm_batch":
             return "pdf_vlm"
         return "none"
@@ -121,57 +109,6 @@ class TocResult:
 
 
 @dataclass
-class ValidationReport:
-    valid: bool
-    errors: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class Shard:
-    shard_index: int
-    page_start: int
-    page_end: int
-    page_offset: int
-    anchor_type: Literal[
-        "blank_separator",
-        "forced_max_size",
-        "toc_leaf_boundary",
-    ]
-    anchor_evidence: str
-    # Calibrated TOC slice for this shard (heading+level). No printed→physical
-    # re-filter at parse time.
-    toc_hierarchies: list[dict[str, Any]] | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class ShardPlan:
-    enabled: bool
-    reason: Literal[
-        "too_large",
-        "not_needed",
-    ]
-    shards: list[Shard] = field(default_factory=list)
-    validation: ValidationReport = field(
-        default_factory=lambda: ValidationReport(valid=True)
-    )
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "enabled": self.enabled,
-            "reason": self.reason,
-            "shards": [shard.to_dict() for shard in self.shards],
-            "validation": self.validation.to_dict(),
-        }
-
-
-@dataclass
 class PageAnatomyMap:
     job_id: str
     file_path: str
@@ -179,14 +116,12 @@ class PageAnatomyMap:
     page_features: list[PageFeature]
     page_labels: list[PageLabel]
     toc_result: TocResult
-    shard_plan: ShardPlan
     document_profile: DocumentProfile | None = None
     toc_hierarchies: list[dict[str, Any]] | None = None
     skeleton_anchor: dict[str, Any] | None = None
     skeleton_nodes: list[dict[str, Any]] | None = None
     pending_skeleton_anchors: list[dict[str, Any]] = field(default_factory=list)
     global_signals: dict[str, Any] = field(default_factory=dict)
-    trace_summary: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     version: str = "1.0"
 
@@ -200,7 +135,6 @@ class PageAnatomyMap:
             "page_features": [feature.to_dict() for feature in self.page_features],
             "page_labels": [label.to_dict() for label in self.page_labels],
             "toc_result": self.toc_result.to_dict(),
-            "shard_plan": self.shard_plan.to_dict(),
             "document_profile": self.document_profile.to_dict()
             if self.document_profile
             else None,
@@ -208,7 +142,6 @@ class PageAnatomyMap:
             "skeleton_nodes": self.skeleton_nodes,
             "pending_skeleton_anchors": list(self.pending_skeleton_anchors),
             "global_signals": dict(self.global_signals),
-            "trace_summary": dict(self.trace_summary),
             "created_at": self.created_at.isoformat(),
         }
 

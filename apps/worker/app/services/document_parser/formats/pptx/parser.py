@@ -1,6 +1,5 @@
 # pyright: reportArgumentType=false, reportCallIssue=false
 import io
-import os
 import time
 
 import jwt
@@ -63,30 +62,6 @@ def _get_iloveapi_token_lease():
     }
     token = jwt.encode(payload, secret_key, algorithm="HS256")
     return token, lease
-
-
-def pptx_to_pdf_api(pptx_path, outdir="."):
-    """
-    use iloveapi to convert pptx to pdf (file-path based)
-    API docs: https://www.iloveapi.com/docs/api-reference
-    """
-    with open(pptx_path, "rb") as f:
-        pptx_bytes = f.read()
-    filename = os.path.basename(pptx_path)
-    pdf_bytes = _pptx_bytes_to_pdf_bytes(pptx_bytes, filename)
-
-    base = os.path.splitext(filename)[0]
-    pdf_name = base + ".pdf"
-    pdf_path = os.path.join(outdir, pdf_name)
-    with open(pdf_path, "wb") as f:
-        f.write(pdf_bytes)
-    logger.bind(
-        event=LogEvent.ILOVEAPI_REQUEST_COMPLETE.value,
-        service="iloveapi",
-        filename=pdf_name,
-        output_size_kb=round(len(pdf_bytes) / 1024, 1),
-    ).info(f"[iLoveAPI] PDF saved: {pdf_path}")
-    return pdf_path, pdf_name
 
 
 def _pptx_bytes_to_pdf_bytes(pptx_bytes: bytes, filename: str) -> bytes:

@@ -19,7 +19,7 @@ def parse_html(
     from app.services.common.file_loading import load_file_bytes
     from app.services.document_parser.formats.markdown.parser import parse_md
 
-    html_bytes = load_file_bytes(file_path, file_url="")
+    html_bytes = load_file_bytes(file_path)
     md_lines = _html_to_md_lines(html_bytes)
 
     parsed_df = parse_md(

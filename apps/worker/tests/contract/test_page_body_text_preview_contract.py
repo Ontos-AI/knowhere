@@ -42,13 +42,13 @@ def test_profile_preserves_classified_body_without_changing_full_text(monkeypatc
         def run_coarse(self):
             return DocumentProfile(False, ["04000000"], "Report", "generic")
 
-        def run_lightweight_anatomy(self, **kwargs):
+        def run_anatomy(self):
             return None
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", Coordinator)
     profile = doc_profiler._profile_pdf_with_db(
         file_path="unused.pdf", filename="unused.pdf", job_id=None,
-        output_dir=None, db=None,
+        output_dir=None, db=None, stop_after=None, presentation_source=False,
     )
     assert profile.page_full_text_cache[1] == bands.content
     assert profile.page_body_text_cache == {1: "GLOSSARY OF TERMS\nActual body text", 2: "", 3: ""}

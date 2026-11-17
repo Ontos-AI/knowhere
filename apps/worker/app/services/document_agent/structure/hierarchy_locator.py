@@ -22,6 +22,7 @@ TitleMatchSource = Literal[
     "inferred_descendant",
     "pdf_outline",
     "react_line_grep_vlm",
+    "slide_structure",
 ]
 
 

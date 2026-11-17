@@ -5,7 +5,6 @@ from typing import Protocol
 
 from app.services.document_parser.orchestration.parse_output import ParseOutput
 from app.services.document_parser.orchestration.parse_session import ParseSession
-from shared.core.exceptions.domain_exceptions import ValidationException
 
 
 class DocumentParseAdapter(Protocol):
@@ -19,22 +18,6 @@ class DocumentParseAdapter(Protocol):
 
 
 @dataclass(frozen=True)
-class FragmentParseAdapter:
-    document_format: object
-
-    def parse(self, session: ParseSession) -> ParseOutput:
-        from app.services.document_parser.formats.fragment.parser import parse_fragment
-
-        full_output_dir, _relative_root, parsed_df = parse_fragment(
-            session.fragment_content,
-            filename=session.filename,
-            output_dir=session.output_dir,
-            base_llm_paras=session.base_llm_paras,
-        )
-        return ParseOutput(output_dir=full_output_dir, parsed_df=parsed_df)
-
-
-@dataclass(frozen=True)
 class TextParseAdapter:
     document_format: object
 
@@ -42,7 +25,7 @@ class TextParseAdapter:
         from app.services.document_parser.formats.markdown.parser import parse_md
         from app.services.document_parser.formats.text.parser import parse_texts
 
-        text_lines = parse_texts(file_path=session.file_full_path, baseurl=session.base_url)
+        text_lines = parse_texts(file_path=session.file_full_path)
         parsed_df = parse_md(
             session.full_output_dir,
             source_type="md",
@@ -64,30 +47,10 @@ class ImageParseAdapter:
             session.file_full_path,
             filename=session.filename,
             output_dir=session.full_output_dir,
-            baseurl=session.base_url,
             base_llm_paras=session.base_llm_paras,
             relative_root=session.relative_root,
         )
         return ParseOutput(output_dir=session.full_output_dir, parsed_df=parsed_df)
-
-
-@dataclass(frozen=True)
-class PdfParseAdapter:
-    document_format: object
-
-    def parse(self, session: ParseSession) -> ParseOutput:
-        raise ValidationException(
-            user_message="PDF documents are processed by the page-memory pipeline.",
-            violations=[
-                {
-                    "field": "parse_track",
-                    "description": (
-                        "The chunk PDF path is retired. "
-                        f"Received {session.filename}"
-                    ),
-                }
-            ],
-        )
 
 
 @dataclass(frozen=True)
@@ -130,25 +93,6 @@ class SpreadsheetParseAdapter:
 
 
 @dataclass(frozen=True)
-class PptxParseAdapter:
-    document_format: object
-
-    def parse(self, session: ParseSession) -> ParseOutput:
-        raise ValidationException(
-            user_message="PPTX documents are processed by the page-memory pipeline.",
-            violations=[
-                {
-                    "field": "parse_track",
-                    "description": (
-                        "The chunk PPTX path is retired. "
-                        f"Received {session.filename}"
-                    ),
-                }
-            ],
-        )
-
-
-@dataclass(frozen=True)
 class MarkdownParseAdapter:
     document_format: object
 
@@ -163,14 +107,6 @@ class MarkdownParseAdapter:
             relative_root=session.relative_root,
         )
         return ParseOutput(output_dir=session.full_output_dir, parsed_df=parsed_df)
-
-
-@dataclass(frozen=True)
-class JsonParseAdapter:
-    document_format: object
-
-    def parse(self, session: ParseSession) -> ParseOutput:
-        return ParseOutput(output_dir=session.full_output_dir, parsed_df=None)
 
 
 @dataclass(frozen=True)
@@ -219,7 +155,6 @@ def _parse_docx_path(
         session.base_llm_paras,
         session.full_output_dir,
         session.filename,
-        session.base_url,
         relative_root=session.relative_root,
     )
     parsed_df = convert_doc2dics(

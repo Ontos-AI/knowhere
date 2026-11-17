@@ -504,6 +504,109 @@ def test_parse_task_should_charge_user_when_billing_is_enabled(
     ]
 
 
+def test_parse_task_should_reject_page_memory_document_over_page_limit_before_billing(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    contract = WorkerParseContract.create()
+    contract.use_workspace_root(monkeypatch, tmp_path)
+    contract.use_billing(monkeypatch, is_enabled=True)
+
+    source_file_name = "over-limit.pdf"
+    pdf_path = tmp_path / source_file_name
+    _write_blank_pdf(pdf_path, 2)
+    job = contract.create_file_job(
+        source_file_name=source_file_name,
+        job_id_prefix="job_page_limit",
+        extra_metadata={
+            "parse_track": "page_memory",
+            "page_memory_config": {"max_pages": 1},
+        },
+    )
+    contract.upload_source_file(local_file_path=pdf_path, s3_key=job["s3_key"])
+
+    from app.services.document_ingestion import processing_run
+
+    def fail_if_parsed(**_kwargs):
+        raise AssertionError("an over-limit document must not reach the parser")
+
+    monkeypatch.setattr(processing_run, "execute_document_parse", fail_if_parsed)
+
+    celery_result = contract.enqueue_parse_task(
+        job_id=job["job_id"],
+        user_id=job["user_id"],
+    )
+
+    assert celery_result.failed()
+    job_row = contract.observe_job_status(job["job_id"])
+    assert job_row["status"] == "failed"
+    assert job_row["billing_status"] == "skipped"
+    assert job_row["credits_charged"] == 0
+    assert job_row["error_code"] == "INVALID_ARGUMENT"
+    assert job_row["error_message"] == (
+        "Document too large: 2 pages exceeds the 1-page limit for page-based processing."
+    )
+    assert contract.get_job_metadata(job["job_id"])["error_details"] == {
+        "violations": [
+            {"field": "page_count", "description": "Document has 2 pages, limit is 1"}
+        ]
+    }
+    assert contract.observe_user_billing(job["user_id"])["transaction_types"] == []
+
+
+def test_parse_task_should_reject_page_memory_document_with_unreadable_page_count_before_billing(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    contract = WorkerParseContract.create()
+    contract.use_workspace_root(monkeypatch, tmp_path)
+    contract.use_billing(monkeypatch, is_enabled=True)
+
+    source_file_name = "unreadable.pdf"
+    pdf_path = tmp_path / source_file_name
+    pdf_path.write_bytes(b"not a pdf")
+    job = contract.create_file_job(
+        source_file_name=source_file_name,
+        job_id_prefix="job_page_unknown",
+        extra_metadata={"parse_track": "page_memory"},
+    )
+    contract.upload_source_file(local_file_path=pdf_path, s3_key=job["s3_key"])
+
+    from app.services.document_ingestion import processing_run
+
+    def fail_if_parsed(**_kwargs):
+        raise AssertionError("a document with an unknown page count must not reach the parser")
+
+    monkeypatch.setattr(processing_run, "execute_document_parse", fail_if_parsed)
+
+    celery_result = contract.enqueue_parse_task(
+        job_id=job["job_id"],
+        user_id=job["user_id"],
+    )
+
+    assert celery_result.failed()
+    job_row = contract.observe_job_status(job["job_id"])
+    assert job_row["status"] == "failed"
+    assert job_row["billing_status"] == "skipped"
+    assert job_row["credits_charged"] == 0
+    assert job_row["error_code"] == "INVALID_ARGUMENT"
+    assert job_row["error_message"] == (
+        "Could not read the page count of this document, "
+        "so it cannot be checked against the page limit."
+    )
+    assert contract.get_job_metadata(job["job_id"])["error_details"] == {
+        "violations": [
+            {
+                "field": "page_count",
+                "description": "Page count estimation failed: pdf_metadata_error:PdfStreamError",
+            }
+        ]
+    }
+    assert contract.observe_user_billing(job["user_id"])["transaction_types"] == []
+
+
 def test_parse_task_should_reject_identical_source_before_billing_or_parsing(
     worker_contract_environment: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -992,173 +1095,3 @@ def test_parse_task_should_report_encrypted_docx_as_client_file_error(
             }
         ]
     }
-
-
-def test_should_reject_pdf_when_page_count_exceeds_configured_limit(
-    worker_contract_environment: None,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    contract = WorkerParseContract.create()
-    contract.use_workspace_root(monkeypatch, tmp_path)
-    contract.use_billing(monkeypatch, is_enabled=True)
-
-    max_pdf_page_limit: int = 1
-    actual_page_count: int = 2
-    source_file_name: str = "oversized-contract.pdf"
-    pdf_path = tmp_path / source_file_name
-    _write_blank_pdf(pdf_path, actual_page_count)
-
-    contract.use_pdf_page_limit(monkeypatch, max_pdf_page_limit)
-    contract.use_oversized_pdf_shard_enabled(monkeypatch, enabled=False)
-    job = contract.create_file_job(
-        source_file_name=source_file_name,
-        job_id_prefix="job_pdf_page_limit",
-    )
-    contract.upload_source_file(
-        local_file_path=pdf_path,
-        s3_key=job["s3_key"],
-    )
-
-    celery_result = contract.enqueue_parse_task(
-        job_id=job["job_id"],
-        user_id=job["user_id"],
-    )
-
-    assert celery_result.failed()
-    assert contract.find_task_workspaces(tmp_path, job["job_id"]) == []
-
-    metadata = contract.get_job_metadata(job["job_id"])
-    assert metadata["page_count"] == actual_page_count
-    assert metadata["billing_status"] == "skipped"
-
-    job_row = contract.observe_job_status(job["job_id"])
-
-    assert job_row["status"] == "failed"
-    assert job_row["billing_status"] == "skipped"
-    assert job_row["page_count"] == actual_page_count
-    assert job_row["credits_charged"] == 0
-    assert job_row["error_code"] == "INVALID_ARGUMENT"
-    assert (
-        job_row["error_message"]
-        == "Document too large: 2 pages exceeds the 1-page limit. Please split the document and upload it in smaller parts."
-    )
-    assert metadata["error_details"] == {
-        "violations": [
-            {
-                "field": "page_count",
-                "description": "PDF has 2 pages, limit is 1",
-            }
-        ]
-    }
-
-    billing = contract.observe_user_billing(job["user_id"])
-    assert billing["balance"] is None
-    assert billing["transaction_types"] == []
-    assert billing["transaction_counts"] == {}
-    assert billing["system_grant_payment_count"] == 0
-
-
-def test_page_memory_parse_track_bypasses_legacy_oversized_pdf_gate(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from typing import Any, cast
-
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
-    monkeypatch.setenv("TMP_PATH", "/tmp")
-    monkeypatch.setenv("S3_BUCKET_NAME", "test-uploads")
-    monkeypatch.setenv("S3_ACCESS_KEY_ID", "test")
-    monkeypatch.setenv("S3_SECRET_ACCESS_KEY", "test")
-    monkeypatch.setenv("S3_TEMP_PATH", "/tmp")
-
-    from app.services.document_ingestion.processing_context import ParseJobContext
-    from app.services.document_ingestion.processing_run import (
-        _build_parse_track_oversized_pdf_rejection,
-    )
-    from shared.core.config import settings
-
-    monkeypatch.setattr(settings, "MAX_PDF_PAGE_LIMIT", 1)
-    monkeypatch.setattr(settings, "OVERSIZED_PDF_SHARD_ENABLED", False)
-
-    chunk_context = ParseJobContext(
-        job_metadata={"parse_track": "chunk"},
-        job_user_id=None,
-        metadata_service=cast(Any, None),
-        redis_service=cast(Any, None),
-        s3_key="uploads/chunk.pdf",
-    )
-    page_memory_context = ParseJobContext(
-        job_metadata={"parse_track": "page_memory"},
-        job_user_id=None,
-        metadata_service=cast(Any, None),
-        redis_service=cast(Any, None),
-        s3_key="uploads/page-memory.pdf",
-    )
-
-    chunk_rejection = _build_parse_track_oversized_pdf_rejection(
-        job_context=chunk_context,
-        file_extension=".pdf",
-        page_count=2,
-    )
-    page_memory_rejection = _build_parse_track_oversized_pdf_rejection(
-        job_context=page_memory_context,
-        file_extension=".pdf",
-        page_count=2,
-    )
-
-    assert chunk_rejection is not None
-    assert page_memory_rejection is None
-
-
-def test_should_reject_pdf_when_page_count_exceeds_soft_limit(
-    worker_contract_environment: None,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    contract = WorkerParseContract.create()
-    contract.use_workspace_root(monkeypatch, tmp_path)
-    contract.use_billing(monkeypatch, is_enabled=True)
-
-    max_pdf_page_limit = 1
-    soft_limit = 2
-    actual_page_count = 3
-    source_file_name = "ultra-long-contract.pdf"
-    pdf_path = tmp_path / source_file_name
-    _write_blank_pdf(pdf_path, actual_page_count)
-
-    contract.use_pdf_page_limit(monkeypatch, max_pdf_page_limit)
-    contract.use_oversized_pdf_soft_limit(monkeypatch, soft_limit)
-    contract.use_oversized_pdf_shard_enabled(monkeypatch, enabled=True)
-    job = contract.create_file_job(
-        source_file_name=source_file_name,
-        job_id_prefix="job_pdf_soft_limit",
-    )
-    contract.upload_source_file(local_file_path=pdf_path, s3_key=job["s3_key"])
-
-    celery_result = contract.enqueue_parse_task(
-        job_id=job["job_id"],
-        user_id=job["user_id"],
-    )
-
-    assert celery_result.failed()
-    metadata = contract.get_job_metadata(job["job_id"])
-    job_row = contract.observe_job_status(job["job_id"])
-
-    assert job_row["status"] == "failed"
-    assert job_row["billing_status"] == "skipped"
-    assert job_row["credits_charged"] == 0
-    assert job_row["error_code"] == "INVALID_ARGUMENT"
-    assert (
-        job_row["error_message"]
-        == "This document has 3 pages. Processing ultra-long documents over 2 pages requires dedicated resources. Please contact support for assistance."
-    )
-    assert metadata["error_details"] == {
-        "violations": [
-            {
-                "field": "page_count",
-                "description": "PDF has 3 pages, soft limit is 2",
-            }
-        ]
-    }
-
-

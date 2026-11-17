@@ -16,8 +16,6 @@ from app.services.document_agent.manifest import (
     PageAnatomyMap,
     PageFeature,
     PageLabel,
-    Shard,
-    ShardPlan,
     TocResult,
     ToolContext,
 )
@@ -31,10 +29,7 @@ from app.services.document_agent.structure.hierarchy_locator import (
     TitleMatch,
     TitleNode,
 )
-from app.services.document_agent.structure.toc_anchoring import (
-    classify_toc_relationship,
-    run_toc_anchoring,
-)
+from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
 from app.services.page_memory.skeleton_extractor import extract_section_skeletons
 
 
@@ -111,20 +106,6 @@ def _anatomy(*, with_anchor: bool) -> PageAnatomyMap:
             for page in range(1, 11)
         ],
         "toc_result": TocResult(method="vlm_batch", toc_pages=[1]),
-        "shard_plan": ShardPlan(
-            enabled=False,
-            reason="not_needed",
-            shards=[
-                Shard(
-                    shard_index=0,
-                    page_start=1,
-                    page_end=10,
-                    page_offset=0,
-                    anchor_type="forced_max_size",
-                    anchor_evidence="test",
-                )
-            ],
-        ),
         "toc_hierarchies": _toc(),
     }
     if with_anchor:
@@ -362,31 +343,17 @@ def test_c4_uses_persisted_pending_relationship_and_does_not_classify() -> None:
     page_texts = {page: "Ch1 body" for page in range(1, 31)}
     page_texts[22] = "App"
 
-    def _boom(*_args, **_kwargs):
-        raise AssertionError("C4 must not classify pending TOC")
-
-    with patch.dict(
-        run_toc_anchoring.__globals__,
-        {"classify_toc_relationship": _boom},
-    ):
-        skeletons = extract_section_skeletons(
-            anatomy=anatomy,
-            filename="doc.pdf",
-            page_texts=page_texts,
-        )
+    skeletons = extract_section_skeletons(
+        anatomy=anatomy,
+        filename="doc.pdf",
+        page_texts=page_texts,
+    )
 
     titles = [skeleton.title for skeleton in skeletons]
     assert "Ch1" in titles
     assert "App" in titles
     app = next(skeleton for skeleton in skeletons if skeleton.title == "App")
     assert app.evidence["page_locate_summary"]["toc_relationship"] == "parallel"
-
-
-def test_classify_toc_relationship_is_not_on_c4_module() -> None:
-    import app.services.page_memory.skeleton_extractor as skeleton_extractor
-
-    assert not hasattr(skeleton_extractor, "_classify_toc_relationship")
-    assert callable(classify_toc_relationship)
 
 
 def test_toc_anchoring_requires_page_text_cache() -> None:

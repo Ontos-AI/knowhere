@@ -46,7 +46,6 @@ from app.services.page_memory.memory_service import (
     assemble_c7_node_rows,
     embed_rendered_pages,
     run_single_scope,
-    treat_profile_as_scanned,
 )
 from app.services.page_memory.phase_a import (
     PHASE_B_ANATOMY_REL,
@@ -677,13 +676,17 @@ def _load_and_validate_structure_target(
 def _load_m0_document_profile(bb_raw: dict[str, Any]) -> Any:
     from app.services.document_agent.manifest import DocumentProfile
     from app.services.document_parser.profiling.domain_taxonomy import OTHER_CODE
+    from app.services.document_parser.profiling.taxonomy import split_persisted_scanned_routing
 
     dp_raw = bb_raw.get("document_profile") or {}
+    routing, is_scanned = split_persisted_scanned_routing(
+        dp_raw.get("routing_category"), bool(dp_raw.get("is_scanned", False))
+    )
     return DocumentProfile(
-        is_scanned=bool(dp_raw.get("is_scanned", False)),
+        is_scanned=is_scanned,
         category=list(dp_raw.get("category") or [OTHER_CODE]),
         category_label=str(dp_raw.get("category_label") or "unknown"),
-        routing_category=str(dp_raw.get("routing_category") or "generic"),
+        routing_category=routing.value,
         language=str(dp_raw.get("language") or "unknown"),
         header_y=dp_raw.get("header_y"),
         footer_y=dp_raw.get("footer_y"),
@@ -726,8 +729,6 @@ def _resume_profile_from_m0_workspace(
         model=settings.IMAGE_MODEL,
         settings={
             "vlm_model": settings.IMAGE_MODEL,
-            "toc_profile_enabled": True,
-            "skip_toc_anchoring": False,
             "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
         },
     )
@@ -750,7 +751,7 @@ def _resume_profile_from_m0_workspace(
     if not bb.page_full_text_cache:
         coordinator._run_text_scan()
     routing_category = PdfRoutingCategory.normalize(doc_profile.routing_category)
-    if treat_profile_as_scanned(doc_profile):
+    if doc_profile.is_scanned:
         queries = sorted(
             _all_scan_keywords(
                 prefix_keywords=_prefix_toc_keywords_for_categories(
@@ -773,7 +774,7 @@ def _resume_profile_from_m0_workspace(
     # M0 may contain only native text features. Finish detection before TOC
     # and anatomy consumers, then persist the completed features for fine tasks.
     coordinator._ensure_asset_probe()
-    coordinator._ensure_toc_profile(strict=False)
+    coordinator._ensure_toc_profile()
 
     profile = ParserDocumentProfile(
         file_type="pdf",
@@ -797,10 +798,7 @@ def _resume_profile_from_m0_workspace(
             coordinator.blackboard.page_full_text_cache
         ),
     )
-    if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
-        profile.anatomy = coordinator.run_structural()
-    else:
-        profile.anatomy = coordinator.run_lightweight_anatomy()
+    profile.anatomy = coordinator.run_anatomy()
     profile.toc = _map_toc_profile(coordinator)
     return profile
 
@@ -978,7 +976,7 @@ def _generate_and_persist_page_embeddings(
     try:
         bb_raw = _read_json_dict(os.path.join(add_dir, PHASE_B_BLACKBOARD_REL))
         doc_profile = _load_m0_document_profile(bb_raw)
-        if treat_profile_as_scanned(doc_profile):
+        if doc_profile.is_scanned:
             return 0
         page_count = max(int(bb_raw.get("page_count") or 0), 0)
         if page_count <= 0:

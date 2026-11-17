@@ -3,7 +3,6 @@ import re
 
 import gevent
 import pandas as pd
-from bs4 import BeautifulSoup
 from gevent.pool import Pool as GeventPool
 from loguru import logger
 
@@ -17,17 +16,9 @@ from shared.utils.chunk_refs import CHUNK_REF_PATTERN
 from app.services.common.file_loading import load_file_bytes
 
 
-def clean_texts_by_form(text, form="html"):
-    # try html
-    soup = BeautifulSoup(text, "html.parser")
-    text = soup.get_text(strip=True)
-    # try other formats
-    return text
-
-
-def parse_texts(file_path: str, baseurl: str = "") -> list[str]:
+def parse_texts(file_path: str) -> list[str]:
     """Read UTF-8 lines without removing whitespace within each line."""
-    text_bytes: bytes = load_file_bytes(file_path, file_url=baseurl)
+    text_bytes: bytes = load_file_bytes(file_path)
     text: str = text_bytes.decode("utf-8")
     return text.splitlines()
 

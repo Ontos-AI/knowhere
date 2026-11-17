@@ -154,16 +154,6 @@ def get_docx_toc_style_info(elem, ns):
     }
 
 
-def get_toc_level(elem, ns):
-    style_info = get_docx_toc_style_info(elem, ns)
-    if not style_info["is_toc_style"]:
-        return False
-
-    if style_info["toc_level"] is not None:
-        return style_info["toc_level"]
-    return True
-
-
 def detect_sdt_toc(elem, ns):
     tag = etree.QName(elem.tag).localname if isinstance(elem.tag, str) else None
 

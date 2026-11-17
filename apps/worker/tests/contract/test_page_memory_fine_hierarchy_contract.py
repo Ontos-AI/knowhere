@@ -427,6 +427,51 @@ def test_refine_fat_leaf_skeletons_uses_page_memory_prompt_without_demoting_sibl
     assert all(item.title != skeleton.title for item in refined)
 
 
+def test_refine_parent_prefix_ends_last_fine_section_before_coarse_child(
+    monkeypatch,
+) -> None:
+    """Fine sections found before a coarse child must not run past its start."""
+    parent = SectionSkeleton(
+        section_path="deck.pdf/3.3 消费函数",
+        level=1,
+        start_page=11,
+        end_page=40,
+        title="3.3 消费函数",
+        parent_path="deck.pdf",
+    )
+    child = SectionSkeleton(
+        section_path="deck.pdf/3.3 消费函数/3.3.5 消费函数之谜",
+        level=2,
+        start_page=27,
+        end_page=40,
+        title="3.3.5 消费函数之谜",
+        parent_path=parent.section_path,
+    )
+    tags = [
+        PageTagResult(page_index=12, observed_titles=[{"text": "3.3.1 消费函数", "prominence": 1.0}]),
+        PageTagResult(page_index=21, observed_titles=[{"text": "3.3.4 储蓄函数", "prominence": 1.0}]),
+    ]
+    monkeypatch.setattr(
+        fine_hierarchy,
+        "get_text_client",
+        lambda requested_model=None: (
+            _FakeClient([{"id": 1, "level": 1}, {"id": 2, "level": 1}]),
+            requested_model,
+        ),
+    )
+
+    refined = fine_hierarchy.refine_fat_leaf_skeletons(
+        coarse_skeletons=[parent, child],
+        tag_results=tags,
+        fat_leaf_pages=set(range(11, 27)),
+        model_name="test-model",
+    )
+
+    fine = {item.title: item for item in refined if item.evidence.get("source") == "fine_hierarchy_vlm"}
+    assert fine["3.3.1 消费函数"].end_page == 20
+    assert fine["3.3.4 储蓄函数"].end_page == 26
+
+
 def test_refine_fat_leaf_keeps_slash_in_title_as_single_path_segment(
     monkeypatch,
 ) -> None:

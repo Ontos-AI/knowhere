@@ -110,10 +110,6 @@ def has_page_labels(blackboard: ProfileBlackboard) -> tuple[bool, str]:
     return bool(blackboard.page_labels), "page_labels missing; run bootstrap classify first"
 
 
-def has_doc_stats(blackboard: ProfileBlackboard) -> tuple[bool, str]:
-    return bool(blackboard.doc_stats), "doc_stats missing; run bootstrap aggregate first"
-
-
 def has_page_full_text(blackboard: ProfileBlackboard) -> tuple[bool, str]:
     return (
         bool(blackboard.page_full_text_cache),
@@ -127,11 +123,3 @@ def not_is_scanned(blackboard: ProfileBlackboard) -> tuple[bool, str]:
         profile is not None and not profile.is_scanned,
         "document is scanned or profile is missing; text grep is unavailable",
     )
-
-
-def has_toc_result(blackboard: ProfileBlackboard) -> tuple[bool, str]:
-    return blackboard.toc_result is not None, "toc_result missing; call extract_toc first"
-
-
-def has_shard_plan(blackboard: ProfileBlackboard) -> tuple[bool, str]:
-    return blackboard.shard_plan is not None, "shard_plan missing; call propose_shard first"

@@ -13,6 +13,9 @@ from app.services.document_ingestion.media_duration_policy import (
     build_media_admission_rejection,
 )
 from app.services.document_ingestion.page_estimator import PageEstimator
+from app.services.document_ingestion.page_limit_policy import (
+    build_page_memory_page_limit_rejection,
+)
 from app.services.document_ingestion.parse_result_package import (
     build_parse_result_package,
 )
@@ -32,9 +35,6 @@ from app.services.document_ingestion.success_finalization import finalize_parse_
 from app.services.document_ingestion.workspace import (
     TemporaryParseWorkspace,
 )
-from app.services.document_parser.orchestration.oversized_pdf_policy import (
-    build_oversized_pdf_rejection,
-)
 from loguru import logger
 
 from app.services.document_parser.support.stage_profiler import (
@@ -43,7 +43,6 @@ from app.services.document_parser.support.stage_profiler import (
 )
 from shared.core.exceptions.domain_exceptions import (
     UnavailableException,
-    ValidationException,
 )
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.ai.llm_overrides import cleanup_llm_overrides, init_llm_overrides
@@ -168,17 +167,16 @@ def _run_parse_job(
         processing_started_at = datetime.now(timezone.utc)
         if job_context.parsingOwnerToken is not None:
             ParsingOwnership().assertOwned(job_id, job_context.parsingOwnerToken)
-        admission_rejection = _build_parse_track_oversized_pdf_rejection(
-            job_context=job_context,
-            file_extension=prepared_source.file_extension,
-            page_count=page_count,
-        ) or build_media_admission_rejection(
+        admission_rejection = build_media_admission_rejection(
             file_extension=prepared_source.file_extension,
             local_file_path=prepared_source.local_file_path,
             job_user_id=job_context.job_user_id,
         ) or build_embedded_media_admission_rejection(
             embedded_media_durations_ms=workload_estimate.embedded_media_durations_ms,
             job_user_id=job_context.job_user_id,
+        ) or build_page_memory_page_limit_rejection(
+            job_metadata=job_context.job_metadata,
+            workload_estimate=workload_estimate,
         )
         if admission_rejection is not None:
             billing_snapshot = record_skipped_parse_job_billing(
@@ -268,17 +266,3 @@ def _run_parse_job(
         cleanup_llm_overrides()
         cleanup_token_tracker()
         cleanup_stage_tracker()
-
-
-def _build_parse_track_oversized_pdf_rejection(
-    *,
-    job_context: ParseJobContext,
-    file_extension: str,
-    page_count: int,
-) -> ValidationException | None:
-    if JobMetadataHelper.get_parse_track(job_context.job_metadata) == "page_memory":
-        return None
-    return build_oversized_pdf_rejection(
-        file_extension=file_extension,
-        page_count=page_count,
-    )
