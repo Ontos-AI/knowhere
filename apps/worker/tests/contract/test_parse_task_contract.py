@@ -555,6 +555,58 @@ def test_parse_task_should_reject_page_memory_document_over_page_limit_before_bi
     assert contract.observe_user_billing(job["user_id"])["transaction_types"] == []
 
 
+def test_parse_task_should_reject_page_memory_document_with_unreadable_page_count_before_billing(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    contract = WorkerParseContract.create()
+    contract.use_workspace_root(monkeypatch, tmp_path)
+    contract.use_billing(monkeypatch, is_enabled=True)
+
+    source_file_name = "unreadable.pdf"
+    pdf_path = tmp_path / source_file_name
+    pdf_path.write_bytes(b"not a pdf")
+    job = contract.create_file_job(
+        source_file_name=source_file_name,
+        job_id_prefix="job_page_unknown",
+        extra_metadata={"parse_track": "page_memory"},
+    )
+    contract.upload_source_file(local_file_path=pdf_path, s3_key=job["s3_key"])
+
+    from app.services.document_ingestion import processing_run
+
+    def fail_if_parsed(**_kwargs):
+        raise AssertionError("a document with an unknown page count must not reach the parser")
+
+    monkeypatch.setattr(processing_run, "execute_document_parse", fail_if_parsed)
+
+    celery_result = contract.enqueue_parse_task(
+        job_id=job["job_id"],
+        user_id=job["user_id"],
+    )
+
+    assert celery_result.failed()
+    job_row = contract.observe_job_status(job["job_id"])
+    assert job_row["status"] == "failed"
+    assert job_row["billing_status"] == "skipped"
+    assert job_row["credits_charged"] == 0
+    assert job_row["error_code"] == "INVALID_ARGUMENT"
+    assert job_row["error_message"] == (
+        "Could not read the page count of this document, "
+        "so it cannot be checked against the page limit."
+    )
+    assert contract.get_job_metadata(job["job_id"])["error_details"] == {
+        "violations": [
+            {
+                "field": "page_count",
+                "description": "Page count estimation failed: pdf_metadata_error:PdfStreamError",
+            }
+        ]
+    }
+    assert contract.observe_user_billing(job["user_id"])["transaction_types"] == []
+
+
 def test_parse_task_should_reject_identical_source_before_billing_or_parsing(
     worker_contract_environment: None,
     monkeypatch: pytest.MonkeyPatch,

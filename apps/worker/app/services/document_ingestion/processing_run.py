@@ -176,7 +176,7 @@ def _run_parse_job(
             job_user_id=job_context.job_user_id,
         ) or build_page_memory_page_limit_rejection(
             job_metadata=job_context.job_metadata,
-            page_count=page_count,
+            workload_estimate=workload_estimate,
         )
         if admission_rejection is not None:
             billing_snapshot = record_skipped_parse_job_billing(
