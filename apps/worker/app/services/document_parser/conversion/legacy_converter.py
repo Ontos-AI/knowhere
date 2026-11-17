@@ -1,11 +1,13 @@
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 from pathlib import Path
 
 from app.services.document_parser.support.parser_log_utils import truncate_log_value
 
+from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import LibreOfficeServiceException
 
 
@@ -62,7 +64,7 @@ def _convert_with_libreoffice(
     # Isolate the LibreOffice user profile to avoid concurrent worker collisions.
     with tempfile.TemporaryDirectory(prefix="libreoffice-profile-") as profile_dir:
         profile_uri = Path(profile_dir).resolve().as_uri()
-        conversion_result = subprocess.run(
+        conversion_result = _run_libreoffice(
             [
                 soffice_path,
                 f"-env:UserInstallation={profile_uri}",
@@ -73,9 +75,8 @@ def _convert_with_libreoffice(
                 "--outdir",
                 outdir,
             ],
-            check=False,
-            capture_output=True,
-            text=True,
+            source_path=source_path,
+            operation=operation,
         )
 
     if conversion_result.returncode != 0:
@@ -102,6 +103,39 @@ def _convert_with_libreoffice(
         )
 
     return output_path, output_name
+
+
+def _run_libreoffice(
+    command: list[str], *, source_path: str, operation: str
+) -> subprocess.CompletedProcess[str]:
+    """Run one conversion, stopping its whole process group at the timeout.
+
+    The soffice launcher starts soffice.bin as a child, so killing only the
+    launcher would leave the converter running.
+    """
+    timeout_seconds = settings.LIBREOFFICE_CONVERSION_TIMEOUT_SECONDS
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        stdout, stderr = process.communicate()
+        raise LibreOfficeServiceException(
+            internal_message=(
+                f"LibreOffice conversion timed out after {timeout_seconds}s: "
+                f"input={source_path}, "
+                f"stdout={truncate_log_value(stdout)}, "
+                f"stderr={truncate_log_value(stderr)}"
+            ),
+            operation=operation,
+        )
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def doc_to_docx(doc_path: str, outdir: str = ".") -> tuple[str, str]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import delete, event, select
+from sqlalchemy import delete, event, or_, select
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import (
@@ -13,7 +13,13 @@ from shared.models.database.document import (
     DocumentChunk,
     DocumentSection,
 )
-from shared.services.chunks.chunk_connections import merge_connections
+from shared.services.chunks.asset_descriptor import PAGE_MEDIA_KINDS, PageMedia
+from shared.services.chunks.chunk_connections import (
+    RELATION_EMBEDDED_BY,
+    RELATION_EMBEDS,
+    merge_connections,
+)
+from shared.services.chunks.dataframe_chunk_converter import parse_connect_to
 from shared.services.retrieval.cache_service import (
     bump_retrieval_namespace_cache_version_sync,
 )
@@ -26,7 +32,9 @@ from shared.services.retrieval.namespace_map_snapshot import (
 from shared.services.retrieval.page_embedding_index import (
     extract_and_strip_page_embeddings,
     inherit_missing_page_assets,
-    load_revision_page_assets_by_page,
+    inherit_missing_page_media,
+    load_revision_page_metadatas,
+    page_assets_by_page,
     replace_document_page_embeddings,
     upsert_document_page_embeddings,
 )
@@ -73,17 +81,29 @@ def replace_document_scope_content(
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
     with trace_publication_stage(trace, "chunks_prepare"):
         deduped_chunks = deduplicate_chunks_by_source_path(chunks)
-        prior_page_assets_by_page = load_revision_page_assets_by_page(
-            db,
-            scope=scope,
-        )
+        prior_page_metadatas = load_revision_page_metadatas(db, scope=scope)
+        prior_page_assets_by_page = page_assets_by_page(prior_page_metadatas)
+        prior_page_media = PageMedia.from_page_metadatas(prior_page_metadatas)
 
     with trace_publication_stage(trace, "chunks_persist"):
         if scope_id == "*":
+            # Video/audio chunks come only from the first build, so a whole-
+            # document republish keeps them unless it carries its own copy.
+            incoming_chunk_ids = sorted(
+                {str(chunk.get("chunk_id") or "") for chunk in deduped_chunks} - {""}
+            )
             db.execute(
                 delete(corpusStorage.DocumentChunk)
                 .where(corpusStorage.DocumentChunk.document_id == scope.document_id)
                 .where(corpusStorage.DocumentChunk.job_result_id == scope.job_result_id)
+                .where(
+                    or_(
+                        corpusStorage.DocumentChunk.chunk_type.not_in(
+                            sorted(PAGE_MEDIA_KINDS)
+                        ),
+                        corpusStorage.DocumentChunk.chunk_id.in_(incoming_chunk_ids),
+                    )
+                )
             )
         else:
             _delete_or_transfer_scope_chunks(
@@ -139,6 +159,7 @@ def replace_document_scope_content(
                     chunk_metadata,
                     prior_page_assets_by_page,
                 )
+                inherit_missing_page_media(safe_chunk, chunk_metadata, prior_page_media)
             source_path = _get_source_path(
                 chunk=safe_chunk,
                 chunk_metadata=chunk_metadata,
@@ -173,6 +194,7 @@ def replace_document_scope_content(
         if chunk_rows:
             insert_chunks_with_copy(db, chunk_rows)
         _normalize_revision_sort_orders(db, scope=scope)
+        _reconnect_media_chunks(db, corpus_storage=corpusStorage, scope=scope)
 
     if scope.prepare_pg_tokens:
         replace_document_map_units(
@@ -433,6 +455,64 @@ def _delete_scope_exclusive_leaf_sections(
             .where(corpusStorage.DocumentSection.job_result_id == scope.job_result_id)
             .where(corpusStorage.DocumentSection.section_id.in_(stale_section_ids))
         )
+
+
+def _reconnect_media_chunks(
+    db: Session,
+    *,
+    corpus_storage: CorpusStorage,
+    scope: DocumentPublicationScope,
+) -> None:
+    """Point kept video/audio chunks' ``embedded_by`` edges at the rows that now embed them."""
+    media_chunks = list(
+        db.scalars(
+            select(corpus_storage.DocumentChunk)
+            .where(corpus_storage.DocumentChunk.document_id == scope.document_id)
+            .where(corpus_storage.DocumentChunk.job_result_id == scope.job_result_id)
+            .where(corpus_storage.DocumentChunk.chunk_type.in_(sorted(PAGE_MEDIA_KINDS)))
+        ).all()
+    )
+    if not media_chunks:
+        return
+    owners_by_media_id: dict[str, list[str]] = {}
+    for owner_id, owner_metadata in db.execute(
+        select(
+            corpus_storage.DocumentChunk.chunk_id,
+            corpus_storage.DocumentChunk.chunk_metadata,
+        )
+        .where(corpus_storage.DocumentChunk.document_id == scope.document_id)
+        .where(corpus_storage.DocumentChunk.job_result_id == scope.job_result_id)
+        .where(corpus_storage.DocumentChunk.chunk_type.not_in(sorted(PAGE_MEDIA_KINDS)))
+        .order_by(
+            corpus_storage.DocumentChunk.sort_order, corpus_storage.DocumentChunk.id
+        )
+    ).all():
+        if not isinstance(owner_metadata, dict):
+            continue
+        for connection in parse_connect_to(owner_metadata.get("connect_to")):
+            if isinstance(connection, dict) and connection.get("relation") == RELATION_EMBEDS:
+                owners_by_media_id.setdefault(str(connection.get("target") or ""), []).append(
+                    str(owner_id)
+                )
+    for media_chunk in media_chunks:
+        metadata = dict(media_chunk.chunk_metadata or {})
+        kept = [
+            connection
+            for connection in parse_connect_to(metadata.get("connect_to"))
+            if not (
+                isinstance(connection, dict)
+                and connection.get("relation") == RELATION_EMBEDDED_BY
+            )
+        ]
+        metadata["connect_to"] = merge_connections(
+            kept,
+            [
+                {"target": owner_id, "relation": RELATION_EMBEDDED_BY}
+                for owner_id in owners_by_media_id.get(str(media_chunk.chunk_id), [])
+            ],
+        )
+        media_chunk.chunk_metadata = metadata
+    db.flush()
 
 
 def _normalize_revision_sort_orders(

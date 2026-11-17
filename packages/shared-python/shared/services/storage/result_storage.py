@@ -16,6 +16,7 @@ import logfire
 from loguru import logger
 
 from shared.core.config import settings
+from shared.services.chunks.asset_descriptor import embedded_media_path
 from shared.services.storage.job_file_storage import JobFileStorage
 from shared.services.storage.storage_adapter import StorageAdapter
 
@@ -65,6 +66,15 @@ class ResultStorage(Protocol):
         job_id: str,
         artifact_ref: str,
         raw_prefix: str | None = None,
+        expires_in: int = 3600,
+    ) -> str | None:
+        raise NotImplementedError
+
+    def generate_embedded_media_url(
+        self,
+        *,
+        job_id: str,
+        media_path: str,
         expires_in: int = 3600,
     ) -> str | None:
         raise NotImplementedError
@@ -453,6 +463,22 @@ class JobResultStorage:
             expires_in=expires_in,
         )
 
+    def generate_embedded_media_url(
+        self,
+        *,
+        job_id: str,
+        media_path: str,
+        expires_in: int = 3600,
+    ) -> str | None:
+        """Sign media separated from the job's source, stored outside any snapshot."""
+        normalized_path = embedded_media_path(media_path)
+        if not normalized_path:
+            return None
+        return self.generate_url(
+            storage_key=f"{self.build_raw_prefix(job_id=job_id)}{normalized_path}",
+            expires_in=expires_in,
+        )
+
     def _iter_raw_files(self, result_dir: Path) -> Iterator[Path]:
         for root, dir_names, file_names in os.walk(result_dir):
             dir_names[:] = [
@@ -528,6 +554,23 @@ class JobResultStorage:
             file_path.unlink(missing_ok=True)
         except Exception as exc:
             logger.debug(f"Failed to clean up result file {file_path}: {exc}")
+
+
+def media_asset_url(
+    ref: dict[str, str],
+    *,
+    job_id: str | None,
+    storage: ResultStorage | None,
+    expires_in: int = 3600,
+) -> str | None:
+    """Where a video/audio descriptor's media plays: its link, or the job's separated copy."""
+    if ref["kind"] == "external":
+        return ref["url"]
+    if not job_id or storage is None:
+        return None
+    return storage.generate_embedded_media_url(
+        job_id=job_id, media_path=ref["path"], expires_in=expires_in
+    )
 
 
 def get_result_storage() -> ResultStorage:

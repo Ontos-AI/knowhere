@@ -3,7 +3,8 @@
 Text and standalone image/table chunks place table HTML and image bytes at
 path placeholders. Unrefined page chunks emit only query-lit pages. Refined
 page chunks emit the full node: content or summary, inlined charts, and page
-images.
+images when the row has them. Page rows show their video and audio at the
+marker lines, with link and transcript.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from loguru import logger
 from shared.services.retrieval.hydration.asset_inline import (
     remove_path_placeholders,
 )
+from shared.services.retrieval.hydration.page_media import inline_page_media
 from shared.utils.chunk_refs import match_resource_path_ref
 from shared.services.retrieval.hydration.row_utils import (
     coerce_page_nums,
@@ -145,13 +147,18 @@ def _compose_page_parts(
     queried_tables: Mapping[tuple[str, str], str] | None = None,
 ) -> list[dict[str, Any]]:
     if is_unrefined_page(row):
-        return _compose_unrefined_page_parts(row)
+        return _compose_unrefined_page_parts(row, rows_by_chunk_id)
     return _compose_refined_page_parts(row, rows_by_chunk_id, queried_tables)
 
 
-def _compose_unrefined_page_parts(row: dict[str, Any]) -> list[dict[str, Any]]:
+def _compose_unrefined_page_parts(
+    row: dict[str, Any],
+    rows_by_chunk_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
     parts: list[dict[str, Any]] = []
-    raw_text = str(row.get("content") or "").strip()
+    raw_text = inline_page_media(
+        str(row.get("content") or ""), row, rows_by_chunk_id
+    ).strip()
     if raw_text:
         parts.append(_text_part(raw_text))
     matched = extract_matched_page_nums(row)
@@ -186,13 +193,20 @@ def _compose_refined_page_parts(
         if summary:
             parts.append(_text_part(summary))
         parts.extend(_connected_asset_parts(row, rows_by_chunk_id, queried_tables))
-    page_nums = coerce_page_nums(extract_page_nums(row))
-    parts.extend(
-        _without_duplicate_page_images(parts, _page_image_parts(row, page_nums))
-    )
+    if _has_page_assets(row):
+        page_nums = coerce_page_nums(extract_page_nums(row))
+        parts.extend(
+            _without_duplicate_page_images(parts, _page_image_parts(row, page_nums))
+        )
     if not parts:
         parts.append(_text_part("Page image unavailable: missing page image"))
     return parts
+
+
+def _has_page_assets(row: dict[str, Any]) -> bool:
+    """Whether the row was published with page images (DOCX baseline rows are not)."""
+    metadata = row.get("chunk_metadata") or row.get("metadata") or {}
+    return isinstance(metadata, dict) and bool(metadata.get("page_assets"))
 
 
 def _without_duplicate_page_images(
@@ -279,7 +293,7 @@ def _compose_text_parts(
     rows_by_chunk_id: dict[str, dict[str, Any]],
     queried_tables: Mapping[tuple[str, str], str] | None = None,
 ) -> list[dict[str, Any]]:
-    content = str(row.get("content") or "")
+    content = inline_page_media(str(row.get("content") or ""), row, rows_by_chunk_id)
     tables, images = _embed_targets(row, rows_by_chunk_id)
     for _target_id, target_row, ref in tables:
         html = _try_read_table_html(target_row, queried_tables)

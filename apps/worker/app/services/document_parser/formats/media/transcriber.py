@@ -33,6 +33,10 @@ from shared.services.storage.job_file_storage import JobFileStorage
 _POLL_INTERVAL_SECONDS = 1.0
 _MAX_POLL_INTERVAL_SECONDS = 8.0
 _TERMINAL_FAILURE_STATUSES = frozenset({"FAILED", "CANCELED", "UNKNOWN"})
+# Fun-ASR fails a file whose audio has no recognizable words (music, silence)
+# with this subtask code, and fails the task when no file has words. That is an
+# empty transcript, not a transcription error.
+_NO_WORDS_CODE = "ASR_RESPONSE_HAVE_NO_WORDS"
 
 
 @dataclass(frozen=True)
@@ -415,7 +419,7 @@ def _wait_for_task(
             or ""
         ).upper()
         logger.info(f"Fun-ASR task {task_id} status={status}")
-        if status == "SUCCEEDED":
+        if status == "SUCCEEDED" or (status == "FAILED" and _has_no_words_only(payload)):
             return payload
         if not status:
             raise RuntimeError(f"Fun-ASR poll returned no task_status: {payload}")
@@ -435,13 +439,15 @@ def _download_transcripts(
     client: httpx.Client,
     job: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    results = job.get("output", {}).get("results") or job.get("results") or []
-    if not isinstance(results, list) or not results:
+    results = _task_results(job)
+    if not results:
         raise RuntimeError(f"Fun-ASR job returned no subtask results: {job}")
     transcripts: list[dict[str, Any]] = []
     for result in results:
         if not isinstance(result, dict):
             raise RuntimeError(f"Fun-ASR subtask result is not an object: {result}")
+        if _has_no_words(result):
+            continue
         subtask_status = str(result.get("subtask_status") or "").upper()
         if subtask_status and subtask_status != "SUCCEEDED":
             raise RuntimeError(f"Fun-ASR subtask failed: {result}")
@@ -459,6 +465,24 @@ def _download_transcripts(
             )
         transcripts.append(payload)
     return transcripts
+
+
+def _task_results(job: dict[str, Any]) -> list[Any]:
+    results = job.get("output", {}).get("results") or job.get("results") or []
+    return results if isinstance(results, list) else []
+
+
+def _has_no_words(result: object) -> bool:
+    return (
+        isinstance(result, dict)
+        and str(result.get("subtask_status") or "").upper() == "FAILED"
+        and result.get("code") == _NO_WORDS_CODE
+    )
+
+
+def _has_no_words_only(job: dict[str, Any]) -> bool:
+    results = _task_results(job)
+    return bool(results) and all(_has_no_words(result) for result in results)
 
 
 def _sentences_from_transcripts(

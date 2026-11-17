@@ -6,10 +6,11 @@ Scoring uses ``score_persisted_corpus_many`` over path + content only.
 the request is image/table only, ``has_image`` / ``has_table`` (written at
 index time) narrow candidates before scoring.
 
-Hydration returns the one chunk owned by each winning leaf. Images and
-tables are not sibling chunks on that leaf; they enter through
-``connect_to``. Image/table-only requests follow ``connect_to`` from
-that chunk. Failures raise; they are not converted into empty results.
+Hydration returns the chunks each winning section owns. Images, tables,
+video and audio parked at Root are not Root's own content; they belong to
+the chunk that embeds them and enter through ``connect_to``. Image/table-only
+requests follow ``connect_to`` from that chunk. Failures raise; they are not
+converted into empty results.
 """
 
 from __future__ import annotations
@@ -51,7 +52,11 @@ from shared.services.retrieval.scoring.persisted_score_load import (
 from shared.services.retrieval.cache_service import record_retrieval_index_readiness
 from shared.services.retrieval.search.scoring import normalize_row_scores
 from shared.services.retrieval.search.section_filters import is_excluded_section
-from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
+from shared.services.retrieval.scoring.knowhere_provider import is_root_section_path
+from shared.services.retrieval.settings import (
+    ASSET_CHUNK_TYPES,
+    HOSTED_ASSET_CHUNK_TYPES,
+)
 
 _MAP_SCORE_CHANNELS = ("path", "content")
 
@@ -828,6 +833,13 @@ def _as_metadata_dict(value: object) -> dict[str, Any]:
     return {}
 
 
+def _is_parked_root_asset(row: Mapping[str, Any]) -> bool:
+    """An image, table, video or audio parked at Root by the chunk that embeds it."""
+    return is_root_section_path(str(row.get("section_path") or "")) and (
+        normalize_chunk_type(row.get("chunk_type")) in HOSTED_ASSET_CHUNK_TYPES
+    )
+
+
 async def _hydrate_winning_units(
     session: AsyncSession,
     *,
@@ -884,14 +896,19 @@ async def _hydrate_winning_units(
             "section_ids": section_ids,
         },
     )
-    chunk_by_section: dict[tuple[str, str, str], dict[str, Any]] = {}
+    found_sections: set[tuple[str, str, str]] = set()
+    rows_by_section: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for chunk_row in result.all():
         row = dict(chunk_row._mapping)
-        row["chunk_metadata"] = _as_metadata_dict(row.get("chunk_metadata"))
         key = (row["document_id"], row["job_result_id"], row["section_id"])
-        chunk_by_section[key] = row
+        found_sections.add(key)
+        if _is_parked_root_asset(row):
+            continue
+        row["chunk_metadata"] = _as_metadata_dict(row.get("chunk_metadata"))
+        rows_by_section.setdefault(key, []).append(row)
 
     primaries: list[dict[str, Any]] = []
+    has_unhydrated_hits = False
     for unit_id in ranked_unit_ids:
         unit_row = rows_by_unit_id[unit_id]
         key = (
@@ -899,14 +916,14 @@ async def _hydrate_winning_units(
             unit_row["job_result_id"],
             unit_row["section_id"],
         )
-        primary = chunk_by_section.get(key)
-        if primary is None:
+        if key not in found_sections:
+            has_unhydrated_hits = True
             continue
-        fused = dict(primary)
-        fused["score"] = scores_by_unit.get(unit_id, 0.0)
-        primaries.append(fused)
+        for section_row in rows_by_section.get(key, []):
+            fused = dict(section_row)
+            fused["score"] = scores_by_unit.get(unit_id, 0.0)
+            primaries.append(fused)
 
-    has_unhydrated_hits: bool = len(primaries) < len(ranked_unit_ids)
     if chunk_types is None or not chunk_types.issubset(ASSET_CHUNK_TYPES):
         return primaries, has_unhydrated_hits
 
@@ -927,13 +944,7 @@ async def _hydrate_winning_units(
     seen: set[str] = set()
     for primary in primaries:
         score = float(primary.get("score") or 0.0)
-        key = (
-            primary["document_id"],
-            primary["job_result_id"],
-            primary["section_id"],
-        )
-        section_chunk = chunk_by_section.get(key)
-        candidates = [section_chunk] if section_chunk is not None else []
+        candidates = [primary]
         for target_id in iter_connected_target_ids(primary):
             target = connected_by_id.get(target_id)
             if target is not None:

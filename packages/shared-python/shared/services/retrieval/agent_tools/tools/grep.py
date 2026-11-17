@@ -51,7 +51,7 @@ from shared.services.retrieval.agent_tools.scope import (
     scope_orm_clause,
 )
 from shared.services.retrieval.agent_tools.snippet import build_row, build_snippet, format_row
-from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
+from shared.services.retrieval.settings import HOSTED_ASSET_CHUNK_TYPES
 
 _DEFAULT_LIMIT = 30
 _DEFAULT_CONTEXT_CHARS = 80
@@ -135,7 +135,7 @@ def _build_hit_row(
     host_paths: dict[tuple[str, str], tuple[str, bool]],
 ) -> dict[str, Any]:
     chunk_type = str(hit["chunk_type"] or "").strip()
-    is_asset = chunk_type in ASSET_CHUNK_TYPES
+    is_asset = chunk_type in HOSTED_ASSET_CHUNK_TYPES
     key = (str(hit["document_id"]), str(hit["chunk_id"]))
     section_path, hosted = (
         host_paths[key] if is_asset and key in host_paths else (hit["section_path"], None)

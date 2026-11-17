@@ -36,6 +36,7 @@ from typing import (
     runtime_checkable,
 )
 
+from shared.services.retrieval.settings import HOSTED_ASSET_CHUNK_TYPES
 from shared.services.retrieval.hydration.asset_inline import (
     inline_assets_at_placeholders,
 )
@@ -201,14 +202,13 @@ class ProviderToolSpace:
             return "", 0, 0
         first_order = int(getattr(units[0], "sort_order", 0) or 0)
 
-        asset_types = {"image", "table"}
         text_units: List[Any] = []
         asset_by_id: Dict[str, str] = {}
         for unit in units:
             chunk_type = str(getattr(unit, "chunk_type", "") or "").strip().lower()
             chunk_id = str(getattr(unit, "chunk_id", "") or "").strip()
             body = str(unit_text(unit) or "").strip()
-            if chunk_type in asset_types:
+            if chunk_type in HOSTED_ASSET_CHUNK_TYPES:
                 if chunk_id and body:
                     asset_by_id[chunk_id] = body
                 continue

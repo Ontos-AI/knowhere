@@ -375,6 +375,12 @@ def test_parse_media_disambiguates_identical_utterances_at_different_times(
         {"output": {"task_status": "CANCELED"}},
         {"output": {"task_status": "UNKNOWN"}},
         {"output": {}},
+        {
+            "output": {
+                "task_status": "FAILED",
+                "results": [{"subtask_status": "FAILED", "code": "FILE_DOWNLOAD_FAILED"}],
+            }
+        },
     ],
 )
 def test_wait_for_task_fails_immediately_on_terminal_or_missing_status(
@@ -763,6 +769,55 @@ def _patch_fun_asr_dependencies(
         "shared.services.ai.ali_quota_manager.get_ali_quota_manager",
         lambda: _FakeQuotaManager(),
     )
+
+
+def test_fun_asr_audio_without_words_is_an_empty_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Music or silence: Fun-ASR fails the task with ASR_RESPONSE_HAVE_NO_WORDS."""
+    import httpx
+    from app.services.document_parser.formats.media import transcriber as transcriber_module
+
+    calls: list[str] = []
+    _patch_fun_asr_dependencies(monkeypatch, [])
+    audio_file = tmp_path / SOURCE_AUDIO_REL
+    audio_file.write_bytes(b"RIFF")
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            calls.append("submit")
+            return httpx.Response(200, json={"output": {"task_id": "task_new"}})
+        calls.append("poll")
+        return httpx.Response(
+            200,
+            json={
+                "output": {
+                    "task_status": "FAILED",
+                    "task_metrics": {"TOTAL": 1, "SUCCEEDED": 0, "FAILED": 1},
+                    "results": [
+                        {
+                            "subtask_status": "FAILED",
+                            "code": "ASR_RESPONSE_HAVE_NO_WORDS",
+                            "message": "ASR_RESPONSE_HAVE_NO_WORDS",
+                        }
+                    ],
+                }
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(_handler)) as client:
+        result = transcriber_module.FunAsrSpeechTranscriber(
+            client=client, task_store=_MemoryAsrTaskStore()
+        ).transcribe(
+            MediaAudio(path=str(audio_file), job_id="job_1"),
+            diarize=True,
+            language_hint=None,
+            usage_task="parser.media.asr",
+        )
+
+    assert result.sentences == ()
+    assert calls == ["submit", "poll"]
 
 
 def test_fun_asr_records_submitted_task_for_redelivery(

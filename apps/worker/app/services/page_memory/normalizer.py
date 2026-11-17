@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 from app.services.document_parser.formats.pptx.parser import (
     _pptx_bytes_to_pdf_bytes,
@@ -51,13 +52,20 @@ def _normalize_pptx_to_pdf(
     pptx_data = load_file_bytes(file_path, file_url=base_url)
     pdf_filename = f"{os.path.splitext(filename)[0]}.pdf"
     pdf_path = os.path.join(output_dir, pdf_filename)
+    started_at = time.monotonic()
     try:
         pdf_bytes = _pptx_bytes_to_pdf_bytes(pptx_data, filename)
         with open(pdf_path, "wb") as f:
             f.write(pdf_bytes)
         return pdf_path, pdf_filename
     except Exception as exc:
-        logger.warning(
+        logger.bind(
+            service="iloveapi",
+            filename=filename,
+            input_bytes=len(pptx_data),
+            elapsed_ms=int((time.monotonic() - started_at) * 1000),
+            error_type=type(exc).__name__,
+        ).warning(
             "[page_memory] iLoveAPI PPTX normalization failed for {}; "
             "falling back to LibreOffice: {}",
             filename,

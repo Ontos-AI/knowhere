@@ -8,11 +8,11 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.retrieval.hydration.assets import sign_page_media_rows
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.evidence_compose import compose_evidence_parts
+from shared.services.retrieval.hydration.page_media import page_media_rows
 from shared.services.retrieval.hydration.row_utils import (
-    apply_matched_page_nums,
-    extract_matched_page_nums,
     extract_page_nums,
     extract_time_ranges,
     filter_excluded_rows,
@@ -20,6 +20,7 @@ from shared.services.retrieval.hydration.row_utils import (
     iter_connected_target_ids,
     normalize_chunk_type,
     page_summary,
+    with_lit_pages,
 )
 
 
@@ -52,7 +53,9 @@ async def load_retrieval_result_rows(
         document_scope=document_scope,
         revision_pins=revision_pins,
     )
-    return RetrievalResultRows(primary=primary, connected=connected)
+    return RetrievalResultRows(
+        primary=primary, connected=await sign_page_media_rows(connected)
+    )
 
 
 async def assemble_retrieval_results(
@@ -81,11 +84,14 @@ async def assemble_retrieval_results(
     for row in [*loaded_rows.primary, *loaded_rows.connected]:
         if row.get('chunk_id'):
             rows_by_build.setdefault(row.get('build_id'), {})[str(row['chunk_id'])] = row
-    filtered_rows = _filter_rows_by_allowed_chunk_types(
-        loaded_rows.primary,
-        allowed_chunk_types=allowed_chunk_types,
-        rows_by_build=rows_by_build,
-    )
+    filtered_rows = [
+        with_lit_pages(row)
+        for row in _filter_rows_by_allowed_chunk_types(
+            loaded_rows.primary,
+            allowed_chunk_types=allowed_chunk_types,
+            rows_by_build=rows_by_build,
+        )
+    ]
 
     embedded_targets: set[tuple[str | None, str]] = set()
     for row in filtered_rows:
@@ -95,6 +101,7 @@ async def assemble_retrieval_results(
                 embedded_targets.add((build_id, target_id))
 
     assembled: list[dict[str, Any]] = []
+    emitted_media: set[tuple[str | None, str]] = set()
     for row in filtered_rows:
         build_id: str | None = row.get('build_id')
         if (build_id, row.get('chunk_id')) in embedded_targets:
@@ -108,9 +115,6 @@ async def assemble_retrieval_results(
                 assembled_row['content_source'] = (
                     'raw' if base_content.strip() else 'page_image'
                 )
-                matched_pages = extract_matched_page_nums(row)
-                if matched_pages:
-                    apply_matched_page_nums(assembled_row, matched_pages)
             elif base_content.strip():
                 assembled_row['content'] = base_content
                 assembled_row['content_source'] = 'content'
@@ -138,6 +142,15 @@ async def assemble_retrieval_results(
         ):
             assembled_row['content'] = page_summary(row)
         assembled.append(assembled_row)
+        if chunk_type == 'page':
+            # The page's evidence already shows its media; results list them
+            # after the page, scored as the page, with no evidence of their own.
+            for media_row in page_media_rows(row, rows_by_build.get(build_id, {})):
+                media_key = (build_id, str(media_row.get('chunk_id') or ''))
+                if media_key in emitted_media:
+                    continue
+                emitted_media.add(media_key)
+                assembled.append(_media_result_row(media_row, score=row.get('score')))
     if db is not None and assembled:
         from shared.services.jobs.lifecycle.scope_enrichments import (
             promote_scopes_on_read,
@@ -147,6 +160,17 @@ async def assemble_retrieval_results(
             db, assembled, skip_locked_chunk_final=skip_locked_chunk_final
         )
     return assembled
+
+
+def _media_result_row(media_row: dict[str, Any], *, score: object) -> dict[str, Any]:
+    result_row = dict(media_row)
+    result_row['score'] = score
+    result_row['content_source'] = 'content'
+    result_row['composed'] = []
+    time_ranges = extract_time_ranges(result_row)
+    if time_ranges is not None:
+        result_row['time_ranges'] = time_ranges
+    return result_row
 
 
 def _filter_rows_by_allowed_chunk_types(

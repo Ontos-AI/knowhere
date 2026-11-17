@@ -21,6 +21,7 @@ from typing import (
 )
 
 from shared.services.retrieval.scoring.hierarchy import NodeMeta
+from shared.services.retrieval.settings import HOSTED_ASSET_CHUNK_TYPES
 
 
 _ASSET_TYPES = ("table", "image")
@@ -246,7 +247,7 @@ class KnowhereProvider:
                 checkpoint()
 
     def _remountRootAssetSteps(self) -> Iterator[str | None]:
-        """Reattach Root-FK image|table units to host sections via ``connect_to``.
+        """Reattach Root-FK image|table|video|audio units to host sections via ``connect_to``.
 
         Aligns with Knowhere ``resolve_root_asset_owners``: assets whose FK still
         points at Root are owned by the text chunk that lists them in
@@ -263,7 +264,7 @@ class KnowhereProvider:
         root_assets: Dict[str, UnitRow] = {}
         for sid in root_sids:
             for unit in self._units_by_section.get(sid, ()):
-                if unit.chunk_type in _ASSET_TYPES and unit.chunk_id:
+                if unit.chunk_type in HOSTED_ASSET_CHUNK_TYPES and unit.chunk_id:
                     root_assets[unit.chunk_id] = unit
                 yield None
         if not root_assets:
@@ -305,7 +306,7 @@ class KnowhereProvider:
         for sid in root_sids:
             retained: List[UnitRow] = []
             for unit in self._units_by_section.get(sid, ()):
-                if unit.chunk_type not in _ASSET_TYPES:
+                if unit.chunk_type not in HOSTED_ASSET_CHUNK_TYPES:
                     retained.append(unit)
                 yield None
             self._units_by_section[sid] = retained
