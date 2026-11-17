@@ -16,8 +16,6 @@ from app.services.document_agent.manifest import (
     PageAnatomyMap,
     PageFeature,
     PageLabel,
-    Shard,
-    ShardPlan,
     TocResult,
     ToolContext,
 )
@@ -33,7 +31,6 @@ from app.services.document_agent.structure.hierarchy_locator import (
 )
 from app.services.document_agent.structure.toc_anchoring import (
     _assign_toc_relationships,
-    classify_toc_relationship,
     run_toc_anchoring,
 )
 from app.services.document_agent.structure.toc_pairing import (
@@ -246,56 +243,6 @@ def test_two_contained_tocs_graft_in_order() -> None:
     assert titles == ["1.2", "1.3"]
 
 
-def test_classify_contained_when_peer_span_covers_candidate() -> None:
-    assert (
-        classify_toc_relationship(
-            candidate_span=(32, 50),
-            host_spans=[(10, 70)],
-        )
-        == "contained"
-    )
-
-
-def test_classify_contained_inside_tight_peer_span() -> None:
-    assert (
-        classify_toc_relationship(
-            candidate_span=(32, 40),
-            host_spans=[(30, 45), (10, 70)],
-        )
-        == "contained"
-    )
-
-
-def test_classify_parallel_when_no_peer_covers_span() -> None:
-    assert (
-        classify_toc_relationship(
-            candidate_span=(95, 140),
-            host_spans=[(10, 70)],
-        )
-        == "parallel"
-    )
-
-
-def test_classify_parallel_without_host_spans() -> None:
-    assert (
-        classify_toc_relationship(
-            candidate_span=(20, 22),
-            host_spans=[],
-        )
-        == "parallel"
-    )
-
-
-def test_classify_unresolvable_when_candidate_span_missing() -> None:
-    assert (
-        classify_toc_relationship(
-            candidate_span=None,
-            host_spans=[(10, 70)],
-        )
-        == "unresolvable"
-    )
-
-
 def test_sample_head_tail_pages_uses_first_and_last_two() -> None:
     assert sample_head_tail_pages([1, 2, 3, 4, 5, 6]) == [1, 2, 5, 6]
     assert sample_head_tail_pages([7, 8, 11, 12]) == [7, 8, 11, 12]
@@ -364,17 +311,6 @@ def test_check_paired_toc_vlm_marks_bilingual_pair(
     )
     assert match.is_paired is True
     assert match.pattern == "bilingual_mirror"
-
-
-def test_classify_parallel_for_chapter_mini_tocs_without_extrapolation() -> None:
-    """Earliest chapter TOC evidenced [6,8] must not swallow later chapters."""
-    assert (
-        classify_toc_relationship(
-            candidate_span=(12, 24),
-            host_spans=[(6, 8)],
-        )
-        == "parallel"
-    )
 
 
 def test_find_tightest_host_prefers_smaller_span() -> None:
@@ -686,20 +622,6 @@ def _anatomy(
             for page in range(1, page_count + 1)
         ],
         toc_result=TocResult(method="vlm_batch", toc_pages=toc_pages),
-        shard_plan=ShardPlan(
-            enabled=False,
-            reason="not_needed",
-            shards=[
-                Shard(
-                    shard_index=0,
-                    page_start=1,
-                    page_end=page_count,
-                    page_offset=0,
-                    anchor_type="forced_max_size",
-                    anchor_evidence="test",
-                )
-            ],
-        ),
         toc_hierarchies=hierarchies,
         skeleton_anchor=serialize_skeleton_anchor(_anchor(overrides)),
         skeleton_nodes=[serialize_title_node(node) for node in nodes],

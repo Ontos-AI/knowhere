@@ -95,32 +95,6 @@ class StorageConfig(BaseModel):
             "(tier_1 and above). Longer media is rejected before billing."
         ),
     )
-    MAX_PDF_PAGE_LIMIT: int = Field(
-        default=200,
-        ge=1,
-        description="Maximum PDF page count for direct processing. "
-        "Documents exceeding this trigger the oversized-admission path when enabled.",
-    )
-    OVERSIZED_PDF_SHARD_ENABLED: bool = Field(
-        default=True,
-        description="Enable doc_agent shard pipeline for PDFs exceeding MAX_PDF_PAGE_LIMIT. "
-        "When False, oversized PDFs are rejected.",
-    )
-    OVERSIZED_PDF_SOFT_LIMIT: int = Field(
-        default=1500,
-        ge=1,
-        description="Soft page limit for oversized PDF shard pipeline. "
-        "Documents exceeding this are rejected with a contact-support message.",
-    )
-    PDF_PROFILE_TOC_ENABLED: bool = Field(
-        default=True,
-        description=(
-            "Default-on PROFILE TOC find/extract/calibration for PDF parsing. "
-            "When True, missing TOC or calibration failure degrades to no-TOC "
-            "downstream. page_memory always forces TOC profiling on regardless "
-            "of this flag, since its sections are TOC-anchored."
-        ),
-    )
     RESULT_UPLOAD_CONCURRENCY: int = Field(
         default=20,
         ge=1,

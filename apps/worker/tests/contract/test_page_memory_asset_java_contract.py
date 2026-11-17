@@ -14,13 +14,8 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 from PIL import Image
 
 from app.services.page_memory import page_assets
+from shared.models.schemas.page_memory_config import resolve_asset_model
 from app.services.page_memory.page_renderer import PageRenderResult
-
-
-def test_page_assets_default_to_image_model() -> None:
-    from shared.models.schemas.page_memory_config import resolve_asset_model
-
-    assert page_assets.get_asset_model() == resolve_asset_model()
 
 
 def test_page_asset_detection_uses_lowest_temperature(monkeypatch, tmp_path) -> None:
@@ -65,12 +60,12 @@ def test_page_asset_detection_uses_lowest_temperature(monkeypatch, tmp_path) -> 
     assets = page_assets.detect_page_assets(
         page=page,
         source_name="demo.pdf",
-        model_name=page_assets.get_asset_model(),
+        model_name=resolve_asset_model(),
         confidence_threshold=0.3,
     )
 
     prompt = captured["messages"][0]["content"][0]["text"]  # type: ignore[index]
-    assert captured["model"] == page_assets.get_asset_model()
+    assert captured["model"] == resolve_asset_model()
     assert captured["temperature"] == 0
     assert assets[0].bbox_px == [10, 12, 30, 36]
     assert assets[0].title == "table title"
@@ -142,7 +137,7 @@ def test_page_asset_extraction_keeps_debug_output_minimal(
         pdf_path="demo.pdf",
         rendered_pages=page_images,
         output_dir=str(tmp_path),
-        model_name=page_assets.get_asset_model(),
+        model_name=resolve_asset_model(),
         confidence_threshold=0.3,
         summary_enabled=False,
         summary_concurrency=4,

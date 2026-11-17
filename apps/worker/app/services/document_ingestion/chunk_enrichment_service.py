@@ -467,7 +467,6 @@ def _parse_docx_final(
         llm_paras,
         output_dir,
         filename,
-        "",
         relative_root=relative_root,
     )
     parsed_df = convert_doc2dics(

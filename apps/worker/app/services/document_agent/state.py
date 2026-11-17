@@ -10,8 +10,6 @@ from app.services.document_agent.manifest import (
     DocumentProfile,
     PageFeature,
     PageLabel,
-    ProfileVerdict,
-    ShardPlan,
     TocAnchorPage,
     TocResult,
 )
@@ -39,9 +37,6 @@ class ProfileBlackboard:
     skeleton_anchor: dict[str, Any] | None = None
     skeleton_nodes: list[dict[str, Any]] | None = None
     pending_skeleton_anchors: list[dict[str, Any]] = field(default_factory=list)
-    shard_plan: ShardPlan | None = None
-    validation_report: dict[str, Any] | None = None
-    verdict: ProfileVerdict | None = None
     # Values are PageTextBands (ordered line records) or plain str (legacy tests / resume paths).
     page_full_text_cache: dict[int, Any] = field(default_factory=dict)
     # Optional temporary grep view after text.strip_*; None means use each page's content.

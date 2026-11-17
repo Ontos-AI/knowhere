@@ -13,7 +13,6 @@ from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     worker,
 )
 from app.services.document_parser.structure.body_boundary import (
-    normalize_heading_label,
     normalize_match_text,
 )
 
@@ -417,17 +416,3 @@ def read_page_text_bands(
         int(page): PageTextBands.from_any(value)
         for page, value in raw_bands.items()
     }
-
-
-def meaningful_lines(text: str) -> list[str]:
-    lines = [normalize_heading_label(line) for line in text.splitlines()]
-    return [line for line in lines if line]
-
-
-def top_lines(text: str, *, max_lines: int = 20) -> list[str]:
-    lines = meaningful_lines(text)
-    return lines[: max(max_lines, 0)]
-
-
-def compact_payload_keys(payload: dict[str, Any]) -> list[str]:
-    return sorted(str(key) for key in payload.keys())

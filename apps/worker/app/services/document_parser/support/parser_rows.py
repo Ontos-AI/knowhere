@@ -133,19 +133,6 @@ def apply_body_summary(row: list[Any], result: Any) -> None:
     row[COL_KEYWORDS] = result.keywords_str()
 
 
-def apply_asset_summary(row: list[Any], result: Any) -> None:
-    """Write an ``AssetSummary`` (Contract B) onto a positional raw row by name.
-
-    Sets ``asset_title``, ``summary``, ``entities`` and the transitional
-    ``keywords``. The caller owns any file-rename logic keyed off the title.
-    """
-    _ensure_row_width(row)
-    row[COL_ASSET_TITLE] = result.title or ""
-    row[COL_SUMMARY] = result.summary or ""
-    row[COL_ENTITIES] = serialize_entities(getattr(result, "entities", None))
-    row[COL_KEYWORDS] = result.keywords_str()
-
-
 def _ensure_row_width(row: list[Any]) -> None:
     """Pad a legacy 11-column row out to the current schema width in place."""
     while len(row) < len(PARSER_DF_COLUMNS):

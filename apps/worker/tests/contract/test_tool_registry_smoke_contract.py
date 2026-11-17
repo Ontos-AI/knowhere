@@ -67,7 +67,6 @@ def _rebind_live_tool_imports() -> Iterator[None]:
 def test_probe_and_inspect_registered() -> None:
     for name in (
         "probe.outline",
-        "probe.links",
         "judge.toc_source",
         "inspect.pages",
         "grep.text",

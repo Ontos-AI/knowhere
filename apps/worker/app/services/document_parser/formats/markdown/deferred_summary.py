@@ -37,7 +37,7 @@ from app.services.document_parser.assets.asset_file_names import (
 
 # Each deferred task now carries the engine's typed contract straight through to
 # the apply step (audit §4.5): assets → AssetSummary, text → BodySummary. The row
-# is then written by name via apply_asset_summary / apply_body_summary, so we no
+# is then written by name (assets by index, text via apply_body_summary), so we no
 # longer poke magic positional offsets.
 DeferredResult = tuple[int, Literal["image", "table", "text"], object]
 
