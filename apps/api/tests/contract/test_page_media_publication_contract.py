@@ -189,11 +189,6 @@ def test_coarse_republish_keeps_page_media_and_assets_lists_it(
             assert (plan.chunk_metadata or {})["connect_to"] == [
                 {"target": "asset_demo_video", "relation": "embeds"}
             ]
-            plan_section_path = session.execute(
-                select(DocumentSection.section_path).where(
-                    DocumentSection.section_id == plan.section_id
-                )
-            ).scalar_one()
             assert "assets" not in (intro.chunk_metadata or {})
             assert intro.content == "Welcome"
             assert plan.content == f"Roadmap and launch plan\n{_MARKER}"

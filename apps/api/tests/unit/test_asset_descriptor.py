@@ -158,6 +158,7 @@ def test_result_package_keeps_page_media_and_describes_tables() -> None:
 
 class _SigningStorage(JobResultStorage):
     def __init__(self) -> None:
+        super().__init__()
         self.signed: list[str] = []
 
     def build_raw_prefix(self, *, job_id: str) -> str:
