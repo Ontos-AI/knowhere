@@ -278,12 +278,35 @@ def test_route_without_sections_leaves_the_deck_flat(
     assert ctx.blackboard.skeleton_nodes is None
 
 
+def test_route_degrades_like_toc_extraction_when_detection_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failing_detection(**_kwargs: Any) -> SlideStructure:
+        raise TimeoutError("vlm timed out")
+
+    _patch_detection(monkeypatch, SlideStructure(sections=[], candidates=[]))
+    monkeypatch.setattr(route_module, "detect_slide_structure", failing_detection)
+    ctx = _route_ctx(tmp_path, page_count=6)
+
+    result = route_module.run_slide_structure_route(ctx)
+
+    assert result.status == "ok"
+    assert result.warnings
+    assert ctx.blackboard.toc_result.method == "none"
+    assert ctx.blackboard.toc_result.failure_kind == "degraded"
+    assert ctx.blackboard.toc_hierarchies is None
+    assert ctx.blackboard.skeleton_nodes is None
+
+
 @pytest.mark.parametrize(
     ("routing", "expected_route"),
-    [("slides", "slides"), ("generic", "toc"), ("atlas", "toc")],
+    [("slides", "slides"), ("generic", "toc"), ("atlas", "toc"), (None, "toc")],
 )
 def test_coordinator_routes_slide_decks_to_slide_structure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, routing: str, expected_route: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    routing: str | None,
+    expected_route: str,
 ) -> None:
     from app.services.document_agent import coordinator as coordinator_module
 
@@ -304,14 +327,20 @@ def test_coordinator_routes_slide_decks_to_slide_structure(
         output_dir=str(tmp_path),
         db=None,
     )
-    profile = DocumentProfile(
-        is_scanned=False,
-        category=["OTHER"],
-        category_label="Doc",
-        routing_category=routing,
+    # The route is chosen from the profile already on the blackboard; it must
+    # not classify the document again.
+    monkeypatch.setattr(
+        coordinator_module.ProfileCoordinator,
+        "_ensure_coarse_profile",
+        lambda self, actor: pytest.fail("coarse profile must not run again"),
     )
-    coordinator.blackboard.document_profile = profile
-    coordinator._coarse_profile_cache = profile  # noqa: SLF001
+    if routing is not None:
+        coordinator.blackboard.document_profile = DocumentProfile(
+            is_scanned=False,
+            category=["OTHER"],
+            category_label="Doc",
+            routing_category=routing,
+        )
 
     coordinator._ensure_toc_profile(strict=False)  # noqa: SLF001
 

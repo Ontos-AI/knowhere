@@ -368,8 +368,9 @@ class ProfileCoordinator:
         return result
 
     def _is_slide_deck(self) -> bool:
-        profile = self._ensure_coarse_profile(actor="coarse_profile")
-        return PdfRoutingCategory.normalize(profile.routing_category) is PdfRoutingCategory.SLIDES
+        """Read the coarse page format the way the TOC tools read the profile."""
+        routing = getattr(self.blackboard.document_profile, "routing_category", None)
+        return PdfRoutingCategory.normalize(routing) is PdfRoutingCategory.SLIDES
 
     def _run_slide_structure_route(self) -> None:
         result = run_slide_structure_route(self.ctx)

@@ -33,17 +33,37 @@ _LOG_PREFIX = "[profile.slide_structure]"
 
 
 def run_slide_structure_route(ctx: ToolContext) -> ToolResult:
-    """Detect the deck structure and anchor it onto the blackboard."""
+    """Detect the deck structure and anchor it onto the blackboard.
+
+    A failed detection degrades like a failed TOC extraction: no hierarchy,
+    ``failure_kind="degraded"`` (a strict profile retries it), and the profile
+    goes on with the deck flat.
+    """
     started = time.monotonic()
     config = SlideStructureConfig.from_settings()
     usage = {"calls": 0, "tokens": 0}
     page_count = int(ctx.blackboard.page_count or 0)
-    structure = detect_slide_structure(
-        page_count=page_count,
-        grids=ContactSheets(ctx),
-        config=config,
-        vlm=_vision_call(ctx, config, usage),
-    )
+    try:
+        structure = detect_slide_structure(
+            page_count=page_count,
+            grids=ContactSheets(ctx),
+            config=config,
+            vlm=_vision_call(ctx, config, usage),
+        )
+    except Exception as exc:
+        logger.warning("{} detection failed, deck stays flat: {}", _LOG_PREFIX, exc)
+        ctx.blackboard.toc_result = TocResult(
+            method="none",
+            notes=f"slide structure detection failed: {exc}",
+            failure_kind="degraded",
+        )
+        return ToolResult(
+            status="ok",
+            latency_ms=int((time.monotonic() - started) * 1000),
+            tokens_used=usage["tokens"],
+            output_summary={"vlm_calls": usage["calls"]},
+            warnings=[f"Slide structure detection failed: {exc}"],
+        )
     entries = toc_entries(structure.sections)
     hierarchy = {"source": SLIDE_STRUCTURE_SOURCE, "toc_with_level": entries}
     anchored = write_physical_page_skeleton(
