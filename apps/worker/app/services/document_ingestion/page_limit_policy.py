@@ -30,7 +30,7 @@ def build_page_memory_page_limit_rejection(
                 }
             ],
         )
-    page_count = workload_estimate.page_count
+    page_count = workload_estimate.document_page_count
     max_pages = JobMetadataHelper.get_page_memory_config(job_metadata).max_pages
     if page_count <= max_pages:
         return None

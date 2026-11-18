@@ -466,7 +466,6 @@ def main() -> int:
         page_count=page_count,
         output_dir=str(out_dir),
         filename=filename,
-        verdict="page",
         vlm_model=args.vlm_model or os.environ.get("IMAGE_MODEL"),
         page_memory_config=page_memory_config,
     )

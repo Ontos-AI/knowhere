@@ -113,10 +113,8 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
             )
         trace_recorder = getattr(profile, "trace_recorder", None)
         page_count = max(int(profile.page_count or 0), 0)
-        verdict = "page"
         trace_summary = {
             "page_count": page_count,
-            "verdict": verdict,
             "ingestion_mode": "progressive" if is_progressive else "full",
         }
 
@@ -139,7 +137,6 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 filename=request.filename,
                 output_dir=full_output_dir,
                 profile=profile,
-                verdict=verdict,
                 page_memory_config=page_memory_config,
                 trace_recorder=trace_recorder,
             )
@@ -345,7 +342,6 @@ def assemble_c7_node_rows(
     page_count: int,
     output_dir: str,
     filename: str,
-    verdict: str,
     vlm_model: str | None,
     page_memory_config: PageMemoryConfig,
     fine_text_by_page: dict[int, str] | None = None,
@@ -409,7 +405,6 @@ def assemble_c7_node_rows(
         kind_by_page=label_map,
         tag_by_page=tag_map,
         filename=filename,
-        verdict=verdict,
         vlm_model=vlm_model,
         page_assets_by_page=assets_by_page,
         node_summary_max_pages=page_memory_config.node_summary_max_pages,
@@ -427,20 +422,22 @@ def _build_page_dataframe(
     filename: str,
     output_dir: str,
     profile: Any,
-    verdict: str,
     page_memory_config: PageMemoryConfig,
     trace_recorder: Any | None = None,
 ) -> pd.DataFrame:
     """Build per-page DataFrame via Phase A scopes then the full C1-C7 path.
 
     Steps:
-      Phase A  build_phase_a → frozen scopes / next titles / asset budgets
-      C1  page_renderer       → PageRenderResult[]
-      C2  page_plan           → PagePlan[]
-      C3  page_tagger         → PageTagResult[]
-      C3b title detection     → observed_titles (reading-order, untrimmed)
-      C4b fine_hierarchy      → start/end anchor trim + refined SectionSkeleton[]
-      C5  page_assets          → assets anchored to refined hierarchy pages
+      Phase A  build_phase_a → frozen scopes / next titles / manifest
+      Per scope, in order:
+        C4  coarse scope skeletons
+        C3b title detection on fat-leaf pages (only when a leaf spans
+            at least ``fine_min_pages``)
+        C4b fine_hierarchy     → refined SectionSkeleton[]
+        C1  page_renderer + fine page text
+        C2  page_plan           → PagePlan[]
+        C3  page_tagger         → PageTagResult[]
+        C5  page_assets         → assets on the refined pages
       C7  assemble node-granularity DataFrame
     """
     from app.services.page_memory.skeleton_extractor import collapse_single_child_chains
@@ -570,14 +567,13 @@ def _build_page_dataframe(
             page_count=page_count,
             output_dir=output_dir,
             filename=filename,
-            verdict=verdict,
             vlm_model=vlm_model,
             page_memory_config=page_memory_config,
             fine_text_by_page=fine_text_by_page,
         )
     logger.info(
-        "[page_memory] C7 assembled {} node rows (verdict={})",
-        len(rows), verdict,
+        "[page_memory] C7 assembled {} node rows",
+        len(rows),
     )
     _record_trace_stage(
         trace_recorder,

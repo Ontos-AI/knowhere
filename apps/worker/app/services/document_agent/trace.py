@@ -142,9 +142,6 @@ class ParseRunRecorder:
                 "source": toc_result.profile_source,
                 "method": toc_result.method,
                 "notes": toc_result.notes,
-                "attempted": bool(
-                    self._anatomy.global_signals.get("toc_profile_attempted", True)
-                ),
             }
         return profile
 

@@ -47,7 +47,6 @@ class PageTagResult:
 
 
 _MAX_JSON_RETRIES = 1
-_DEFAULT_FINE_MIN_PAGES = 5
 # Dense section-start pages can emit long title JSON; escalate only on truncation.
 _TITLE_TOKEN_BUDGETS: tuple[int, ...] = (300, 600, 1200)
 
