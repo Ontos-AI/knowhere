@@ -1,16 +1,5 @@
 """Prompts for the slide-structure route. Every image labels each slide with its number."""
 
-SCREEN_PROMPT = """You are looking at a contact sheet: thumbnails of consecutive slides from ONE presentation, in reading order. Each cell is labeled with its slide number in a red tag at its top-left corner.
-
-For each slide decide yes/no: is it a structural slide of the deck, i.e. a table-of-contents / agenda slide (including agenda slides repeated between chapters) or a slide that opens a chapter or sub-chapter (a section divider)?
-A slide that opens a section with its numbered heading and lists that section's sub-sections is structural too.
-Judge every slide on its own: another structural slide on the same sheet (for example the deck's main table of contents) does not make a slide less structural.
-Ordinary content slides, the cover, and thanks/Q&A slides are not structural.
-
-Return strict JSON only:
-{"structural_slides": [<slide number>, ...]}
-Slide numbers must be the printed red tags. Return an empty list when no slide is structural."""
-
 STRUCTURE_PROMPT = """You are given the candidate structural slides (table-of-contents / agenda slides and section dividers) of ONE presentation with {page_count} slides, each labeled with its slide number in a red tag. Some candidates may have been picked by mistake.
 
 Work out the deck's section structure from these slides: which sections the deck has, the slide where each section starts, and how they nest. Use titles exactly as printed. Ignore candidates that are not structural.
@@ -33,4 +22,4 @@ For each expected section give the slide where it starts, or null if none of the
 Return strict JSON only:
 {{"found": [{{"expected": "...", "title": "...", "start_slide": <int or null>}}]}}"""
 
-__all__ = ["GAP_PROMPT", "SCREEN_PROMPT", "STRUCTURE_PROMPT"]
+__all__ = ["GAP_PROMPT", "STRUCTURE_PROMPT"]

@@ -10,6 +10,7 @@ from app.services.document_agent.manifest import (
     DocumentProfile,
     PageFeature,
     PageLabel,
+    PageScreen,
     TocAnchorPage,
     TocResult,
 )
@@ -30,6 +31,8 @@ class ProfileBlackboard:
     page_labels: list[PageLabel] = field(default_factory=list)
     doc_stats: dict[str, Any] = field(default_factory=dict)
     extrema_pages: list[int] = field(default_factory=list)
+    # None until the screen runs, and when it fails.
+    page_screen: PageScreen | None = None
     toc_anchor_pages: list[TocAnchorPage] = field(default_factory=list)
     pdf_outline_roots: list[dict[str, Any]] | None = None
     toc_result: TocResult | None = None

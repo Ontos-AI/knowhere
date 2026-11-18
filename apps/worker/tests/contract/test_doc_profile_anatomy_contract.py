@@ -107,7 +107,10 @@ def test_toc_anchor_text_scan_line_contains_keyword_and_split_repair() -> None:
     ]
 
 
-def test_toc_extraction_raises_on_pipeline_failure(tmp_path: Path) -> None:
+def test_toc_extraction_raises_on_pipeline_failure(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        coordinator_module, "run_page_screen", lambda ctx: ToolResult(status="ok")
+    )
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "standard.pdf"),
         job_id="job-toc-fail-hard",
@@ -210,7 +213,12 @@ def test_run_coarse_runs_asset_probe_after_coarse_profile(monkeypatch, tmp_path:
         calls.append("toc")
         coordinator.blackboard.toc_result = TocResult(method="none")
 
+    def fake_page_screen(_ctx) -> ToolResult:
+        calls.append("page_screen")
+        return ToolResult(status="ok")
+
     monkeypatch.setattr(coordinator_module.CoarseProfiler, "classify", fake_classify)
+    monkeypatch.setattr(coordinator_module, "run_page_screen", fake_page_screen)
     monkeypatch.setattr(coordinator_module, "probe_page_assets", fake_probe_page_assets)
     monkeypatch.setattr(coordinator_module, "aggregate_doc_stats", fake_aggregate)
     monkeypatch.setattr(coordinator, "_run_text_scan", fake_text_scan)
@@ -225,6 +233,7 @@ def test_run_coarse_runs_asset_probe_after_coarse_profile(monkeypatch, tmp_path:
         "text_scan",
         "probe.page_assets",
         "aggregate.doc_stats",
+        "page_screen",
         "toc",
     ]
     assert coordinator.blackboard.global_signals["assets_probed"] is True
@@ -419,6 +428,11 @@ def test_run_coarse_runs_coarse_profile_then_text_scan_then_toc(
     def fake_persist():
         calls.append("persist")
 
+    def fake_page_screen(_ctx) -> ToolResult:
+        calls.append("page_screen")
+        return ToolResult(status="ok")
+
+    monkeypatch.setattr(coordinator_module, "run_page_screen", fake_page_screen)
     monkeypatch.setattr(coordinator, "_run_toc_extraction_pipeline", fake_toc_extraction)
     monkeypatch.setattr(coordinator, "_run_text_scan", fake_text_scan)
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
@@ -439,7 +453,7 @@ def test_run_coarse_runs_coarse_profile_then_text_scan_then_toc(
     coordinator.run_coarse()
     anatomy = coordinator.run_anatomy()
 
-    assert calls == ["coarse_profile", "text_scan", "toc", "persist"]
+    assert calls == ["coarse_profile", "text_scan", "page_screen", "toc", "persist"]
     assert anatomy.toc_result.toc_pages == [17]
 
 
@@ -890,3 +904,51 @@ def test_find_toc_anchor_pages_born_digital_drops_consecutive_duplicates_and_kee
     assert result.output_summary is not None
     assert result.output_summary["narrowing"]["after_dedup"] == 0
     assert result.output_summary["narrowing"]["union"] == 1
+
+
+def test_find_toc_anchor_pages_adds_page_screen_toc_pages(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_agent.manifest import PageScreen, ToolContext
+    from app.services.document_agent.pdf_text import LineDraft, build_page_text_bands
+    from app.services.document_agent.state import ProfileBlackboard
+
+    blackboard = ProfileBlackboard(page_count=20)
+    blackboard.document_profile = DocumentProfile(
+        is_scanned=False,
+        category=["OTHER"],
+        category_label="Report",
+        routing_category=PdfRoutingCategory.GENERIC.value,
+    )
+    blackboard.page_labels = [PageLabel(page=page, kind="normal") for page in range(1, 21)]
+    blackboard.page_full_text_cache = {
+        2: build_page_text_bands((LineDraft(text="Contents"),)),
+    }
+    # Divider pages are not TOC candidates.
+    blackboard.page_screen = PageScreen(toc_pages=[2, 9], divider_pages=[12])
+    ctx = ToolContext(
+        pdf_path=str(tmp_path / "native.pdf"),
+        job_id="job-screen-toc",
+        blackboard=blackboard,
+        trace=None,
+        output_dir=str(tmp_path / "out"),
+        settings={},
+    )
+
+    def fake_render(_worker, _pdf_path, pages, output_dir, _dpi, timeout=120):
+        del timeout
+        results = []
+        for page in pages:
+            png = Path(output_dir) / f"toc_anchor_page_{page}.png"
+            png.write_bytes(b"png")
+            results.append({"page": page, "png_path": str(png)})
+        return {"ok": True, "results": results}
+
+    monkeypatch.setattr(toc_anchor_tool, "run_in_child_process", fake_render)
+    result = toc_anchor_tool.find_toc_anchor_pages(ctx, {})
+    sources = {item.page: item.source for item in blackboard.toc_anchor_pages}
+    assert result.status == "ok"
+    assert sources == {2: "hybrid", 9: "visual"}
+    assert result.output_summary is not None
+    assert result.output_summary["narrowing"]["screen"] == 2

@@ -324,6 +324,9 @@ def test_scanned_empty_and_full_profiles_keep_detailed_asset_probe(
         _make_classification(is_scanned=is_scanned, routing_category=routing_category),
     )
     monkeypatch.setattr(
+        coordinator_module, "run_page_screen", lambda ctx: ToolResult(status="ok")
+    )
+    monkeypatch.setattr(
         ProfileCoordinator,
         "_run_toc_extraction_pipeline",
         lambda coordinator: setattr(
@@ -451,6 +454,9 @@ def test_background_probe_precedes_toc_and_claim_anatomy_reaches_fine_asset_extr
         events.append("toc")
         resumed.blackboard.toc_result = TocResult(method="none")
 
+    monkeypatch.setattr(
+        coordinator_module, "run_page_screen", lambda ctx: ToolResult(status="ok")
+    )
     monkeypatch.setattr(ProfileCoordinator, "_run_toc_extraction_pipeline", extract_toc)
     monkeypatch.setattr(coordinator_module, "probe_page_assets", probe_deferred_assets)
     monkeypatch.setattr(ProfileCoordinator, "_run_text_scan", reject_repeated_text_scan)

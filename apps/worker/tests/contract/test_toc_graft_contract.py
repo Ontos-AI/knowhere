@@ -35,11 +35,13 @@ from app.services.document_agent.structure.toc_anchoring import (
 )
 from app.services.document_agent.structure.toc_pairing import (
     PairedTocMatch,
+    TocNesting,
     check_paired_toc,
     proximity_allows_pair_check,
     sample_head_tail_pages,
 )
 from app.services.document_agent.structure.toc_graft import graft_contained_toc
+from app.services.document_agent.structure.toc_tree import TocTree
 from app.services.page_memory.skeleton_extractor import extract_section_skeletons
 
 
@@ -379,6 +381,10 @@ def test_parallel_pending_is_not_grafted() -> None:
             side_effect=fake_anchor_hierarchy,
         ),
         patch(
+            "app.services.document_agent.structure.toc_pairing.check_toc_nesting",
+            return_value=TocNesting(inside=False),
+        ),
+        patch(
             "app.services.document_agent.calibration.service.calibrate_offset",
             return_value=object(),
         ),
@@ -440,6 +446,10 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
                 primary,
                 _anchor({("第一章",): 10, ("第二章",): 30}),
             ),
+        ),
+        patch(
+            "app.services.document_agent.structure.toc_pairing.check_toc_nesting",
+            return_value=TocNesting(inside=True),
         ),
         patch(
             "app.services.document_agent.calibration.service.calibrate_offset",
@@ -545,6 +555,8 @@ def test_assign_equal_span_is_paired_not_parallel() -> None:
         ),
     }
     _assign_toc_relationships(
+        tree=TocTree(parents={0: "root"}),
+        pending=[pending_toc],
         root_anchor=root,
         pending_records=[record],
         root_toc={"toc_range": [1, 6], "toc_range_unit": "page"},
@@ -574,6 +586,8 @@ def test_assign_equal_span_between_two_pendings_keeps_earlier_parallel() -> None
         ),
     }
     _assign_toc_relationships(
+        tree=TocTree(parents={0: None, 1: None}),
+        pending=[toc_a, toc_b],
         root_anchor=root,
         pending_records=[rec_a, rec_b],
         root_toc={"toc_range": [1, 2], "toc_range_unit": "page"},

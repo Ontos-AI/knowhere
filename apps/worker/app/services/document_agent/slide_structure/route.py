@@ -1,26 +1,26 @@
 """Slide-structure route: the structure of a slide deck, instead of TOC extraction.
 
-Writes the same blackboard state as the PDF outline route (sections with
+Takes its candidate slides from the page screen (``blackboard.page_screen``)
+and writes the same blackboard state as the PDF outline route (sections with
 physical pages, no calibration), so skeletons, scopes and FINE downstream are
 unchanged. No structural slide found means no hierarchy: the deck stays flat.
 """
 
 from __future__ import annotations
 
-import json
 import time
-from typing import Any, cast
+from typing import Any
 
 from loguru import logger
 
 from app.services.document_agent.manifest import TocResult, ToolContext, ToolResult
+from app.services.document_agent.page_screen.contact_sheet import ContactSheets
+from app.services.document_agent.page_screen.vision import vision_call
 from app.services.document_agent.pdf_text import page_content_map
 from app.services.document_agent.slide_structure.config import SlideStructureConfig
-from app.services.document_agent.slide_structure.contact_sheet import ContactSheets
 from app.services.document_agent.slide_structure.pipeline import (
     SlideSection,
     SlideStructure,
-    VlmCall,
     detect_slide_structure,
 )
 from app.services.document_agent.structure.toc_anchoring import (
@@ -29,40 +29,39 @@ from app.services.document_agent.structure.toc_anchoring import (
 from app.services.document_parser.structure.body_boundary import normalize_heading_label
 
 SLIDE_STRUCTURE_SOURCE = "slide_structure"
+SLIDE_STRUCTURE_VISUAL_DIR = "slide_structure"
 _LOG_PREFIX = "[profile.slide_structure]"
 
 
 def run_slide_structure_route(ctx: ToolContext) -> ToolResult:
     """Detect the deck structure and anchor it onto the blackboard.
 
-    A failed detection degrades like a failed TOC extraction: no hierarchy,
-    ``failure_kind="degraded"``, and the profile goes on with the deck flat.
+    A missing page screen or a failed detection degrades like a failed TOC
+    extraction: no hierarchy, ``failure_kind="degraded"``, and the profile goes
+    on with the deck flat.
     """
     started = time.monotonic()
-    config = SlideStructureConfig.from_settings()
     usage = {"calls": 0, "tokens": 0}
+    screen = ctx.blackboard.page_screen
+    if screen is None:
+        return _degraded(ctx, "page screen unavailable", started, usage)
+    config = SlideStructureConfig.from_settings()
     page_count = int(ctx.blackboard.page_count or 0)
     try:
         structure = detect_slide_structure(
             page_count=page_count,
-            grids=ContactSheets(ctx),
+            candidates=sorted(set(screen.toc_pages) | set(screen.divider_pages)),
+            grids=ContactSheets(ctx, folder_name=SLIDE_STRUCTURE_VISUAL_DIR),
             config=config,
-            vlm=_vision_call(ctx, config, usage),
+            vlm=vision_call(
+                ctx,
+                max_tokens=config.vlm_max_tokens,
+                usage=usage,
+                usage_scope="slide_structure",
+            ),
         )
     except Exception as exc:
-        logger.warning("{} detection failed, deck stays flat: {}", _LOG_PREFIX, exc)
-        ctx.blackboard.toc_result = TocResult(
-            method="none",
-            notes=f"slide structure detection failed: {exc}",
-            failure_kind="degraded",
-        )
-        return ToolResult(
-            status="ok",
-            latency_ms=int((time.monotonic() - started) * 1000),
-            tokens_used=usage["tokens"],
-            output_summary={"vlm_calls": usage["calls"]},
-            warnings=[f"Slide structure detection failed: {exc}"],
-        )
+        return _degraded(ctx, f"detection failed: {exc}", started, usage)
     entries = toc_entries(structure.sections)
     hierarchy = {"source": SLIDE_STRUCTURE_SOURCE, "toc_with_level": entries}
     anchored = write_physical_page_skeleton(
@@ -137,38 +136,22 @@ def toc_entries(sections: list[SlideSection]) -> list[dict[str, Any]]:
     return entries
 
 
-def _vision_call(
-    ctx: ToolContext, config: SlideStructureConfig, usage: dict[str, int]
-) -> VlmCall:
-    from shared.services.ai.llm_overrides import get_vision_client
-
-    client, model = get_vision_client(requested_model=ctx.settings.get("vlm_model"))
-
-    def call(prompt: str, images: list[str], task: str) -> dict[str, Any]:
-        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
-        content.extend(
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{image}"},
-            }
-            for image in images
-        )
-        raw, call_usage = client.chat_completion_with_usage(
-            messages=cast(Any, [{"role": "user", "content": content}]),
-            model=model,
-            temperature=0.0,
-            max_tokens=config.vlm_max_tokens,
-            response_format={"type": "json_object"},
-            usage_task=f"document_agent.slide_structure.{task}",
-        )
-        usage["calls"] += 1
-        usage["tokens"] += int(call_usage.get("total_tokens", 0) or 0)
-        answer = json.loads(raw)
-        if not isinstance(answer, dict):
-            raise ValueError(f"slide structure {task} output must be a JSON object")
-        return answer
-
-    return call
+def _degraded(
+    ctx: ToolContext, reason: str, started: float, usage: dict[str, int]
+) -> ToolResult:
+    logger.warning("{} {}, deck stays flat", _LOG_PREFIX, reason)
+    ctx.blackboard.toc_result = TocResult(
+        method="none",
+        notes=f"slide structure {reason}",
+        failure_kind="degraded",
+    )
+    return ToolResult(
+        status="ok",
+        latency_ms=int((time.monotonic() - started) * 1000),
+        tokens_used=usage["tokens"],
+        output_summary={"vlm_calls": usage["calls"]},
+        warnings=[f"Slide structure {reason}"],
+    )
 
 
 def _report(structure: SlideStructure, entries: list[dict[str, Any]]) -> dict[str, Any]:
