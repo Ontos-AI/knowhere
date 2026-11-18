@@ -2,12 +2,11 @@
 
 TOCs are walked in page order with a stack of open TOCs. Each later TOC is
 first checked as a paired duplicate of the TOC before it that is not itself
-paired (unchanged pairing gate), then asked whether it lies inside the stack top: if so it is pushed under it,
-otherwise the top is closed (popped) and the next one down is asked. A TOC
-that no open TOC contains sits at document level.
+paired (unchanged pairing gate), then asked whether it lies inside the stack
+top: if so it is pushed under it, otherwise the top is closed (popped) and the
+next one down is asked. A TOC that no open TOC contains sits at document level.
 
-When a nesting check gives no answer, the TOC is left out of the tree
-(``unknown``) and the stack stays as it was; its placement is decided after
+When a nesting check gives no answer, the TOC gets no parent (``unknown``) and the stack stays as it was; its placement is decided after
 calibration from evidenced spans.
 
 Parents use the host keys of pending records: ``"root"`` is the primary
@@ -27,15 +26,15 @@ from app.services.document_agent.structure.anchoring_primitives import (
     toc_range_start,
 )
 
-_LOG_PREFIX = "[profile.toc_tree]"
+_LOG_PREFIX = "[profile.toc_nesting]"
 
 TocParent = Literal["root"] | int | None
 
 
 @dataclass
-class TocTree:
+class PendingTocNesting:
     parents: dict[int, TocParent] = field(default_factory=dict)
-    """Parent of every pending TOC placed in the tree."""
+    """Parent of every pending TOC whose nesting checks were answered."""
     unknown: set[int] = field(default_factory=set)
     """Pending TOCs whose nesting check gave no answer."""
     paired: dict[int, dict[str, Any]] = field(default_factory=dict)
@@ -75,12 +74,12 @@ class TocTree:
         return page_count
 
 
-def build_toc_tree(
+def nest_pending_tocs(
     *,
     primary_toc: dict[str, Any],
     pending: list[dict[str, Any]],
     ctx: ToolContext,
-) -> TocTree:
+) -> PendingTocNesting:
     """Nest ``pending`` (sorted by TOC start page) under ``primary_toc`` and each other."""
     from app.services.document_agent.structure.toc_pairing import (
         check_paired_toc,
@@ -88,7 +87,7 @@ def build_toc_tree(
     )
 
     model = ctx.settings.get("vlm_model") or os.environ.get("IMAGE_MODEL")
-    tree = TocTree()
+    nesting = PendingTocNesting()
     # Open TOCs, innermost last; the document level is below the bottom.
     stack: list[Literal["root"] | int] = ["root"]
     # The latest TOC that is not a paired duplicate.
@@ -100,7 +99,7 @@ def build_toc_tree(
     for index, pending_toc in enumerate(pending):
         match = check_paired_toc(toc_of(pair_host), pending_toc, ctx=ctx, model=model)
         if match.is_paired:
-            tree.paired[index] = _paired_record(
+            nesting.paired[index] = _paired_record(
                 pending_toc,
                 host=pair_host,
                 host_toc=toc_of(pair_host),
@@ -126,7 +125,7 @@ def build_toc_tree(
             depth -= 1
 
         if not answered:
-            tree.unknown.add(index)
+            nesting.unknown.add(index)
             logger.info(
                 "{} pending TOC toc_range={} nesting unknown",
                 _LOG_PREFIX,
@@ -135,7 +134,7 @@ def build_toc_tree(
             continue
         del stack[depth:]
         parent: TocParent = stack[-1] if stack else None
-        tree.parents[index] = parent
+        nesting.parents[index] = parent
         stack.append(index)
         logger.info(
             "{} pending TOC toc_range={} parent={}",
@@ -143,7 +142,7 @@ def build_toc_tree(
             pending_toc.get("toc_range"),
             parent,
         )
-    return tree
+    return nesting
 
 
 def _paired_record(

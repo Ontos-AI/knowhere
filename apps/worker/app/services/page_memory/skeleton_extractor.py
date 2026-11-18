@@ -14,8 +14,8 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.structure.hierarchy_locator import (
     ResolvedHierarchyRange,
-    deepest_covering_path,
     extract_toc_nodes,
+    open_section_path,
     resolve_hierarchy_page_ranges,
 )
 from app.services.document_agent.structure.anchoring_primitives import (
@@ -25,9 +25,9 @@ from app.services.document_agent.structure.anchoring_primitives import (
     toc_range_start,
 )
 from app.services.document_agent.structure.toc_anchoring import (
-    body_pages_excluding_toc,
     evidenced_physical_span,
     pending_toc_body_scope,
+    section_start_pages,
     select_global_toc_hierarchies,
 )
 from loguru import logger
@@ -133,7 +133,7 @@ def extract_section_skeletons(
         ]
 
     toc_result = getattr(anatomy, "toc_result", None)
-    body_pages = body_pages_excluding_toc(
+    start_pages = section_start_pages(
         getattr(toc_result, "toc_pages", None),
         page_count,
     )
@@ -143,7 +143,7 @@ def extract_section_skeletons(
         pending_records=pending_records,
     )
     primary_page_count = page_count
-    primary_body_pages = body_pages
+    primary_start_pages = start_pages
     pending_starts = [
         start
         for toc, record in parallel_pending
@@ -151,7 +151,9 @@ def extract_section_skeletons(
     ]
     if pending_starts:
         primary_page_count = min(pending_starts) - 1
-        primary_body_pages = [page for page in body_pages if page <= primary_page_count]
+        primary_start_pages = [
+            page for page in start_pages if page <= primary_page_count
+        ]
 
     match_overrides = skeleton_anchor.match_overrides
     null_page_report = skeleton_anchor.null_page_report
@@ -179,7 +181,7 @@ def extract_section_skeletons(
     ranges = resolve_hierarchy_page_ranges(
         resolve_nodes,
         page_count=primary_page_count,
-        body_pages=primary_body_pages,
+        body_pages=primary_start_pages,
         match_overrides=match_overrides,
     )
     if not ranges:
@@ -209,7 +211,7 @@ def extract_section_skeletons(
             page_texts=page_texts,
             page_count=page_count,
             filename=filename,
-            body_pages=body_pages,
+            start_pages=start_pages,
         )
         skeletons.extend(secondary_skeletons)
 
@@ -347,7 +349,7 @@ def _resolve_pending_tocs(
     page_texts: dict[int, str],
     page_count: int,
     filename: str,
-    body_pages: list[int],
+    start_pages: list[int],
 ) -> list[SectionSkeleton]:
     """Resolve parallel pending TOCs as secondary forests."""
     if not parallel_pending:
@@ -375,11 +377,11 @@ def _resolve_pending_tocs(
         if offset is None:
             raise ValueError("pending TOC offset missing after PROFILE classify")
 
-        _, toc_body_pages = pending_toc_body_scope(
+        _, toc_start_pages = pending_toc_body_scope(
             pending_tocs=parallel_tocs,
             index=i,
             page_count=page_count,
-            body_pages=body_pages,
+            body_pages=start_pages,
         )
         next_starts = [
             start
@@ -387,7 +389,7 @@ def _resolve_pending_tocs(
             if (start := _parallel_forest_start_page(next_toc, next_record)) is not None
         ]
         toc_scope_end = (min(next_starts) - 1) if next_starts else page_count
-        toc_body_pages = [page for page in toc_body_pages if page <= toc_scope_end]
+        toc_start_pages = [page for page in toc_start_pages if page <= toc_scope_end]
         match_overrides = skeleton_anchor.match_overrides
         null_page_report = skeleton_anchor.null_page_report
         locate_summary: dict[str, Any] = {
@@ -407,7 +409,7 @@ def _resolve_pending_tocs(
         ranges = resolve_hierarchy_page_ranges(
             resolve_nodes,
             page_count=toc_scope_end,
-            body_pages=toc_body_pages,
+            body_pages=toc_start_pages,
             match_overrides=match_overrides,
         )
 
@@ -491,7 +493,7 @@ def _toc_ownership_skeletons(
     pages_by_parent: dict[str, set[int]] = {}
 
     def _parent_path_for_span(start: int, end: int) -> str:
-        covering = deepest_covering_path(coverage, start=start, end=end)
+        covering = open_section_path(coverage, start=start, end=end)
         return join_document_path([filename, *covering]) if covering else filename
 
     for hierarchy in hierarchies:

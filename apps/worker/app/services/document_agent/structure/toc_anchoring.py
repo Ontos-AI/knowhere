@@ -27,7 +27,7 @@ from app.services.document_agent.structure.hierarchy_locator import (
     collapse_intermediate_single_child_chains,
     extract_toc_nodes,
 )
-from app.services.document_agent.structure.toc_tree import TocTree, build_toc_tree
+from app.services.document_agent.structure.toc_nesting import PendingTocNesting, nest_pending_tocs
 from app.services.document_parser.structure.body_boundary import normalize_heading_label
 
 _LOG_PREFIX = "[profile.toc_anchoring]"
@@ -58,12 +58,12 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     physical overrides (no calibrate VLM). Otherwise keep the extracted TOC tree
     and run the existing VLM calibration path.
 
-    Before calibration the pending TOCs are nested into a TOC tree; paired
-    duplicates skip calibration, and each other pending TOC calibrates within
-    its scope from the tree. After calibration (primary + unpaired pending),
-    each forest runs global paged-leaf rehome, then relationships are set
-    (tree first, evidenced spans for equal-span copies and unanswered nesting
-    checks) and contained forests are grafted. Blackboard writes happen only
+    Before calibration the pending TOCs are nested under the primary and each
+    other; paired duplicates skip calibration, and each other pending TOC
+    calibrates within the scope its nesting gives. After calibration (primary +
+    unpaired pending), each forest runs global paged-leaf rehome, then
+    relationships are set (nesting first, evidenced spans for equal-span copies
+    and unanswered nesting checks) and contained forests are grafted. Blackboard writes happen only
     after that sequence.
     """
     from app.services.document_agent.calibration.orchestrator import (
@@ -119,14 +119,14 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
         ctx=ctx,
     )
     pending_records: list[dict[str, Any]] = []
-    tree = TocTree()
+    nesting = PendingTocNesting()
     if pending:
-        tree = build_toc_tree(primary_toc=primary[0], pending=pending, ctx=ctx)
+        nesting = nest_pending_tocs(primary_toc=primary[0], pending=pending, ctx=ctx)
         calibrated: list[dict[str, Any]] = []
-        if tree.calibrated_indices():
+        if nesting.calibrated_indices():
             calibrated = _calibrate_pending_tocs(
                 pending=pending,
-                tree=tree,
+                nesting=nesting,
                 ctx=ctx,
                 page_texts=page_texts,
                 page_count=page_count,
@@ -134,7 +134,7 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
             )
         pending_records = _merge_pending_records(
             pending=pending,
-            paired_by_index=tree.paired,
+            paired_by_index=nesting.paired,
             calibrated=calibrated,
         )
 
@@ -148,7 +148,7 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
 
     if pending_records:
         _assign_toc_relationships(
-            tree=tree,
+            nesting=nesting,
             pending=pending,
             pending_records=pending_records,
             root_anchor=skeleton_anchor,
@@ -159,7 +159,7 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
             skeleton_anchor=skeleton_anchor,
             pending_records=pending_records,
             page_count=page_count,
-            body_pages=body_pages,
+            section_start_pages=section_start_pages(toc_pages, page_count),
         )
     ctx.blackboard.skeleton_anchor = serialize_skeleton_anchor(skeleton_anchor)
     ctx.blackboard.skeleton_nodes = [
@@ -400,7 +400,7 @@ def select_global_toc_hierarchies(
     """Split TOC hierarchies into earliest forest root and the rest.
 
     The earliest TOC is only the serialization root for ``skeleton_nodes``;
-    how the other TOCs nest under it and each other comes from the TOC tree.
+    how the other TOCs nest under it and each other comes from the TOC nesting.
     """
     if len(hierarchies) <= 1:
         return (hierarchies or None), [], {}
@@ -446,12 +446,7 @@ def pages_excluding_toc(pages: Any, toc_pages: Any) -> list[int]:
 
     Same exclusion source as anchoring ``body_pages``: ``toc_result.toc_pages``.
     """
-    excluded: set[int] = set()
-    for raw in toc_pages or []:
-        try:
-            excluded.add(int(raw))
-        except (TypeError, ValueError):
-            continue
+    excluded = _toc_page_set(toc_pages)
     result: list[int] = []
     for raw in pages or []:
         try:
@@ -463,8 +458,34 @@ def pages_excluding_toc(pages: Any, toc_pages: Any) -> list[int]:
     return result
 
 
+def _toc_page_set(toc_pages: Any) -> set[int]:
+    pages: set[int] = set()
+    for raw in toc_pages or []:
+        try:
+            pages.add(int(raw))
+        except (TypeError, ValueError):
+            continue
+    return pages
+
+
 def body_pages_excluding_toc(toc_pages: Any, page_count: int) -> list[int]:
     return pages_excluding_toc(range(1, page_count + 1), toc_pages)
+
+
+def section_start_pages(toc_pages: Any, page_count: int) -> list[int]:
+    """Pages a resolved section may start on: body pages plus each TOC's last page.
+
+    A section can begin below the end of a TOC on the TOC's last page. Only
+    range resolution uses this; title searches keep ``body_pages_excluding_toc``
+    so a TOC entry is never mistaken for its heading.
+    """
+    toc_set = _toc_page_set(toc_pages)
+    last_toc_pages = {page for page in toc_set if page + 1 not in toc_set}
+    return [
+        page
+        for page in range(1, page_count + 1)
+        if page not in toc_set or page in last_toc_pages
+    ]
 
 
 def pending_toc_body_scope(
@@ -591,7 +612,7 @@ def _toc_range_for_host(
 
 def _assign_toc_relationships(
     *,
-    tree: TocTree,
+    nesting: PendingTocNesting,
     pending: list[dict[str, Any]],
     pending_records: list[dict[str, Any]],
     root_anchor: SkeletonAnchor,
@@ -601,7 +622,7 @@ def _assign_toc_relationships(
 
     1. A TOC whose evidenced span equals the root's or an earlier unpaired
        TOC's is a paired copy of it.
-    2. A TOC in the tree takes its parent from the tree. A parent with no forest
+    2. A nested TOC takes its parent from the nesting. A parent with no forest
        to graft into (failed, unresolvable or paired) passes its sub-TOCs up to
        the nearest ancestor that has one.
     3. A TOC whose nesting check gave no answer is placed by evidenced spans:
@@ -669,12 +690,12 @@ def _assign_toc_relationships(
             return None
         return index
 
-    for pending_index, parent in tree.parents.items():
+    for pending_index, parent in nesting.parents.items():
         index = forest_index(pending_index)
         if index is None:
             continue
         while isinstance(parent, int) and forest_index(parent) is None:
-            parent = tree.parents[parent]
+            parent = nesting.parents[parent]
         host = forest_index(parent) if isinstance(parent, int) else parent
         _set_nesting(pending_records[index], host=host)
 
@@ -684,7 +705,7 @@ def _assign_toc_relationships(
     for index, span in enumerate(spans):
         if span is not None and has_forest(index):
             hosts.append((index, span))
-    for pending_index in sorted(tree.unknown):
+    for pending_index in sorted(nesting.unknown):
         index = forest_index(pending_index)
         if index is None:
             continue
@@ -788,14 +809,14 @@ def _calibrate_one_pending_toc(
 def _calibrate_pending_tocs(
     *,
     pending: list[dict[str, Any]],
-    tree: TocTree,
+    nesting: PendingTocNesting,
     ctx: ToolContext,
     page_texts: dict[int, str],
     page_count: int,
     body_pages: list[int],
 ) -> list[dict[str, Any]]:
-    """Calibrate every unpaired pending TOC, each within its scope from the tree."""
-    indices = tree.calibrated_indices()
+    """Calibrate every unpaired pending TOC, each within the scope its nesting gives."""
+    indices = nesting.calibrated_indices()
     if not indices:
         return []
 
@@ -813,7 +834,7 @@ def _calibrate_pending_tocs(
         pool.spawn(
             _calibrate_one_pending_toc,
             pending_toc=pending[index],
-            toc_scope_end=tree.scope_end(
+            toc_scope_end=nesting.scope_end(
                 index,
                 pending=pending,
                 page_count=page_count,
@@ -854,7 +875,7 @@ def _graft_contained_pending(
     skeleton_anchor: SkeletonAnchor,
     pending_records: list[dict[str, Any]],
     page_count: int,
-    body_pages: list[int],
+    section_start_pages: list[int],
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
     from app.services.document_agent.structure.toc_graft import graft_contained_toc
 
@@ -920,7 +941,7 @@ def _graft_contained_pending(
                 contained_nodes=contained_nodes,
                 contained_overrides=contained_overrides,
                 page_count=page_count,
-                body_pages=body_pages,
+                section_start_pages=section_start_pages,
             )
             nodes = grafted.nodes
             overrides = grafted.match_overrides
@@ -940,7 +961,7 @@ def _graft_contained_pending(
             contained_nodes=contained_nodes,
             contained_overrides=contained_overrides,
             page_count=page_count,
-            body_pages=body_pages,
+            section_start_pages=section_start_pages,
         )
         pending_forests[host] = (grafted.nodes, grafted.match_overrides)
         host_record = pending_records[host]

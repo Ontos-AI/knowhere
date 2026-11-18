@@ -28,10 +28,13 @@ from app.services.document_agent.structure.toc_anchoring import (
 )
 from app.services.document_agent.structure.toc_pairing import (
     PairedTocMatch,
-    TocNesting,
+    NestingAnswer,
     check_toc_nesting,
 )
-from app.services.document_agent.structure.toc_tree import TocTree, build_toc_tree
+from app.services.document_agent.structure.toc_nesting import (
+    PendingTocNesting,
+    nest_pending_tocs,
+)
 
 _NO_ANSWER = None
 
@@ -43,7 +46,7 @@ def _toc(start: int, end: int | None = None) -> dict[str, Any]:
 def _ctx(tmp_path=None) -> ToolContext:
     return ToolContext(
         pdf_path="/tmp/doc.pdf",
-        job_id="job-tree",
+        job_id="job-nesting",
         blackboard=ProfileBlackboard(page_count=100),
         trace=None,
         output_dir=str(tmp_path) if tmp_path else None,
@@ -60,10 +63,10 @@ def _fake_checks(
     """Answer each (TOC A start, TOC B start) pair; unlisted pairs are ``False``."""
     asked: list[tuple[int, int]] = []
 
-    def nesting(toc_a, toc_b, **_kwargs) -> TocNesting:
+    def nesting(toc_a, toc_b, **_kwargs) -> NestingAnswer:
         key = (toc_a["toc_range"][0], toc_b["toc_range"][0])
         asked.append(key)
-        return TocNesting(inside=answers.get(key, False))
+        return NestingAnswer(inside=answers.get(key, False))
 
     def pair(toc_a, toc_b, **_kwargs) -> PairedTocMatch:
         key = (toc_a["toc_range"][0], toc_b["toc_range"][0])
@@ -75,7 +78,7 @@ def _fake_checks(
     return asked
 
 
-def test_tree_nests_with_a_stack_and_pops_to_the_containing_toc(monkeypatch) -> None:
+def test_nesting_uses_a_stack_and_pops_to_the_containing_toc(monkeypatch) -> None:
     primary = _toc(1)
     pending = [_toc(10), _toc(20), _toc(30), _toc(40)]
     asked = _fake_checks(
@@ -83,11 +86,11 @@ def test_tree_nests_with_a_stack_and_pops_to_the_containing_toc(monkeypatch) -> 
         {(1, 10): True, (1, 20): True, (20, 30): True},
     )
 
-    tree = build_toc_tree(primary_toc=primary, pending=pending, ctx=_ctx())
+    nesting = nest_pending_tocs(primary_toc=primary, pending=pending, ctx=_ctx())
 
-    assert tree.parents == {0: "root", 1: "root", 2: 1, 3: None}
-    assert tree.unknown == set()
-    assert tree.paired == {}
+    assert nesting.parents == {0: "root", 1: "root", 2: 1, 3: None}
+    assert nesting.unknown == set()
+    assert nesting.paired == {}
     # 20 is not inside 10, so 10 closes and 20 is asked against the primary;
     # 40 closes 30, 20 and the primary in turn.
     assert asked == [
@@ -112,11 +115,11 @@ def test_unanswered_check_leaves_the_toc_unknown_and_the_stack_as_it_was(
         {(1, 10): True, (10, 20): False, (1, 20): _NO_ANSWER, (10, 30): True},
     )
 
-    tree = build_toc_tree(primary_toc=primary, pending=pending, ctx=_ctx())
+    nesting = nest_pending_tocs(primary_toc=primary, pending=pending, ctx=_ctx())
 
-    assert tree.parents == {0: "root", 2: 0}
-    assert tree.unknown == {1}
-    assert tree.calibrated_indices() == [0, 1, 2]
+    assert nesting.parents == {0: "root", 2: 0}
+    assert nesting.unknown == {1}
+    assert nesting.calibrated_indices() == [0, 1, 2]
     # The pop of 10 was not applied, so 30 is asked against 10 first.
     assert asked == [(1, 10), (10, 20), (1, 20), (10, 30)]
 
@@ -130,34 +133,34 @@ def test_paired_check_runs_against_the_latest_unpaired_toc(monkeypatch) -> None:
         paired=frozenset({(1, 7), (20, 21)}),
     )
 
-    tree = build_toc_tree(primary_toc=primary, pending=pending, ctx=_ctx())
+    nesting = nest_pending_tocs(primary_toc=primary, pending=pending, ctx=_ctx())
 
-    assert tree.paired[0]["host"] == "root"
-    assert tree.paired[0]["paired_with_range"] == [1, 6]
+    assert nesting.paired[0]["host"] == "root"
+    assert nesting.paired[0]["paired_with_range"] == [1, 6]
     # 20 is unknown but still the latest unpaired TOC, so 21 pairs with it.
-    assert tree.unknown == {1}
-    assert tree.paired[2]["host"] == 1
+    assert nesting.unknown == {1}
+    assert nesting.paired[2]["host"] == 1
     assert pending[2]["paired_with_range"] == [20, 20]
     assert asked == [(1, 20)]
 
 
 def test_scope_ends_before_the_next_toc_that_is_not_a_sub_toc() -> None:
     pending = [_toc(10), _toc(20), _toc(30), _toc(40)]
-    tree = TocTree(parents={0: "root", 1: "root", 2: 1, 3: None})
+    nesting = PendingTocNesting(parents={0: "root", 1: "root", 2: 1, 3: None})
 
-    assert tree.scope_end(0, pending=pending, page_count=100) == 19
+    assert nesting.scope_end(0, pending=pending, page_count=100) == 19
     # 30 is a sub-TOC of 20, so it does not end 20's scope.
-    assert tree.scope_end(1, pending=pending, page_count=100) == 39
-    assert tree.scope_end(2, pending=pending, page_count=100) == 39
-    assert tree.scope_end(3, pending=pending, page_count=100) == 100
+    assert nesting.scope_end(1, pending=pending, page_count=100) == 39
+    assert nesting.scope_end(2, pending=pending, page_count=100) == 39
+    assert nesting.scope_end(3, pending=pending, page_count=100) == 100
 
 
 def test_unknown_tocs_end_scopes_and_paired_tocs_do_not() -> None:
     pending = [_toc(10), _toc(20), _toc(30), _toc(40)]
-    tree = TocTree(parents={0: "root", 3: 0}, unknown={2}, paired={1: {}})
+    nesting = PendingTocNesting(parents={0: "root", 3: 0}, unknown={2}, paired={1: {}})
 
-    assert tree.scope_end(0, pending=pending, page_count=100) == 29
-    assert tree.scope_end(2, pending=pending, page_count=100) == 39
+    assert nesting.scope_end(0, pending=pending, page_count=100) == 29
+    assert nesting.scope_end(2, pending=pending, page_count=100) == 39
 
 
 def _span_anchor(start: int, end: int) -> dict[str, Any]:
@@ -187,10 +190,12 @@ def _calibrated(toc: dict[str, Any], start: int, end: int) -> dict[str, Any]:
 
 
 def _assign(
-    tree: TocTree, pending: list[dict[str, Any]], records: list[dict[str, Any]]
+    nesting: PendingTocNesting,
+    pending: list[dict[str, Any]],
+    records: list[dict[str, Any]],
 ) -> None:
     _assign_toc_relationships(
-        tree=tree,
+        nesting=nesting,
         pending=pending,
         pending_records=records,
         root_anchor=_root_anchor(5, 90),
@@ -198,9 +203,9 @@ def _assign(
     )
 
 
-def test_tree_parents_skip_parents_without_a_forest() -> None:
+def test_nested_parents_skip_parents_without_a_forest() -> None:
     pending = [_toc(10), _toc(20), _toc(30), _toc(40), _toc(50)]
-    tree = TocTree(parents={0: "root", 1: 0, 2: 1, 3: None, 4: 3})
+    nesting = PendingTocNesting(parents={0: "root", 1: 0, 2: 1, 3: None, 4: 3})
     # 20 failed calibration (no record); 40 anchored nothing.
     records = [
         _calibrated(pending[0], 11, 60),
@@ -209,7 +214,7 @@ def test_tree_parents_skip_parents_without_a_forest() -> None:
         _calibrated(pending[4], 51, 55),
     ]
 
-    _assign(tree, pending, records)
+    _assign(nesting, pending, records)
 
     assert (records[0]["relationship"], records[0]["host"]) == ("contained", "root")
     # 30's parent 20 has no forest, so it moves up to 10 (record 0).
@@ -222,7 +227,7 @@ def test_tree_parents_skip_parents_without_a_forest() -> None:
 
 def test_equal_span_is_paired_and_its_sub_tocs_move_up() -> None:
     pending = [_toc(10), _toc(20), _toc(30)]
-    tree = TocTree(parents={0: "root", 1: 0, 2: 1})
+    nesting = PendingTocNesting(parents={0: "root", 1: 0, 2: 1})
     records = [
         _calibrated(pending[0], 11, 60),
         # 20 anchors exactly where 10 does: a copy of 10.
@@ -230,7 +235,7 @@ def test_equal_span_is_paired_and_its_sub_tocs_move_up() -> None:
         _calibrated(pending[2], 31, 35),
     ]
 
-    _assign(tree, pending, records)
+    _assign(nesting, pending, records)
 
     assert records[1]["relationship"] == "paired"
     assert records[1]["host"] == 0
@@ -241,10 +246,10 @@ def test_equal_span_is_paired_and_its_sub_tocs_move_up() -> None:
 
 def test_equal_span_with_root_is_paired_with_root() -> None:
     pending = [_toc(10)]
-    tree = TocTree(parents={0: "root"})
+    nesting = PendingTocNesting(parents={0: "root"})
     records = [_calibrated(pending[0], 5, 90)]
 
-    _assign(tree, pending, records)
+    _assign(nesting, pending, records)
 
     assert records[0]["relationship"] == "paired"
     assert records[0]["host"] == "root"
@@ -253,14 +258,14 @@ def test_equal_span_with_root_is_paired_with_root() -> None:
 
 def test_unknown_toc_is_placed_by_evidenced_spans() -> None:
     pending = [_toc(10), _toc(20), _toc(95)]
-    tree = TocTree(parents={0: "root"}, unknown={1, 2})
+    nesting = PendingTocNesting(parents={0: "root"}, unknown={1, 2})
     records = [
         _calibrated(pending[0], 11, 60),
         _calibrated(pending[1], 21, 30),
         _calibrated(pending[2], 96, 99),
     ]
 
-    _assign(tree, pending, records)
+    _assign(nesting, pending, records)
 
     assert (records[0]["relationship"], records[0]["host"]) == ("contained", "root")
     # Tightest span that contains 21-30 is 10's (11-60), not the root's.

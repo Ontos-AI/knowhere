@@ -40,7 +40,7 @@ class PairedTocMatch:
 
 
 @dataclass(frozen=True)
-class TocNesting:
+class NestingAnswer:
     inside: bool | None
     """Whether TOC B lies inside TOC A; ``None`` when the check did not answer."""
     reason: str = ""
@@ -318,7 +318,7 @@ def check_toc_nesting(
     *,
     ctx: ToolContext,
     model: str | None,
-) -> TocNesting:
+) -> NestingAnswer:
     """Return whether ``toc_b``, which comes later in the PDF, lies inside ``toc_a``.
 
     An unsure model answers no: keeping a nested TOC separate only ends a scope
@@ -326,12 +326,12 @@ def check_toc_nesting(
     not list. ``inside`` is ``None`` when no answer was obtained.
     """
     if not model:
-        return TocNesting(inside=None, reason="no VLM model configured")
+        return NestingAnswer(inside=None, reason="no VLM model configured")
 
     pages_a = sample_head_tail_pages(toc_pages_from_range(toc_a))
     pages_b = sample_head_tail_pages(toc_pages_from_range(toc_b))
     if not pages_a or not pages_b:
-        return TocNesting(inside=None, reason="missing TOC page range")
+        return NestingAnswer(inside=None, reason="missing TOC page range")
 
     try:
         raw = _ask_vlm_about_two_tocs(
@@ -344,7 +344,7 @@ def check_toc_nesting(
         nesting = _parse_nesting_response(raw)
     except Exception as exc:
         logger.warning("{} VLM nesting check failed: {}", _LOG_PREFIX, exc)
-        return TocNesting(inside=None, reason=f"VLM nesting check failed: {exc}")
+        return NestingAnswer(inside=None, reason=f"VLM nesting check failed: {exc}")
     logger.info(
         "{} VLM nesting check pages_a={} pages_b={} inside={}",
         _LOG_PREFIX,
@@ -377,14 +377,14 @@ def _build_toc_nesting_prompt(pages_a: list[int], pages_b: list[int]) -> str:
     )
 
 
-def _parse_nesting_response(raw: str) -> TocNesting:
+def _parse_nesting_response(raw: str) -> NestingAnswer:
     data = json.loads(raw)
     if not isinstance(data, dict):
         raise ValueError("TOC nesting VLM response is not a json object")
     inside = data.get("inside")
     if not isinstance(inside, bool):
         raise ValueError(f"TOC nesting answer is not a boolean: {inside!r}")
-    return TocNesting(inside=inside, reason=str(data.get("reason") or ""))
+    return NestingAnswer(inside=inside, reason=str(data.get("reason") or ""))
 
 
 def _ask_vlm_about_two_tocs(

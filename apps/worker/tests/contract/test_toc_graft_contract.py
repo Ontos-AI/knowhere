@@ -32,16 +32,17 @@ from app.services.document_agent.structure.hierarchy_locator import (
 from app.services.document_agent.structure.toc_anchoring import (
     _assign_toc_relationships,
     run_toc_anchoring,
+    section_start_pages,
 )
 from app.services.document_agent.structure.toc_pairing import (
     PairedTocMatch,
-    TocNesting,
+    NestingAnswer,
     check_paired_toc,
     proximity_allows_pair_check,
     sample_head_tail_pages,
 )
 from app.services.document_agent.structure.toc_graft import graft_contained_toc
-from app.services.document_agent.structure.toc_tree import TocTree
+from app.services.document_agent.structure.toc_nesting import PendingTocNesting
 from app.services.page_memory.skeleton_extractor import extract_section_skeletons
 
 
@@ -67,14 +68,13 @@ def _graft(
     contained_pages: dict[tuple[str, ...], int],
     page_count: int = 50,
 ) -> object:
-    body_pages = list(range(1, page_count + 1))
     return graft_contained_toc(
         primary_nodes=primary,
         primary_overrides=_overrides(primary_pages),
         contained_nodes=contained,
         contained_overrides=_overrides(contained_pages),
         page_count=page_count,
-        body_pages=body_pages,
+        section_start_pages=list(range(1, page_count + 1)),
     )
 
 
@@ -120,6 +120,38 @@ def test_skip_outside_parent_coverage_records_event_without_orphan_override() ->
     assert skip["parent_path"] == ("第一章",)
 
 
+def test_contained_child_on_boundary_page_goes_to_section_opening_there() -> None:
+    result = _graft(
+        primary=[
+            TitleNode(
+                title="Appendices",
+                level=1,
+                printed_page=300,
+                children=[
+                    TitleNode(title="E", level=2, printed_page=300),
+                    TitleNode(title="F", level=2, printed_page=361),
+                ],
+            )
+        ],
+        primary_pages={
+            ("Appendices",): 300,
+            ("Appendices", "E"): 300,
+            ("Appendices", "F"): 361,
+        },
+        contained=[
+            TitleNode(title="Part A", level=1, printed_page=361),
+            TitleNode(title="Part B", level=1, printed_page=370),
+        ],
+        contained_pages={("Part A",): 361, ("Part B",): 370},
+        page_count=450,
+    )
+
+    appendices = result.nodes[0]
+    e_node, f_node = appendices.children
+    assert e_node.children == []
+    assert [child.title for child in f_node.children] == ["Part A", "Part B"]
+
+
 def test_dedup_keeps_primary_title_and_hangs_child() -> None:
     result = _graft(
         primary=[TitleNode(title="第一章", level=1, printed_page=10)],
@@ -147,7 +179,6 @@ def test_dedup_keeps_primary_title_and_hangs_child() -> None:
 
 def test_dedup_ignores_title_and_keeps_primary_override() -> None:
     primary_match = _match("第一章", 10)
-    body_pages = list(range(1, 51))
     result = graft_contained_toc(
         primary_nodes=[TitleNode(title="第一章", level=1, printed_page=10)],
         primary_overrides={("第一章",): primary_match},
@@ -161,7 +192,7 @@ def test_dedup_ignores_title_and_keeps_primary_override() -> None:
         ],
         contained_overrides=_overrides({("Chapter 1",): 10, ("Chapter 1", "1.2"): 12}),
         page_count=50,
-        body_pages=body_pages,
+        section_start_pages=list(range(1, 51)),
     )
 
     assert [node.title for node in result.nodes] == ["第一章"]
@@ -238,7 +269,7 @@ def test_two_contained_tocs_graft_in_order() -> None:
         ],
         contained_overrides=_overrides({("第一章",): 10, ("第一章", "1.3"): 20}),
         page_count=50,
-        body_pages=list(range(1, 51)),
+        section_start_pages=list(range(1, 51)),
     )
 
     titles = [child.title for child in second.nodes[0].children]
@@ -382,7 +413,7 @@ def test_parallel_pending_is_not_grafted() -> None:
         ),
         patch(
             "app.services.document_agent.structure.toc_pairing.check_toc_nesting",
-            return_value=TocNesting(inside=False),
+            return_value=NestingAnswer(inside=False),
         ),
         patch(
             "app.services.document_agent.calibration.service.calibrate_offset",
@@ -449,7 +480,7 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
         ),
         patch(
             "app.services.document_agent.structure.toc_pairing.check_toc_nesting",
-            return_value=TocNesting(inside=True),
+            return_value=NestingAnswer(inside=True),
         ),
         patch(
             "app.services.document_agent.calibration.service.calibrate_offset",
@@ -555,7 +586,7 @@ def test_assign_equal_span_is_paired_not_parallel() -> None:
         ),
     }
     _assign_toc_relationships(
-        tree=TocTree(parents={0: "root"}),
+        nesting=PendingTocNesting(parents={0: "root"}),
         pending=[pending_toc],
         root_anchor=root,
         pending_records=[record],
@@ -586,7 +617,7 @@ def test_assign_equal_span_between_two_pendings_keeps_earlier_parallel() -> None
         ),
     }
     _assign_toc_relationships(
-        tree=TocTree(parents={0: None, 1: None}),
+        nesting=PendingTocNesting(parents={0: None, 1: None}),
         pending=[toc_a, toc_b],
         root_anchor=root,
         pending_records=[rec_a, rec_b],
@@ -661,6 +692,57 @@ def _pending_record(
         record["grafted"] = True
         record["graft"] = []
     return record
+
+
+def test_section_start_pages_keep_only_last_page_of_each_toc() -> None:
+    pages = section_start_pages([1, 2, 200, 201, 230], 240)
+
+    assert 1 not in pages
+    assert 200 not in pages
+    assert {2, 201, 230} <= set(pages)
+    assert 3 in pages
+
+
+def _skeletons_with_ch2_at(page: int) -> list[object]:
+    anatomy = _anatomy(
+        page_count=250,
+        nodes=[
+            TitleNode(title="Ch1", level=1, printed_page=3),
+            TitleNode(title="Ch2", level=1, printed_page=page),
+            TitleNode(title="Ch3", level=1, printed_page=230),
+        ],
+        overrides={("Ch1",): 3, ("Ch2",): page, ("Ch3",): 230},
+        hierarchies=[
+            {
+                "toc_range": [1, 2],
+                "toc_range_unit": "page",
+                "toc_with_level": [
+                    {"heading": "Ch1", "level": 1, "page_number": 3},
+                    {"heading": "Ch2", "level": 1, "page_number": page},
+                    {"heading": "Ch3", "level": 1, "page_number": 230},
+                ],
+            },
+        ],
+        pending_records=[],
+        toc_pages=[1, 2, 200, 201],
+    )
+    return extract_section_skeletons(
+        anatomy=anatomy,
+        filename="doc.pdf",
+        page_texts={page: "body" for page in range(1, 251)},
+    )
+
+
+def test_page_section_may_start_on_last_toc_page() -> None:
+    ch2 = next(item for item in _skeletons_with_ch2_at(201) if item.title == "Ch2")
+
+    assert ch2.start_page == 201
+
+
+def test_page_section_never_starts_on_inner_toc_page() -> None:
+    ch2 = next(item for item in _skeletons_with_ch2_at(200) if item.title == "Ch2")
+
+    assert ch2.start_page != 200
 
 
 def test_page_contained_does_not_cut_primary_window() -> None:

@@ -23,7 +23,7 @@ from app.services.document_agent.structure.hierarchy_locator import (
     resolve_hierarchy_page_ranges,
 )
 from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
-from app.services.document_agent.structure.toc_pairing import TocNesting
+from app.services.document_agent.structure.toc_pairing import NestingAnswer
 from app.services.document_agent.structure.toc_rehome import rehome_forest
 
 
@@ -653,7 +653,7 @@ def test_run_toc_anchoring_rehome_before_graft_keeps_contained_graft() -> None:
         ),
         patch(
             "app.services.document_agent.structure.toc_pairing.check_toc_nesting",
-            return_value=TocNesting(inside=True),
+            return_value=NestingAnswer(inside=True),
         ),
     ):
         run_toc_anchoring(ctx)
