@@ -2,7 +2,6 @@
 
 Input: ``ToolContext`` with bootstrap page features / stats on the blackboard.
 Output: ``DocumentProfile`` plus a ``ToolResult`` for tracing.
-Does not choose tools or drive shard planning.
 """
 
 from __future__ import annotations

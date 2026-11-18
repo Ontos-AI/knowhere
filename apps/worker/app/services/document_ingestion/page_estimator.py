@@ -35,10 +35,17 @@ class WorkloadEstimate:
     fallback_reason: str | None = None
     # Durations of a presentation's distinct embedded recordings.
     embedded_media_durations_ms: tuple[int, ...] = ()
+    # Billable pages from those recordings, included in ``page_count``.
+    embedded_media_page_count: int = 0
 
     @property
     def used_fallback(self) -> bool:
         return self.fallback_reason is not None
+
+    @property
+    def document_page_count(self) -> int:
+        """Pages of the document itself, without embedded recordings."""
+        return self.page_count - self.embedded_media_page_count
 
 
 class PageEstimator:
@@ -69,7 +76,7 @@ class PageEstimator:
                 cls._count_xlsx if suffix == ".xlsx" else cls._count_spreadsheet
             )
             return cls._estimate_with_fallback(method, estimator, file_path)
-        if suffix in [".txt", ".md", ".json", ".fragment"]:
+        if suffix in [".txt", ".md"]:
             return cls._estimate_with_fallback("text_words", cls._count_text, file_path)
         if suffix in IMAGE_SOURCE_EXTENSIONS:
             return WorkloadEstimate(page_count=1, method="image_default")
@@ -121,6 +128,7 @@ class PageEstimator:
             page_count=max(1, slide_count) + media_pages,
             method=method,
             embedded_media_durations_ms=durations_ms,
+            embedded_media_page_count=media_pages,
         )
 
     @classmethod

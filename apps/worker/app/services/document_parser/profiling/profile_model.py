@@ -22,16 +22,11 @@ class ParserTocProfile:
     source: str = "none"
     method: str = "none"
     notes: str = ""
-    attempted: bool = False
-
-    @property
-    def has_toc(self) -> bool:
-        return bool(self.toc_pages or self.hierarchies)
 
 
 @dataclass
 class ParserDocumentProfile:
-    """Parser-entry document profile used for routing and PDF anatomy reuse."""
+    """Page-memory PDF profile: coarse classification, TOC and anatomy."""
 
     file_type: str
     category: list[str] = field(default_factory=lambda: [OTHER_CODE])
@@ -46,14 +41,6 @@ class ParserDocumentProfile:
     page_full_text_cache: dict[int, str] = field(default_factory=dict)
     page_body_text_cache: dict[int, str] = field(default_factory=dict)
 
-    @property
-    def is_pdf(self) -> bool:
-        return self.file_type == "pdf"
-
-    @property
-    def has_structural_anatomy(self) -> bool:
-        return self.anatomy is not None
-
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data.pop("page_full_text_cache", None)
@@ -64,19 +51,6 @@ class ParserDocumentProfile:
         else:
             data["anatomy"] = None
         return data
-
-    def summary(self) -> str:
-        parts = (
-            f"[{self.file_type.upper()}] category={self.category} "
-            f"({self.category_label}), "
-            f"routing={self.routing_category.value}, "
-            f"scanned={self.is_scanned}, pages={self.page_count}"
-        )
-        if self.toc.has_toc:
-            parts += f", toc={self.toc.method}"
-        if self.has_structural_anatomy:
-            parts += ", anatomy=True"
-        return parts
 
 
 __all__ = ["ParserDocumentProfile", "ParserTocProfile", "TocEvidence"]

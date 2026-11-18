@@ -275,7 +275,6 @@ def test_full_ingestion_short_scanned_and_text_pdfs_emit_page_assets(
         page_count=1,
         is_scanned=True,
         routing_category=PdfRoutingCategory.GENERIC,
-        toc=SimpleNamespace(has_toc=False),
         anatomy=SimpleNamespace(
             page_count=1, page_features=[], page_labels=[], toc_result=None
         ),
@@ -340,7 +339,6 @@ def test_full_ingestion_short_scanned_and_text_pdfs_emit_page_assets(
         page_count=2,
         is_scanned=False,
         routing_category=PdfRoutingCategory.GENERIC,
-        toc=SimpleNamespace(has_toc=False),
         anatomy=SimpleNamespace(
             page_count=2, page_features=[], page_labels=[], toc_result=None
         ),

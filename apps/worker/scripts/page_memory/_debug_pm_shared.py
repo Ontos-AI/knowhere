@@ -321,7 +321,6 @@ def _build_debug_coordinator(
     agent_output_dir.mkdir(parents=True, exist_ok=True)
     merged = {
         "vlm_model": settings.IMAGE_MODEL,
-        "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
     }
     if settings_extra:
         merged.update(settings_extra)
@@ -330,7 +329,6 @@ def _build_debug_coordinator(
         job_id=job_id,
         output_dir=str(agent_output_dir),
         db=None,
-        model=settings.IMAGE_MODEL,
         settings=merged,
     )
 
@@ -468,7 +466,6 @@ def load_stage0_into_coordinator(coordinator, out_dir: Path) -> None:
     bb.skeleton_anchor = None
     bb.skeleton_nodes = None
     bb.pending_skeleton_anchors = []
-    bb.global_signals.pop("toc_profile_attempted", None)
     # Keep assets_probed / has_asset from Stage-0; Stage-1 is TOC-only.
     logger.info(
         "⏩ Resumed Stage-0: pages={} text_pages={} labels={} assets_probed={}",
@@ -1337,12 +1334,6 @@ def load_assets_artifact(path: Path) -> dict[int, list[Any]]:
         if not isinstance(item, dict):
             continue
         page_index = int(item.get("page_index") or 0)
-        raw_source_pages = item.get("source_page_nums")
-        source_page_nums = (
-            [int(page) for page in raw_source_pages]
-            if isinstance(raw_source_pages, list)
-            else []
-        )
         asset = PageAsset(
             asset_id=str(item.get("asset_id") or ""),
             page_index=page_index,
@@ -1371,7 +1362,6 @@ def load_assets_artifact(path: Path) -> dict[int, list[Any]]:
             image_path=str(item.get("image_path") or ""),
             html_path=str(item.get("html_path") or ""),
             extraction_status=str(item.get("extraction_status") or "loaded"),
-            source_page_nums=source_page_nums,
         )
         if page_index > 0:
             assets_by_page.setdefault(page_index, []).append(asset)

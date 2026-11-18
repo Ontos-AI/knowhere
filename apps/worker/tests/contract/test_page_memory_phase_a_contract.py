@@ -363,7 +363,6 @@ def test_full_mode_run_invokes_full_page_dataframe_and_writes_no_phase_b_manifes
         monkeypatch=monkeypatch,
     )
     profile.page_count = 8
-    profile.toc = SimpleNamespace(has_toc=True)
 
     source = tmp_path / "doc.pdf"
     source.write_bytes(b"%PDF")
@@ -604,8 +603,6 @@ def test_scanned_progressive_m0_skips_ocr_and_builds_visual_page_chunks(
         job_id="job-scan-m0",
         output_dir=str(tmp_path / "_agent"),
         db=None,
-        model="deepseek-flash",
-        settings={"skip_scanned_ocr": True},
     )
     coord.blackboard.page_count = 2
     coord.blackboard.document_profile = DocumentProfile(

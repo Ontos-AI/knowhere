@@ -40,21 +40,17 @@ class ProfileCoordinator:
         job_id: str,
         output_dir: str | None = None,
         db: Any | None = None,
-        model: str | None = None,
         settings: dict[str, Any] | None = None,
     ) -> None:
         self.state = ProfileState.INIT
         self.blackboard = ProfileBlackboard()
-        effective_settings = settings or {}
-        if model:
-            effective_settings["model"] = model
         self.ctx = ToolContext(
             pdf_path=pdf_path,
             job_id=job_id,
             blackboard=self.blackboard,
             trace=None,
             output_dir=output_dir,
-            settings=effective_settings,
+            settings=settings or {},
         )
         self.trace = ParseRunRecorder(job_id=job_id, db=db)
         self.ctx.trace = self.trace
@@ -234,7 +230,6 @@ class ProfileCoordinator:
         if self.blackboard.toc_result is not None:
             return
 
-        self.blackboard.global_signals["toc_profile_attempted"] = True
         try:
             if self._is_slide_deck():
                 self._run_slide_structure_route()
@@ -285,7 +280,7 @@ class ProfileCoordinator:
             tool_name=tool_name,
             tool_args={},
         )
-        if result.status not in {"ok", "invalid"}:
+        if result.status != "ok":
             raise RuntimeError(result.error or f"{tool_name} failed")
         self.round_index += 1
         return result

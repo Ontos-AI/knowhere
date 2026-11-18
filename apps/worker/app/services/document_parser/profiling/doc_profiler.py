@@ -82,13 +82,11 @@ def _profile_pdf_with_db(
         job_id=profile_job_id,
         output_dir=agent_output_dir,
         db=db,
-        model=settings.IMAGE_MODEL,
         settings={
             "vlm_model": settings.IMAGE_MODEL,
             "stop_after_asset_probe": stop_after is not None,
             "stop_after_native_baseline": stop_after is not None,
             "presentation_source": presentation_source,
-            "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
         },
     )
     agent_profile = coordinator.run_coarse()
@@ -136,10 +134,6 @@ def _map_toc_profile(coordinator: ProfileCoordinator) -> ParserTocProfile:
     toc_result = coordinator.blackboard.toc_result
     if toc_result is None:
         return ParserTocProfile()
-    attempted_signal = coordinator.blackboard.global_signals.get(
-        "toc_profile_attempted"
-    )
-    attempted = bool(attempted_signal) if attempted_signal is not None else True
     evidence = [
         TocEvidence(
             page_index=item.page_index,
@@ -156,7 +150,6 @@ def _map_toc_profile(coordinator: ProfileCoordinator) -> ParserTocProfile:
         source=source,
         method=toc_result.method,
         notes=toc_result.notes,
-        attempted=attempted,
     )
 
 
