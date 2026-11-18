@@ -43,6 +43,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ffmpeg \
+    fonts-noto-cjk \
     libgl1 \
     libglib2.0-0 \
     libgomp1 \
@@ -52,6 +53,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer \
     openjdk-21-jre-headless \
     && rm -rf /var/lib/apt/lists/*
+
+# LibreOffice renders DOCX/PPTX to PDF for page previews. Without a CJK font
+# Chinese text renders as empty boxes, and without these aliases the
+# fontconfig fallback picks the Hong Kong glyph variant, so common Simplified
+# Chinese Office fonts are mapped to the Noto CJK SC faces.
+RUN printf '%s\n' \
+    '<?xml version="1.0"?>' \
+    '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">' \
+    '<fontconfig>' \
+    '  <alias binding="same"><family>Microsoft YaHei</family><prefer><family>Noto Sans CJK SC</family></prefer></alias>' \
+    '  <alias binding="same"><family>SimHei</family><prefer><family>Noto Sans CJK SC</family></prefer></alias>' \
+    '  <alias binding="same"><family>SimSun</family><prefer><family>Noto Serif CJK SC</family></prefer></alias>' \
+    '</fontconfig>' \
+    > /etc/fonts/conf.d/65-cjk-office-aliases.conf
 
 # tabula-py shells out to Java for page-memory table HTML extraction.
 RUN java -version

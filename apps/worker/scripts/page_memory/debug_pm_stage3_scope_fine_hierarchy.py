@@ -25,7 +25,7 @@ sys.path.insert(0, str(_Path(__file__).resolve().parent))
 import os
 import time
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from loguru import logger
 
@@ -57,6 +57,9 @@ from _debug_pm_shared import (
     _serialize_scope_skeletons,
     _serialize_skeletons,
 )
+
+if TYPE_CHECKING:
+    from app.services.page_memory.fine_hierarchy import EndTitleAnchor
 
 
 def _resolve_scope_processing_pages(
@@ -106,7 +109,7 @@ def _run_fine_hierarchy_for_scope(
     page_features: list[Any],
     page_labels: list[Any],
     vlm_model: str | None,
-    next_title_by_path: dict[str, str | None],
+    next_title_by_path: "dict[str, EndTitleAnchor]",
     toc_pages: list[int],
     page_memory_config: Any,
     token_cost_tracker: TokenCostTracker | None = None,

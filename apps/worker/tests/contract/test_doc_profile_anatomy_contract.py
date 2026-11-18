@@ -252,7 +252,7 @@ def test_parse_run_recorder_doc_profile_uses_final_anatomy_toc() -> None:
         ],
         toc_result=TocResult(toc_pages=[2], method="vlm_batch", notes="ok"),
         toc_hierarchies=[{"toc_range": [2, 2], "toc_tree": {}}],
-        global_signals={"toc_profile_attempted": True},
+        global_signals={"assets_probed": True},
     )
 
     doc_profile = recorder._doc_profile_for_plan()  # noqa: SLF001
@@ -306,12 +306,12 @@ def test_parse_run_recorder_profile_only_row_is_updated_by_anatomy_flush() -> No
         page_labels=[PageLabel(page=1, kind="normal")],
         toc_result=TocResult(toc_pages=[2], method="vlm_batch", notes="ok"),
         toc_hierarchies=[{"toc_range": [2, 2], "toc_tree": {}}],
-        global_signals={"toc_profile_attempted": True},
+        global_signals={"assets_probed": True},
     )
     recorder.flush(final_status="ready")
 
     assert len(db.rows) == 2
-    assert db.rows[0].global_signals == {"toc_profile_attempted": True}
+    assert db.rows[0].global_signals == {"assets_probed": True}
     assert db.rows[0].doc_profile["toc"]["method"] == "vlm_batch"
 
 
@@ -349,7 +349,7 @@ def test_run_anatomy_keeps_the_existing_toc_result(
     tmp_path: Path,
 ) -> None:
     coordinator = ProfileCoordinator(
-        pdf_path=str(tmp_path / "oversized.pdf"),
+        pdf_path=str(tmp_path / "large.pdf"),
         job_id="job-anatomy-existing-toc",
         output_dir=str(tmp_path / "profile"),
     )
@@ -396,7 +396,7 @@ def test_run_coarse_runs_coarse_profile_then_text_scan_then_toc(
     tmp_path: Path,
 ) -> None:
     coordinator = ProfileCoordinator(
-        pdf_path=str(tmp_path / "oversized.pdf"),
+        pdf_path=str(tmp_path / "large.pdf"),
         job_id="job-coarse-then-toc",
         output_dir=str(tmp_path / "profile"),
     )
@@ -606,8 +606,7 @@ def test_standard_pdf_profile_builds_page_toc_and_anatomy_by_default(
         output_dir=str(tmp_path),
     )
 
-    assert profile.toc.has_toc is False
-    assert profile.toc.attempted is True
+    assert not (profile.toc.toc_pages or profile.toc.hierarchies)
     assert profile.anatomy is fake_anatomy
     assert fake_instances[0].calls == ["run_coarse", "run_anatomy"]
     assert "toc_before_coarse" not in init_settings[0]
@@ -674,8 +673,6 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
     )
 
     assert fake_instances[0].calls == ["run_coarse", "run_anatomy"]
-    assert profile.toc.has_toc is True
-    assert profile.toc.attempted is True
     assert profile.toc.method == "vlm_batch"
     assert profile.toc.evidence[0].source == "vlm"
     assert profile.anatomy is fake_anatomy
@@ -687,8 +684,8 @@ def test_large_atlas_runs_the_single_anatomy_path(
 ) -> None:
     calls: list[str] = []
     fake_anatomy = PageAnatomyMap(
-        job_id="job-oversized-atlas",
-        file_path=str(tmp_path / "oversized-atlas.pdf"),
+        job_id="job-large-atlas",
+        file_path=str(tmp_path / "large-atlas.pdf"),
         page_count=250,
         page_features=[_page_feature(1)],
         page_labels=[PageLabel(page=1, kind="normal")],
@@ -746,9 +743,9 @@ def test_large_atlas_runs_the_single_anatomy_path(
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
 
     profile = profile_document(
-        str(tmp_path / "oversized-atlas.pdf"),
-        "oversized-atlas.pdf",
-        job_id="job-oversized-atlas",
+        str(tmp_path / "large-atlas.pdf"),
+        "large-atlas.pdf",
+        job_id="job-large-atlas",
         output_dir=str(tmp_path),
     )
 
@@ -757,8 +754,6 @@ def test_large_atlas_runs_the_single_anatomy_path(
     assert profile.anatomy is fake_anatomy
     assert profile.anatomy.skeleton_anchor == {"source": "toc"}
     assert [feature.page for feature in profile.anatomy.page_features] == [1]
-    assert profile.toc.has_toc is True
-    assert profile.toc.attempted is True
     assert profile.toc.toc_pages == [4]
 
 

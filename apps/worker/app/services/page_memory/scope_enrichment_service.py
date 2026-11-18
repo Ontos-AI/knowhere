@@ -464,7 +464,6 @@ def _assemble_scope_rows(
         page_count=page_count,
         output_dir=output_dir,
         filename=filename,
-        verdict="page",
         vlm_model=vlm_model,
         page_memory_config=page_memory_config,
         fine_text_by_page=fine_text_by_page,
@@ -726,11 +725,7 @@ def _resume_profile_from_m0_workspace(
         job_id=target.job_id,
         output_dir=os.path.join(add_dir, "_doc_agent"),
         db=None,
-        model=settings.IMAGE_MODEL,
-        settings={
-            "vlm_model": settings.IMAGE_MODEL,
-            "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
-        },
+        settings={"vlm_model": settings.IMAGE_MODEL},
     )
     bb_raw = _read_json_dict(bb_path)
     bb = coordinator.blackboard

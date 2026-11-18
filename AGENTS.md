@@ -73,17 +73,15 @@ flowchart TB
     end
 
     subgraph PARSE["② Document Parsing (Worker)"]
-        Queue --> Router["parse_service.checkerboard_parse_output"]
-        Router --> Profiler["profiling.doc_profiler.profile_document"]
-        Profiler --> PDF["page_memory.memory_service.run"]
-        Profiler --> DOCX["formats.docx.parser.parse_docx"]
-        Profiler --> PPTX["normalize_to_pdf → page_memory"]
-        Profiler --> XLSX["formats.excel.table_parser.parse_xlsx"]
-        Profiler --> MD["formats.markdown.parser.parse_md"]
-        Profiler --> IMG["formats.image.parser.parse_image"]
+        Queue --> Dispatch["parse_execution.execute_document_parse"]
+        Dispatch -->|".pdf / .pptx"| PDF["page_memory.memory_service.run"]
+        Dispatch -->|"other files"| Router["parse_service.checkerboard_parse_output"]
+        Router --> DOCX["formats.docx.parser.parse_docx"]
+        Router --> XLSX["formats.excel.table_parser.parse_xlsx"]
+        Router --> MD["formats.markdown.parser.parse_md"]
+        Router --> IMG["formats.image.parser.parse_image"]
         PDF --> DF["pd.DataFrame (ALL_DF_COLS)"]
         DOCX --> DF
-        PPTX --> DF
         XLSX --> DF
         MD --> DF
         IMG --> DF
@@ -122,23 +120,26 @@ flowchart TB
 
 ### Entry Point
 
-`apps/worker/app/services/document_parser/parse_service.py` →
-`checkerboard_parse_output()`
+`apps/worker/app/services/document_ingestion/parse_execution.py` →
+`execute_document_parse()` picks the parser by `parse_track` and ingestion mode:
 
-This is the typed `ParseOutput` entry for all file types. The parser flow:
+1. **page_memory** (`.pdf`, `.pptx`, both modes) → `page_memory.memory_service.run`.
+   It profiles the PDF via `profiling.doc_profiler.profile_document()`, which uses
+   `document_agent` as the single PyMuPDF feature source, then runs VLM coarse
+   classification with three fields: `category` (IPTC Media Topics top-level codes
+   from the numbered list in `profiling/domain_taxonomy.py`, multiple allowed),
+   `category_label` (open short phrase, for example `Financial Prospectus`), and
+   routing-only `routing_category` (`atlas/scanned/slides/generic`). Slide decks
+   take the slide-structure route; other PDFs take TOC extraction.
+2. **Progressive baselines** for sheet, chunk (`.docx/.md/.txt`) and media.
+3. **Everything else** → `document_parser/parse_service.checkerboard_parse_output()`,
+   which routes by file extension, post-processes images (cleans unreferenced
+   images, compresses PNG→JPG) and returns typed parse output with task-local
+   artifact paths.
 
-1. **Profiles** the document via `profiling.doc_profiler.profile_document()`. PDF
-   profiling uses `document_agent` as the single PyMuPDF feature source, then runs
-   VLM coarse classification with three fields: `category` (IPTC Media Topics
-   top-level codes from the numbered list in `profiling/domain_taxonomy.py`,
-   multiple allowed), `category_label` (open short phrase, for example
-   `Financial Prospectus`), and routing-only `routing_category`
-   (`atlas/scanned/slides/generic`). Oversized non-atlas PDFs additionally run the
-   structural anatomy stage once at the entry point and pass the resulting shard
-   plan to PDF parsing.
-2. **Routes** to the appropriate parser based on file extension.
-3. **Post-processes**: cleans up unreferenced images, compresses PNG→JPG.
-4. Returns typed parse output with task-local artifact paths.
+The page-memory page limit (`page_memory_config.max_pages`) is checked at worker
+admission, before billing; a file whose page count cannot be read is rejected
+there too.
 
 ### Parser Routing Table
 
@@ -153,7 +154,6 @@ This is the typed `ParseOutput` entry for all file types. The parser flow:
 | `.md` | `formats.markdown.parser.parse_md` | Markdown heading parsing + LLM summaries |
 | `.txt` | `formats.text.parser.parse_texts` → Markdown parser | Read lines then route to MD parser |
 | `.png/.jpg` | `formats.image.parser.parse_image` | VLM image description + OCR |
-| `.fragment` | `formats.fragment.parser.parse_fragment` | Raw text fragment ingestion |
 
 ### Heading Detection: `structure.layout_parser.pred_titles()`
 
@@ -201,7 +201,7 @@ Key logic in `parse_docx()`:
 
 ```mermaid
 flowchart LR
-    PDF[normalize_to_pdf] --> Profile["profile_document stop_after=asset_probe"]
+    PDF[normalize_to_pdf] --> Profile["profile_document stop_after=native_baseline"]
     Profile --> M0[M0 text or visual baseline]
     M0 --> Coarse["coarse: TOC + calibration + skeleton"]
     Coarse --> Fine["fine per scope: summary + M0 text"]

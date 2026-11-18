@@ -461,7 +461,6 @@ def build_node_rows(
     kind_by_page: dict[int, str],
     tag_by_page: dict[int, PageTagResult],
     filename: str,
-    verdict: str,
     vlm_model: str | None = None,
     page_assets_by_page: dict[int, list[PageAsset]] | None = None,
     node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,

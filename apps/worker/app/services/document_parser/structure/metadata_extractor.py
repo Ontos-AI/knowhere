@@ -16,18 +16,13 @@ Flow:
 """
 
 import json
-import logging
 import os
 import re
 from collections import defaultdict
 from typing import Dict, List, Tuple
 
 from bs4 import BeautifulSoup
-
-try:
-    from app.utils.logger import logger
-except ImportError:
-    logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 def normalize_content(text: str) -> str:
