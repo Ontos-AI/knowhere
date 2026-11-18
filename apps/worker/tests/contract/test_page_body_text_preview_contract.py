@@ -93,7 +93,7 @@ def test_page_preview_respects_owned_pages_and_same_page_sections(
     monkeypatch.setattr(page_tagger, "tag_pages", lambda **kwargs: [PageTagResult(page_index=page.page_index, summary="summary") for page in kwargs["pages"]])
     dataframe = memory_service._build_page_dataframe(
         pdf_path="unused.pdf", filename="doc.pdf", output_dir=str(tmp_path),
-        profile=profile, verdict="page", page_memory_config=PageMemoryConfig(fine_min_pages=100, scope_concurrency=1, asset_extraction_enabled=False),
+        profile=profile, page_memory_config=PageMemoryConfig(fine_min_pages=100, scope_concurrency=1, asset_extraction_enabled=False),
     )
     chunks = dataframe_to_chunks(dataframe)
     zipped = ZipChunkSchemaBuilder().format_chunks(chunks, {}, {})
@@ -150,7 +150,6 @@ def test_whole_document_preview_is_body_only_and_bounded(
         filename="whole.pdf",
         output_dir=str(tmp_path),
         profile=profile,
-        verdict="page",
         page_memory_config=PageMemoryConfig(
             fine_min_pages=100,
             scope_concurrency=1,

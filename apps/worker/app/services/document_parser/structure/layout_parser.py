@@ -311,8 +311,8 @@ def _compute_zone_boundaries(toc_hierarchies, coordinate_mode="post_removal"):
         - "original": heading IDs stay in original document coordinates, so zones
           can be computed directly from TOC boundaries (DOCX path).
 
-    PROFILE-owned PDF TOCs use page coordinates and are sliced per shard before
-    this stage. They must never enter this line/element-coordinate calculation.
+    PROFILE-owned PDF TOCs use page coordinates and never reach this stage.
+    They must never enter this line/element-coordinate calculation.
 
     Args:
         toc_hierarchies: List of toc hierarchy dicts (sorted by toc_range start)

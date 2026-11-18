@@ -124,7 +124,6 @@ def main() -> int:
 
     from app.services.document_agent.pdf_text import read_page_texts
     from app.services.page_memory.memory_service import (
-        _project_assets_for_pages,
         _select_rendered_pages_with_assets,
     )
     from app.services.page_memory.page_assets import (
@@ -289,7 +288,12 @@ def main() -> int:
 
     write_debug_json(out_dir / "assets.json", _serialize_assets(assets_by_page))
     for context in scope_contexts:
-        projected = _project_assets_for_pages(assets_by_page, set(context.pages))
+        scope_pages = set(context.pages)
+        projected = {
+            page: assets
+            for page, assets in assets_by_page.items()
+            if page in scope_pages
+        }
         write_scope_artifacts(
             out_dir=out_dir,
             scope_id=context.scope_id,

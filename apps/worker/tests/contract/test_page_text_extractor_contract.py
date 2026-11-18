@@ -315,7 +315,6 @@ def test_assemble_c7_prefers_fine_text_over_m0_bands(tmp_path: Path) -> None:
         page_count=1,
         output_dir=str(tmp_path),
         filename="doc.pdf",
-        verdict="page",
         vlm_model=None,
         page_memory_config=PageMemoryConfig(asset_extraction_enabled=False),
         fine_text_by_page={1: "fine verbatim"},

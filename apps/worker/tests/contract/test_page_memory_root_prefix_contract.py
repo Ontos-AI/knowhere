@@ -154,7 +154,6 @@ def test_opening_pages_keep_root_ownership_and_page_citation_assets(
         filename=filename,
         output_dir=str(tmp_path),
         profile=profile,
-        verdict="page",
         page_memory_config=PageMemoryConfig(
             scope_concurrency=3 if page_count == 407 else 1,
             fine_min_pages=4 if chapter_pages and chapter_pages[0] > 1 else page_count,

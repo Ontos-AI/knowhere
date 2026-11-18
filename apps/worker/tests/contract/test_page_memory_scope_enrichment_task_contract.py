@@ -1250,7 +1250,6 @@ def test_execute_structure_enrichment_upgrades_m0_text_to_coarse_and_enqueues_sc
     fake_profile = SimpleNamespace(
         page_count=4,
         anatomy=anatomy,
-        toc=SimpleNamespace(has_toc=True),
         page_full_text_cache={1: "p1 text", 2: "p2 text", 3: "p3 text", 4: "p4 text"},
         page_body_text_cache={1: "p1 body", 2: "p2 body", 3: "p3 body", 4: "p4 body"},
     )
