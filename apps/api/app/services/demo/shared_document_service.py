@@ -119,6 +119,7 @@ class SharedDemoDocumentService:
         ).all()
         readySources: list[dict[str, Any]] = []
         importStatuses: list[dict[str, str]] = []
+        librarySources: list[dict[str, Any]] = []
         for document, revision, latestStatus, marker, count in catalogRows:
             state: str = (
                 "planned"
@@ -134,14 +135,18 @@ class SharedDemoDocumentService:
             importStatuses.append(
                 {"demo_source_id": document.demo_source_id, "status": state}
             )
-            if revision is None or marker is None:
-                continue
-            metadata: dict[str, Any] = revision.document_metadata or {}
             mimeType: str = (
                 JobFileStorage.get_content_type(
                     PurePath(document.source_file_name or document.title).suffix
                 )
             )
+            libraryEntry: dict[str, Any] = self._library_entry(
+                document, mime_type=mimeType, import_status=state
+            )
+            librarySources.append(libraryEntry)
+            if revision is None or marker is None:
+                continue
+            metadata: dict[str, Any] = revision.document_metadata or {}
             source: dict[str, Any] = {
                 "demo_source_id": document.demo_source_id,
                 "canonical_document_id": document.document_id,
@@ -162,37 +167,46 @@ class SharedDemoDocumentService:
                 "examples": metadata.get("bound_demo_examples", []),
             }
             readySources.append(source)
-        library: dict[str, Any] = get_official_library_catalog(
-            {str(source["demo_source_id"]): source for source in readySources}
-        )
-        statuses: dict[str, str] = {
-            entry["demo_source_id"]: entry["status"] for entry in importStatuses
-        }
-        for source in library.get("sources", []):
-            if source.get("demo_source_id") not in {
-                item["demo_source_id"] for item in readySources
-            }:
-                source["status"] = "planned"
-            source["import_status"] = statuses.get(
-                str(source.get("demo_source_id") or ""), "planned"
+            libraryEntry.update(
+                status="ready",
+                canonical_document_id=source["canonical_document_id"],
+                job_result_id=source["job_result_id"],
+                namespace=DEMO_NAMESPACE,
+                size_bytes=source["size_bytes"],
+                chunk_count=source["chunk_count"],
+                original_file=source["original_file"],
             )
-            readySource = next(
-                (
-                    item
-                    for item in readySources
-                    if item["demo_source_id"] == source.get("demo_source_id")
-                ),
-                None,
-            )
-            if readySource is not None:
-                source["job_result_id"] = readySource["job_result_id"]
-                source["namespace"] = DEMO_NAMESPACE
         return {
             "namespace": DEMO_NAMESPACE,
             "sources": readySources,
             "import_status": importStatuses,
-            "official_library": library,
+            "official_library": get_official_library_catalog(librarySources),
         }
+
+    @staticmethod
+    def _library_entry(
+        document: DemoDocument, *, mime_type: str, import_status: str
+    ) -> dict[str, Any]:
+        """One active demo document as an Official Library source; `ready` once it serves.
+
+        Seeded documents keep the library id and source URL their catalog
+        metadata recorded; documents ingested later are keyed by their source id.
+        """
+        catalogMetadata: dict[str, Any] = document.catalog_metadata or {}
+        entry: dict[str, Any] = {
+            "library_source_id": str(
+                catalogMetadata.get("library_source_id") or document.demo_source_id
+            ),
+            "demo_source_id": document.demo_source_id,
+            "category_id": document.category_id,
+            "title": document.title,
+            "mime_type": mime_type,
+            "status": "planned",
+            "import_status": import_status,
+        }
+        if catalogMetadata.get("source_url"):
+            entry["source_url"] = str(catalogMetadata["source_url"])
+        return entry
 
     async def resolve_source(
         self, db: AsyncSession, *, source_id: str, job_result_id: str | None = None
