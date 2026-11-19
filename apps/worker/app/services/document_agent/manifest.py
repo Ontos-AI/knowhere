@@ -109,6 +109,22 @@ class TocResult:
 
 
 @dataclass
+class PageScreen:
+    """Structural pages found by the page-image screen, before TOC profiling.
+
+    A page that opens a section and lists its sub-sections is in both lists.
+    """
+
+    toc_pages: list[int] = field(default_factory=list)
+    """Pages that list sections: a table of contents or agenda."""
+    divider_pages: list[int] = field(default_factory=list)
+    """Pages that open a chapter or sub-chapter."""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class PageAnatomyMap:
     job_id: str
     file_path: str

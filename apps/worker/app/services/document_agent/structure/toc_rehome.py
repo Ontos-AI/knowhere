@@ -1,4 +1,4 @@
-"""Same-forest TOC rehome: global paged-leaf monotonic repair before classify."""
+"""Same-forest TOC rehome: global paged-leaf monotonic repair before graft."""
 
 from __future__ import annotations
 

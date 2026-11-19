@@ -1,4 +1,5 @@
-"""Scan PDF text for TOC anchor pages and render their PNGs for VLM inspection."""
+"""Scan PDF text for TOC anchor pages, add the page screen's TOC pages, and
+render their PNGs for VLM inspection."""
 
 from __future__ import annotations
 
@@ -283,14 +284,23 @@ def _select_anchor_pages(
     matches: list[dict[str, Any]],
     *,
     visual_pages: set[int] | None = None,
+    screen_pages: set[int] | None = None,
     is_scanned: bool = False,
 ) -> tuple[set[int], dict[str, Any]]:
-    """Select TOC candidate pages from text matches and optional visual candidates."""
+    """Select TOC candidate pages from text matches and visual candidates.
+
+    Text matches and visual candidates count toward ``MAX_ANCHOR_CANDIDATES``;
+    over it they are dropped. Page-screen TOC pages never count and are always
+    kept, so a noisy text scan cannot drop them.
+    """
     raw_text_pages = _match_pages(matches)
     visual = set(visual_pages or ())
+    screen = set(screen_pages or ())
     narrowing: dict[str, Any] = {"raw": len(raw_text_pages)}
     if visual:
         narrowing["visual"] = len(visual)
+    if screen:
+        narrowing["screen"] = len(screen)
 
     if is_scanned:
         selected_text_pages = raw_text_pages
@@ -305,7 +315,7 @@ def _select_anchor_pages(
             narrowing["after_body"] = len(_match_pages(filtered))
         if len(_match_pages(filtered)) > MAX_ANCHOR_CANDIDATES:
             narrowing["gave_up"] = True
-            return set(), narrowing
+            return screen, narrowing
         selected_text_pages = _match_pages(filtered)
 
     candidate = selected_text_pages | visual
@@ -313,8 +323,8 @@ def _select_anchor_pages(
         narrowing["union"] = len(candidate)
     if len(candidate) > MAX_ANCHOR_CANDIDATES:
         narrowing["gave_up"] = True
-        return set(), narrowing
-    return candidate, narrowing
+        return screen, narrowing
+    return candidate | screen, narrowing
 
 
 def _anchor_source(
@@ -364,7 +374,8 @@ def _render_pages_worker(
     name="find.toc_anchor_pages",
     description=(
         "Scan Stage-0 line records for TOC keywords, narrow running headers on "
-        "born-digital PDFs, union with visual TOC candidate pages, and render PNGs."
+        "born-digital PDFs, union with visual TOC candidate pages and the page "
+        "screen's TOC pages, and render PNGs."
     ),
     preconditions=(has_page_labels, has_page_full_text),
 )
@@ -390,17 +401,21 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
     visual_pages = {
         int(page) for page in (ctx.settings.get("toc_visual_candidate_pages") or [])
     }
+    page_screen = ctx.blackboard.page_screen
+    screen_pages = set(page_screen.toc_pages) if page_screen is not None else set()
     anchor_pages, narrowing = _select_anchor_pages(
         keyword_matches,
         visual_pages=visual_pages,
+        screen_pages=screen_pages,
         is_scanned=is_scanned,
     )
     logger.info("[find.toc_anchor_pages] candidate narrowing: {}", narrowing)
     if narrowing.get("gave_up"):
         logger.warning(
-            "[find.toc_anchor_pages] still > {} candidates after all narrowing; "
-            "treating document as having no TOC",
+            "[find.toc_anchor_pages] still > {} text/visual candidates after all "
+            "narrowing; dropping them and keeping {} page-screen TOC pages",
             MAX_ANCHOR_CANDIDATES,
+            len(screen_pages),
         )
 
     if not anchor_pages:
@@ -431,7 +446,7 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
         source = _anchor_source(
             page,
             text_pages=text_pages,
-            visual_pages=visual_pages,
+            visual_pages=visual_pages | screen_pages,
         )
         anchors.append(
             TocAnchorPage(page=page, png_path=item["png_path"], source=source)

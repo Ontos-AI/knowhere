@@ -123,17 +123,38 @@ class AIConfig(BaseModel):
         default=3,
         description="Local per-job title detection concurrency for page-memory.",
     )
-    SLIDE_STRUCTURE_SHEET_COLS: int = Field(
+    PAGE_SCREEN_SHEET_COLS: int = Field(
         default=3,
-        description="Columns of the numbered slide grid used to screen slides and fill gaps.",
+        description=(
+            "Columns of the numbered page grid used to screen pages and to fill "
+            "slide-structure gaps."
+        ),
     )
-    SLIDE_STRUCTURE_SHEET_ROWS: int = Field(
+    PAGE_SCREEN_SHEET_ROWS: int = Field(
         default=3,
-        description="Rows of the numbered slide grid used to screen slides and fill gaps.",
+        description=(
+            "Rows of the numbered page grid used to screen pages and to fill "
+            "slide-structure gaps."
+        ),
     )
-    SLIDE_STRUCTURE_SHEET_THUMB_WIDTH: int = Field(
+    PAGE_SCREEN_SHEET_THUMB_WIDTH: int = Field(
         default=320,
-        description="Pixel width of each slide thumbnail in a screening/gap grid.",
+        description="Pixel width of each page thumbnail in a screening/gap grid.",
+    )
+    PAGE_SCREEN_VLM_CONCURRENCY: int = Field(
+        default=3,
+        description="Local per-job concurrency for page-screen VLM calls.",
+    )
+    PAGE_SCREEN_VLM_MAX_TOKENS: int = Field(
+        default=4000,
+        description="Completion budget for each page-screen VLM call.",
+    )
+    TOC_RELATION_VLM_MAX_TOKENS: int = Field(
+        default=256,
+        description=(
+            "Completion budget for each VLM check that compares two TOCs "
+            "(paired duplicate check and nesting check)."
+        ),
     )
     SLIDE_STRUCTURE_CANDIDATE_COLS: int = Field(
         default=2,

@@ -230,10 +230,17 @@ def test_profile_classifies_pending_toc_after_finalize() -> None:
 
 
 def test_profile_pending_toc_without_printed_pages_still_finalizes() -> None:
-    """H7a: all-null printed leaves still run finalize; unresolvable only if no span."""
+    """H7a: all-null printed leaves still run finalize; unresolvable only if no span.
+
+    The parent keeps its page number: a TOC with no numbered entry at all is
+    unnumbered and never becomes pending (see the test below).
+    """
     ctx = _ctx(page_count=30)
     hierarchies = _pending_tocs()
-    hierarchies[1]["toc_with_level"] = [{"heading": "App", "level": 1}]
+    hierarchies[1]["toc_with_level"] = [
+        {"heading": "App", "level": 1, "page_number": 22},
+        {"heading": "App 1", "level": 2},
+    ]
     ctx.blackboard.toc_hierarchies = hierarchies
     ctx.blackboard.toc_result = TocResult(method="vlm_batch", toc_pages=[1, 20, 21])
     ctx.blackboard.page_full_text_cache = {page: "body" for page in range(1, 31)}
@@ -276,6 +283,35 @@ def test_profile_pending_toc_without_printed_pages_still_finalizes() -> None:
     assert records[0]["relationship"] == "unresolvable"
     assert "nodes" not in records[0]
     assert "skeleton_anchor" not in records[0]
+
+
+def test_profile_unnumbered_toc_is_never_pending_or_calibrated() -> None:
+    """An unnumbered TOC is kept for its pages only: no nesting, no calibration."""
+    ctx = _ctx(page_count=30)
+    hierarchies = _pending_tocs()
+    hierarchies[1]["toc_with_level"] = [{"heading": "App", "level": 1}]
+    ctx.blackboard.toc_hierarchies = hierarchies
+    ctx.blackboard.toc_result = TocResult(method="vlm_batch", toc_pages=[1, 20, 21])
+    ctx.blackboard.page_full_text_cache = {page: "body" for page in range(1, 31)}
+
+    with (
+        patch(
+            "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
+            return_value=([_node()], _anchor()),
+        ),
+        patch(
+            "app.services.document_agent.structure.toc_anchoring.nest_pending_tocs",
+        ) as nest,
+        patch(
+            "app.services.document_agent.calibration.service.calibrate_offset",
+        ) as calibrate,
+    ):
+        run_toc_anchoring(ctx)
+
+    nest.assert_not_called()
+    calibrate.assert_not_called()
+    assert ctx.blackboard.pending_skeleton_anchors == []
+    assert ctx.blackboard.toc_hierarchies == hierarchies
 
 
 def test_fork_ctx_for_pending_isolates_search_view() -> None:

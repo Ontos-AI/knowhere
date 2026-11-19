@@ -242,3 +242,42 @@ def test_scanned_anchor_source_labels_text_visual_and_hybrid() -> None:
     assert _anchor_source(14, text_pages=text_pages, visual_pages=visual_pages) == "hybrid"
     assert _anchor_source(15, text_pages=text_pages, visual_pages=visual_pages) == "visual"
     assert _anchor_source(16, text_pages=text_pages, visual_pages=visual_pages) == "text_scan"
+
+
+def test_screen_pages_join_without_counting_toward_the_cap() -> None:
+    matches = [_match(page, "Contents") for page in (5, 105)]
+    screen = {page for page in range(100, 100 + MAX_ANCHOR_CANDIDATES)}
+    pages, narrowing = _select_anchor_pages(
+        matches,
+        visual_pages={7},
+        screen_pages=screen,
+        is_scanned=False,
+    )
+    # The screen alone fills the cap, yet text and visual candidates stay.
+    assert pages == {5, 7, 105} | screen
+    assert narrowing["union"] == 3
+    assert narrowing["screen"] == MAX_ANCHOR_CANDIDATES
+    assert "gave_up" not in narrowing
+
+
+def test_text_over_cap_drops_text_but_keeps_screen_pages() -> None:
+    matches = [
+        _match(page, f"Contents {page}", height=float(page))
+        for page in range(1, MAX_ANCHOR_CANDIDATES + 2)
+    ]
+    pages, narrowing = _select_anchor_pages(matches, screen_pages={40, 41})
+    assert pages == {40, 41}
+    assert narrowing["gave_up"] is True
+
+
+def test_union_over_cap_drops_text_and_visual_but_keeps_screen_pages() -> None:
+    matches = [_match(page, "CONTENTS") for page in range(1, MAX_ANCHOR_CANDIDATES + 1)]
+    pages, narrowing = _select_anchor_pages(
+        matches,
+        visual_pages={MAX_ANCHOR_CANDIDATES + 1},
+        screen_pages={3, 50},
+        is_scanned=True,
+    )
+    assert pages == {3, 50}
+    assert narrowing["union"] == MAX_ANCHOR_CANDIDATES + 1
+    assert narrowing["gave_up"] is True
