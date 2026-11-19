@@ -226,8 +226,15 @@ POST /api/v2/jobs
 Authorization: Bearer <maintainer-api-key>
 Content-Type: application/json
 
-{"namespace":"__knowhere_demo__","source_type":"file","file_name":"spacex-s1.pdf","data_id":"demo-spacex-s1"}
+{"namespace":"__knowhere_demo__","source_type":"file","file_name":"spacex-s1.pdf","data_id":"demo-spacex-s1","demo_category_id":"financial-reports"}
 ```
+
+`demo_category_id` files the source under an Official Library category
+(`financial-reports`, `research-papers` or `stem-books`, defined in
+`official_library_catalog.py`) or `other`. Omitted, a new source is `other` and an
+existing one keeps its category; given for an existing source, it refiles it. Any
+other value, or the field outside `__knowhere_demo__`, returns 400
+`INVALID_ARGUMENT`.
 
 PUT the original using `upload_url` and `upload_headers`, POST `{}` to
 `/api/v2/jobs/{job_id}/confirm-upload`, then GET the job until done/failed.
@@ -244,6 +251,11 @@ Old static canonical/chunk IDs are not IDs for newly parsed shared content.
 
 Catalog uses `Cache-Control: no-store`. `sources` contains READY sources only;
 `import_status` and official-library planned entries describe processing/failure.
+Official Library sources are the active demo documents filed under one of its
+categories; only the categories are code. Importing, refiling or archiving
+(`POST /api/v1/documents/{document_id}/archive` as a maintainer) a demo source
+changes the listing without a release. An archived source ID cannot be imported
+again; use a new `data_id`.
 Catalog returns stable `canonical_document_id`, source ID, `job_result_id`,
 namespace and actual parsed counts/size. Unmatched curated example citations
 are omitted until uniquely matched or manually corrected.
