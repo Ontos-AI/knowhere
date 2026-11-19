@@ -23,6 +23,7 @@ from app.services.document_agent.structure.hierarchy_locator import (
     resolve_hierarchy_page_ranges,
 )
 from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
+from app.services.document_agent.structure.toc_pairing import NestingAnswer
 from app.services.document_agent.structure.toc_rehome import rehome_forest
 
 
@@ -583,7 +584,7 @@ def test_run_toc_anchoring_single_toc_still_runs_rehome() -> None:
     ]
 
 
-def test_run_toc_anchoring_rehome_before_classify_keeps_contained_graft() -> None:
+def test_run_toc_anchoring_rehome_before_graft_keeps_contained_graft() -> None:
     """Pending calibrate must succeed without opening pdf_path; graft after rehome.
 
     Stub the calibration *internals* (same pattern as toc_graft contracts), not
@@ -649,6 +650,10 @@ def test_run_toc_anchoring_rehome_before_classify_keeps_contained_graft() -> Non
         patch(
             "app.services.document_agent.calibration.procedure.finalize_calibration_result",
             return_value=([inner], inner_anchor, True),
+        ),
+        patch(
+            "app.services.document_agent.structure.toc_pairing.check_toc_nesting",
+            return_value=NestingAnswer(inside=True),
         ),
     ):
         run_toc_anchoring(ctx)

@@ -129,8 +129,11 @@ flowchart TB
    classification with three fields: `category` (IPTC Media Topics top-level codes
    from the numbered list in `profiling/domain_taxonomy.py`, multiple allowed),
    `category_label` (open short phrase, for example `Financial Prospectus`), and
-   routing-only `routing_category` (`atlas/scanned/slides/generic`). Slide decks
-   take the slide-structure route; other PDFs take TOC extraction.
+   routing-only `routing_category` (`atlas/scanned/slides/generic`). Before
+   either structure route, `document_agent.page_screen` screens every page image
+   for TOC and divider pages (`blackboard.page_screen`). Slide decks take the
+   slide-structure route, which uses those pages as its candidates; other PDFs
+   take TOC extraction.
 2. **Progressive baselines** for sheet, chunk (`.docx/.md/.txt`) and media.
 3. **Everything else** → `document_parser/parse_service.checkerboard_parse_output()`,
    which routes by file extension, post-processes images (cleans unreferenced

@@ -211,18 +211,30 @@ def coverage_by_path(
     return coverage
 
 
-def deepest_covering_path(
+def open_section_path(
     coverage: dict[tuple[str, ...], tuple[int, int]],
     *,
     start: int,
     end: int,
 ) -> tuple[str, ...] | None:
-    """Deepest path whose span contains the closed window ``[start, end]``."""
+    """Innermost section still open on ``start`` whose span covers ``[start, end]``.
+
+    Adjacent sections share their boundary page, so a page can be covered by a
+    section ending there and one starting there. The section that starts
+    latest is the one open on that page; among those, the deepest wins.
+    """
     found: tuple[str, ...] | None = None
+    found_start = 0
     for path, span in coverage.items():
-        if span[0] <= start and end <= span[1]:
-            if found is None or len(path) > len(found):
-                found = path
+        if not (span[0] <= start and end <= span[1]):
+            continue
+        if (
+            found is None
+            or span[0] > found_start
+            or (span[0] == found_start and len(path) > len(found))
+        ):
+            found = path
+            found_start = span[0]
     return found
 
 

@@ -216,7 +216,8 @@ def test_contained_toc_mounts_under_covering_chapter() -> None:
     assert "TOC" in tree["Chapter 5"]
 
 
-def test_parallel_root_tocs_merge_page_union() -> None:
+def test_distinct_root_tocs_each_own_a_node() -> None:
+    """Two distinct TOCs under one parent are two nodes, named by first page."""
     skeletons = _extract(
         page_count=30,
         nodes=[TitleNode(title="Ch1", level=1, printed_page=16)],
@@ -236,10 +237,19 @@ def test_parallel_root_tocs_merge_page_union() -> None:
         toc_pages=[10, 11, 14, 15],
     )
     toc_nodes = [item for item in skeletons if is_toc_node(item)]
-    assert len(toc_nodes) == 1
-    assert toc_nodes[0].parent_path == "doc.pdf"
-    assert toc_nodes[0].start_page == 10
-    assert toc_nodes[0].end_page == 15
+    assert [
+        (
+            item.section_path,
+            item.title,
+            item.parent_path,
+            item.start_page,
+            item.end_page,
+        )
+        for item in toc_nodes
+    ] == [
+        ("doc.pdf/TOC p.10", "TOC p.10", "doc.pdf", 10, 11),
+        ("doc.pdf/TOC p.14", "TOC p.14", "doc.pdf", 14, 15),
+    ]
 
     phase_a = build_phase_a(
         profile=SimpleNamespace(
@@ -273,10 +283,9 @@ def test_parallel_root_tocs_merge_page_union() -> None:
         ),
         filename="doc.pdf",
     )
-    toc_row = next(
-        row for _, row in phase_a.coarse_df.iterrows() if row["path"] == "doc.pdf/TOC"
-    )
-    assert toc_row["page_nums"] == "10,11,14,15"
+    rows = {row["path"]: row for _, row in phase_a.coarse_df.iterrows()}
+    assert rows["doc.pdf/TOC p.10"]["page_nums"] == "10,11"
+    assert rows["doc.pdf/TOC p.14"]["page_nums"] == "14,15"
 
 
 def test_toc_pages_are_skipped_by_fine_and_chapter_processing() -> None:
@@ -475,3 +484,91 @@ def test_paired_toc_pages_merge_into_host_toc_node() -> None:
     assert toc_nodes[0].parent_path == "doc.pdf"
     assert toc_nodes[0].start_page == 1
     assert toc_nodes[0].end_page == 12
+
+
+def _toc_parent_by_page(skeletons: list[SectionSkeleton]) -> dict[int, str]:
+    return {
+        item.start_page: item.parent_path for item in skeletons if is_toc_node(item)
+    }
+
+
+def test_toc_on_boundary_page_mounts_under_section_opening_there() -> None:
+    part = TitleNode(
+        title="Part G",
+        level=1,
+        printed_page=30,
+        children=[
+            TitleNode(title="G1", level=2, printed_page=30),
+            TitleNode(title="G2", level=2, printed_page=32),
+            TitleNode(title="G3", level=2, printed_page=36),
+        ],
+    )
+    skeletons = _extract(
+        page_count=40,
+        nodes=[part],
+        overrides={
+            ("Part G",): 30,
+            ("Part G", "G1"): 30,
+            ("Part G", "G2"): 32,
+            ("Part G", "G3"): 36,
+        },
+        hierarchies=[
+            {
+                "toc_range": [1, 1],
+                "toc_range_unit": "page",
+                "toc_with_level": [
+                    {"heading": "Part G", "level": 1, "page_number": 30},
+                ],
+            },
+            {"toc_range": [32, 32], "toc_range_unit": "page", "toc_tree": {}},
+            {"toc_range": [36, 36], "toc_range_unit": "page", "toc_tree": {}},
+        ],
+        toc_pages=[1, 32, 36],
+    )
+
+    parents = _toc_parent_by_page(skeletons)
+    assert parents[32] == "doc.pdf/Part G/G2"
+    assert parents[36] == "doc.pdf/Part G/G3"
+
+
+def test_toc_on_part_opening_page_skips_deeper_section_ending_there() -> None:
+    part_f = TitleNode(
+        title="Part F",
+        level=1,
+        printed_page=10,
+        children=[
+            TitleNode(title="F1", level=2, printed_page=10),
+            TitleNode(title="F2", level=2, printed_page=20),
+        ],
+    )
+    part_g = TitleNode(
+        title="Part G",
+        level=1,
+        printed_page=30,
+        children=[TitleNode(title="G1", level=2, printed_page=31)],
+    )
+    skeletons = _extract(
+        page_count=40,
+        nodes=[part_f, part_g],
+        overrides={
+            ("Part F",): 10,
+            ("Part F", "F1"): 10,
+            ("Part F", "F2"): 20,
+            ("Part G",): 30,
+            ("Part G", "G1"): 31,
+        },
+        hierarchies=[
+            {
+                "toc_range": [1, 1],
+                "toc_range_unit": "page",
+                "toc_with_level": [
+                    {"heading": "Part F", "level": 1, "page_number": 10},
+                    {"heading": "Part G", "level": 1, "page_number": 30},
+                ],
+            },
+            {"toc_range": [30, 30], "toc_range_unit": "page", "toc_tree": {}},
+        ],
+        toc_pages=[1, 30],
+    )
+
+    assert _toc_parent_by_page(skeletons)[30] == "doc.pdf/Part G"

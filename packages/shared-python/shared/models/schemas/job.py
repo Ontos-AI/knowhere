@@ -117,6 +117,14 @@ class JobCreateBase(BaseModel):
         description="File name; required when source_type=file and must include the extension",
     )
     data_id: Optional[str] = Field(None, max_length=128, description="User-defined ID")
+    demo_category_id: Optional[str] = Field(
+        None,
+        max_length=64,
+        description=(
+            "Demo maintainers only, with namespace __knowhere_demo__: the Official "
+            "Library category to file the demo source under, or other"
+        ),
+    )
     parsing_params: Optional[ParsingParams] = Field(
         None, description="Parsing parameters"
     )
