@@ -1,7 +1,7 @@
 """Find a slide deck's section structure from its page images.
 
-1. Screen: every slide goes into numbered grids; one VLM call per grid answers
-   yes/no per slide: is it structural (agenda / table of contents / divider)?
+1. Candidates: the structural slides the page screen found (TOC / agenda and
+   divider slides), given by the caller.
 2. Structure: one VLM call over all candidate slides drops false candidates,
    returns the sections (title, start slide, level) and infers gaps: sections
    the evidence says exist but no candidate locates.
@@ -16,28 +16,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any
 
-from app.services.document_agent.slide_structure.config import (
-    GridLayout,
-    SlideStructureConfig,
+from app.services.document_agent.page_screen.vision import (
+    PageGrids,
+    VlmCall,
+    as_int,
+    page_numbers,
+    parallel_vlm,
 )
+from app.services.document_agent.slide_structure.config import SlideStructureConfig
 from app.services.document_agent.slide_structure.prompts import (
     GAP_PROMPT,
-    SCREEN_PROMPT,
     STRUCTURE_PROMPT,
 )
-
-VlmCall = Callable[[str, list[str], str], dict[str, Any]]
-"""``(prompt, base64 PNG images, usage task) -> parsed JSON object``."""
-
-
-class SlideGrids(Protocol):
-    def grids(
-        self, slides: list[int], layout: GridLayout, *, name: str
-    ) -> list[str]: ...
 
 
 @dataclass(frozen=True)
@@ -59,12 +52,11 @@ class SlideStructure:
 def detect_slide_structure(
     *,
     page_count: int,
-    grids: SlideGrids,
+    candidates: list[int],
+    grids: PageGrids,
     config: SlideStructureConfig,
     vlm: VlmCall,
 ) -> SlideStructure:
-    slides = list(range(1, page_count + 1))
-    candidates = _screen(slides, grids=grids, config=config, vlm=vlm)
     if not candidates:
         return SlideStructure(sections=[], candidates=[])
 
@@ -79,28 +71,9 @@ def detect_slide_structure(
     return SlideStructure(
         sections=sorted(sections, key=lambda item: (item.start_slide, item.level)),
         candidates=candidates,
-        ignored_slides=_slide_numbers(answer.get("ignored_slides"), set(candidates)),
+        ignored_slides=page_numbers(answer.get("ignored_slides"), set(candidates)),
         gap_groups=gap_groups,
     )
-
-
-def _screen(
-    slides: list[int], *, grids: SlideGrids, config: SlideStructureConfig, vlm: VlmCall
-) -> list[int]:
-    chunks = [
-        slides[start : start + config.sheet.cells]
-        for start in range(0, len(slides), config.sheet.cells)
-    ]
-    images = grids.grids(slides, config.sheet, name="screen")
-    answers = _parallel(
-        [(SCREEN_PROMPT, [image], "screen") for image in images],
-        vlm=vlm,
-        concurrency=config.vlm_concurrency,
-    )
-    found: set[int] = set()
-    for chunk, answer in zip(chunks, answers):
-        found.update(_slide_numbers(answer.get("structural_slides"), set(chunk)))
-    return sorted(found)
 
 
 def _located_sections(raw: Any, candidates: list[int]) -> list[SlideSection]:
@@ -123,8 +96,8 @@ def _gap_groups(raw: Any, page_count: int) -> list[dict[str, Any]]:
     for gap in raw if isinstance(raw, list) else []:
         if not isinstance(gap, dict):
             continue
-        after = _as_int(gap.get("after_slide"))
-        before = _as_int(gap.get("before_slide"))
+        after = as_int(gap.get("after_slide"))
+        before = as_int(gap.get("before_slide"))
         if after is None:
             continue
         first = after + 1
@@ -136,7 +109,7 @@ def _gap_groups(raw: Any, page_count: int) -> list[dict[str, Any]]:
             if not isinstance(expected, dict):
                 continue
             title = _title(expected.get("title"))
-            level = _as_int(expected.get("level"))
+            level = as_int(expected.get("level"))
             if not title or level is None or level < 1:
                 continue
             group = groups.setdefault(
@@ -149,7 +122,7 @@ def _gap_groups(raw: Any, page_count: int) -> list[dict[str, Any]]:
 def _fill_gaps(
     groups: list[dict[str, Any]],
     *,
-    grids: SlideGrids,
+    grids: PageGrids,
     config: SlideStructureConfig,
     vlm: VlmCall,
 ) -> None:
@@ -165,7 +138,7 @@ def _fill_gaps(
                 "gap_fill",
             )
         )
-    answers = _parallel(requests, vlm=vlm, concurrency=config.vlm_concurrency)
+    answers = parallel_vlm(requests, vlm=vlm, concurrency=config.vlm_concurrency)
     for group, answer in zip(groups, answers):
         level_by_title: dict[str, int] = group["expected"]
         span = set(range(group["first"], group["last"] + 1))
@@ -174,7 +147,7 @@ def _fill_gaps(
         for item in found if isinstance(found, list) else []:
             if not isinstance(item, dict) or item.get("expected") not in level_by_title:
                 continue
-            start = _as_int(item.get("start_slide"))
+            start = as_int(item.get("start_slide"))
             if start is None or start not in span:
                 continue
             located[item["expected"]] = SlideSection(
@@ -188,43 +161,16 @@ def _fill_gaps(
         group["sections"] = list(located.values()) if group["accepted"] else []
 
 
-def _parallel(
-    requests: list[tuple[str, list[str], str]], *, vlm: VlmCall, concurrency: int
-) -> list[dict[str, Any]]:
-    if not requests:
-        return []
-    from gevent.pool import Pool as GeventPool
-
-    pool = GeventPool(size=min(concurrency, len(requests)))
-    jobs = [pool.spawn(vlm, prompt, images, task) for prompt, images, task in requests]
-    pool.join(raise_error=True)
-    return [job.get() for job in jobs]
-
-
 def _section(item: Any, allowed: set[int]) -> SlideSection | None:
     if not isinstance(item, dict):
         return None
     title = _title(item.get("title"))
-    start = _as_int(item.get("start_slide"))
-    level = _as_int(item.get("level"))
+    start = as_int(item.get("start_slide"))
+    level = as_int(item.get("level"))
     if not title or start not in allowed or level is None or level < 1:
         return None
     return SlideSection(title=title, level=level, start_slide=start)
 
 
-def _slide_numbers(raw: Any, allowed: set[int]) -> list[int]:
-    numbers = {_as_int(item) for item in (raw if isinstance(raw, list) else [])}
-    return sorted(number for number in numbers if number in allowed)
-
-
 def _title(raw: Any) -> str:
     return " ".join(str(raw or "").split())
-
-
-def _as_int(raw: Any) -> int | None:
-    if isinstance(raw, bool):
-        return None
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return None

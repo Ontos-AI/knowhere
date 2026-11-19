@@ -243,3 +243,62 @@ def test_merge_printed_toc_texts_single_page_unchanged() -> None:
 
     text = "CONTENTS\nChapter 1 ...... 10\nChapter 1 ...... 10"
     assert merge_printed_toc_texts([text]) == text
+
+
+def _unnumbered_toc(start: int, end: int) -> dict[str, Any]:
+    return {
+        "source": "vlm",
+        "toc_range": [start, end],
+        "toc_range_unit": "page",
+        "toc_with_level": [{"heading": "小节", "level": 1, "page_number": None}],
+    }
+
+
+def _run_with_outline_judge(ctx: ToolContext) -> list[dict[str, Any]]:
+    judge_calls: list[dict[str, Any]] = []
+
+    def fake_judge(tool_ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+        del tool_ctx
+        judge_calls.append(args)
+        return ToolResult(status="ok", payload={"choice": "outline"})
+
+    with (
+        patch(
+            "app.services.document_agent.tools.judge_toc_source.judge_toc_source",
+            side_effect=fake_judge,
+        ),
+        patch(
+            "app.services.document_agent.structure.anchoring_primitives."
+            "locate_null_page_overrides",
+            side_effect=_no_null_parent_locate,
+        ),
+    ):
+        run_toc_anchoring(ctx)
+    return judge_calls
+
+
+def test_judge_reads_only_numbered_toc_pages() -> None:
+    ctx = _ctx(toc_pages=[2, 3, 4, 5, 12])
+    assert ctx.blackboard.toc_hierarchies is not None
+    ctx.blackboard.toc_hierarchies.append(_unnumbered_toc(12, 12))
+
+    judge_calls = _run_with_outline_judge(ctx)
+
+    assert [call["toc_pages"] for call in judge_calls] == [[2, 3, 4, 5]]
+    assert ctx.blackboard.toc_result is not None
+    assert ctx.blackboard.toc_result.toc_pages == [2, 3, 4, 5, 12]
+    assert ctx.blackboard.skeleton_anchor is not None
+    assert ctx.blackboard.skeleton_anchor["source"] == "pdf_outline"
+
+
+def test_outline_with_only_unnumbered_tocs_adopts_without_judge() -> None:
+    ctx = _ctx()
+    ctx.blackboard.toc_hierarchies = [_unnumbered_toc(2, 5)]
+
+    judge_calls = _run_with_outline_judge(ctx)
+
+    assert judge_calls == []
+    assert ctx.blackboard.toc_result is not None
+    assert ctx.blackboard.toc_result.toc_pages == [2, 3, 4, 5]
+    assert ctx.blackboard.skeleton_anchor is not None
+    assert ctx.blackboard.skeleton_anchor["source"] == "pdf_outline"

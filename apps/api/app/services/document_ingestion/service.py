@@ -342,6 +342,8 @@ class DocumentIngestionService:
             return ResolvedDocumentIngestionScope(job_metadata=job_metadata, document_id=documentId, namespace=DEMO_NAMESPACE)
         if str(payload.document_id or "").startswith("ddoc_"):
             raise ValidationException(user_message="Demo documents cannot move to a private namespace.", violations=[{"field": "namespace", "description": "Use the reserved demo namespace"}])
+        if payload.demo_category_id is not None:
+            raise ValidationException(user_message="demo_category_id applies only to the reserved demo namespace.", violations=[{"field": "demo_category_id", "description": "Use namespace __knowhere_demo__"}])
         job_metadata["corpus_target"] = "PRIVATE"
         requested_document_id = JobMetadataHelper.get_document_id(job_metadata)
         if requested_document_id:

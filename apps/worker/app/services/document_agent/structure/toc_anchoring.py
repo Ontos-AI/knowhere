@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -28,6 +27,7 @@ from app.services.document_agent.structure.hierarchy_locator import (
     collapse_intermediate_single_child_chains,
     extract_toc_nodes,
 )
+from app.services.document_agent.structure.toc_nesting import PendingTocNesting, nest_pending_tocs
 from app.services.document_parser.structure.body_boundary import normalize_heading_label
 
 _LOG_PREFIX = "[profile.toc_anchoring]"
@@ -58,10 +58,15 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     physical overrides (no calibrate VLM). Otherwise keep the extracted TOC tree
     and run the existing VLM calibration path.
 
-    Nearby pending TOCs that pair with an earlier host skip pending calibration.
-    After calibration (primary + unpaired pending), each forest runs global
-    paged-leaf rehome, then pending forests are classified/grafted. Blackboard
-    writes happen only after that sequence.
+    Before calibration the pending TOCs are nested under the primary and each
+    other; paired duplicates skip calibration, and each other pending TOC
+    calibrates within the scope its nesting gives. After calibration (primary +
+    unpaired pending), each forest runs global paged-leaf rehome, then
+    relationships are set (nesting first, evidenced spans for equal-span copies
+    and unanswered nesting checks) and contained forests are grafted. Blackboard writes happen only
+    after that sequence.
+
+    Unnumbered TOCs skip all of that; they are kept only for their TOC pages.
     """
     from app.services.document_agent.calibration.orchestrator import (
         anchor_hierarchy,
@@ -80,17 +85,28 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     toc_result = ctx.blackboard.toc_result
     toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
     body_pages = body_pages_excluding_toc(toc_pages, page_count)
+    hierarchies, unnumbered = split_unnumbered_tocs(
+        list(ctx.blackboard.toc_hierarchies or [])
+    )
 
     if _try_outline_anchoring_route(
         ctx,
         page_texts=page_texts,
         toc_pages=toc_pages,
+        judge_toc_pages=pages_excluding_toc(
+            toc_pages, unnumbered_toc_pages(unnumbered)
+        ),
         body_pages=body_pages,
         page_count=page_count,
     ):
         return
 
-    hierarchies = list(ctx.blackboard.toc_hierarchies or [])
+    if unnumbered:
+        logger.info(
+            "{} unnumbered TOCs kept, not anchored: {}",
+            _LOG_PREFIX,
+            [hierarchy.get("toc_range") for hierarchy in unnumbered],
+        )
     if not hierarchies:
         return
 
@@ -116,16 +132,14 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
         ctx=ctx,
     )
     pending_records: list[dict[str, Any]] = []
+    nesting = PendingTocNesting()
     if pending:
-        paired_by_index, unpaired = _split_paired_pending(
-            primary_toc=primary[0],
-            pending=pending,
-            ctx=ctx,
-        )
+        nesting = nest_pending_tocs(primary_toc=primary[0], pending=pending, ctx=ctx)
         calibrated: list[dict[str, Any]] = []
-        if unpaired:
+        if nesting.calibrated_indices():
             calibrated = _calibrate_pending_tocs(
-                pending_tocs=unpaired,
+                pending=pending,
+                nesting=nesting,
                 ctx=ctx,
                 page_texts=page_texts,
                 page_count=page_count,
@@ -133,7 +147,7 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
             )
         pending_records = _merge_pending_records(
             pending=pending,
-            paired_by_index=paired_by_index,
+            paired_by_index=nesting.paired,
             calibrated=calibrated,
         )
 
@@ -147,8 +161,10 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
 
     if pending_records:
         _assign_toc_relationships(
-            root_anchor=skeleton_anchor,
+            nesting=nesting,
+            pending=pending,
             pending_records=pending_records,
+            root_anchor=skeleton_anchor,
             root_toc=primary[0],
         )
         resolve_nodes, skeleton_anchor = _graft_contained_pending(
@@ -156,7 +172,7 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
             skeleton_anchor=skeleton_anchor,
             pending_records=pending_records,
             page_count=page_count,
-            body_pages=body_pages,
+            section_start_pages=section_start_pages(toc_pages, page_count),
         )
     ctx.blackboard.skeleton_anchor = serialize_skeleton_anchor(skeleton_anchor)
     ctx.blackboard.skeleton_nodes = [
@@ -170,6 +186,7 @@ def _try_outline_anchoring_route(
     *,
     page_texts: dict[int, str],
     toc_pages: list[int],
+    judge_toc_pages: list[int],
     body_pages: list[int],
     page_count: int,
 ) -> bool:
@@ -177,6 +194,10 @@ def _try_outline_anchoring_route(
 
     Consumes ``blackboard.pdf_outline_roots`` written during the find-stage
     ``probe.outline`` call; does not re-open the PDF here.
+
+    The judge compares the outline only with ``judge_toc_pages``, the pages of
+    TOCs that can be anchored (unnumbered TOC pages left out). With none, the
+    outline wins without a judge call.
     """
     from app.services.document_agent.structure.outline_check import (
         build_tree_digest_from_entries,
@@ -200,12 +221,12 @@ def _try_outline_anchoring_route(
     if not paged_kept:
         return False
 
-    if toc_pages:
+    if judge_toc_pages:
         judge_result = judge_toc_source(
             ctx,
             {
                 "outline_digest": build_tree_digest_from_entries(kept),
-                "toc_pages": toc_pages,
+                "toc_pages": judge_toc_pages,
             },
         )
         if judge_result.status != "ok":
@@ -389,6 +410,55 @@ def physical_page_overrides(
     return overrides
 
 
+def is_unnumbered_toc(hierarchy: dict[str, Any]) -> bool:
+    """A page-extracted TOC with entries, none of which carries a page number.
+
+    Such a TOC cannot be calibrated, so it is kept only for its TOC pages,
+    which get a TOC node (see ``skeleton_extractor``). A TOC with some
+    numbered entries is numbered.
+    """
+    if hierarchy.get("toc_range_unit") != "page":
+        return False
+    rows = hierarchy.get("toc_with_level") or []
+    return bool(rows) and not any(
+        isinstance(row, dict)
+        and row.get("page_number") is not None
+        and str(row.get("page_number")).strip()
+        for row in rows
+    )
+
+
+def split_unnumbered_tocs(
+    hierarchies: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split TOC hierarchies into ``(numbered, unnumbered)``, keeping order.
+
+    Only the numbered ones go to ``select_global_toc_hierarchies``: unnumbered
+    TOCs never become the primary or a pending TOC, so they get no pairing,
+    nesting, calibration or graft and never end another TOC's scope.
+    """
+    numbered: list[dict[str, Any]] = []
+    unnumbered: list[dict[str, Any]] = []
+    for hierarchy in hierarchies:
+        if is_unnumbered_toc(hierarchy):
+            unnumbered.append(hierarchy)
+        else:
+            numbered.append(hierarchy)
+    return numbered, unnumbered
+
+
+def unnumbered_toc_pages(unnumbered: list[dict[str, Any]]) -> list[int]:
+    """Pages inside the ``toc_range`` of each unnumbered TOC, in order."""
+    pages: list[int] = []
+    for hierarchy in unnumbered:
+        start = toc_range_start(hierarchy)
+        end = toc_range_end(hierarchy)
+        if start is None or end is None:
+            continue
+        pages.extend(range(start, end + 1))
+    return pages
+
+
 def select_global_toc_hierarchies(
     *,
     hierarchies: list[dict[str, Any]],
@@ -396,9 +466,8 @@ def select_global_toc_hierarchies(
 ) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]], dict[str, Any]]:
     """Split TOC hierarchies into earliest forest root and the rest.
 
-    The earliest TOC is only the serialization root for ``skeleton_nodes``.
-    Relationship classify treats every calibrated TOC as equal peers on
-    evidenced physical spans.
+    The earliest TOC is only the serialization root for ``skeleton_nodes``;
+    how the other TOCs nest under it and each other comes from the TOC nesting.
     """
     if len(hierarchies) <= 1:
         return (hierarchies or None), [], {}
@@ -444,12 +513,7 @@ def pages_excluding_toc(pages: Any, toc_pages: Any) -> list[int]:
 
     Same exclusion source as anchoring ``body_pages``: ``toc_result.toc_pages``.
     """
-    excluded: set[int] = set()
-    for raw in toc_pages or []:
-        try:
-            excluded.add(int(raw))
-        except (TypeError, ValueError):
-            continue
+    excluded = _toc_page_set(toc_pages)
     result: list[int] = []
     for raw in pages or []:
         try:
@@ -461,8 +525,34 @@ def pages_excluding_toc(pages: Any, toc_pages: Any) -> list[int]:
     return result
 
 
+def _toc_page_set(toc_pages: Any) -> set[int]:
+    pages: set[int] = set()
+    for raw in toc_pages or []:
+        try:
+            pages.add(int(raw))
+        except (TypeError, ValueError):
+            continue
+    return pages
+
+
 def body_pages_excluding_toc(toc_pages: Any, page_count: int) -> list[int]:
     return pages_excluding_toc(range(1, page_count + 1), toc_pages)
+
+
+def section_start_pages(toc_pages: Any, page_count: int) -> list[int]:
+    """Pages a resolved section may start on: body pages plus each TOC's last page.
+
+    A section can begin below the end of a TOC on the TOC's last page. Only
+    range resolution uses this; title searches keep ``body_pages_excluding_toc``
+    so a TOC entry is never mistaken for its heading.
+    """
+    toc_set = _toc_page_set(toc_pages)
+    last_toc_pages = {page for page in toc_set if page + 1 not in toc_set}
+    return [
+        page
+        for page in range(1, page_count + 1)
+        if page not in toc_set or page in last_toc_pages
+    ]
 
 
 def pending_toc_body_scope(
@@ -472,22 +562,35 @@ def pending_toc_body_scope(
     page_count: int,
     body_pages: list[int],
 ) -> tuple[int, list[int]]:
-    pending_toc = pending_tocs[index]
-    toc_end = toc_range_end(pending_toc)
-    toc_scope_start = (toc_end + 1) if toc_end is not None else None
+    """Scope of one of ``pending_tocs`` that ends before the next of them."""
     next_starts: list[int] = []
     for j in range(index + 1, len(pending_tocs)):
         start = toc_range_start(pending_tocs[j])
         if start is not None:
             next_starts.append(start)
     toc_scope_end = (min(next_starts) - 1) if next_starts else page_count
-    toc_body_pages = [
+    return toc_scope_end, toc_body_pages_in_scope(
+        pending_tocs[index],
+        scope_end=toc_scope_end,
+        body_pages=body_pages,
+    )
+
+
+def toc_body_pages_in_scope(
+    toc: dict[str, Any],
+    *,
+    scope_end: int,
+    body_pages: list[int],
+) -> list[int]:
+    """Body pages after the TOC's own pages, up to ``scope_end``."""
+    toc_end = toc_range_end(toc)
+    toc_scope_start = (toc_end + 1) if toc_end is not None else None
+    return [
         page
         for page in body_pages
-        if page <= toc_scope_end
+        if page <= scope_end
         and (toc_scope_start is None or page >= toc_scope_start)
     ]
-    return toc_scope_end, toc_body_pages
 
 
 def evidenced_physical_span(
@@ -517,51 +620,6 @@ def find_tightest_containing_host(
                 best_size = size
                 best_key = key
     return best_key
-
-
-def _split_paired_pending(
-    *,
-    primary_toc: dict[str, Any],
-    pending: list[dict[str, Any]],
-    ctx: ToolContext,
-) -> tuple[dict[int, dict[str, Any]], list[dict[str, Any]]]:
-    """Mark nearby duplicate TOCs as paired and keep the rest for calibration."""
-    from app.services.document_agent.structure.toc_pairing import check_paired_toc
-
-    model = ctx.settings.get("vlm_model") or os.environ.get("IMAGE_MODEL")
-    paired_by_index: dict[int, dict[str, Any]] = {}
-    unpaired: list[dict[str, Any]] = []
-    host_toc = primary_toc
-    host_is_primary = True
-    host_pending_index: int | None = None
-
-    for index, pending_toc in enumerate(pending):
-        match = check_paired_toc(host_toc, pending_toc, ctx=ctx, model=model)
-        if match.is_paired:
-            host_range = list(host_toc.get("toc_range") or [])
-            pending_toc["paired_with_range"] = host_range
-            pending_toc["paired_pattern"] = match.pattern
-            paired_by_index[index] = {
-                "toc": pending_toc,
-                "relationship": "paired",
-                "host": "root" if host_is_primary else host_pending_index,
-                "paired_with_range": host_range,
-                "paired_pattern": match.pattern,
-                "paired_reason": match.reason,
-            }
-            logger.info(
-                "{} pending TOC toc_range={} paired with {} pattern={}",
-                _LOG_PREFIX,
-                pending_toc.get("toc_range"),
-                host_range,
-                match.pattern,
-            )
-            continue
-        unpaired.append(pending_toc)
-        host_toc = pending_toc
-        host_is_primary = False
-        host_pending_index = index
-    return paired_by_index, unpaired
 
 
 def _merge_pending_records(
@@ -621,102 +679,140 @@ def _toc_range_for_host(
 
 def _assign_toc_relationships(
     *,
-    root_anchor: SkeletonAnchor,
+    nesting: PendingTocNesting,
+    pending: list[dict[str, Any]],
     pending_records: list[dict[str, Any]],
-    root_toc: dict[str, Any] | None = None,
+    root_anchor: SkeletonAnchor,
+    root_toc: dict[str, Any],
 ) -> None:
-    """Equal-footing classify: every pending vs root + other pendings' spans."""
+    """Set each calibrated pending record's relationship.
+
+    1. A TOC whose evidenced span equals the root's or an earlier unpaired
+       TOC's is a paired copy of it.
+    2. A nested TOC takes its parent from the nesting. A parent with no forest
+       to graft into (failed, unresolvable or paired) passes its sub-TOCs up to
+       the nearest ancestor that has one.
+    3. A TOC whose nesting check gave no answer is placed by evidenced spans:
+       under the TOC whose span most tightly contains its own, else at
+       document level.
+    """
     root_span = evidenced_physical_span(root_anchor.match_overrides)
-    keyed_spans: list[tuple[Any, tuple[int, int] | None]] = [("root", root_span)]
-    for index, record in enumerate(pending_records):
-        if record.get("relationship") == "paired":
-            keyed_spans.append((index, None))
-            continue
-        if record.get("relationship") == "unresolvable":
-            keyed_spans.append((index, None))
-            continue
-        anchor_raw = record.get("skeleton_anchor")
-        if not isinstance(anchor_raw, dict):
-            record["relationship"] = "unresolvable"
-            keyed_spans.append((index, None))
-            continue
-        span = evidenced_physical_span(
-            deserialize_skeleton_anchor(anchor_raw).match_overrides
-        )
-        keyed_spans.append((index, span))
-        if span is None:
-            record["relationship"] = "unresolvable"
+    spans: list[tuple[int, int] | None] = []
+    for record in pending_records:
+        span: tuple[int, int] | None = None
+        if record.get("relationship") not in {"paired", "unresolvable"}:
+            span = evidenced_physical_span(
+                deserialize_skeleton_anchor(record["skeleton_anchor"]).match_overrides
+            )
+            if span is None:
+                record["relationship"] = "unresolvable"
+        spans.append(span)
 
     for index, record in enumerate(pending_records):
-        if record.get("relationship") in {"unresolvable", "paired"}:
-            if record.get("relationship") == "unresolvable":
-                record.pop("host", None)
+        span = spans[index]
+        if span is None:
             continue
-        candidate = keyed_spans[index + 1][1]
-        if candidate is None:
-            record["relationship"] = "unresolvable"
-            record.pop("host", None)
-            continue
-        hosts = [
-            (key, span)
-            for key, span in keyed_spans
-            if key != index and span is not None
-        ]
-        host_key = find_tightest_containing_host(candidate, hosts)
-        if host_key is None:
+        equal_host: Any = None
+        if span == root_span:
+            equal_host = "root"
+        else:
             equal_host = next(
                 (
-                    key
-                    for key, span in hosts
-                    if span == candidate
-                    and (
-                        key == "root"
-                        or (
-                            isinstance(key, int)
-                            and key < index
-                            and pending_records[key].get("relationship") != "paired"
-                        )
-                    )
+                    earlier
+                    for earlier in range(index)
+                    if spans[earlier] == span
+                    and pending_records[earlier].get("relationship") != "paired"
                 ),
                 None,
             )
-            if equal_host is not None:
-                record["relationship"] = "paired"
-                record["host"] = equal_host
-                host_range = _toc_range_for_host(
-                    host_key=equal_host,
-                    root_toc=root_toc,
-                    pending_records=pending_records,
-                )
-                record["paired_with_range"] = host_range
-                toc = record.get("toc")
-                if isinstance(toc, dict):
-                    toc["paired_with_range"] = list(host_range)
-                record["paired_reason"] = "equal evidenced physical span"
-            else:
-                record["relationship"] = "parallel"
-                record.pop("host", None)
-        else:
-            record["relationship"] = "contained"
-            record["host"] = host_key
-        logger.info(
-            "{} peer classify toc_range={} relationship={} host={} span={}",
-            _LOG_PREFIX,
-            (record.get("toc") or {}).get("toc_range"),
-            record["relationship"],
-            record.get("host"),
-            candidate,
+        if equal_host is None:
+            continue
+        host_range = _toc_range_for_host(
+            host_key=equal_host,
+            root_toc=root_toc,
+            pending_records=pending_records,
         )
+        record["relationship"] = "paired"
+        record["host"] = equal_host
+        record["paired_with_range"] = host_range
+        record["paired_reason"] = "equal evidenced physical span"
+        toc = record.get("toc")
+        if isinstance(toc, dict):
+            toc["paired_with_range"] = list(host_range)
+        _log_relationship(record)
+
+    def has_forest(index: int) -> bool:
+        return pending_records[index].get("relationship") not in {
+            "paired",
+            "unresolvable",
+        }
+
+    record_index = {
+        id(record.get("toc")): index for index, record in enumerate(pending_records)
+    }
+
+    def forest_index(pending_index: int) -> int | None:
+        index = record_index.get(id(pending[pending_index]))
+        if index is None or not has_forest(index):
+            return None
+        return index
+
+    for pending_index, parent in nesting.parents.items():
+        index = forest_index(pending_index)
+        if index is None:
+            continue
+        while isinstance(parent, int) and forest_index(parent) is None:
+            parent = nesting.parents[parent]
+        host = forest_index(parent) if isinstance(parent, int) else parent
+        _set_nesting(pending_records[index], host=host)
+
+    hosts: list[tuple[Any, tuple[int, int]]] = []
+    if root_span is not None:
+        hosts.append(("root", root_span))
+    for index, span in enumerate(spans):
+        if span is not None and has_forest(index):
+            hosts.append((index, span))
+    for pending_index in sorted(nesting.unknown):
+        index = forest_index(pending_index)
+        if index is None:
+            continue
+        span = spans[index]
+        if span is None:
+            continue
+        host = find_tightest_containing_host(
+            span,
+            [(key, host_span) for key, host_span in hosts if key != index],
+        )
+        _set_nesting(pending_records[index], host=host)
+
+
+def _set_nesting(record: dict[str, Any], *, host: Any) -> None:
+    """Contained under ``host`` (``"root"`` or a record index), or parallel when None."""
+    if host is None:
+        record["relationship"] = "parallel"
+        record.pop("host", None)
+    else:
+        record["relationship"] = "contained"
+        record["host"] = host
+    _log_relationship(record)
+
+
+def _log_relationship(record: dict[str, Any]) -> None:
+    logger.info(
+        "{} classify toc_range={} relationship={} host={}",
+        _LOG_PREFIX,
+        (record.get("toc") or {}).get("toc_range"),
+        record["relationship"],
+        record.get("host"),
+    )
 
 
 def _calibrate_one_pending_toc(
     *,
-    index: int,
     pending_toc: dict[str, Any],
-    pending_tocs: list[dict[str, Any]],
+    toc_scope_end: int,
     ctx: ToolContext,
     page_texts: dict[int, str],
-    page_count: int,
     body_pages: list[int],
 ) -> dict[str, Any] | None:
     from app.services.document_agent.calibration.procedure import (
@@ -731,10 +827,9 @@ def _calibrate_one_pending_toc(
     if not nodes:
         return None
     nodes = collapse_intermediate_single_child_chains(nodes)
-    toc_scope_end, toc_body_pages = pending_toc_body_scope(
-        pending_tocs=pending_tocs,
-        index=index,
-        page_count=page_count,
+    toc_body_pages = toc_body_pages_in_scope(
+        pending_toc,
+        scope_end=toc_scope_end,
         body_pages=body_pages,
     )
     phase1 = calibrate_offset(
@@ -780,37 +875,42 @@ def _calibrate_one_pending_toc(
 
 def _calibrate_pending_tocs(
     *,
-    pending_tocs: list[dict[str, Any]],
+    pending: list[dict[str, Any]],
+    nesting: PendingTocNesting,
     ctx: ToolContext,
     page_texts: dict[int, str],
     page_count: int,
     body_pages: list[int],
 ) -> list[dict[str, Any]]:
-    if not pending_tocs:
+    """Calibrate every unpaired pending TOC, each within the scope its nesting gives."""
+    indices = nesting.calibrated_indices()
+    if not indices:
         return []
 
     from gevent.pool import Pool as GeventPool
 
-    pool_size = min(PENDING_TOC_CALIBRATION_CONCURRENCY, len(pending_tocs))
+    pool_size = min(PENDING_TOC_CALIBRATION_CONCURRENCY, len(indices))
     logger.info(
         "{} pending TOC calibration: count={} concurrency={}",
         _LOG_PREFIX,
-        len(pending_tocs),
+        len(indices),
         pool_size,
     )
     pool = GeventPool(size=pool_size)
     jobs = [
         pool.spawn(
             _calibrate_one_pending_toc,
-            index=i,
-            pending_toc=pending_toc,
-            pending_tocs=pending_tocs,
+            pending_toc=pending[index],
+            toc_scope_end=nesting.scope_end(
+                index,
+                pending=pending,
+                page_count=page_count,
+            ),
             ctx=fork_ctx_for_pending(ctx),
             page_texts=page_texts,
-            page_count=page_count,
             body_pages=body_pages,
         )
-        for i, pending_toc in enumerate(pending_tocs)
+        for index in indices
     ]
     pool.join()
 
@@ -826,13 +926,23 @@ def _calibrate_pending_tocs(
     return records
 
 
+def _host_depth(pending_records: list[dict[str, Any]], index: int) -> int:
+    """Number of pending hosts above a record; a ``"root"`` host counts as none."""
+    depth = 0
+    host = pending_records[index].get("host")
+    while isinstance(host, int):
+        depth += 1
+        host = pending_records[host].get("host")
+    return depth
+
+
 def _graft_contained_pending(
     *,
     resolve_nodes: list[TitleNode],
     skeleton_anchor: SkeletonAnchor,
     pending_records: list[dict[str, Any]],
     page_count: int,
-    body_pages: list[int],
+    section_start_pages: list[int],
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
     from app.services.document_agent.structure.toc_graft import graft_contained_toc
 
@@ -851,14 +961,15 @@ def _graft_contained_pending(
         if not contained_nodes:
             continue
         contained_anchor = deserialize_skeleton_anchor(anchor_raw)
-        span = evidenced_physical_span(contained_anchor.match_overrides)
-        if span is None:
+        if evidenced_physical_span(contained_anchor.match_overrides) is None:
             continue
         pending_forests[index] = (
             contained_nodes,
             dict(contained_anchor.match_overrides),
         )
-        contained_order.append((span[1] - span[0], index))
+        # Deepest first, so a sub-TOC is in its host's forest before the host
+        # itself is grafted.
+        contained_order.append((-_host_depth(pending_records, index), index))
 
     for index, record in enumerate(pending_records):
         if index in pending_forests:
@@ -883,7 +994,7 @@ def _graft_contained_pending(
     nodes = resolve_nodes
     overrides = dict(skeleton_anchor.match_overrides)
 
-    for _size, index in contained_order:
+    for _depth, index in contained_order:
         record = pending_records[index]
         forest = pending_forests.get(index)
         if forest is None:
@@ -897,7 +1008,7 @@ def _graft_contained_pending(
                 contained_nodes=contained_nodes,
                 contained_overrides=contained_overrides,
                 page_count=page_count,
-                body_pages=body_pages,
+                section_start_pages=section_start_pages,
             )
             nodes = grafted.nodes
             overrides = grafted.match_overrides
@@ -917,7 +1028,7 @@ def _graft_contained_pending(
             contained_nodes=contained_nodes,
             contained_overrides=contained_overrides,
             page_count=page_count,
-            body_pages=body_pages,
+            section_start_pages=section_start_pages,
         )
         pending_forests[host] = (grafted.nodes, grafted.match_overrides)
         host_record = pending_records[host]

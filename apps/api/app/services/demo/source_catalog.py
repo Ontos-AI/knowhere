@@ -9,10 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from app.services.demo.official_library_catalog import (
-    get_official_library_catalog,
-    get_official_library_source_payload_by_demo_source_id,
-)
+from app.services.demo.official_library_catalog import get_official_library_catalog
 from app.services.demo.source_projection import DemoSourceProjection
 
 
@@ -175,22 +172,11 @@ class DemoSourceCatalog:
             )
             for source in _DEMO_SOURCE_DEFINITIONS
         ]
-        library_source_payload_by_demo_source_id = (
-            get_official_library_source_payload_by_demo_source_id()
-        )
-        for payload in source_payloads:
-            demo_source_id = str(payload["demo_source_id"])
-            library_payload = library_source_payload_by_demo_source_id.get(
-                demo_source_id
-            )
-            if library_payload is not None:
-                payload["official_library"] = library_payload
-
+        # Local bundles carry no category; Official Library sources come from the
+        # shared demo corpus (SharedDemoDocumentService), so only categories apply.
         return {
             "sources": source_payloads,
-            "official_library": get_official_library_catalog(
-                {str(payload["demo_source_id"]): payload for payload in source_payloads}
-            ),
+            "official_library": get_official_library_catalog(source_payloads),
         }
 
     def list_chunks(

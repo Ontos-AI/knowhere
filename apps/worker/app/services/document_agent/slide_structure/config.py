@@ -4,22 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
-@dataclass(frozen=True)
-class GridLayout:
-    cols: int
-    rows: int
-    thumb_width: int
-
-    @property
-    def cells(self) -> int:
-        return self.cols * self.rows
+from app.services.document_agent.page_screen.config import GridLayout, PageScreenConfig
 
 
 @dataclass(frozen=True)
 class SlideStructureConfig:
     sheet: GridLayout
-    """Grid used to screen every slide and to look for gap sections."""
+    """Grid used to look for gap sections; the page screen's grid."""
     candidates: GridLayout
     """Grid used to show the candidate structural slides together."""
     vlm_concurrency: int
@@ -30,11 +21,7 @@ class SlideStructureConfig:
         from shared.core.config import settings
 
         return cls(
-            sheet=GridLayout(
-                cols=settings.SLIDE_STRUCTURE_SHEET_COLS,
-                rows=settings.SLIDE_STRUCTURE_SHEET_ROWS,
-                thumb_width=settings.SLIDE_STRUCTURE_SHEET_THUMB_WIDTH,
-            ),
+            sheet=PageScreenConfig.from_settings().sheet,
             candidates=GridLayout(
                 cols=settings.SLIDE_STRUCTURE_CANDIDATE_COLS,
                 rows=settings.SLIDE_STRUCTURE_CANDIDATE_ROWS,

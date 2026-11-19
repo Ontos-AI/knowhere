@@ -1,4 +1,4 @@
-"""Pluggable paired-TOC detection: proximity gate + VLM head/tail check."""
+"""Two-TOC VLM checks: paired duplicates (proximity gated) and nesting."""
 
 from __future__ import annotations
 
@@ -36,6 +36,13 @@ class PairedTocPattern:
 class PairedTocMatch:
     is_paired: bool
     pattern: str | None = None
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class NestingAnswer:
+    inside: bool | None
+    """Whether TOC B lies inside TOC A; ``None`` when the check did not answer."""
     reason: str = ""
 
 
@@ -279,36 +286,12 @@ def _vlm_pair_check(
     pngs_b: list[tuple[int, str]],
     model: str,
 ) -> PairedTocMatch:
-    import base64
-
-    from shared.services.ai.llm_overrides import get_vision_client
-
-    content_parts: list[dict[str, Any]] = [
-        {"type": "text", "text": _build_paired_toc_prompt(pages_a, pages_b)},
-    ]
-    for label, page_pngs in (("TOC A", pngs_a), ("TOC B", pngs_b)):
-        for page_num, png_path in page_pngs:
-            with open(png_path, "rb") as handle:
-                img_b64 = base64.b64encode(handle.read()).decode()
-            content_parts.append(
-                {"type": "text", "text": f"\n--- {label} page {page_num} ---"}
-            )
-            content_parts.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{img_b64}"},
-                }
-            )
-
     try:
-        client, resolved_model = get_vision_client(requested_model=model)
-        resolved = resolved_model or model
-        raw, _usage = client.chat_completion_with_usage(
-            messages=cast(Any, [{"role": "user", "content": content_parts}]),
-            model=resolved,
-            temperature=0.0,
-            max_tokens=256,
-            response_format={"type": "json_object"},
+        raw = _ask_vlm_about_two_tocs(
+            prompt=_build_paired_toc_prompt(pages_a, pages_b),
+            pngs_a=pngs_a,
+            pngs_b=pngs_b,
+            model=model,
             usage_task="document_agent.toc_pair_check",
         )
         match = _parse_pair_response(raw)
@@ -327,3 +310,119 @@ def _vlm_pair_check(
             is_paired=False,
             reason=f"VLM pair check failed: {exc}",
         )
+
+
+def check_toc_nesting(
+    toc_a: dict[str, Any],
+    toc_b: dict[str, Any],
+    *,
+    ctx: ToolContext,
+    model: str | None,
+) -> NestingAnswer:
+    """Return whether ``toc_b``, which comes later in the PDF, lies inside ``toc_a``.
+
+    An unsure model answers no: keeping a nested TOC separate only ends a scope
+    early, while a wrong nesting would stretch a scope over content its TOC does
+    not list. ``inside`` is ``None`` when no answer was obtained.
+    """
+    if not model:
+        return NestingAnswer(inside=None, reason="no VLM model configured")
+
+    pages_a = sample_head_tail_pages(toc_pages_from_range(toc_a))
+    pages_b = sample_head_tail_pages(toc_pages_from_range(toc_b))
+    if not pages_a or not pages_b:
+        return NestingAnswer(inside=None, reason="missing TOC page range")
+
+    try:
+        raw = _ask_vlm_about_two_tocs(
+            prompt=_build_toc_nesting_prompt(pages_a, pages_b),
+            pngs_a=_resolve_toc_page_pngs(ctx, pages_a),
+            pngs_b=_resolve_toc_page_pngs(ctx, pages_b),
+            model=model,
+            usage_task="document_agent.toc_nesting_check",
+        )
+        nesting = _parse_nesting_response(raw)
+    except Exception as exc:
+        logger.warning("{} VLM nesting check failed: {}", _LOG_PREFIX, exc)
+        return NestingAnswer(inside=None, reason=f"VLM nesting check failed: {exc}")
+    logger.info(
+        "{} VLM nesting check pages_a={} pages_b={} inside={}",
+        _LOG_PREFIX,
+        pages_a,
+        pages_b,
+        nesting.inside,
+    )
+    return nesting
+
+
+def _build_toc_nesting_prompt(pages_a: list[int], pages_b: list[int]) -> str:
+    return (
+        "You are a document structure analysis expert.\n"
+        "You are given sample page screenshots (up to the first 2 pages and last 2 pages) "
+        "from two Table of Contents regions in the same PDF; TOC B comes after TOC A:\n"
+        f"- TOC A: pages {pages_a}\n"
+        f"- TOC B: pages {pages_b}\n"
+        "\n"
+        "Does TOC B lie inside the content that TOC A covers?\n"
+        "- true: everything TOC B lists lies within the content TOC A covers, e.g. "
+        "TOC B is the contents of one chapter, part, appendix or volume that TOC A "
+        "lists. TOC B may number its pages from 1 again.\n"
+        "- false: TOC B lists content outside what TOC A covers, e.g. a later part, "
+        "a separate document, or another language edition of the whole document.\n"
+        "\n"
+        "If you are not sure, answer false.\n"
+        "\n"
+        "Return strict json (no markdown fences):\n"
+        '{"inside": true | false, "reason": "brief explanation"}'
+    )
+
+
+def _parse_nesting_response(raw: str) -> NestingAnswer:
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("TOC nesting VLM response is not a json object")
+    inside = data.get("inside")
+    if not isinstance(inside, bool):
+        raise ValueError(f"TOC nesting answer is not a boolean: {inside!r}")
+    return NestingAnswer(inside=inside, reason=str(data.get("reason") or ""))
+
+
+def _ask_vlm_about_two_tocs(
+    *,
+    prompt: str,
+    pngs_a: list[tuple[int, str]],
+    pngs_b: list[tuple[int, str]],
+    model: str,
+    usage_task: str,
+) -> str:
+    """Send the prompt with TOC A and TOC B page images; return the raw json."""
+    import base64
+
+    from shared.core.config import settings
+    from shared.services.ai.llm_overrides import get_vision_client
+
+    content_parts: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+    for label, page_pngs in (("TOC A", pngs_a), ("TOC B", pngs_b)):
+        for page_num, png_path in page_pngs:
+            with open(png_path, "rb") as handle:
+                img_b64 = base64.b64encode(handle.read()).decode()
+            content_parts.append(
+                {"type": "text", "text": f"\n--- {label} page {page_num} ---"}
+            )
+            content_parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+                }
+            )
+
+    client, resolved_model = get_vision_client(requested_model=model)
+    raw, _usage = client.chat_completion_with_usage(
+        messages=cast(Any, [{"role": "user", "content": content_parts}]),
+        model=resolved_model or model,
+        temperature=0.0,
+        max_tokens=settings.TOC_RELATION_VLM_MAX_TOKENS,
+        response_format={"type": "json_object"},
+        usage_task=usage_task,
+    )
+    return raw

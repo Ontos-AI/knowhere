@@ -33,10 +33,12 @@ regular body text, section dividers, blank pages, or other non-TOC content.
 For each page, decide whether it is a TOC page or not.
 
 A page IS a TOC page when it shows a STRUCTURED LISTING of document sections,
-recognizable by MOST of these visual patterns:
-- Multiple entry lines, each pairing a section/chapter TITLE with a PAGE NUMBER
-- Leader characters (dots "......", dashes "------", or whitespace) connecting
-  titles on the left to page numbers aligned on the right
+with or without page numbers, recognizable by MOST of these visual patterns:
+- Multiple short entry lines, each naming a section/chapter TITLE, with or
+  without a PAGE NUMBER
+- When page numbers are shown, leader characters (dots "......", dashes
+  "------", or whitespace) connecting titles on the left to page numbers
+  aligned on the right
 - Systematic numbering in the titles (1. / 1.1 / Chapter 1 / 一、 / 第一章, etc.)
 - An explicit heading such as "Table of Contents", "Contents", "目录", or "目次"
   (may appear only on the first page of a multi-page TOC)
@@ -50,9 +52,9 @@ A page is NOT a TOC page when:
 - It has numbered definitions or terms with explanations (e.g. "2.0.3 风险 risk")
   — these are glossary/body content, NOT a TOC
 
-The KEY distinction: TOC entries are SHORT titles pointing to page numbers.
-Body text has EXPLANATORY content after the heading. If a numbered item is
-followed by sentences of explanation, it is body text, not a TOC entry.
+The KEY distinction: TOC entries are SHORT titles, with or without page
+numbers. Body text has EXPLANATORY content after the heading. If a numbered
+item is followed by sentences of explanation, it is body text, not a TOC entry.
 
 ### Part 2: Extract entries from TOC pages only
 For each page you classify as TOC, extract every entry with:

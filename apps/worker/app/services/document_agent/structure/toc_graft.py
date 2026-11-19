@@ -11,7 +11,7 @@ from app.services.document_agent.structure.hierarchy_locator import (
     TitleMatch,
     TitleNode,
     coverage_by_path,
-    deepest_covering_path,
+    open_section_path,
     resolve_hierarchy_page_ranges,
 )
 
@@ -32,7 +32,7 @@ def graft_contained_toc(
     contained_nodes: list[TitleNode],
     contained_overrides: dict[tuple[str, ...], TitleMatch],
     page_count: int,
-    body_pages: list[int],
+    section_start_pages: list[int],
 ) -> ContainedGraftResult:
     """Merge one contained TOC forest into the current primary tree."""
     overrides = dict(primary_overrides)
@@ -40,7 +40,7 @@ def graft_contained_toc(
     ranges = resolve_hierarchy_page_ranges(
         primary_nodes,
         page_count=page_count,
-        body_pages=body_pages,
+        body_pages=section_start_pages,
         match_overrides=overrides,
     )
     coverage = coverage_by_path(ranges)
@@ -190,7 +190,7 @@ def _graft_one_child(
         )
         return primary_children
 
-    covering = deepest_covering_path(coverage, start=start, end=start)
+    covering = open_section_path(coverage, start=start, end=start)
     if covering is None:
         _record_skip(
             events=events,

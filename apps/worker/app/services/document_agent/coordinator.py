@@ -22,6 +22,7 @@ from app.services.document_agent.manifest import (
 from app.services.document_agent.pdf_text import page_content, read_page_text_bands
 from app.services.document_agent.persist import build_anatomy_map, persist_anatomy_map
 from app.services.document_agent.coarse_profile import CoarseProfiler
+from app.services.document_agent.page_screen import run_page_screen
 from app.services.document_agent.slide_structure import run_slide_structure_route
 from app.services.document_agent.registry import REGISTRY
 from app.services.document_agent.state import ProfileBlackboard, ProfileState
@@ -230,6 +231,7 @@ class ProfileCoordinator:
         if self.blackboard.toc_result is not None:
             return
 
+        self._run_page_screen()
         try:
             if self._is_slide_deck():
                 self._run_slide_structure_route()
@@ -289,6 +291,19 @@ class ProfileCoordinator:
         """Read the coarse page format the way the TOC tools read the profile."""
         routing = getattr(self.blackboard.document_profile, "routing_category", None)
         return PdfRoutingCategory.normalize(routing) is PdfRoutingCategory.SLIDES
+
+    def _run_page_screen(self) -> None:
+        """Screen every page image for structural pages before either route."""
+        result = run_page_screen(self.ctx)
+        self.trace.record_step(
+            round_index=self.round_index,
+            actor="screen:page_screen",
+            action_type="scan",
+            result=result,
+            tool_name=None,
+            tool_args={},
+        )
+        self.round_index += 1
 
     def _run_slide_structure_route(self) -> None:
         result = run_slide_structure_route(self.ctx)
