@@ -604,7 +604,6 @@ def parse_docx(
             current_heading = last_heading_before_block
 
         elif label == "TABLE":
-            # TODO: handle cross-page tables
             headings_stack = asset_accumulator.append_table(
                 block,
                 headings_stack,
@@ -613,7 +612,7 @@ def parse_docx(
             )
             current_heading = last_heading_before_block
 
-        else:  # TODO: handle latex, etc.
+        else:  # TOC-AREA blocks are TOC entries, not body content.
             pass
 
     asset_accumulator.finalize()

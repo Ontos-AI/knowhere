@@ -46,7 +46,6 @@ def is_content_line(line: str) -> bool:
         return False
 
     # Filter out html lines
-    # TODO if table extract it as lines but keep the id span as 1
     if stripped.startswith("<table>"):
         return False
 
@@ -380,7 +379,6 @@ def detect_tocs_in_texts(
     md_lines: list,
     model_name: str = None,
     hierarchy_model_name: str = None,
-    branch: str = "normal",
     limit_: int = 150,
 ):
     """
@@ -390,7 +388,6 @@ def detect_tocs_in_texts(
         md_lines: markdown lines list
         model_name: TOC range detection model name (optional)
         hierarchy_model_name: hierarchy LLM model name (optional)
-        branch: "normal" or "plus-ocr"
         limit_: max lines to consider for each candidate area
 
     Returns:
@@ -398,24 +395,18 @@ def detect_tocs_in_texts(
         - toc_hierarchies: List[dict] containing:
             {
                 "toc_range": (start_idx, end_idx),
-                "toc_with_level": [...],
+                "scan_range": (start_idx, scan_end_idx),
+                "toc_with_level": "<markdown table>",
                 "toc_tree": {...}
             }
         - filtered_md_lines: md_lines with TOC sections removed
     """
 
     logger.info("-" * 60)
-    logger.info(f"Step 1: detect TOC lines, with {branch} method")
+    logger.info("Step 1: detect TOC lines")
     logger.info("-" * 60)
 
-    if branch == "normal":
-        toc_area = detect_tocs_llm(md_lines, model_name, limit_)
-    elif branch == "plus-ocr":
-        # TODO implement OCR branch, if implement, direct yield toc-tree
-        return None, md_lines
-    else:
-        logger.error(f"Not supported branch: {branch}")
-        return None, md_lines
+    toc_area = detect_tocs_llm(md_lines, model_name, limit_)
 
     if not toc_area or len(toc_area) == 0:
         logger.warning("TOC detection failed, no TOC area detected")

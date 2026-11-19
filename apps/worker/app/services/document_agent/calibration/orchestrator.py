@@ -34,6 +34,12 @@ def anchor_hierarchy(
         page_count=page_count,
     )
     if phase1.status == "failed" and not phase1.regimes:
+        # TODO(uncalibrated-toc): With no offset, every page-numbered TOC node is
+        # pruned and the skeleton usually falls back to Root; a pending TOC that
+        # fails calibration is skipped (``_calibrate_one_pending_toc``). In both
+        # cases the TOC titles/levels are lost. Discuss keeping them as a
+        # degraded hierarchy hint (e.g. fine-stage level-resolver context)
+        # without moving section starts or fixing offsets.
         return anchor_hierarchy_from_offset(
             nodes=nodes,
             offset_hint=None,
