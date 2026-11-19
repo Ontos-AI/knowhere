@@ -23,6 +23,7 @@ async def create_demo(
     *,
     source_id: str = "contract-demo",
     file_name: str = "shared.docx",
+    demo_category_id: str | None = None,
 ) -> dict[str, Any]:
     from shared.core.config import settings
 
@@ -34,6 +35,11 @@ async def create_demo(
             "source_type": "file",
             "file_name": file_name,
             "data_id": source_id,
+            **(
+                {}
+                if demo_category_id is None
+                else {"demo_category_id": demo_category_id}
+            ),
         },
     )
     assert response.status_code == 200, response.text
@@ -336,6 +342,83 @@ async def test_demo_writes_require_maintainers(
                     )
                 )
             await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_demo_categories_list_the_official_library(
+    developer_api_client_factory: ClientFactory,
+) -> None:
+    async def library_sources(client: AsyncClient) -> list[dict[str, Any]]:
+        """Official Library sources this test created; the migration seeds others."""
+        catalog = await client.get("/api/v1/demo/catalog")
+        return [
+            source
+            for source in catalog.json()["official_library"]["sources"]
+            if source["demo_source_id"].startswith("contract-")
+        ]
+
+    async with developer_api_client_factory() as client:
+        seeded = (await client.get("/api/v1/demo/catalog")).json()["official_library"]
+        categoryIds: list[str] = [
+            category["category_id"] for category in seeded["categories"]
+        ]
+        assert categoryIds == ["financial-reports", "research-papers", "stem-books"]
+        # Seeded documents are listed by their stored category until they publish;
+        # an uncategorized one stays out of the Official Library.
+        assert seeded["sources"] and all(
+            source["status"] == "planned" and source["category_id"] in categoryIds
+            for source in seeded["sources"]
+        )
+        assert await library_sources(client) == []
+
+        finance = await create_demo(
+            client, source_id="contract-finance", demo_category_id="financial-reports"
+        )
+        assert [
+            (source["demo_source_id"], source["status"], source["import_status"])
+            for source in await library_sources(client)
+        ] == [("contract-finance", "planned", "processing")]
+        await publish_demo(finance)
+        await publish_demo(await create_demo(client, source_id="contract-other"))
+        catalog = (await client.get("/api/v1/demo/catalog")).json()
+        assert {source["demo_source_id"] for source in catalog["sources"]} == {
+            "contract-finance",
+            "contract-other",
+        }
+        [entry] = await library_sources(client)
+        assert entry["demo_source_id"] == entry["library_source_id"] == "contract-finance"
+        assert (entry["category_id"], entry["status"], entry["import_status"]) == (
+            "financial-reports",
+            "ready",
+            "ready",
+        )
+        assert entry["canonical_document_id"] == finance["document_id"]
+        assert entry["namespace"] == "__knowhere_demo__" and entry["job_result_id"]
+
+        refiled = await create_demo(
+            client, source_id="contract-finance", demo_category_id="research-papers"
+        )
+        assert refiled["document_id"] == finance["document_id"]
+        await publish_demo(refiled)
+        assert [
+            (source["demo_source_id"], source["category_id"])
+            for source in await library_sources(client)
+        ] == [("contract-finance", "research-papers")]
+
+        for payload in (
+            {"namespace": "__knowhere_demo__", "data_id": "contract-bad", "demo_category_id": "sports"},
+            {"namespace": "default", "demo_category_id": "financial-reports"},
+        ):
+            refused = await client.post(
+                "/api/v2/jobs",
+                json={"source_type": "file", "file_name": "shared.docx", **payload},
+            )
+            assert refused.status_code == 400, refused.text
+            assert refused.json()["error"]["code"] == "INVALID_ARGUMENT"
+
+        archived = await client.post(f"/api/v2/documents/{finance['document_id']}/archive")
+        assert archived.status_code == 200, archived.text
+        assert await library_sources(client) == []
 
 
 @pytest.mark.asyncio

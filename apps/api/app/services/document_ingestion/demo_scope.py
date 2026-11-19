@@ -16,6 +16,10 @@ from shared.models.database.job import Job
 from shared.models.schemas.job import JobCreateBase
 from shared.services.retrieval.corpus_storage import DEMO_NAMESPACE, DEMO_OWNER
 from shared.services.retrieval.demo_authorization import authorize_demo_transaction
+from app.services.demo.official_library_catalog import (
+    UNCATEGORIZED_DEMO_CATEGORY_ID,
+    is_assignable_demo_category,
+)
 from app.services.document_ingestion.scope_service import (
     raise_document_ingestion_conflict,
 )
@@ -32,6 +36,18 @@ async def resolve_demo_scope(
         raise ValidationException(
             user_message="Demo ingestion requires data_id with at most 128 characters.",
             violations=[{"field": "data_id", "description": "Required demo source ID"}],
+        )
+    categoryId: str | None = (
+        str(payload.demo_category_id).strip()
+        if payload.demo_category_id is not None
+        else None
+    )
+    if categoryId is not None and not is_assignable_demo_category(categoryId):
+        raise ValidationException(
+            user_message="demo_category_id must name an Official Library category or other.",
+            violations=[
+                {"field": "demo_category_id", "description": "Unknown demo category"}
+            ],
         )
     # This transaction lock spans source creation and the JobRepository commit.
     # The partial unique index protects claims from any other API process too.
@@ -63,7 +79,7 @@ async def resolve_demo_scope(
             document_id="ddoc_" + uuid5(NAMESPACE_URL, sourceId).hex[:12],
             demo_source_id=sourceId,
             title=fileName,
-            category_id="other",
+            category_id=categoryId or UNCATEGORIZED_DEMO_CATEGORY_ID,
             catalog_metadata={},
             user_id=DEMO_OWNER,
             namespace=DEMO_NAMESPACE,
@@ -72,6 +88,10 @@ async def resolve_demo_scope(
             parse_track="chunk",
         )
         db.add(document)
+        await db.flush()
+    elif categoryId is not None and document.category_id != categoryId:
+        # A maintainer refiles an existing source; the next catalog read lists it there.
+        document.category_id = categoryId
         await db.flush()
     activeJob: Job | None = (
         (
