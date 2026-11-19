@@ -49,6 +49,7 @@ Knowhere parses files along their native hierarchy (headings, if any) and uses f
 
 ## 📢 News
 
+- **November 2026**: 📽️ **Better PowerPoint parsing.** Slide decks now get a section hierarchy built from their agenda and divider slides, and embedded audio and video are transcribed and searchable alongside their slides.
 - **November 2026**: ⏩ **Progressive ingestion.** `ingestion_mode=progressive` publishes a readable baseline first, then enriches the rest in the background. MinerU is no longer required by default.
 - **November 2026**: 🧰 **Agent retrieval tools exposed through the API.** Corpus navigation tools are exposed to built-in and external agents alike.
 - **November 2026**: 🖼️ **More image formats.** `.gif`, `.webp`, `.bmp`, `.tif`/`.tiff`, and `.heic`/`.heif` are now supported.
@@ -170,7 +171,7 @@ Agents using Knowhere outperform those working from raw documents, Markitdown, U
 
 **✅ Supported**
 
-- [x] `.pdf` `.pptx` — vision parsing
+- [x] `.pdf` `.pptx` — vision parsing (`.pptx` also transcribes embedded audio and video)
 - [x] `.doc` `.docx` `.xls` `.xlsx` `.csv` `.tsv`
 - [x] `.jpg` `.jpeg` `.png` `.gif` `.webp` `.bmp` `.tif` `.tiff` `.heic` `.heif`
 - [x] `.md` `.txt` `.html` `.htm` `.json`
@@ -211,6 +212,7 @@ cp apps/worker/.env.example apps/worker/.env
 - S3-compatible storage credentials
 - at least one LLM provider key: `DS_KEY`, `ALI_API_KEYS`, `GPT_API_KEY`, or `GLM_API_KEY`
 - `VERCEL_KEY` for page-image and query embeddings
+- `ALI_API_KEYS` (DashScope Fun-ASR) if you want audio and video embedded in presentations transcribed
 - a vision-capable model provider for PDF/PowerPoint parsing, page understanding, image summaries, OCR, atlas classification, or image-aware retrieval
 - `MINERU_API_KEYS` only if you turn on the optional MinerU fine-stage page-text extractor
 - any optional billing or webhook providers you want to enable

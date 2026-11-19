@@ -33,7 +33,7 @@ def _neg_fires(text: str) -> bool:
 
 
 def _estimated_level(line: str) -> int:
-    level, _reason, _cleaned = _estimate_markdown_heading_level(line, None)
+    level, _reason, _cleaned = _estimate_markdown_heading_level(line)
     return int(level)
 
 
