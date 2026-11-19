@@ -6,6 +6,7 @@ Section boundaries come from TOC anchoring persisted on anatomy
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -29,6 +30,7 @@ from app.services.document_agent.structure.toc_anchoring import (
     pending_toc_body_scope,
     section_start_pages,
     select_global_toc_hierarchies,
+    split_unnumbered_tocs,
 )
 from loguru import logger
 from app.services.page_memory._utils import (
@@ -41,6 +43,8 @@ from shared.services.chunks.path_segments import (
     join_document_path,
     split_escaped_document_path,
 )
+
+_TOC_NODE_TITLE = "TOC"
 
 
 def _null_page_locate_bucket(
@@ -92,8 +96,13 @@ def extract_section_skeletons(
     if page_count <= 0:
         return [_root_skeleton(root_path=root_path, filename=filename, page_count=0)]
 
+    # Unnumbered TOCs never become the primary or a pending TOC; they only
+    # get a TOC node in ``_toc_ownership_skeletons``.
+    numbered_tocs, _ = split_unnumbered_tocs(
+        list(getattr(anatomy, "toc_hierarchies", None) or [])
+    )
     toc_hierarchies, pending_tocs, toc_selection = select_global_toc_hierarchies(
-        hierarchies=list(getattr(anatomy, "toc_hierarchies", None) or []),
+        hierarchies=numbered_tocs,
         filename=filename,
     )
     toc_nodes = extract_toc_nodes(toc_hierarchies)
@@ -468,7 +477,12 @@ def _toc_ownership_skeletons(
     filename: str,
     anatomy: Any,
 ) -> list[SectionSkeleton]:
-    """Claim each TOC page range as a ``TOC`` node under its covering parent."""
+    """Claim each TOC's pages as its own ``TOC`` node under its covering parent.
+
+    Numbered and unnumbered TOCs alike get one node each; a paired copy's pages
+    join the node of the TOC it copies. One node under a parent is ``TOC``;
+    several distinct TOCs under one parent are each ``TOC p.<first page>``.
+    """
     toc_pages = sorted(
         {
             int(page)
@@ -489,8 +503,9 @@ def _toc_ownership_skeletons(
             records_by_range[tuple(toc.get("toc_range") or [])] = record
 
     hierarchies = list(getattr(anatomy, "toc_hierarchies", None) or [])
-    parent_by_range: dict[tuple[Any, ...], str] = {}
-    pages_by_parent: dict[str, set[int]] = {}
+    # One entry per owning TOC, keyed by its (start, end) TOC range.
+    parent_by_owner: dict[tuple[int, int], str] = {}
+    pages_by_owner: dict[tuple[int, int], set[int]] = {}
 
     def _parent_path_for_span(start: int, end: int) -> str:
         covering = open_section_path(coverage, start=start, end=end)
@@ -506,9 +521,8 @@ def _toc_ownership_skeletons(
         pages = [page for page in toc_pages if start <= page <= end]
         if not pages:
             continue
-        parent_path = _parent_path_for_span(pages[0], pages[-1])
-        parent_by_range[tuple(hierarchy.get("toc_range") or [])] = parent_path
-        pages_by_parent.setdefault(parent_path, set()).update(pages)
+        parent_by_owner[(start, end)] = _parent_path_for_span(pages[0], pages[-1])
+        pages_by_owner.setdefault((start, end), set()).update(pages)
 
     for hierarchy in hierarchies:
         start = toc_range_start(hierarchy)
@@ -521,21 +535,27 @@ def _toc_ownership_skeletons(
         pages = [page for page in toc_pages if start <= page <= end]
         if not pages:
             continue
-        parent_path = parent_by_range.get(tuple(host_range))
-        if parent_path is None:
-            parent_path = _parent_path_for_span(host_range[0], host_range[-1])
-            parent_by_range[tuple(host_range)] = parent_path
-        pages_by_parent.setdefault(parent_path, set()).update(pages)
+        host_key = (host_range[0], host_range[-1])
+        if host_key not in parent_by_owner:
+            parent_by_owner[host_key] = _parent_path_for_span(*host_key)
+        pages_by_owner.setdefault(host_key, set()).update(pages)
 
+    nodes_per_parent = Counter(parent_by_owner.values())
     by_path = {item.section_path: item for item in skeletons}
     nodes: list[SectionSkeleton] = []
-    for parent_path, pages in pages_by_parent.items():
+    for owner, pages in pages_by_owner.items():
         ordered = sorted(pages)
+        parent_path = parent_by_owner[owner]
         parent = by_path.get(parent_path)
+        title = (
+            _TOC_NODE_TITLE
+            if nodes_per_parent[parent_path] == 1
+            else f"{_TOC_NODE_TITLE} p.{ordered[0]}"
+        )
         section_path = (
-            append_document_path(parent_path, "TOC")
+            append_document_path(parent_path, title)
             if parent_path != filename
-            else join_document_path([filename, "TOC"])
+            else join_document_path([filename, title])
         )
         nodes.append(
             SectionSkeleton(
@@ -543,7 +563,7 @@ def _toc_ownership_skeletons(
                 level=(parent.level + 1) if parent is not None else 1,
                 start_page=ordered[0],
                 end_page=ordered[-1],
-                title="TOC",
+                title=title,
                 parent_path=parent_path,
                 evidence={"source": "toc_node"},
             )

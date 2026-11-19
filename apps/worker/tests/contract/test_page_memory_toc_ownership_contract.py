@@ -216,7 +216,8 @@ def test_contained_toc_mounts_under_covering_chapter() -> None:
     assert "TOC" in tree["Chapter 5"]
 
 
-def test_parallel_root_tocs_merge_page_union() -> None:
+def test_distinct_root_tocs_each_own_a_node() -> None:
+    """Two distinct TOCs under one parent are two nodes, named by first page."""
     skeletons = _extract(
         page_count=30,
         nodes=[TitleNode(title="Ch1", level=1, printed_page=16)],
@@ -236,10 +237,19 @@ def test_parallel_root_tocs_merge_page_union() -> None:
         toc_pages=[10, 11, 14, 15],
     )
     toc_nodes = [item for item in skeletons if is_toc_node(item)]
-    assert len(toc_nodes) == 1
-    assert toc_nodes[0].parent_path == "doc.pdf"
-    assert toc_nodes[0].start_page == 10
-    assert toc_nodes[0].end_page == 15
+    assert [
+        (
+            item.section_path,
+            item.title,
+            item.parent_path,
+            item.start_page,
+            item.end_page,
+        )
+        for item in toc_nodes
+    ] == [
+        ("doc.pdf/TOC p.10", "TOC p.10", "doc.pdf", 10, 11),
+        ("doc.pdf/TOC p.14", "TOC p.14", "doc.pdf", 14, 15),
+    ]
 
     phase_a = build_phase_a(
         profile=SimpleNamespace(
@@ -273,10 +283,9 @@ def test_parallel_root_tocs_merge_page_union() -> None:
         ),
         filename="doc.pdf",
     )
-    toc_row = next(
-        row for _, row in phase_a.coarse_df.iterrows() if row["path"] == "doc.pdf/TOC"
-    )
-    assert toc_row["page_nums"] == "10,11,14,15"
+    rows = {row["path"]: row for _, row in phase_a.coarse_df.iterrows()}
+    assert rows["doc.pdf/TOC p.10"]["page_nums"] == "10,11"
+    assert rows["doc.pdf/TOC p.14"]["page_nums"] == "14,15"
 
 
 def test_toc_pages_are_skipped_by_fine_and_chapter_processing() -> None:

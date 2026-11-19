@@ -65,6 +65,8 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     relationships are set (nesting first, evidenced spans for equal-span copies
     and unanswered nesting checks) and contained forests are grafted. Blackboard writes happen only
     after that sequence.
+
+    Unnumbered TOCs skip all of that; they are kept only for their TOC pages.
     """
     from app.services.document_agent.calibration.orchestrator import (
         anchor_hierarchy,
@@ -83,17 +85,28 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     toc_result = ctx.blackboard.toc_result
     toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
     body_pages = body_pages_excluding_toc(toc_pages, page_count)
+    hierarchies, unnumbered = split_unnumbered_tocs(
+        list(ctx.blackboard.toc_hierarchies or [])
+    )
 
     if _try_outline_anchoring_route(
         ctx,
         page_texts=page_texts,
         toc_pages=toc_pages,
+        judge_toc_pages=pages_excluding_toc(
+            toc_pages, unnumbered_toc_pages(unnumbered)
+        ),
         body_pages=body_pages,
         page_count=page_count,
     ):
         return
 
-    hierarchies = list(ctx.blackboard.toc_hierarchies or [])
+    if unnumbered:
+        logger.info(
+            "{} unnumbered TOCs kept, not anchored: {}",
+            _LOG_PREFIX,
+            [hierarchy.get("toc_range") for hierarchy in unnumbered],
+        )
     if not hierarchies:
         return
 
@@ -173,6 +186,7 @@ def _try_outline_anchoring_route(
     *,
     page_texts: dict[int, str],
     toc_pages: list[int],
+    judge_toc_pages: list[int],
     body_pages: list[int],
     page_count: int,
 ) -> bool:
@@ -180,6 +194,10 @@ def _try_outline_anchoring_route(
 
     Consumes ``blackboard.pdf_outline_roots`` written during the find-stage
     ``probe.outline`` call; does not re-open the PDF here.
+
+    The judge compares the outline only with ``judge_toc_pages``, the pages of
+    TOCs that can be anchored (unnumbered TOC pages left out). With none, the
+    outline wins without a judge call.
     """
     from app.services.document_agent.structure.outline_check import (
         build_tree_digest_from_entries,
@@ -203,12 +221,12 @@ def _try_outline_anchoring_route(
     if not paged_kept:
         return False
 
-    if toc_pages:
+    if judge_toc_pages:
         judge_result = judge_toc_source(
             ctx,
             {
                 "outline_digest": build_tree_digest_from_entries(kept),
-                "toc_pages": toc_pages,
+                "toc_pages": judge_toc_pages,
             },
         )
         if judge_result.status != "ok":
@@ -390,6 +408,55 @@ def physical_page_overrides(
                 candidates=[page],
             )
     return overrides
+
+
+def is_unnumbered_toc(hierarchy: dict[str, Any]) -> bool:
+    """A page-extracted TOC with entries, none of which carries a page number.
+
+    Such a TOC cannot be calibrated, so it is kept only for its TOC pages,
+    which get a TOC node (see ``skeleton_extractor``). A TOC with some
+    numbered entries is numbered.
+    """
+    if hierarchy.get("toc_range_unit") != "page":
+        return False
+    rows = hierarchy.get("toc_with_level") or []
+    return bool(rows) and not any(
+        isinstance(row, dict)
+        and row.get("page_number") is not None
+        and str(row.get("page_number")).strip()
+        for row in rows
+    )
+
+
+def split_unnumbered_tocs(
+    hierarchies: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split TOC hierarchies into ``(numbered, unnumbered)``, keeping order.
+
+    Only the numbered ones go to ``select_global_toc_hierarchies``: unnumbered
+    TOCs never become the primary or a pending TOC, so they get no pairing,
+    nesting, calibration or graft and never end another TOC's scope.
+    """
+    numbered: list[dict[str, Any]] = []
+    unnumbered: list[dict[str, Any]] = []
+    for hierarchy in hierarchies:
+        if is_unnumbered_toc(hierarchy):
+            unnumbered.append(hierarchy)
+        else:
+            numbered.append(hierarchy)
+    return numbered, unnumbered
+
+
+def unnumbered_toc_pages(unnumbered: list[dict[str, Any]]) -> list[int]:
+    """Pages inside the ``toc_range`` of each unnumbered TOC, in order."""
+    pages: list[int] = []
+    for hierarchy in unnumbered:
+        start = toc_range_start(hierarchy)
+        end = toc_range_end(hierarchy)
+        if start is None or end is None:
+            continue
+        pages.extend(range(start, end + 1))
+    return pages
 
 
 def select_global_toc_hierarchies(
