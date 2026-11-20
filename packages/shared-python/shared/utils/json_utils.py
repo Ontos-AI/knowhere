@@ -74,7 +74,10 @@ def make_json_safe(
     if np is not None:
         if isinstance(value, np.generic):
             _visited.discard(obj_id)
-            return value.item()
+            native_value = value.item()
+            if isinstance(native_value, (datetime.date, datetime.datetime)):
+                return native_value.isoformat()
+            return native_value
         if isinstance(value, np.ndarray):
             _visited.discard(obj_id)
             return {
