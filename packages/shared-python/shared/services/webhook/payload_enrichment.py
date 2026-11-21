@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 from shared.core.database import get_db_context
 from shared.models.database.job import Job
 from shared.models.database.webhook import WebhookEvent
-from shared.services.jobs.result_delivery import JobResultDeliveryResolver
+from shared.services.jobs.result_delivery import JobResultDeliveryResolver, hasFailedInitialIndexing
 
 
 class WebhookPayloadEnricher:
@@ -38,6 +38,9 @@ class WebhookPayloadEnricher:
                     logger.warning(
                         f"Job or result not found for enrichment: job_id={event.job_id}"
                     )
+                    return payload
+
+                if hasFailedInitialIndexing(job.status, job.failure_stage):
                     return payload
 
                 return self._resolver.enrich_payload(

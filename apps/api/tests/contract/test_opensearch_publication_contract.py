@@ -1038,6 +1038,62 @@ def test_parse_event_follows_the_serving_contract(
         engine.dispose()
 
 
+@pytest.mark.parametrize("eventName", ["job.parsed", "job.failed"])
+@pytest.mark.parametrize("usesQStash", [True, False])
+def test_webhooks_keep_diagnostics_without_signing_failed_initial_results(
+    monkeypatch: pytest.MonkeyPatch,
+    postgresql_proc: PostgreSQLProcess,
+    eventName: str,
+    usesQStash: bool,
+) -> None:
+    engine, jobId, _ = _prepareParsedJob(
+        monkeypatch,
+        postgresql_proc,
+        webhookEvents=["job.parsed", "job.failed"],
+        backend="postgresql",
+    )
+    from shared.models.database.job import Job
+    from shared.models.database.webhook import WebhookEvent
+    from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
+    from shared.services.webhook.payload_enrichment import WebhookPayloadEnricher
+    from shared.services.webhook.qstash_payload import QStashPayloadEnricher
+
+    try:
+        with Session(engine) as session:
+            job = session.get(Job, jobId)
+            assert job is not None
+            job.status = "failed"
+            job.indexing_status = "failed"
+            job.failure_stage = "indexing"
+            job.error_code = "UNAVAILABLE"
+            job.error_message = "Initial indexing failed"
+            session.flush()
+            assert SyncJobWebhookOutbox().create_event(
+                session, job_id=jobId, event_type="job.failed"
+            ) is not None
+            session.commit()
+
+        with Session(engine) as session:
+            event = session.scalars(select(WebhookEvent).where(
+                WebhookEvent.job_id == jobId,
+                WebhookEvent.payload["event"].astext == eventName,
+            )).one()
+            payload: dict[str, object] = dict(event.payload)
+            assert payload["job_result_id"]
+            if eventName == "job.failed":
+                assert payload["failure_stage"] == "indexing"
+                assert payload["error"]
+
+            delivered: dict[str, object] = (
+                QStashPayloadEnricher().enrich(session, event)
+                if usesQStash
+                else asyncio.run(WebhookPayloadEnricher().enrich(event))
+            )
+            assert delivered == payload
+    finally:
+        engine.dispose()
+
+
 def test_demo_native_publication_and_reads_respect_the_runtime_database_role(
     monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess,
 ) -> None:

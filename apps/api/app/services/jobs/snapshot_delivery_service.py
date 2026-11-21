@@ -19,6 +19,7 @@ from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.progressive_ingestion import StoredSnapshot
 from shared.services.jobs.progressive_ingestion import read_progressive_state
+from shared.services.jobs.result_delivery import hasFailedInitialIndexing
 from shared.services.storage.job_file_storage import JobFileStorage
 
 _CORE_FILES: frozenset[str] = frozenset(
@@ -193,6 +194,8 @@ class SnapshotDeliveryService:
         ).scalar_one_or_none()
         if job is None:
             raise NotFoundException(resource="Job", resource_id=job_id)
+        if hasFailedInitialIndexing(job.status, job.failure_stage):
+            raise NotFoundException(resource="Snapshot", resource_id=snapshot_id)
         result: JobResult | None = (
             await database.execute(
                 select(JobResult).options(noload("*")).where(JobResult.job_id == job_id)

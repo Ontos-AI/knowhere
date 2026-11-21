@@ -1,4 +1,4 @@
-"""Public HTTP contracts for progressive ingestion retry."""
+"""Retired ingestion retry routes stay out of the public HTTP contract."""
 
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
@@ -8,7 +8,7 @@ from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_removes_manual_enrichment_retry_from_http_and_openapi(
+async def test_excludes_retired_ingestion_retries_from_openapi(
     developer_api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
 ) -> None:
     async with developer_api_client_factory() as client:
@@ -19,5 +19,5 @@ async def test_removes_manual_enrichment_retry_from_http_and_openapi(
         assert openapi.status_code == 200, openapi.text
         paths: dict[str, object] = openapi.json()["paths"]
         assert "/v2/jobs/{job_id}/enrichment/retry" not in paths
-        assert "/v1/jobs/{job_id}/indexing/retry" in paths
-        assert "/v2/jobs/{job_id}/indexing/retry" in paths
+        assert "/v1/jobs/{job_id}/indexing/retry" not in paths
+        assert "/v2/jobs/{job_id}/indexing/retry" not in paths

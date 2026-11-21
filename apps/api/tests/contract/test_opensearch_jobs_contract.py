@@ -1,4 +1,4 @@
-"""Original-request indexing retries retain results and reject active attempts."""
+"""Public jobs cover first publication and terminal indexing failures."""
 
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
@@ -31,7 +31,7 @@ async def test_native_admission_accepts_progressive_publication(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("version", ["v1", "v2"])
-async def test_indexing_retry_preserves_results_and_rejects_active_attempts(
+async def test_indexing_failure_keeps_original_job_terminal_and_new_submission_creates_new_job(
     monkeypatch: pytest.MonkeyPatch,
     developer_api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
     version: str,
@@ -46,7 +46,6 @@ async def test_indexing_retry_preserves_results_and_rejects_active_attempts(
         from shared.models.database.indexing import IndexingAttempt
         from shared.models.database.job import Job
         from shared.services.jobs.lifecycle.success_finalizer import SyncJobSuccessFinalizer
-        from shared.services.retrieval.lexical.retry import IndexingRetry
         from shared.services.retrieval.lexical.worker import IndexingWorker
         monkeypatch.setattr(celery_app, "send_task", lambda *args, **kwargs: None)
         engine = create_engine(make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2"))
@@ -73,29 +72,34 @@ async def test_indexing_retry_preserves_results_and_rejects_active_attempts(
                 attempt: IndexingAttempt = session.scalars(select(IndexingAttempt).where(IndexingAttempt.jobId == jobId)).one()
                 assert attempt.executionCount == 1 and attempt.state == "failed"
             failed = await client.get(f"/api/{version}/jobs/{jobId}")
+            assert failed.status_code == 200
+            assert failed.json()["status"] == "failed"
             assert failed.json()["failure_stage"] == "indexing"
-            assert failed.json()["result_url"] == parsed.json()["result_url"]
-            retried = await client.post(f"/api/{version}/jobs/{jobId}/indexing/retry")
-            assert retried.status_code == 503, retried.text
-            assert retried.json()["error"]["code"] == "UNAVAILABLE"
-            details = retried.json()["error"]["details"]
-            assert details["job_id"] == jobId
-            assert details["parsing_status"] == "completed" and details["indexing_status"] == "failed"
+
+            retired = await client.post(f"/api/{version}/jobs/{jobId}/indexing/retry")
+            assert retired.status_code == 404, retired.text
+            repeated = await client.get(f"/api/{version}/jobs/{jobId}")
+            assert repeated.status_code == 200
+            observed = repeated.json()
+            assert observed["status"] == "failed"
+            assert observed["job_result_id"] == parsed.json()["job_result_id"]
+            assert observed["parsing_status"] == "completed"
+            assert observed["indexing_status"] == "failed"
+            assert observed["error"]["code"]
+            assert observed["result"] is None
+            assert observed["result_url"] is None
+
+            resubmitted = await client.post(
+                f"/api/{version}/jobs", json={"source_type": "file", "file_name": "report.pdf"}
+            )
+            assert resubmitted.status_code == 200, resubmitted.text
+            assert resubmitted.json()["status"] == "waiting-file"
+            assert resubmitted.json()["job_id"] != jobId
+
             with Session(engine) as session:
-                attempts: list[IndexingAttempt] = list(session.scalars(select(IndexingAttempt).where(
-                    IndexingAttempt.jobId == jobId).order_by(IndexingAttempt.attemptNumber)))
-                assert [attempt.executionCount for attempt in attempts] == [1, 1]
-                assert [attempt.state for attempt in attempts] == ["failed", "failed"]
-                job = session.get(Job, jobId)
-                assert job is not None
-                assert IndexingRetry().request(session, jobId=jobId, userId=str(job.user_id))
-                session.commit()
-            repeated = await client.post(f"/api/{version}/jobs/{jobId}/indexing/retry")
-            assert repeated.status_code == 409, repeated.text
-            assert repeated.json()["error"]["details"]["reason"] == "INDEXING_ALREADY_RUNNING"
-            with Session(engine) as session:
-                attempts = list(session.scalars(select(IndexingAttempt).where(IndexingAttempt.jobId == jobId)
-                    .order_by(IndexingAttempt.attemptNumber)))
-                assert len(attempts) == 3 and attempts[-1].executionCount == 0
+                attempt = session.scalars(
+                    select(IndexingAttempt).where(IndexingAttempt.jobId == jobId)
+                ).one()
+                assert attempt.executionCount == 1 and attempt.state == "failed"
         finally:
             engine.dispose()

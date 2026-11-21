@@ -9,6 +9,10 @@ from shared.services.jobs.progressive_ingestion import read_progressive_state
 from shared.utils.utc_now import utc_now_naive
 
 
+def hasFailedInitialIndexing(status: str, failureStage: str | None) -> bool:
+    return status == "failed" and failureStage == "indexing"
+
+
 @dataclass(frozen=True)
 class JobResultDelivery:
     result: dict[str, Any] | None
@@ -84,12 +88,9 @@ class JobResultDeliveryResolver:
 
     @staticmethod
     def supports_payload(payload: dict[str, Any]) -> bool:
-        return (
-            payload.get("event") in {
-                "job.parsed", "job.completed", "job.enrichment.completed",
-            }
-            or payload.get("failure_stage") == "indexing"
-        )
+        return payload.get("event") in {
+            "job.parsed", "job.completed", "job.enrichment.completed",
+        }
 
     def enrich_payload(
         self,
