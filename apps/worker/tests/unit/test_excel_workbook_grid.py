@@ -93,7 +93,7 @@ def test_load_workbook_grid_reads_array_formula_and_table(tmp_path: Path) -> Non
     assert grid.defined_names[0].attr_text == "Data!$A$2:$A$3"
 
 
-def test_cell_text_follows_date_percent_decimal_and_boolean_formats(tmp_path: Path) -> None:
+def test_cell_text_follows_date_percent_decimal_unit_and_boolean_formats(tmp_path: Path) -> None:
     import datetime
 
     workbook = Workbook()
@@ -122,6 +122,17 @@ def test_cell_text_follows_date_percent_decimal_and_boolean_formats(tmp_path: Pa
         (1e-07, "0.00E+00", "1e-07"),
         (True, "General", "TRUE"),
         ("001", "@", "001"),
+        (3.254, '0.00"x"', "3.25x"),
+        (1234.5, '#,##0.00"万元"', "1234.50万元"),
+        (12, '0 "kg"', "12 kg"),
+        (5, '0\\件', "5件"),
+        (8, 'General"人"', "8人"),
+        (0.05, '0%"增长"', "5%增长"),
+        (1234.5, '"¥"#,##0.00', "1234.50"),
+        (1234, "$#,##0;[Red]($#,##0);-", "1234"),
+        (1234.5, '_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_)', "1234.50"),
+        (12345678, '0.0,,"M"', "12.3M"),
+        (12345, "#,##0,", "12"),
     ]
     for column, (value, number_format, _expected) in enumerate(cases, start=1):
         cell = sheet.cell(row=1, column=column, value=value)

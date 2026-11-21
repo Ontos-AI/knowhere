@@ -48,7 +48,6 @@ def normalize_table_source(path: str, filename: str, output_dir: str) -> str:
         return _delimited_text_to_xlsx(
             source_path=path,
             output_dir=output_dir,
-            delimiter="\t" if extension == ".tsv" else None,
             stem=Path(filename).stem,
         )
     raise TableParsingException(
@@ -57,15 +56,23 @@ def normalize_table_source(path: str, filename: str, output_dir: str) -> str:
     )
 
 
+def read_delimited_rows(path: str) -> list[list[str]]:
+    """Decoded fields of a csv/tsv source, one list per row.
+
+    A tsv is split on tabs; a csv delimiter is detected from the text.
+    """
+    delimiter = "\t" if Path(path).suffix.lower() == ".tsv" else None
+    text = _decode_table_text(Path(path).read_bytes())
+    return _read_delimited_rows(text, delimiter=delimiter)
+
+
 def _delimited_text_to_xlsx(
     *,
     source_path: str,
     output_dir: str,
-    delimiter: str | None,
     stem: str,
 ) -> str:
-    text = _decode_table_text(Path(source_path).read_bytes())
-    rows = _read_delimited_rows(text, delimiter=delimiter)
+    rows = read_delimited_rows(source_path)
     destination = _work_xlsx_path(output_dir, stem)
     _write_xlsx_rows(
         destination=destination,

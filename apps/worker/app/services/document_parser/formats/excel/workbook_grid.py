@@ -7,17 +7,21 @@ from decimal import ROUND_HALF_UP, Decimal, localcontext
 from typing import Mapping
 
 import openpyxl
-from openpyxl.styles.numbers import FORMAT_GENERAL, STRIP_RE
+from openpyxl.styles.numbers import FORMAT_GENERAL
 from openpyxl.utils import column_index_from_string
 from openpyxl.utils.cell import range_boundaries
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 
 from shared.core.exceptions.domain_exceptions import TableParsingException
 
-# Excel format codes may carry ``[Red]``, ``[>100]`` or ``[$-804]`` tags and
-# ``\\x`` escaped literal characters; neither changes which value parts show.
-_BRACKET_TAG_RE = re.compile(r"\[[^\]]*\]")
-_ESCAPED_CHAR_RE = re.compile(r"\\.")
+# One token of an Excel number format: quoted text, a ``\x`` escaped
+# character, a ``[Red]``/``[>100]``/``[$-804]`` tag, ``_x`` padding, ``*x``
+# fill, the word General, or a single format character.
+_FORMAT_TOKEN_RE = re.compile(r'"[^"]*"|\\.|\[[^\]]*\]|[_*].|general|.', re.IGNORECASE | re.DOTALL)
+# Commas right after the last digit placeholder scale the number by 1,000 each.
+_SCALING_COMMAS_RE = re.compile(r"[0#?](,+)[^0#?]*$")
+# Format characters that may trail the digits without being shown as text.
+_TRAILING_NUMBER_CODES = "%,."
 
 
 @dataclass(frozen=True)
@@ -172,10 +176,10 @@ def format_cell_value(value: object, number_format: str) -> str:
     """Render a cell value the way its number format shows it.
 
     Dates and times keep the parts their format shows, percent and fixed
-    decimal formats keep their scale and decimal places, and booleans read
-    as in Excel. Thousands separators, currency symbols and every other
-    format fall back to the General rendering, so a number stays a number
-    when the table is queried as text.
+    decimal formats keep their scale and decimal places, text written after
+    the number such as a unit stays, and booleans read as in Excel.
+    Thousands separators and currency tags or symbols before the number are
+    not shown; every other format uses the General rendering.
     """
     if isinstance(value, bool):
         return "TRUE" if value else "FALSE"
@@ -219,13 +223,29 @@ def _format_temporal(value: object, number_format: str) -> str:
 
 
 def _format_codes(number_format: str) -> str:
-    """Lower-case format codes without quoted text, ``\\x`` escapes or ``[...]`` tags."""
-    without_literals = _ESCAPED_CHAR_RE.sub("", STRIP_RE.sub("", number_format))
-    return _BRACKET_TAG_RE.sub("", without_literals).lower()
+    """Lower-case format codes without quoted text, escapes, tags, padding or fill."""
+    return "".join(
+        token
+        for token in _FORMAT_TOKEN_RE.findall(number_format)
+        if not _is_format_literal(token) and not _is_format_layout(token)
+    ).lower()
+
+
+def _is_format_literal(token: str) -> bool:
+    return token.startswith(('"', "\\"))
+
+
+def _is_format_layout(token: str) -> bool:
+    """``[...]`` tags, ``_x`` padding and ``*x`` fill change no shown text."""
+    return len(token) > 1 and token[0] in "[_*"
 
 
 def _format_number(value: int | float, number_format: str) -> str:
-    section = _format_codes(number_format.split(";", 1)[0])
+    raw_section = number_format.split(";", 1)[0]
+    return _format_number_part(value, _format_codes(raw_section)) + _literal_suffix(raw_section)
+
+
+def _format_number_part(value: int | float, section: str) -> str:
     if not _is_fixed_or_percent_format(section):
         return general_number_text(value)
     # Excel rounds the written decimal half away from zero; binary float
@@ -233,6 +253,9 @@ def _format_number(value: int | float, number_format: str) -> str:
     shown = Decimal(repr(value)) if isinstance(value, float) else Decimal(value)
     if "%" in section:
         shown = shown * 100
+    scaling = _SCALING_COMMAS_RE.search(section)
+    if scaling:
+        shown = shown.scaleb(-3 * len(scaling.group(1)))
     required, optional = _decimal_places(section)
     places = required + optional
     with localcontext() as context:
@@ -243,6 +266,21 @@ def _format_number(value: int | float, number_format: str) -> str:
         fraction = fraction[:required] + fraction[required:].rstrip("0")
         text = f"{integer_part}.{fraction}" if fraction else integer_part
     return f"{text}%" if "%" in section else text
+
+
+def _literal_suffix(section: str) -> str:
+    """Text a format section shows after the number, such as ``万元`` in ``0.00"万元"``."""
+    suffix: list[str] = []
+    for token in _FORMAT_TOKEN_RE.findall(section):
+        if token in "0#?" or token.lower() == "general":
+            suffix.clear()
+        elif token.startswith('"'):
+            suffix.append(token[1:-1])
+        elif token.startswith("\\"):
+            suffix.append(token[1])
+        elif not _is_format_layout(token) and token not in _TRAILING_NUMBER_CODES:
+            suffix.append(token)
+    return "".join(suffix).rstrip()
 
 
 def _is_fixed_or_percent_format(codes: str) -> bool:
