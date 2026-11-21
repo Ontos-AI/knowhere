@@ -1,6 +1,4 @@
-"""The initial, committed directory of a parsed document revision."""
-
-from typing import Literal
+"""The committed directory of a parsed document revision."""
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -24,6 +22,6 @@ class DocumentDirectoryResponse(BaseModel):
     job_id: str
     job_result_id: str
     namespace: str
-    directory_version: Literal[0, 1]
+    directory_version: int = Field(ge=0, strict=True)
     directory_committed_at: str | None
     sections: list[DocumentDirectorySection] = Field(default_factory=list)

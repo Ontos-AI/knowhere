@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import uuid4
 from functools import partial
 
@@ -10,6 +11,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from shared.core.config import settings
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.models.database.webhook import WebhookEvent, WebhookEventStatus
@@ -24,6 +26,22 @@ _COMPLETED_EVENTS: frozenset[str] = frozenset({
     "job.document.directory_ready",
 })
 _DEFAULT_EVENTS: frozenset[str] = _COMPLETED_EVENTS | {"job.failed"}
+ENRICHMENT_FAILED_EVENT = "job.enrichment.failed"
+
+
+def _is_saved_hipo_callback(webhook_url: str) -> bool:
+    configured_origin = settings.KNOWHERE_HIPO_CALLBACK_ORIGIN
+    if not configured_origin:
+        return False
+    origin = urlsplit(configured_origin)
+    target = urlsplit(webhook_url)
+    return (
+        origin.scheme in {"http", "https"}
+        and bool(origin.netloc)
+        and target.scheme == origin.scheme
+        and target.netloc == origin.netloc
+        and target.path == "/api/internal/webhooks/knowhere/parse"
+    )
 
 
 @dataclass(frozen=True)
@@ -42,6 +60,7 @@ class SyncJobWebhookOutbox:
         event_type: str,
         extra_payload: dict[str, Any] | None = None,
         event_id: str | None = None,
+        attempt_key: str | None = None,
     ) -> WebhookOutboxEvent | None:
         job: Job | None = db.scalar(select(Job).where(Job.job_id == job_id).with_for_update())
 
@@ -52,11 +71,25 @@ class SyncJobWebhookOutbox:
         webhook_url, webhook_enabled = job.webhook_url, job.webhook_enabled
         if not webhook_enabled or not webhook_url:
             return None
+        is_enrichment_failure = event_type == ENRICHMENT_FAILED_EVENT
+        if is_enrichment_failure and not attempt_key:
+            raise ValueError("Enrichment failure requires an attempt identity")
         subscribed = job.webhook_events if job.webhook_events is not None else _DEFAULT_EVENTS
-        if event_type not in subscribed:
+        legacy_hipo_failure = (
+            is_enrichment_failure
+            and settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
+            and job.webhook_events is None
+            and _is_saved_hipo_callback(webhook_url)
+        )
+        if event_type not in subscribed and not legacy_hipo_failure:
             return None
         is_indexing_failure: bool = event_type == "job.failed" and job.failure_stage == "indexing"
-        milestone_key: str = f"{job_id}:{event_type}:{job.current_indexing_attempt_id if is_indexing_failure else 'job'}"
+        milestone_identity = (
+            attempt_key if is_enrichment_failure
+            else job.current_indexing_attempt_id if is_indexing_failure
+            else "job"
+        )
+        milestone_key: str = f"{job_id}:{event_type}:{milestone_identity}"
         previous = select(WebhookEvent).where(
             WebhookEvent.job_id == job_id,
             WebhookEvent.payload["event"].astext == event_type,
@@ -65,6 +98,8 @@ class SyncJobWebhookOutbox:
             previous = previous.where(
                 WebhookEvent.payload["indexing_attempt_id"].astext == job.current_indexing_attempt_id
             )
+        if is_enrichment_failure:
+            previous = previous.where(WebhookEvent.milestone_key == milestone_key)
         existing: WebhookEvent | None = db.scalars(previous.limit(1)).first()
         if existing is not None:
             return WebhookOutboxEvent(event_id=existing.id)

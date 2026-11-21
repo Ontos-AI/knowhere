@@ -12,6 +12,14 @@ class PublicationConfig(BaseSettings):
     """Explicit backend rollout gate and publication support settings."""
 
     KNOWHERE_LEXICAL_BACKEND: str = Field(default="postgresql", pattern="^(postgresql|opensearch)$")
+    KNOWHERE_ADDITIVE_PUBLICATION_ENABLED: bool = Field(
+        default=False,
+        description="Activate additive publication and its initial-ingestion contract.",
+    )
+    KNOWHERE_HIPO_CALLBACK_ORIGIN: str | None = Field(
+        default=None,
+        description="Trusted Hipo origin for enrichment failures on existing Hipo jobs.",
+    )
     KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND: bool = Field(
         default=False,
         description="Build PostgreSQL scoring terms only during a backend transition from OpenSearch.",

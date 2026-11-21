@@ -335,6 +335,11 @@ class DocumentIngestionService:
             ),
         )
         if CorpusStorage.resolve_namespace(payload.namespace).is_demo:
+            if payload.replaces_document_id is not None:
+                raise ValidationException(
+                    user_message="Private document replacement requires a private namespace.",
+                    violations=[{"field": "replaces_document_id", "description": "Private documents only"}],
+                )
             documentId: str = await resolve_demo_scope(db, user_id=current_user.user_id, payload=payload)
             JobMetadataHelper.set_document_scope(job_metadata, document_id=documentId, namespace=DEMO_NAMESPACE)
             job_metadata["corpus_target"] = "DEMO"
@@ -346,6 +351,30 @@ class DocumentIngestionService:
             raise ValidationException(user_message="demo_category_id applies only to the reserved demo namespace.", violations=[{"field": "demo_category_id", "description": "Use namespace __knowhere_demo__"}])
         job_metadata["corpus_target"] = "PRIVATE"
         requested_document_id = JobMetadataHelper.get_document_id(job_metadata)
+        requested_namespace = payload.namespace
+        if settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and requested_document_id:
+            raise ValidationException(
+                user_message="Create a replacement job with replaces_document_id.",
+                violations=[{"field": "document_id", "description": "Private ingestion creates a new document"}],
+            )
+        if payload.replaces_document_id is not None:
+            if not settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+                raise ValidationException(
+                    user_message="Private document replacement is not enabled.",
+                    violations=[{"field": "replaces_document_id", "description": "Replacement is unavailable"}],
+                )
+            if CorpusStorage.resolve_document(payload.replaces_document_id).is_demo:
+                raise ValidationException(
+                    user_message="The replacement target must be a private document.",
+                    violations=[{"field": "replaces_document_id", "description": "Private documents only"}],
+                )
+            replaces_document_id, requested_namespace = await resolve_effective_document_scope(
+                db,
+                user_id=current_user.user_id,
+                document_id=payload.replaces_document_id,
+                requested_namespace=requested_namespace,
+            )
+            job_metadata["replaces_document_id"] = replaces_document_id
         if requested_document_id:
             active_job = await find_active_job_for_document(
                 db,
@@ -365,7 +394,7 @@ class DocumentIngestionService:
             db,
             user_id=current_user.user_id,
             document_id=requested_document_id,
-            requested_namespace=cast(str | None, payload.namespace),
+            requested_namespace=requested_namespace,
         )
 
         if not requested_document_id:
