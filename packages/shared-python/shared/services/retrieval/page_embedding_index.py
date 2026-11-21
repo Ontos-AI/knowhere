@@ -181,7 +181,7 @@ def _build_owner_chunk_by_page(
             corpusStorage.DocumentChunk.id,
         )
     )
-    if CorpusStorage.resolve_namespace(scope.namespace).usesAdditivePublication():
+    if corpusStorage.usesAdditivePublication():
         statement = statement.where(DocumentChunk.enrichment_attempt_id.is_(None))
     rows = db.execute(statement).all()
     owner_by_page: dict[int, str] = {}

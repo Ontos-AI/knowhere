@@ -99,7 +99,6 @@ def test_repair_page_seven_preserves_other_vectors_and_rebinds_owner(
 ) -> None:
     from sqlalchemy import Column, Integer, JSON, MetaData, String, Table
     from sqlalchemy.orm import registry
-    from types import SimpleNamespace
     from shared.services.retrieval import page_embedding_index as index
     from shared.services.retrieval.publication_models import DocumentPublicationScope
 
@@ -141,11 +140,9 @@ def test_repair_page_seven_preserves_other_vectors_and_rebinds_owner(
     )
     mapper.map_imperatively(Chunk, chunk_table)
     mapper.map_imperatively(Embedding, embedding_table)
-    monkeypatch.setattr(
-        index.CorpusStorage,
-        "resolve_namespace",
-        lambda _: SimpleNamespace(DocumentChunk=Chunk, DocumentPageEmbedding=Embedding),
-    )
+    monkeypatch.setattr(index.settings, "KNOWHERE_LEXICAL_BACKEND", "postgresql")
+    monkeypatch.setattr(index.CorpusStorage, "DocumentChunk", property(lambda _: Chunk))
+    monkeypatch.setattr(index.CorpusStorage, "DocumentPageEmbedding", property(lambda _: Embedding))
     engine = create_engine("sqlite://")
     mapper.metadata.create_all(engine)
     scope = DocumentPublicationScope(
