@@ -657,7 +657,7 @@ def test_legacy_frequency_copy_runs_only_after_native_publication(
         engine.dispose()
 
 
-def test_public_job_reads_expose_parsed_result_before_search_readiness(
+def test_private_job_reads_withhold_artifacts_before_search_readiness(
     monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess,
 ) -> None:
     engine, jobId, _ = _prepareParsedJob(monkeypatch, postgresql_proc)
@@ -673,7 +673,8 @@ def test_public_job_reads_expose_parsed_result_before_search_readiness(
                 assert payload["status"] == "running"
                 assert payload["parsing_status"] == "completed"
                 assert payload["indexing_status"] == "pending"
-                assert payload["result_url"]
+                assert payload["result_url"] is None
+                assert payload["result"] is None
         finally:
             await nativeEngine.dispose()
 

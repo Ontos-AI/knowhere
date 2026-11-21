@@ -64,7 +64,7 @@ async def test_indexing_failure_keeps_original_job_terminal_and_new_submission_c
             assert parsed.status_code == 200
             assert parsed.json()["parsing_status"] == "completed"
             assert parsed.json()["indexing_status"] == "pending"
-            assert parsed.json()["result_url"]
+            assert parsed.json()["result_url"] is None
             worker = IndexingWorker(sessionFactory=sessionmaker(engine, expire_on_commit=False))
             assert worker.run(jobId) == "failed"
             assert worker.run(jobId) == "failed"  # Redelivery cannot execute it again.

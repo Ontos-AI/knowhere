@@ -174,43 +174,26 @@ The ZIP from that notice stays fixed. Full ingestion keeps the complete
 package. Progressive ingestion keeps the baseline package. Finished enrichment
 units do not cause the ZIP to be rebuilt.
 
-## Initial indexing retry
+## Initial ingestion failure and retry
 
-If the initial index write fails after parsing output is stored, retain
-the body, directory where applicable, and result package. The existing
-indexing retry uses the same job and document and writes the index from
-those retained outputs. It incurs no additional parsing charge.
+Initial ingestion includes parsing and publishing the first searchable
+index. Either phase can fail the whole job. Keep the failure stage for
+diagnostics and refund any charge from an initial indexing failure exactly
+once. A failed job's generated ZIP may remain in storage. Job reads,
+snapshot capabilities, and callbacks withhold its result links. For private
+OpenSearch jobs, issue result links only after the initial index is published.
 
-Knowhere already exposes the failure stage and
-[`POST /v2/jobs/{job_id}/indexing/retry`](https://github.com/Ontos-AI/knowhere/blob/51112729e6d1f596f95d4eaf306080b69796722a/apps/api/app/api/v2/routes/jobs.py#L90-L99).
-Hipo's
-[failure webhook](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/app/api/internal/webhooks/knowhere/parse/route.ts#L14-L47)
-reduces the failure to a code and the
-[polling adapter](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/infrastructure/knowhere/resumable-parse-client.ts#L266-L289)
-can reduce it to a generic parse failure. Hipo's
-[Retry action](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/application/project-documents.ts#L845-L883)
-can then submit the original file again. Preserve the failure stage and job
-identity from both observation paths. Route eligible initial index failures
-to the indexing retry for that job. Keep that path separate from retrying
-the parser and retrying a Hipo copy. Honor Knowhere's existing retry
-eligibility, including an archived document's failed outcome.
+Hipo releases the failed operation's reservation. Retry submits the saved
+original to a new Knowhere job. A failed replacement keeps the published
+revision readable until a later replacement succeeds. A failure limited to
+Hipo's copy of a completed Knowhere result can resume that copy.
 
-Hipo currently
-[ignores completion callbacks for terminal failed operations](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/application/durable-parsing.ts#L908-L936)
-and releases a parse reservation when it
-[settles a failure](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/application/durable-parsing.ts#L381-L427).
-The same-job retry must let Hipo process a later success through an
-explicit recovery of that operation. Account for its original allowance
-settlement. A repeated click, timed-out retry response, or late failure
-notification must leave the job's actual outcome and usage intact.
-
-For each ingestion mode, fail the initial index write after the parsed
-output is durable. Verify that the API has emitted no successful completion
-and Hipo keeps the Source out of Ask. Exercise Hipo Retry once after a
-webhook observation and once after polling with the webhook withheld.
-Verify that each retries the same Knowhere job, the parser and parsing
-charge each occur once, the job reaches `done` once, and Hipo can retrieve
-the Source after syncing it.
+For each ingestion mode, fail the initial index write after saving the ZIP.
+Verify the job stays failed, the charge is refunded once, and job reads and
+callbacks provide failure details without a result link. Exercise Hipo
+Retry after a webhook and after polling. Confirm each recovery uses a new
+Knowhere job, ignores late callbacks for the failed operation, and makes the
+Source searchable after its successful initial synchronization.
 
 ## Moving a Source between Brains
 
@@ -741,8 +724,8 @@ document-wide enrichment progress.
    [current recovery task](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/application/enhancement-recovery.ts#L30-L66)
    also reconciles missing directories. Initial directory synchronization
    and the Tree View check provide that recovery in the new flow. Remove
-   the Hipo Retry Enhancement action and its upstream call. Keep initial
-   parse, initial indexing, and initial synchronization failures actionable.
+   the Hipo Retry Enhancement action and its upstream call. Retry initial
+   ingestion through a new job and keep local synchronization retry available.
    Route recorded enrichment attempt failures through the dedicated callback
    above.
 5. **Make Reparse a replacement.** Apply the Source binding, archival, and
@@ -873,10 +856,11 @@ route. The evidence covers indexed repository code and observed traffic.
 
 The staging candidate removes the old retry route. Verify a request to it
 returns `404` and leaves the job and attempt count unchanged. A later search
-can trigger the fine parsing work again. Keep the same-job initial indexing
-retry available. Before retiring the route in production, verify that the
+can trigger the fine parsing work again. Retire the v1 and v2 same-job initial
+indexing endpoints after deploying the Hipo Retry action that starts a new
+job. Before retiring the routes in production, verify that the
 Hipo release's browser, callbacks, and background work have no dependency on
-it.
+them.
 [API routes](https://github.com/Ontos-AI/knowhere/blob/51112729e6d1f596f95d4eaf306080b69796722a/apps/api/app/api/v2/routes/jobs.py#L79-L99),
 [SDK retry documentation](https://github.com/Ontos-AI/knowhere-node-sdk/blob/79495e42695b03c66f8fd21a4c5f5520d5ed39fb/docs/streamed-parsed-document-sync.md#L188-L192)
 
@@ -885,9 +869,9 @@ it.
 | Area | Pass condition |
 | --- | --- |
 | Hipo wire contract and SDK | The SDK pinned by Hipo reads legacy directory versions and a new version above one. Full and progressive jobs send one `job.completed` after the initial index is searchable. Hipo handles poll-first and webhook-first delivery for the same result. A redelivered callback preserves its event identity. A pre-upgrade Source remains readable and an in-flight initial synchronization can finish. |
-| Publication and recovery | A PDF and a PPTX first publish a coarse directory and searchable baseline. Searches see additive batches. A failed batch disappears from fresh and cached retrieval and its already-issued reference still opens. A later baseline hit queues one retry. Initial indexing retry reuses the same job and stored parsing output. Verify the supported rollback path with an already published fine unit and a pending legacy write. |
+| Publication and recovery | A PDF and a PPTX first publish a coarse directory and searchable baseline. Searches see additive batches. A failed batch disappears from fresh and cached retrieval and its already-issued reference still opens. A later baseline hit queues one retry. An initial indexing failure is terminal, refunds the charge once, and can recover through a new job. Verify the supported rollback path with an already published fine unit and a pending legacy write. |
 | Hipo browser and callbacks | From a signed-in session, upload a PDF and PPTX and confirm the Source enters Ask after initial synchronization. Open the saved tree and see a newer directory appear without blocking it. Verify a fine citation, a historical citation after Reparse, and moving a ready Source without waiting for fine work. Deliver an enrichment failure twice and verify it is recorded once, the Source stays ready, and Hipo issues neither a retry request nor a final-snapshot copy. |
-| Hipo compatibility with the retired endpoint | Repeat representative PDF, PPTX, a full-ingestion Source, and an existing-document read with the candidate Hipo and Knowhere releases in staging. Exercise Reparse, fine parsing failure, and search-triggered recovery with the old route absent. Confirm same-job initial indexing retry and zero Hipo calls to the old route before authorizing production retirement. |
+| Hipo compatibility with the retired endpoints | Repeat representative PDF, PPTX, a full-ingestion Source, and an existing-document read with the candidate Hipo and Knowhere releases in staging. Exercise Reparse, fine parsing failure, search-triggered recovery, and initial failure followed by a new job. Confirm zero Hipo calls to either retired retry route before authorizing production retirement. |
 | Page image authorization | Open the same historical page citation in Ask and Library after a Brain move. Verify both render the original snapshot and page through an authenticated address. Revoke access and replay that exact address to confirm it returns `404`, including a conditional request carrying the cached validator. Restore access and verify the same address renders the page again. |
 
 Library page positioning still needs acceptance. The moved historical citation

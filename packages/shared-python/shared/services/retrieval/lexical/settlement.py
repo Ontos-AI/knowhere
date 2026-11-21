@@ -14,6 +14,7 @@ from shared.models.database.job import Job
 from shared.models.database.lexicalbuild import LexicalBuild
 from shared.models.database.lexicalcontrol import LexicalBackendControl
 from shared.models.database.lexicallease import LexicalLease
+from shared.services.billing.credits_sync_service import SyncCreditsService
 from shared.services.retrieval.lexical.error import LexicalIndexError
 from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
 
@@ -122,11 +123,16 @@ class IndexingSettlement:
         job.indexing_status = "failed"
         job.failure_stage = "indexing"
         if job.status != "failed":
-            publicMessage: str = ("Indexing input exceeds a supported size limit. The parsed result is still available."
-                if code == LexicalIndexError.INPUT_TOO_LARGE else "Indexing could not be completed. Retry indexing for this job.")
+            publicMessage: str = ("Indexing input exceeds a supported size limit."
+                if code == LexicalIndexError.INPUT_TOO_LARGE else "Initial indexing failed. Start a new ingestion job to try again.")
             outcome = SyncStateMachineService().mark_failed_outcome(db, job.job_id,
                 error_message=publicMessage, error_code=code)
             if not outcome.succeeded:
                 raise RuntimeError("Indexing failure transition was rejected")
+            if job.billing_status == "charged" and job.credits_charged > 0:
+                SyncCreditsService().refund_job_credits(
+                    session=db, user_id=job.user_id, amount=job.credits_charged, job_id=job.job_id,
+                )
+                job.billing_status = "refunded"
         event = SyncJobWebhookOutbox().create_event(db, job_id=job.job_id, event_type="job.failed")
         return event.event_id if event is not None else None

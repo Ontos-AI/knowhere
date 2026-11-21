@@ -45,6 +45,7 @@ def parsedRuntime(
     monkeypatch.setattr(qstash_publisher, "QStashWebhookPublisher", QuietPublisher)
     from shared.models.database.job import Job
     from shared.models.database.user import User
+    from shared.services.billing.credits_sync_service import SyncCreditsService
     from shared.services.jobs.lifecycle.success_finalizer import SyncJobSuccessFinalizer
 
     engine: Engine = create_engine(make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2"))
@@ -52,6 +53,7 @@ def parsedRuntime(
     with Session(engine) as session:
         session.add(User(id="execution-user", name="Execution contract", email="execution@example.invalid"))
         session.flush()
+        SyncCreditsService().deduct_credits(session, "execution-user", 123456, "Charge for parsing")
         session.add(Job(job_id=jobId, user_id="execution-user", job_type="document_ingestion",
             source_type="file", status="running", credits_charged=123456, billing_status="charged",
             webhook_enabled=True, webhook_url="https://example.invalid/callback",
@@ -73,6 +75,7 @@ def parsedRuntime(
 def test_native_connection_failure_consumes_one_terminal_execution(
     parsedRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from shared.models.database.credits_transaction import CreditsTransaction
     from shared.models.database.indexing import IndexingAttempt
     from shared.models.database.job import Job
     from shared.models.database.job_result import JobResult
@@ -104,7 +107,13 @@ def test_native_connection_failure_consumes_one_terminal_execution(
         assert attempt.executionCount == 1 and attempt.state == "failed"
         assert job.parsing_status == "completed" and job.indexing_status == "failed"
         assert job.status == "failed" and job.failure_stage == "indexing"
-        assert job.billing_status == "charged" and job.credits_charged == 123456
+        assert job.billing_status == "refunded" and job.credits_charged == 123456
+        refunds: list[CreditsTransaction] = list(session.scalars(select(CreditsTransaction).where(
+            CreditsTransaction.user_id == job.user_id, CreditsTransaction.transaction_type == "refund",
+        )))
+        assert [(entry.credits_amount, entry.transaction_metadata) for entry in refunds] == [
+            (123456, {"job_id": jobId}),
+        ]
         assert session.scalar(select(func.count()).select_from(JobResult)) == 1
         events: list[WebhookEvent] = list(session.scalars(select(WebhookEvent)))
         assert sorted(event.payload["event"] for event in events) == ["job.failed"]
@@ -591,7 +600,7 @@ def test_postgresql_parsing_commits_before_primary_publication(
         assert session.scalar(select(IndexingAttempt.executionCount).where(IndexingAttempt.jobId == jobId)) == 0
 
 
-def test_abandoned_indexing_sweep_settles_without_execution_or_refund(
+def test_abandoned_indexing_sweep_refunds_without_executing_the_attempt(
     parsedRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from datetime import timedelta
@@ -612,7 +621,7 @@ def test_abandoned_indexing_sweep_settles_without_execution_or_refund(
         job = session.get(Job, jobId)
         attempt = session.scalars(select(IndexingAttempt)).one()
         assert job is not None and job.status == "failed" and job.parsing_status == "completed"
-        assert job.billing_status == "charged" and job.credits_charged == 123456
+        assert job.billing_status == "refunded" and job.credits_charged == 123456
         assert attempt.state == "failed" and attempt.executionCount == 0
 
 
@@ -675,7 +684,7 @@ def test_expired_activation_does_not_commit_prepared_publication(
         document: Document = db.scalars(select(Document)).one()
         build: LexicalBuild = db.scalars(select(LexicalBuild)).one()
         assert job.error_code == "DEADLINE_EXCEEDED" and job.parsing_status == "completed"
-        assert job.billing_status == "charged" and job.credits_charged == 123456
+        assert job.billing_status == "refunded" and job.credits_charged == 123456
         assert attempt.state == "failed" and attempt.executionCount == 1
         assert document.current_job_result_id is None and document.current_indexing_build_id is None
         assert build.state == "failed"

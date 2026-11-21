@@ -4,13 +4,18 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
 
+from shared.models.schemas.job_metadata import JobMetadataHelper
+from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.storage.job_file_storage import JobFileStorage
 from shared.services.jobs.progressive_ingestion import read_progressive_state
 from shared.utils.utc_now import utc_now_naive
 
 
-def hasFailedInitialIndexing(status: str, failureStage: str | None) -> bool:
-    return status == "failed" and failureStage == "indexing"
+def canDeliverJobResult(status: str, failureStage: str | None, metadata: dict[str, Any] | None) -> bool:
+    if status == "failed" and failureStage == "indexing":
+        return False
+    corpus = CorpusStorage.resolve_namespace(JobMetadataHelper.get_namespace(metadata))
+    return status == "done" or not corpus.usesAdditivePublication()
 
 
 @dataclass(frozen=True)

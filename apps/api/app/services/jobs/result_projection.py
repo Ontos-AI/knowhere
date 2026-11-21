@@ -9,7 +9,7 @@ from shared.core.billing import MicroDollar
 from shared.core.exceptions.domain_exceptions import JobOperationException
 from shared.models.schemas.job import JobResultResponse, StandardErrorObject
 from shared.models.schemas.job_metadata import JobMetadataHelper
-from shared.services.jobs.result_delivery import JobResultDeliveryResolver, hasFailedInitialIndexing
+from shared.services.jobs.result_delivery import JobResultDeliveryResolver, canDeliverJobResult
 from shared.services.jobs.progressive_ingestion import read_progressive_state, publish_snapshot_descriptors
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.storage.job_file_storage import JobFileStorage
@@ -165,8 +165,7 @@ async def build_job_result_response(
     original_request = _resolve_original_request(job_metadata)
     file_name = _resolve_source_file_name(original_request)
     parsing_params = _resolve_parsing_params(job_metadata, original_request)
-    failedInitialIndexing: bool = hasFailedInitialIndexing(job.status, getattr(job, "failure_stage", None))
-    if failedInitialIndexing:
+    if not canDeliverJobResult(job.status, getattr(job, "failure_stage", None), job.job_metadata):
         result, result_url = None, None
         result_url_expires_at = require_utc(job.created_at, field_name="created_at")
         progressive_state = None
