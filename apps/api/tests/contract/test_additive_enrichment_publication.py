@@ -141,3 +141,143 @@ def test_same_source_path_keeps_independent_chunk_bodies(
         asyncio.run(assert_candidates())
     finally:
         engine.dispose()
+
+
+def test_native_partial_enrichment_is_eligible_until_failed(
+    monkeypatch: Any, postgresql_proc: PostgreSQLProcess,
+) -> None:
+    import os
+    from uuid import uuid4
+
+    import httpx
+    import pytest
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+
+    endpoint = os.environ.get("KNOWHERE_TEST_OPENSEARCH_URL")
+    if endpoint is None:
+        pytest.skip("Set KNOWHERE_TEST_OPENSEARCH_URL to an isolated test node")
+
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+
+    from app.services.documents.lifecycle_service import DocumentService
+    from shared.core.config import settings
+    from shared.models.database.document import DocumentSection
+    from shared.services.retrieval.document_scope import DocumentScope
+    from shared.services.retrieval.lexical import additivepublication
+    from shared.services.retrieval.lexical.coordination import LexicalCoordination
+    from shared.services.retrieval.lexical.discovery import discoverOpenSearch
+    from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.lexical.unit import LexicalUnit
+
+    monkeypatch.setitem(settings.__dict__, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
+    monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_URL", endpoint)
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_INDEX_PREFIX", "knowhere-additive-test")
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_BULK_MAXIMUM_BYTES", 900)
+    suffix = uuid4().hex[:10]
+    fixture = PublicationScope(
+        user_ref=f"additive-user-{suffix}", namespace_ref=f"partial-{suffix}", source_file_name="chapter.pdf",
+        job_ref=f"partial-job-{suffix}", revision_ref=f"partial-result-{suffix}",
+    )
+    scope = DocumentPublicationScope(user_id=fixture.user_ref, namespace=fixture.namespace_ref,
+        source_file_name=fixture.source_file_name, document_id=f"doc_{suffix}", job_result_id=fixture.revision_ref)
+    native_scope = LexicalScope(ownerId=scope.user_id, namespace=scope.namespace)
+    native = OpenSearchLexicalIndex(endpoint=endpoint, scope=native_scope, indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX)
+    engine = create_engine(make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2"))
+    sessions = sessionmaker(engine)
+    monkeypatch.setattr(additivepublication, "get_sync_session_factory", lambda: sessions)
+    baseline_build = f"initial-{suffix}"
+    attempt = f"attempt-{suffix}"
+    section_id = f"section-{suffix}"
+    common = {"document_id": scope.document_id, "user_id": scope.user_id, "namespace": scope.namespace,
+        "job_result_id": scope.job_result_id}
+
+    async def discover(query: str) -> list[dict[str, Any]]:
+        async_engine = create_async_engine(get_contract_database_url())
+        try:
+            async with AsyncSession(async_engine) as db:
+                result = await discoverOpenSearch(db, userId=scope.user_id, namespace=scope.namespace, query=query,
+                    topK=8, documentScope=DocumentScope(), excludeDocumentIds=[], excludeSections=[],
+                    chunkTypes=None, signalPaths=None, filterMode="delete", revisionPins=None, sectionTargets=None)
+                return result.payload["fused_rows"]
+        finally:
+            await async_engine.dispose()
+
+    class InterruptedWrite(Exception):
+        pass
+
+    callbacks = 0
+    first_row_id: str | None = None
+
+    def pauseAfterFirstBatch() -> None:
+        nonlocal callbacks, first_row_id
+        callbacks += 1
+        if callbacks != 3:
+            return
+        rows = asyncio.run(discover("climate"))
+        assert {row["build_id"] for row in rows} == {baseline_build, attempt}
+        fine = [row for row in rows if row["build_id"] == attempt]
+        assert len(fine) == 1
+        assert fine[0]["section_path"] in {"Main", "Secondary"}
+        first_row_id = fine[0]["source_row_id"]
+        assert native.countBuild(attempt) == 1
+        raise InterruptedWrite()
+
+    try:
+        LexicalCoordination(sessions).ensureIndex(scope=native_scope, native=native)
+        with sessions.begin() as db:
+            seed_publication_fixture(db, scope=fixture)
+            db.add(Document(document_id=scope.document_id, user_id=scope.user_id, namespace=scope.namespace,
+                source_file_name=scope.source_file_name, current_job_result_id=scope.job_result_id,
+                current_indexing_build_id=baseline_build))
+            db.flush()
+            db.add(DocumentSection(section_id=section_id, section_path="Main", section_title="Main", **common))
+            db.flush()
+            db.add(DocumentChunk(id=f"coarse-{suffix}", chunk_id=f"coarse-{suffix}", section_id=section_id,
+                chunk_type="page", content="Climate chapter baseline", source_chunk_path="chapter.pdf/Main",
+                chunk_metadata={"page_nums": [1, 2], "scope_id": "p1-2", "enrichment_state": "coarse"}, **common))
+            db.flush()
+            additivepublication.AdditivePublication.storeBody(db, scope=scope, scopeId="p1-2", attemptId=attempt, chunks=[
+                {"chunk_id": "main", "type": "page", "path": "chapter.pdf/Main", "content": "climate detail " * 32,
+                    "metadata": {"page_nums": [1]}},
+                {"chunk_id": "secondary", "type": "page", "path": "chapter.pdf/Secondary", "content": "climate appendix " * 28,
+                    "metadata": {"page_nums": [2]}},
+            ])
+        native.writeBuild(buildId=baseline_build, units=(LexicalUnit(
+            documentId=scope.document_id, revisionId=scope.job_result_id, sectionId=section_id,
+            unitId=section_id, sectionPath="Main", contentTokens="climate chapter baseline",
+        ),))
+        with pytest.raises(InterruptedWrite):
+            additivepublication.AdditivePublication.writeIndex(scope=scope, attemptId=attempt, assertOwned=pauseAfterFirstBatch)
+        assert first_row_id is not None
+        assert not additivepublication.AdditivePublication.hasCompleteIndex(scope=scope, attemptId=attempt)
+        with sessions.begin() as db:
+            additivepublication.AdditivePublication.fail(db, scope=scope, attemptId=attempt)
+        assert {row["build_id"] for row in asyncio.run(discover("climate"))} == {baseline_build}
+        assert native.countBuild(attempt) == 1
+
+        async def readRetained(identity: str) -> dict[str, Any] | None:
+            async_engine = create_async_engine(get_contract_database_url())
+            try:
+                async with AsyncSession(async_engine) as db:
+                    return await DocumentService().get_document_chunk(db, user_id=scope.user_id,
+                        document_id=scope.document_id, job_result_id=scope.job_result_id,
+                        document_chunk_id=identity, include_asset_urls=False)
+            finally:
+                await async_engine.dispose()
+
+        retained = asyncio.run(readRetained(first_row_id))
+        assert retained and "climate" in retained["chunk"]["content"]
+        assert additivepublication.AdditivePublication.cleanup(scope=scope, attemptId=attempt)
+        assert native.countBuild(attempt) == 0
+        assert native.countBuild(baseline_build) == 1
+    finally:
+        try:
+            deleted = httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False)
+            assert deleted.status_code in (200, 404)
+        finally:
+            native.close()
+            engine.dispose()
