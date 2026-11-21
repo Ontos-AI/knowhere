@@ -231,8 +231,9 @@ def render_template(template_path: Path, output_path: Path, variables: dict[str,
     configure_staging_opensearch(rendered, variables)
     configure_production_opensearch(rendered, variables)
     qstash_base_url: str = variables.get("QSTASH_BASE_URL", "")
+    hipo_callback_origin: str = variables.get("KNOWHERE_HIPO_CALLBACK_ORIGIN", "")
     is_staging: bool = variables.get("DEPLOYMENT_ENVIRONMENT") == "staging"
-    if qstash_base_url or is_staging:
+    if qstash_base_url or hipo_callback_origin or is_staging:
         if not isinstance(rendered, dict):
             raise ValueError("Task definition must be an object")
         containers: object = rendered.get("containerDefinitions")
@@ -246,6 +247,11 @@ def render_template(template_path: Path, output_path: Path, variables: dict[str,
                 raise ValueError("Task container must contain environment entries")
             if qstash_base_url:
                 environment.append({"name": "QSTASH_BASE_URL", "value": qstash_base_url})
+            if hipo_callback_origin:
+                environment.append({
+                    "name": "KNOWHERE_HIPO_CALLBACK_ORIGIN",
+                    "value": hipo_callback_origin,
+                })
             if is_staging and container.get("name") == "api":
                 environment.append({"name": "DB_POOL_RECYCLE", "value": "-1"})
     validate_rendered_definition(rendered)
@@ -278,6 +284,7 @@ def load_variables() -> dict[str, str]:
     # Preserve the SDK default when no override is supplied, while production
     # explicitly selects the region that owns its existing QStash token.
     variables["QSTASH_BASE_URL"] = os.environ.get("QSTASH_BASE_URL", "")
+    variables["KNOWHERE_HIPO_CALLBACK_ORIGIN"] = os.environ.get("KNOWHERE_HIPO_CALLBACK_ORIGIN", "")
     return variables
 
 

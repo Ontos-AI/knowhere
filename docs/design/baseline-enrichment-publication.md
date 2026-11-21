@@ -457,7 +457,7 @@ establish that the response is current.
 
 The first additive OpenSearch implementation uses fresh reads for private
 retrieval because the old result cache cannot prove attempt and archival
-visibility. Measure that path with the replay workload before activation.
+visibility. Measure that path with the replay workload before deployment.
 Reuse cached results once their freshness can be established without a
 namespace-wide build enumeration.
 
@@ -785,7 +785,7 @@ copy from before a newer enrichment was published.
 [Current maintenance commands](https://github.com/Ontos-AI/knowhere/blob/51112729e6d1f596f95d4eaf306080b69796722a/packages/shared-python/shared/services/retrieval/lexical/maintenance.py#L28-L69),
 [retired-build deletion](https://github.com/Ontos-AI/knowhere/blob/51112729e6d1f596f95d4eaf306080b69796722a/packages/shared-python/shared/services/retrieval/lexical/cleanup.py#L116-L146)
 
-### Hipo compatibility before activation
+### Hipo compatibility before the Knowhere deployment
 
 Use the Node SDK version pinned in Hipo to exercise directory reads, old and
 new snapshot resources, and initial synchronization in staging. Verify the
@@ -798,77 +798,64 @@ without creating another job or copying the wrong result.
 [Hipo job status classifier](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/infrastructure/knowhere/classify-knowhere-job-status.ts#L1-L11),
 [directory SDK call](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/infrastructure/directory/knowhere-directory-reader.ts#L31-L49)
 
-Verify the deployed Hipo submits Reparse as a new-document job. Exercise
-an in-flight legacy Reparse at the cutover boundary. Settle it before the
-switch or leave the previous result current. After activation, reject an
-old private update request before creating or charging a job. Keep document
-lookup, archival, and the Demo Catalog's `data_id` path available to Hipo.
+Verify the new Hipo and Knowhere deployments submit and accept Reparse as a
+new-document job. Exercise an in-flight legacy Reparse at the deployment
+boundary. Settle it before deployment or leave the previous result current.
+After deploying Knowhere, reject an old private update request before
+creating or charging a job. Keep document lookup, archival, and the Demo
+Catalog's `data_id` path available to Hipo.
 [Current Hipo Reparse request](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/infrastructure/knowhere/resumable-parse-client.ts#L449-L457)
 
-New Hipo jobs explicitly select `job.completed`, `job.failed`,
-`job.document.directory_ready`, and `job.enrichment.failed`. Existing Hipo
-jobs usually stored a callback URL without an explicit event list. After
-the Hipo receiver has upgraded, deliver the failure event for those jobs
-only if their saved destination matches the trusted Hipo callback origin
-and path for that environment. Preserve callback authentication. Verify
-both an existing Hipo job and a new Hipo job receive and handle a failure.
+Hipo submits its callback URL using the wire format accepted by the previous
+Knowhere release. The new Knowhere deployment delivers attempt-failure events
+for these subscriptions when the saved destination matches the trusted Hipo
+callback origin and path for that environment. Preserve callback authentication.
+Verify both an existing Hipo job and a new Hipo job receive and handle a failure.
 [Current Hipo submission](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/infrastructure/knowhere/resumable-parse-client.ts#L449-L457),
 [Hipo callback identity](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/infrastructure/knowhere/parse-webhook-auth.ts#L18-L30),
 [Knowhere subscription lookup](https://github.com/Ontos-AI/knowhere/blob/51112729e6d1f596f95d4eaf306080b69796722a/packages/shared-python/shared/services/jobs/lifecycle/webhook_outbox.py#L52-L57)
 
 ### Release order
 
-1. **Rehearse in staging.** Use the prepared Knowhere API and workers, a
+1. **Rehearse in staging.** Use the candidate Knowhere API and workers, a
    packed Node SDK build or npm beta, and Hipo staging. Test the new SDK and
-   Hipo receiver against the old wire responses as well as the new ones.
-   Complete the cutover and rollback exercises below before scheduling
-   activation.
-2. **Deploy Knowhere preparation.** Deploy additive persistence changes
-   and the compatible API and workers before exposing the new behavior.
-   Keep the current writer and old wire behavior during preparation with
-   `KNOWHERE_ADDITIVE_PUBLICATION_ENABLED` disabled. The additive
-   implementation requires the OpenSearch lexical backend. Keep
-   the old retry command available until activation. Enable the new failure
-   event for Hipo only after its deployed receiver passes the callback check.
-   Configure `KNOWHERE_HIPO_CALLBACK_ORIGIN` to the matching Hipo environment
-   so existing jobs with the saved Hipo callback can receive attempt failures.
-3. **Publish the Node SDK and deploy Hipo.** Publish the new Node SDK major
-   release through Changesets. It accepts whole-number directory versions,
-   keeps reading existing snapshots, and removes the public manual
-   enrichment retry method. Document the successor request for a private
-   Reparse. Install the exact registry version in a clean
-   environment, verify the package, then pin that version in Hipo and deploy
-   Hipo Web/API with `HIPO_KNOWHERE_BASELINE_PUBLICATION` disabled. Confirm the
-   deployed callback understands both old deliveries and the new attempt-failure
-   event. During preparation, the new Hipo build can still receive old job
-   responses. After activation, acknowledge any
-   late old enrichment completion without copying a final snapshot. Verify MCP
-   reads through the deployed Hipo application. If a Gateway release is
-   required by the changed files, use its existing Web/API-first sequence.
+   Hipo receiver with old and new wire responses. Complete the cutover and
+   rollback exercises below before scheduling the production deployment.
+2. **Publish the Node SDK.** Publish the new major release through Changesets.
+   It accepts whole-number directory versions and keeps reading existing
+   snapshots. Document Reparse and the retirement of manual enhancement retry.
+   Install the exact registry version in a clean environment and pin it in
+   the Hipo release.
+3. **Deploy Hipo in the coordinated release window.** Let old publications
+   settle and hold affected writes, including Reparse, until both services
+   have been deployed and checked. Rehearse this operational step in staging.
+   Confirm the new Web/API accepts old job responses and both callback formats.
+   Acknowledge late legacy enhancement completions for Sources that already
+   synchronized their initial result. Verify MCP reads through the deployed
+   application. When the changes affect Gateway inputs, deploy it after Web/API
+   through the existing release workflow.
    [Node release workflow](https://github.com/Ontos-AI/knowhere-node-sdk/blob/79495e42695b03c66f8fd21a4c5f5520d5ed39fb/.github/workflows/release.yml#L59-L94),
    [current Hipo webhook schema](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/app/api/internal/webhooks/knowhere/parse/route.ts#L14-L47),
    [Hipo release boundaries](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/docs/hipo-infrastructure.md#L161-L175)
-4. **Activate the new contract together.** After the deployed Hipo build
-   passes its compatibility checks, drain in-flight
-   legacy publications and fence queued legacy writers, finalizers, and
-   maintenance from changing the new state. Switch Knowhere's reader and
-   publisher together, then enable `HIPO_KNOWHERE_BASELINE_PUBLICATION` before
-   resuming writes. Hipo uses the new-document Reparse request and stops
-   initiating manual enrichment retries. Knowhere starts
-   new jobs with the single success outcome, enables the failure notification
-   for updated subscribers, and ends the old private-update behavior and
-   legacy completion milestones. Resume writes after a scoped smoke check.
-   The new reader uses the same eligibility rules for existing and new
-   documents without rebuilding already published documents for cutover.
+4. **Deploy Knowhere API and workers together.** Apply the schema changes
+   through the release workflow, verify OpenSearch is serving, and keep queued
+   legacy writers, finalizers, and maintenance from changing the new state.
+   The deployed build publishes and searches additive records for private
+   OpenSearch namespaces. Configure the matching Hipo callback origin as a
+   trusted destination for existing subscriptions. The new-document Reparse
+   request and single completion contract are effective with the deployed
+   services. Run a scoped smoke check and resume affected writes. Existing
+   documents use the same eligibility rules on their already published
+   indexes.
 
-Record the Knowhere API and worker versions, published npm version, and
-Hipo deployment identity. Before admitting new-contract jobs or writes,
-the original releases remain a coordinated rollback target. After
-activation, pause new publications if a critical check fails. Use a rollback
-release only if it can read both stored representations and preserve their
-references, pending writes, and attempt eligibility. Otherwise hold writes
-and repair forward with the compatible reader active. A Hipo rollback
-release must accept the active Knowhere response and callback contract.
+Record the Knowhere API and worker versions, published npm version, and Hipo
+deployment identity. Before admitting new-contract writes, the original
+releases remain a coordinated rollback target. After a new write, pause
+publications if a critical check fails. Use a rollback release only if it can
+read both stored representations and preserve their references, pending writes,
+and attempt eligibility. Otherwise hold writes and repair forward with the
+compatible reader active. A Hipo rollback release must accept the active
+Knowhere response and callback contract.
 
 ### Legacy enrichment retry retirement
 
@@ -884,8 +871,8 @@ route. The evidence covers indexed repository code and observed traffic.
 [Node SDK method](https://github.com/Ontos-AI/knowhere-node-sdk/blob/79495e42695b03c66f8fd21a4c5f5520d5ed39fb/src/resources/jobs.ts#L115-L120),
 [published SDK](https://www.npmjs.com/package/@ontos-ai/knowhere-sdk/v/2.8.1)
 
-At activation, the old retry endpoint stops scheduling work or resetting
-attempt counts. Keep the route as a temporary error response during Hipo's
+With the new Knowhere deployment, the old retry endpoint stops scheduling
+work or resetting attempt counts. Keep a temporary error response during Hipo's
 production check. Remove it once the deployed Hipo passes the checks below
 and its browser, callbacks, and background work have no dependency on the
 route. Keep the same-job initial indexing retry available.
