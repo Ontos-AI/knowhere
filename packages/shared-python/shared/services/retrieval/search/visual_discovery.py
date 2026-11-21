@@ -12,7 +12,7 @@ from typing import Any
 from loguru import logger
 from pgvector import HalfVector
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from shared.core.config import settings
 from shared.services.ai.embedding import embed_query
@@ -705,7 +705,8 @@ async def hybrid_discovery(
         async def runVisual(visualDb: AsyncSession) -> DiscoveryResult:
             return await visualSearch(visualDb)
 
-        async with AsyncSession(bind=db.bind) as visualDb:
+        engine = db.bind.engine if isinstance(db.bind, AsyncConnection) else db.bind
+        async with AsyncSession(bind=engine) as visualDb:
             hasVisual = await has_visual_query_embeddings(
                 visualDb, user_id=user_id, namespace=namespace, query=query, top_k=top_k,
                 exclude_document_ids=exclude_doc_list, document_scope=document_scope,

@@ -106,6 +106,7 @@ async def _hydrate_outline_paths(
         .where(corpusStorage.Document.namespace == namespace)
         .where(corpusStorage.Document.status == 'active')
         .where(or_(*outline_section_filters))
+        .where(AdditiveVisibility.allowsFreshSection(namespace))
     )
     if document_id:
         outline_stmt = outline_stmt.where(corpusStorage.Document.document_id == document_id)

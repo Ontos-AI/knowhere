@@ -10,7 +10,8 @@ ambiguity instead of guessing.
 
 from __future__ import annotations
 
-from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.corpus_storage import DEMO_NAMESPACE, CorpusStorage
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,6 +91,7 @@ async def resolve_section_path_anchor(
         select(corpusStorage.DocumentSection.section_path)
         .where(corpusStorage.DocumentSection.document_id == document_id)
         .where(corpusStorage.DocumentSection.job_result_id == job_result_id)
+        .where(AdditiveVisibility.allowsFreshSection(DEMO_NAMESPACE if corpusStorage.is_demo else "default"))
     )
 
     exact_row = (await db.execute(base.where(corpusStorage.DocumentSection.section_path == normalized))).first()

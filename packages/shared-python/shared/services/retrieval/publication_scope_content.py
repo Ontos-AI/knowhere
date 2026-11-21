@@ -128,7 +128,7 @@ def append_document_scope_content(
                     "section_title": paths[path][-1],
                     "section_level": depth,
                     "sort_order": order,
-                    "summary": (section_summaries or {}).get(path),
+                    "summary": None,
                     "section_metadata": {},
                 }
                 for order, path in enumerate(missing)
@@ -138,6 +138,9 @@ def append_document_scope_content(
             sections.update((section.section_path, section) for section in db.scalars(statement))
 
     for order, (identity, chunk, metadata, source_path, parts) in enumerate(prepared):
+        path = " / ".join(parts)
+        if not metadata.get("summary") and (summary := (section_summaries or {}).get(path)):
+            metadata["summary"] = summary
         connections = parse_connect_to(metadata.get("connect_to"))
         if connections:
             for connection in connections:
@@ -155,7 +158,7 @@ def append_document_scope_content(
                         asset["asset_id"] = identities[asset_id]
         row = _build_document_chunk(
             chunk=chunk, chunk_metadata=metadata, source_path=source_path,
-            section=sections[" / ".join(parts)], scope=scope, fallback_sort_order=order,
+            section=sections[path], scope=scope, fallback_sort_order=order,
         )
         row.id = identity
         row.chunk_id = identity

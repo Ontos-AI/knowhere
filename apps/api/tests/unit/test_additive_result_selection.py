@@ -22,6 +22,7 @@ async def test_same_path_partial_attempt_preserves_baseline_until_all_pages_are_
     result = await assemble_retrieval_results(rows=rows, exclude_document_ids=[], exclude_sections=[])
     assert [row["chunk_id"] for row in result] == ["coarse", "fine"]
 
+    baseline["matched_page_nums"] = [5]
     fine["enrichment_publication_state"] = "published"
     fine["chunk_metadata"] = {"page_nums": [5, 6], "searchable_page_nums": [5]}
     result = await assemble_retrieval_results(rows=[baseline, fine], exclude_document_ids=[], exclude_sections=[])

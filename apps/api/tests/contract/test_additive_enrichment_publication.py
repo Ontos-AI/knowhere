@@ -101,6 +101,10 @@ def test_same_source_path_keeps_independent_chunk_bodies(
             retained_id = next(row.id for row in bodies if row.enrichment_attempt_id == "attempt-one")
             assert stored.state == "failed"
             assert not AdditivePublication.complete(db, scope=scope, attemptId="attempt-one")
+            AdditivePublication.storeBody(db, scope=scope, scopeId="p5-7", attemptId="attempt-hidden",
+                chunks=[{**payload[0], "path": "same-file.pdf/Hidden", "content": "Fine failed summary"}],
+                sectionSummaries={"Hidden": "Fine failed summary"})
+            AdditivePublication.fail(db, scope=scope, attemptId="attempt-hidden")
         from sqlalchemy.orm import sessionmaker
 
         sessions = sessionmaker(engine)
@@ -134,6 +138,12 @@ def test_same_source_path_keeps_independent_chunk_bodies(
                     assert await repository.count_current_document_chunks(
                         db, document_id=scope.document_id, job_result_id=scope.job_result_id,
                     ) == 3
+                    from shared.services.retrieval.hydration.path import hydrate_paths_to_rows
+
+                    outline = await hydrate_paths_to_rows(db, user_id=scope.user_id, namespace=scope.namespace,
+                        path_selections=[{"path": "Hidden", "hydrate_mode": "outline"}])
+                    assert not outline
+
                     from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
                     from shared.services.retrieval.lexical.hit import LexicalHit
                     enriched = await AdditiveVisibility.loadRows(db, scope=lexical_scope, hits=(

@@ -210,7 +210,7 @@ def _is_baseline_replaced(
     if not candidates:
         return False
     if chunk_type == "page":
-        pages = set(coerce_page_nums(metadata.get("page_nums")))
+        pages = set(coerce_page_nums(row.get("original_page_nums", metadata.get("page_nums"))))
         covered: set[int] = set()
         for candidate in candidates:
             if normalize_chunk_type(candidate.get("chunk_type")) != "page":

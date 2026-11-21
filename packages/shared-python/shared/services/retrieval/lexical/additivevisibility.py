@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy import ColumnElement, and_, func, or_, select, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from shared.core.config import settings
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
@@ -38,6 +39,19 @@ class AdditiveVisibility:
             Document.current_job_result_id == DocumentChunk.job_result_id,
             Document.status == "active",
         ).correlate(DocumentChunk).exists())
+
+    @staticmethod
+    def allowsFreshSection(namespace: str) -> ColumnElement[bool]:
+        if not AdditiveVisibility.isEnabled(namespace):
+            return true()
+        descendant = aliased(DocumentSection)
+        return select(DocumentChunk.id).join(descendant, descendant.section_id == DocumentChunk.section_id).where(
+            DocumentChunk.document_id == DocumentSection.document_id,
+            DocumentChunk.job_result_id == DocumentSection.job_result_id,
+            or_(descendant.section_id == DocumentSection.section_id,
+                func.starts_with(descendant.section_path, DocumentSection.section_path + " / ")),
+            AdditiveVisibility.allowsFreshChunk(namespace),
+        ).correlate(DocumentSection).exists()
 
     @staticmethod
     async def filterCandidates(

@@ -92,6 +92,8 @@ def apply_matched_page_nums(row: dict[str, Any], pages: list[int]) -> None:
     row['page_nums'] = matched
     metadata = row.get('chunk_metadata') or row.get('metadata') or {}
     metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    if row.get("uses_additive_visibility"):
+        row.setdefault("original_page_nums", coerce_page_nums(metadata.get("page_nums")))
     metadata['page_nums'] = matched
     raw_assets = metadata.get('page_assets')
     if isinstance(raw_assets, list):
