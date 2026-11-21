@@ -20,7 +20,8 @@ from app.services.document_parser.formats.excel.workbook_grid import (
     SheetGrid,
     WorkbookGrid,
     cell_has_value_or_formula,
-    display_value,
+    cell_text,
+    format_cell_value,
     merge_at,
 )
 
@@ -342,14 +343,17 @@ def format_region_cells(sheet: SheetGrid, region: Region) -> str:
             address = f"{get_column_letter(origin[1])}{origin[0]}"
             if cell.formula:
                 body = cell.formula[1:] if cell.formula.startswith("=") else cell.formula
-                cached = "" if cell.value is None else str(cell.value).strip()
+                cached = (
+                    ""
+                    if cell.value is None
+                    else format_cell_value(cell.value, cell.number_format).strip()
+                )
                 if cached and cached != cell.formula:
                     parts.append(f"{address}={cached} (={body})")
                 else:
                     parts.append(f"{address} (={body})")
                 continue
-            shown = display_value(cell)
-            text = "" if shown is None else str(shown).strip()
+            text = cell_text(cell).strip()
             if text:
                 parts.append(f"{address}={text}")
     return " ".join(parts)

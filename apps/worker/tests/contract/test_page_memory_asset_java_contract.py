@@ -211,3 +211,49 @@ def test_select_rendered_pages_with_assets_keeps_only_has_asset_pages() -> None:
     selected = _select_rendered_pages_with_assets(rendered, page_features)
 
     assert [item.page_index for item in selected] == [2, 3]
+
+
+def test_extracted_table_cells_keep_their_written_text(monkeypatch, tmp_path) -> None:
+    import tabula
+    from tabula.io import _extract_from
+
+    raw_tables = [
+        {
+            "data": [
+                [{"text": "001"}, {"text": "1"}],
+                [{"text": "2"}, {"text": ""}],
+                [{"text": "3"}, {"text": "12345678901"}],
+            ]
+        }
+    ]
+
+    def _fake_read_pdf(*_args, pandas_options, **_kwargs):
+        return _extract_from(raw_tables, pandas_options=dict(pandas_options))
+
+    monkeypatch.setattr(page_assets, "_has_working_java", lambda: True)
+    monkeypatch.setattr(tabula, "read_pdf", _fake_read_pdf)
+    asset = page_assets.PageAsset(
+        asset_id="asset_1",
+        page_index=1,
+        asset_index=1,
+        kind="table",
+        bbox_px=[10, 12, 30, 36],
+        width_px=100,
+        height_px=120,
+        width_pt=50,
+        height_pt=60,
+        title="table",
+        summary="summary",
+        confidence=1.0,
+    )
+
+    extracted = page_assets.extract_table_html(
+        asset=asset, pdf_path="demo.pdf", output_dir=str(tmp_path)
+    )
+
+    import re
+
+    table_html = open(extracted.html_path, encoding="utf-8").read()
+    assert [cell.strip() for cell in re.findall(r"<td>(.*?)</td>", table_html, re.S)] == [
+        "001", "1", "2", "", "3", "12345678901",
+    ]

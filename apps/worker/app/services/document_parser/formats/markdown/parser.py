@@ -43,6 +43,8 @@ from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.document_parser.tables.table_text_parser import (
     extract_tables_by_forms,
     identify_tables,
+    join_md_table_row,
+    split_md_table_row,
 )
 from app.services.document_parser.structure.toc_parser import detect_tocs_in_texts
 from app.services.document_parser.formats.text.parser import summarize_text_body
@@ -141,29 +143,19 @@ def eval_md_headings(
 
 
 def clean_md_table_lines(table_lines, start_line_num):
-    expected_columns = table_lines[0].count("|") - 1
+    """Align every row to the header's cell count; record the rows that needed it."""
+    expected_columns = len(split_md_table_row(table_lines[0]))
     cleaned_lines = []
     error_lines = []  # To record line numbers that need cleaning
 
     for i, line in enumerate(table_lines):
-        line_columns = line.count("|") - 1
-        current_line_num = (
-            start_line_num + i
-        )  # Calculate the current line number in the original file
-        if line_columns == expected_columns:
+        cells = split_md_table_row(line)
+        if len(cells) == expected_columns:
             cleaned_lines.append(line)
-        else:
-            error_lines.append(current_line_num)
-            if line_columns > expected_columns:
-                parts = line.split("|")
-                cleaned_line = "|".join(
-                    parts[: expected_columns + 1]
-                )  # If there are more columns, combine them (or drop extra columns)
-                cleaned_lines.append(cleaned_line)
-            elif line_columns < expected_columns:
-                # If there are fewer columns, pad the line (or you could skip it)
-                cleaned_line = line + "|" * (expected_columns - line_columns)
-                cleaned_lines.append(cleaned_line)
+            continue
+        error_lines.append(start_line_num + i)
+        aligned = cells[:expected_columns] + [""] * (expected_columns - len(cells))
+        cleaned_lines.append(join_md_table_row(aligned))
     return cleaned_lines, error_lines
 
 

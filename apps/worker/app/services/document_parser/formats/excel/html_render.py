@@ -11,7 +11,7 @@ from app.services.document_parser.formats.excel.workbook_grid import (
     Region,
     SheetGrid,
     cell_has_value_or_formula,
-    display_value,
+    cell_text,
     expand_visual_grid,
 )
 
@@ -196,7 +196,7 @@ def _render_tr(
             attrs.append(f'data-excel-r="{excel_row}"')
             attrs.append(f'data-excel-c="{col}"')
         attr_str = f" {' '.join(attrs)}" if attrs else ""
-        parts.append(f"<{tag}{attr_str}>{_cell_text(cell)}</{tag}>")
+        parts.append(f"<{tag}{attr_str}>{html.escape(cell_text(cell))}</{tag}>")
     parts.append("</tr>")
     return "".join(parts)
 
@@ -250,18 +250,6 @@ def _clipped_spans(
         if col <= item <= min(merge_end_col, region.max_col)
     )
     return max(clipped_rowspan, 1), max(clipped_colspan, 1)
-
-
-def _cell_text(cell: GridCell | None) -> str:
-    return html.escape(_display_text(display_value(cell)))
-
-
-def _display_text(value: object) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value)
 
 
 def _attr(value: str) -> str:

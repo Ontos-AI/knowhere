@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import csv
 import io
 import math
@@ -7,19 +8,27 @@ from pathlib import Path
 
 import openpyxl
 from openpyxl.cell.cell import TYPE_STRING
+from openpyxl.workbook.child import INVALID_TITLE_REGEX
 
 from app.services.document_parser.conversion.legacy_converter import xls_to_xlsx
+from app.services.document_parser.formats.excel.workbook_grid import general_number_text
 from shared.core.exceptions.domain_exceptions import TableParsingException
 
 # OOXML worksheet title limit.
 _EXCEL_SHEET_TITLE_MAX_LENGTH = 31
+# UTF-16 is read only behind its byte-order mark: without one, many GB18030
+# byte sequences also decode as UTF-16 and turn into unrelated characters.
+_UTF16_BOMS: tuple[bytes, ...] = (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)
 _TABLE_TEXT_ENCODINGS: tuple[str, ...] = (
     "utf-8-sig",
-    "utf-8",
-    "utf-16",
     "gb18030",
     "latin-1",
 )
+# Delimiters a delimited text file is checked for; a file with none of them
+# consistently present has a single column.
+_CSV_DELIMITERS = ",\t;|"
+# Excel forbids these characters in a sheet title; the work copy replaces them.
+_SHEET_TITLE_REPLACEMENT = "_"
 _WORK_DIR_NAME = ".work"
 
 
@@ -67,6 +76,8 @@ def _delimited_text_to_xlsx(
 
 
 def _decode_table_text(data: bytes) -> str:
+    if data.startswith(_UTF16_BOMS):
+        return data.decode("utf-16")
     last_decode_error: UnicodeDecodeError | None = None
     for encoding in _TABLE_TEXT_ENCODINGS:
         try:
@@ -90,14 +101,9 @@ def _read_delimited_rows(
     stream = io.StringIO(text)
     if delimiter is None:
         try:
-            dialect = csv.Sniffer().sniff(text)
-        except csv.Error as exc:
-            raise TableParsingException(
-                user_message="Could not detect the delimiter of the CSV file",
-                reason="CSV_DELIMITER_UNDETECTED",
-                original_exception=exc,
-            ) from exc
-        reader = csv.reader(stream, dialect)
+            reader = csv.reader(stream, csv.Sniffer().sniff(text, delimiters=_CSV_DELIMITERS))
+        except csv.Error:
+            reader = csv.reader(stream)
     else:
         reader = csv.reader(stream, delimiter=delimiter)
     return [list(row) for row in reader]
@@ -110,7 +116,9 @@ def _work_xlsx_path(output_dir: str, stem: str) -> Path:
 
 
 def _sheet_title_from_stem(stem: str) -> str:
-    title = stem[:_EXCEL_SHEET_TITLE_MAX_LENGTH]
+    title = INVALID_TITLE_REGEX.sub(_SHEET_TITLE_REPLACEMENT, stem)[
+        :_EXCEL_SHEET_TITLE_MAX_LENGTH
+    ]
     if not title:
         raise TableParsingException(
             user_message="Spreadsheet file name cannot be converted into an Excel sheet title",
@@ -127,14 +135,7 @@ def _write_xlsx_rows(
 ) -> None:
     workbook = openpyxl.Workbook()
     sheet = workbook.worksheets[0]
-    try:
-        sheet.title = sheet_title
-    except ValueError as exc:
-        raise TableParsingException(
-            user_message="Spreadsheet file name is not a valid Excel sheet title",
-            reason="INVALID_SHEET_TITLE",
-            original_exception=exc,
-        ) from exc
+    sheet.title = sheet_title
 
     for row_index, row in enumerate(rows, start=1):
         for column_index, field in enumerate(row, start=1):
@@ -148,15 +149,20 @@ def _write_xlsx_rows(
 
 
 def _cell_value(field: str) -> str | int | float | None:
+    """Store a field as a number only when the number shows exactly as written.
+
+    ``001``, ``1.10``, ``+86…`` and ``1e5`` would show differently as numbers,
+    so they stay text. Surrounding whitespace does not count.
+    """
     if field.startswith("="):
         return field
     if field == "":
         return None
-    integer = _parse_int(field)
-    if integer is not None:
-        return integer
-    number = _parse_float(field)
-    if number is not None:
+    written = field.strip()
+    number = _parse_int(written)
+    if number is None:
+        number = _parse_float(written)
+    if number is not None and general_number_text(number) == written:
         return number
     return field
 
