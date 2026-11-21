@@ -684,21 +684,25 @@ def test_private_job_reads_withhold_artifacts_before_search_readiness(
         engine.dispose()
 
 
-def test_new_job_admission_fences_the_previous_failed_candidate(
+def test_new_job_admission_keeps_the_previous_failed_candidate_terminal(
     monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess,
 ) -> None:
     engine, jobId, namespace = _prepareParsedJob(monkeypatch, postgresql_proc)
+    from sqlalchemy.orm import sessionmaker
+    from shared.models.database.document import Document
+    from shared.models.database.indexing import IndexingAttempt
     from shared.models.database.job import Job
-    from shared.services.retrieval.lexical.retry import IndexingRetry
-    from shared.core.exceptions.domain_exceptions import ConflictException
+    from shared.services.retrieval.lexical.settlement import IndexingSettlement
+    from shared.services.retrieval.lexical.worker import IndexingWorker
+
+    newJobId: str = "newly-accepted-job"
+    newDocumentId: str = "doc_new_candidate"
     with Session(engine) as session:
         job = session.get(Job, jobId)
         assert job is not None
-        job.status, job.indexing_status, job.failure_stage = "failed", "failed", "indexing"
-        from shared.models.database.indexing import IndexingAttempt
         attempt = session.get(IndexingAttempt, job.current_indexing_attempt_id)
         assert attempt is not None
-        attempt.state = "failed"
+        IndexingSettlement.fail(session, job, attempt, message="Initial indexing failed", code="UNAVAILABLE")
         session.commit()
 
     async def admit() -> None:
@@ -708,17 +712,22 @@ def test_new_job_admission_fences_the_previous_failed_candidate(
         try:
             async with AsyncSession(nativeEngine, expire_on_commit=False) as session:
                 job = await JobRepository().create_job(session, user_id="native-contract-user",
-                    job_id="newly-accepted-job", job_type="document_ingestion", source_type="file",
-                    metadata={"document_id": "doc_native_contract", "namespace": namespace})
+                    job_id=newJobId, job_type="document_ingestion", source_type="file",
+                    metadata={"document_id": newDocumentId, "namespace": namespace})
                 assert job is not None
         finally:
             await nativeEngine.dispose()
     try:
         asyncio.run(admit())
+        worker = IndexingWorker(sessionFactory=sessionmaker(engine, expire_on_commit=False))
+        assert worker.run(jobId) == "failed"
         with Session(engine) as session:
-            with pytest.raises(ConflictException) as captured:
-                IndexingRetry().request(session, jobId=jobId, userId="native-contract-user")
-            assert captured.value.details["reason"] == "INDEXING_SUPERSEDED"
+            failed = session.get(Job, jobId)
+            assert failed is not None and failed.status == "failed"
+            attempt = session.scalars(select(IndexingAttempt).where(IndexingAttempt.jobId == jobId)).one()
+            assert attempt.state == "failed" and attempt.attemptNumber == 1
+            document = session.get(Document, newDocumentId)
+            assert document is not None and document.accepted_job_id == newJobId
     finally:
         engine.dispose()
 
@@ -824,7 +833,7 @@ def test_separate_gevent_process_completes_initial_indexing_inline(
         engine.dispose()
 
 
-def test_expired_writer_cannot_replace_the_build_published_after_manual_retry(
+def test_expired_writer_cannot_replace_the_build_published_by_a_new_job(
     monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess,
 ) -> None:
     endpoint: str = _getNativeEndpoint()
@@ -846,6 +855,7 @@ def test_expired_writer_cannot_replace_the_build_published_after_manual_retry(
         scope=LexicalScope(ownerId="native-contract-user", namespace=namespace), indexPrefix="knowhere-slice-test")
     writeBuild = OpenSearchLexicalIndex.writeBuild
     expiredBuilds: list[str] = []
+    replacements: list[str] = []
 
     def takeOver(self: OpenSearchLexicalIndex, *, buildId: str, units: tuple[LexicalUnit, ...],
                  beforeBatch: Callable[[], None] | None = None) -> None:
@@ -862,26 +872,27 @@ def test_expired_writer_cannot_replace_the_build_published_after_manual_retry(
             lease.expiresAt = now - timedelta(seconds=1)
             session.commit()
         assert IndexingWorker(sessionFactory=factory).run(jobId) == "failed"
-        from shared.services.retrieval.lexical.retry import IndexingRetry
-        with Session(engine) as session:
-            assert IndexingRetry().request(session, jobId=jobId, userId="native-contract-user")
-            session.commit()
-        assert IndexingWorker(sessionFactory=factory).run(jobId) == "completed"
+        replacement: str = _stageReplacement(engine, namespace)
+        replacements.append(replacement)
+        assert IndexingWorker(sessionFactory=factory).run(replacement) == "completed"
         assert not LexicalCleanup(sessionFactory=factory).collect(buildId)
 
     try:
         monkeypatch.setattr(OpenSearchLexicalIndex, "writeBuild", takeOver)
-        assert worker.run(jobId) == "completed"
+        assert worker.run(jobId) == "failed"
+        [replacement] = replacements
         with Session(engine) as session:
             document = session.get(Document, "doc_native_contract")
             assert document is not None and document.current_indexing_build_id != expiredBuilds[0]
             obsolete = session.get(LexicalBuild, expiredBuilds[0])
             assert obsolete is not None and obsolete.state == "failed"
-            attempts = list(session.scalars(select(IndexingAttempt).where(IndexingAttempt.jobId == jobId).order_by(IndexingAttempt.attemptNumber)))
-            assert [attempt.executionCount for attempt in attempts] == [1, 1]
-            assert [attempt.state for attempt in attempts] == ["failed", "succeeded"]
+            expired = session.scalars(select(IndexingAttempt).where(IndexingAttempt.jobId == jobId)).one()
+            published = session.scalars(select(IndexingAttempt).where(IndexingAttempt.jobId == replacement)).one()
+            assert expired.attemptNumber == published.attemptNumber == 1
+            assert expired.executionCount == published.executionCount == 1
+            assert expired.state == "failed" and published.state == "succeeded"
         assert LexicalCleanup(sessionFactory=factory).collect(expiredBuilds[0])
-        assert asyncio.run(_discoverNative(namespace))[0]["content"] == "工程验收计划"
+        assert asyncio.run(_discoverNative(namespace))[0]["content"] == "工程验收计划更新说明"
     finally:
         response: httpx.Response = httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False)
         assert response.status_code in (200, 404)
@@ -1390,14 +1401,14 @@ def _stageReplacement(engine: Engine, namespace: str) -> str:
     with Session(engine) as session:
         document = session.get(Document, "doc_native_contract")
         assert document is not None
-        jobId: str = "native-replacement-job"
+        jobId: str = f"native-replacement-job-{uuid4().hex[:12]}"
         session.add(Job(job_id=jobId, user_id="native-contract-user", job_type="document_ingestion",
             source_type="file", status="running", billing_status="charged", credits_charged=345678,
             job_metadata={"document_id": document.document_id, "namespace": namespace, "source_file_name": "replacement.pdf"}))
         document.accepted_job_id = jobId
         session.commit()
         SyncJobSuccessFinalizer().finalize(session, job_id=jobId,
-            result_s3_key="results/replacement.zip", checksum="replacement-checksum", zip_size=100,
+            result_s3_key=f"results/{jobId}.zip", checksum="replacement-checksum", zip_size=100,
             chunks=[{"chunk_id": "replacement-chunk", "type": "text", "content": "工程验收计划更新说明", "path": "replacement.pdf/工程验收", "metadata": {}}],
             stored_count=1, delivery_mode="url", section_summaries=None)
         session.commit()
@@ -1405,7 +1416,7 @@ def _stageReplacement(engine: Engine, namespace: str) -> str:
         return jobId
 
 
-def test_lost_native_ack_fails_one_execution_and_allows_free_indexing_retry(
+def test_lost_native_ack_fails_one_execution_and_a_new_job_publishes(
     monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess,
 ) -> None:
     endpoint: str | None = os.environ.get("KNOWHERE_TEST_OPENSEARCH_URL")
@@ -1448,26 +1459,25 @@ def test_lost_native_ack_fails_one_execution_and_allows_free_indexing_retry(
             assert job.status == "failed"
             assert job.failure_stage == "indexing"
             assert job.parsing_status == "completed"
-            assert job.billing_status == "charged" and job.credits_charged == 345678
+            assert job.billing_status == "refunded" and job.credits_charged == 345678
             assert session.scalar(select(IndexingAttempt.executionCount).where(IndexingAttempt.jobId == replacement)) == 1
             assert session.scalar(select(func.count()).select_from(LexicalLease).where(LexicalLease.state == "uncertain")) == 1
-        from shared.services.retrieval.lexical.retry import IndexingRetry
+        nextJobId: str = _stageReplacement(engine, namespace)
+        assert nextJobId != replacement
+        assert worker.run(nextJobId) == "completed"
         with Session(engine) as session:
-            assert IndexingRetry().request(session, jobId=replacement, userId="native-contract-user")
-            session.commit()
-            from shared.core.exceptions.domain_exceptions import ConflictException
-            with pytest.raises(ConflictException):
-                IndexingRetry().request(session, jobId=replacement, userId="native-contract-user")
-            session.rollback()
-        assert worker.run(replacement) == "completed"
-        with Session(engine) as session:
-            job = session.get(Job, replacement)
+            job = session.get(Job, nextJobId)
+            failed = session.get(Job, replacement)
             document = session.get(Document, "doc_native_contract")
             assert job is not None and document is not None
             assert job.status == "done" and job.failure_stage is None
             assert job.billing_status == "charged" and job.credits_charged == 345678
-            assert session.scalar(select(func.count()).select_from(IndexingAttempt).where(IndexingAttempt.jobId == replacement)) == 2
-            assert document.current_job_result_id == document.latest_parsed_job_result_id
+            assert failed is not None and failed.status == "failed" and failed.billing_status == "refunded"
+            failedAttempt = session.scalars(select(IndexingAttempt).where(IndexingAttempt.jobId == replacement)).one()
+            publishedAttempt = session.scalars(select(IndexingAttempt).where(IndexingAttempt.jobId == nextJobId)).one()
+            assert failedAttempt.executionCount == publishedAttempt.executionCount == 1
+            assert failedAttempt.state == "failed" and publishedAttempt.state == "succeeded"
+            assert document.current_job_result_id == document.latest_parsed_job_result_id == publishedAttempt.revisionId
     finally:
         response = httpx.delete(f"{endpoint}/{index.indexName}", timeout=15, trust_env=False)
         assert response.status_code in (200, 404)
@@ -2470,7 +2480,7 @@ def test_query_recovers_once_when_lru_closes_between_capture_and_search(
         index.close()
 
 
-def test_writer_fails_once_after_lru_closure_and_reopens_only_on_manual_retry(
+def test_writer_fails_once_after_lru_closure_and_a_new_job_reopens_index(
     monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess,
 ) -> None:
     from sqlalchemy.orm import sessionmaker
@@ -2509,17 +2519,15 @@ def test_writer_fails_once_after_lru_closure_and_reopens_only_on_manual_retry(
         assert IndexingWorker(sessionFactory=factory).run(jobId) == "failed"
         assert IndexingWorker(sessionFactory=factory).run(jobId) == "failed"
         assert len(batches) == 1
-        from shared.services.retrieval.lexical.retry import IndexingRetry
-        with Session(engine) as database:
-            first = database.scalars(select(IndexingAttempt)).one()
-            assert first.executionCount == 1 and first.state == "failed"
-            assert IndexingRetry().request(database, jobId=jobId, userId="native-contract-user")
-            database.commit()
-        assert IndexingWorker(sessionFactory=factory).run(jobId) == "completed"
+        replacement: str = _stageReplacement(engine, namespace)
+        assert IndexingWorker(sessionFactory=factory).run(replacement) == "completed"
         assert len(batches) == 2 and batches[0] != batches[1]
         with Session(engine) as database:
-            attempts = list(database.scalars(select(IndexingAttempt).order_by(IndexingAttempt.attemptNumber)))
-            assert [attempt.executionCount for attempt in attempts] == [1, 1]
+            failed = database.scalars(select(IndexingAttempt).where(IndexingAttempt.jobId == jobId)).one()
+            published = database.scalars(select(IndexingAttempt).where(IndexingAttempt.jobId == replacement)).one()
+            assert failed.attemptNumber == published.attemptNumber == 1
+            assert failed.executionCount == published.executionCount == 1
+            assert failed.state == "failed" and published.state == "succeeded"
     finally:
         response: httpx.Response = httpx.delete(
             f"{settings.KNOWHERE_OPENSEARCH_URL}/{index.indexName}", timeout=10, trust_env=False

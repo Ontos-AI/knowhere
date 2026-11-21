@@ -190,35 +190,6 @@ def test_execution_deadline_is_persisted_before_native_admission(
     assert (deadlineAt - startedAt).total_seconds() == pytest.approx(10, abs=0.01)
 
 
-def test_manual_attempt_gets_a_fresh_admission_deadline_for_old_retained_parse(
-    parsedRuntime: tuple[Engine, str],
-) -> None:
-    from datetime import timedelta
-    from shared.models.database.indexing import IndexingAttempt
-    from shared.models.database.job import Job
-    from shared.services.retrieval.lexical.coordination import LexicalCoordination
-    from shared.services.retrieval.lexical.retry import IndexingRetry
-
-    engine, jobId = parsedRuntime
-    with Session(engine) as session:
-        job: Job = session.scalars(select(Job)).one()
-        attempt: IndexingAttempt = session.scalars(select(IndexingAttempt)).one()
-        now = LexicalCoordination.getDatabaseTime(session)
-        attempt.state = "failed"
-        attempt.createdAt = now - timedelta(days=30)
-        job.status = "failed"
-        job.indexing_status = "failed"
-        job.failure_stage = "indexing"
-        session.commit()
-        assert IndexingRetry().request(session, jobId=jobId, userId="execution-user")
-        session.commit()
-        latest: IndexingAttempt = session.scalars(select(IndexingAttempt).where(IndexingAttempt.attemptNumber == 2)).one()
-        deadline = getattr(latest, "admissionDeadlineAt", None)
-        assert getattr(latest, "origin", None) == "manual"
-        assert deadline is not None and 8 <= (deadline - now).total_seconds() <= 11
-        assert latest.executionCount == 0 and getattr(latest, "startedAt", None) is None
-
-
 def test_execution_timeout_stops_native_wait_and_returns_without_replay(
     parsedRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
