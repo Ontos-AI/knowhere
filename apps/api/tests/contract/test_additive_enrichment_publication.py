@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
-from shared.models.database.document import Document, DocumentChunk
+from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.testing.contract_runtime import (
     PostgreSQLProcess,
@@ -61,10 +61,17 @@ def test_same_source_path_keeps_independent_chunk_bodies(
                 job_result_id=fixture.revision_ref,
             )
             path = "same-file.pdf/Heading"
+            db.add(DocumentSection(
+                section_id="original-heading", section_title="Heading", section_path="Heading",
+                document_id=scope.document_id, user_id=scope.user_id, namespace=scope.namespace,
+                job_result_id=scope.job_result_id,
+            ))
+            db.flush()
             db.add(DocumentChunk(
-                id="original-row", chunk_id="original", document_id=scope.document_id,
+                id="original-row", section_id="original-heading", chunk_id="original", document_id=scope.document_id,
                 user_id=scope.user_id, namespace=scope.namespace, job_result_id=scope.job_result_id,
-                source_chunk_path=path, content="Baseline spans original pages 1 through 3.",
+                source_chunk_path=path, chunk_type="page", content="Baseline spans original pages 1 through 3.",
+                chunk_metadata={"page_nums": [1, 2, 3], "page_texts": [{"page_num": 1, "text": "Original physical page 1"}]},
             ))
             db.add(DocumentChunk(
                 id="original-recording-row", chunk_id="original-recording", document_id=scope.document_id,
@@ -144,6 +151,17 @@ def test_same_source_path_keeps_independent_chunk_bodies(
                         path_selections=[{"path": "Hidden", "hydrate_mode": "outline"}])
                     assert not outline
 
+                    from shared.services.retrieval.agent_tools.tools.read import _resolve_same_as_markers
+
+                    marker = {"document_id": scope.document_id, "chunk_type": "page",
+                        "content": "[SAME-AS same-file.pdf/Heading p1]", "chunk_metadata": {"enrichment_state": "refined"}}
+                    shared = [{**marker, "enrichment_attempt_id": attempt_id} for attempt_id in ("attempt-two", "neighbor")]
+                    await _resolve_same_as_markers(db, shared, revision_by_doc={scope.document_id: scope.job_result_id},
+                        source_file_name_by_doc={scope.document_id: scope.source_file_name or ""})
+                    assert "Replacement enrichment." in shared[0]["content"]
+                    assert "Original physical page 1" in shared[1]["content"]
+                    assert "Replacement enrichment." not in shared[1]["content"]
+
                     from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
                     from shared.services.retrieval.lexical.hit import LexicalHit
                     enriched = await AdditiveVisibility.loadRows(db, scope=lexical_scope, hits=(
@@ -204,7 +222,6 @@ def test_native_partial_enrichment_is_eligible_until_failed(
 
     from app.services.documents.lifecycle_service import DocumentService
     from shared.core.config import settings
-    from shared.models.database.document import DocumentSection
     from shared.services.retrieval.document_scope import DocumentScope
     from shared.services.retrieval.lexical import additivepublication
     from shared.services.retrieval.lexical.coordination import LexicalCoordination

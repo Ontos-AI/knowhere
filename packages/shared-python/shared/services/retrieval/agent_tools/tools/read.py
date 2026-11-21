@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 
-from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.corpus_storage import DEMO_NAMESPACE, CorpusStorage
 from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 
 import asyncio
@@ -46,6 +46,7 @@ from shared.models.database.document import (
     DocumentSection,
 )
 from shared.models.database.job_result import JobResult
+from shared.services.chunks.page_texts import PAGE_TEXTS_KEY
 from shared.services.retrieval.agent_tools.registry import (
     REF_ADDRESS_ONE_OF,
     REF_ADDRESS_RULE,
@@ -177,13 +178,13 @@ async def _resolve_same_as_markers(
 ) -> None:
     """Mutate ``page`` rows in place, replacing SAME-AS markers with owner text."""
     corpusStorage: CorpusStorage = CorpusStorage.resolve_document(next(iter(revision_by_doc), ''))
-    matches_by_index: dict[int, list[tuple[str, str]]] = {}
-    needed: set[tuple[str, str]] = set()
+    namespace = DEMO_NAMESPACE if corpusStorage.is_demo else "default"
+    additive = AdditiveVisibility.isEnabled(namespace)
+    matches_by_index: dict[int, list[tuple[str, tuple[str, str, str | None, int]]]] = {}
+    needed: set[tuple[str, str, str | None, int]] = set()
     for index, row in enumerate(rows):
         if normalize_chunk_type(row.get("chunk_type")) != "page":
             continue
-        # A coarse row's pointer names one page of a whole neighboring
-        # skeleton; that skeleton's content is not this page's text.
         if is_unrefined_page(row):
             continue
         content = str(row.get("content") or "")
@@ -191,45 +192,55 @@ async def _resolve_same_as_markers(
         if not found:
             continue
         document_id = str(row.get("document_id") or "")
+        attempt_id = str(row["enrichment_attempt_id"]) if additive and row.get("enrichment_attempt_id") else None
         source_file_name = source_file_name_by_doc.get(document_id)
-        row_matches: list[tuple[str, str]] = []
+        row_matches: list[tuple[str, tuple[str, str, str | None, int]]] = []
         for match in found:
             owner_db_path = section_path_from_chunk_path(
                 match.group(1), source_file_name=source_file_name
             )
-            needed.add((document_id, owner_db_path))
-            row_matches.append((match.group(0), owner_db_path))
+            key = (document_id, owner_db_path, attempt_id, int(match.group(2)))
+            needed.add(key)
+            row_matches.append((match.group(0), key))
         matches_by_index[index] = row_matches
 
-    if not needed:
-        return
-
-    owner_content: dict[tuple[str, str], str] = {}
-    for document_id, owner_path in needed:
+    owner_content: dict[tuple[str, str, str | None, int], str] = {}
+    for key in needed:
+        document_id, owner_path, attempt_id, page = key
         job_result_id = revision_by_doc.get(document_id)
         if not job_result_id:
             continue
-        result = await db.execute(
-            select(corpusStorage.DocumentChunk.content)
-            .select_from(corpusStorage.DocumentChunk)
-            .join(corpusStorage.DocumentSection, corpusStorage.DocumentSection.section_id == corpusStorage.DocumentChunk.section_id)
-            .where(corpusStorage.DocumentChunk.document_id == document_id)
-            .where(corpusStorage.DocumentChunk.job_result_id == job_result_id)
-            .where(corpusStorage.DocumentSection.section_path == owner_path)
-            .where(corpusStorage.DocumentChunk.chunk_type == "page")
-            .where(AdditiveVisibility.allowsFreshChunk("__knowhere_demo__" if corpusStorage.is_demo else "default"))
+        chunks = corpusStorage.DocumentChunk
+        lookup = select(chunks.content, chunks.chunk_metadata).select_from(chunks).join(
+            corpusStorage.DocumentSection, corpusStorage.DocumentSection.section_id == chunks.section_id,
+        ).where(
+            chunks.document_id == document_id,
+            chunks.job_result_id == job_result_id,
+            corpusStorage.DocumentSection.section_path == owner_path,
+            chunks.chunk_type == "page",
+            AdditiveVisibility.allowsFreshChunk(namespace),
         )
-        content_row = result.first()
-        owner_content[(document_id, owner_path)] = (
-            str(content_row[0]) if content_row and content_row[0] else ""
-        )
+        if additive:
+            lookup = lookup.where(or_(DocumentChunk.enrichment_attempt_id == attempt_id,
+                DocumentChunk.enrichment_attempt_id.is_(None))).order_by(
+                DocumentChunk.enrichment_attempt_id.is_(None), DocumentChunk.sort_order, DocumentChunk.id,
+            )
+        result = await db.execute(lookup)
+        owner = result.first()
+        if owner is None:
+            continue
+        content, metadata = owner
+        if additive and isinstance(metadata, dict) and isinstance(entries := metadata.get(PAGE_TEXTS_KEY), list):
+            content = next((str(entry.get("text") or "") for entry in entries
+                if isinstance(entry, dict) and entry.get("page_num") == page), "")
+        owner_content[key] = str(content or "")
 
     for index, row_matches in matches_by_index.items():
         row = rows[index]
         content = str(row.get("content") or "")
-        document_id = str(row.get("document_id") or "")
-        for marker_text, owner_path in row_matches:
-            resolved = owner_content.get((document_id, owner_path), "")
+        for marker_text, key in row_matches:
+            owner_path = key[1]
+            resolved = owner_content.get(key, "")
             if resolved:
                 replacement = f"(page text shared with section {owner_path})\n{resolved}"
             else:
@@ -611,6 +622,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                             "result_raw_prefix": raw_prefix_by_revision.get(job_result_id),
                             "source_file_name": source_file_name,
                             "chunk_id": chunk.chunk_id,
+                            "enrichment_attempt_id": getattr(chunk, "enrichment_attempt_id", None),
                             "section_id": chunk.section_id,
                             "section_path": resolved_section_path,
                             "chunk_type": chunk.chunk_type,
@@ -765,6 +777,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                     "result_raw_prefix": job.get("result_raw_prefix"),
                     "source_file_name": job["source_file_name"],
                     "chunk_id": chunk.chunk_id,
+                    "enrichment_attempt_id": getattr(chunk, "enrichment_attempt_id", None),
                     "section_id": chunk.section_id,
                     "section_path": (
                         section_path_by_id.get(chunk.section_id)
