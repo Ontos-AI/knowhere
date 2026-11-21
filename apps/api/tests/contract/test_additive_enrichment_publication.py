@@ -8,6 +8,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
+from shared.models.database.job import Job
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.testing.contract_runtime import (
     PostgreSQLProcess,
@@ -46,6 +47,11 @@ def test_same_source_path_keeps_independent_chunk_bodies(
     try:
         with Session(engine) as db, db.begin():
             seed_publication_fixture(db, scope=fixture)
+            job = db.get(Job, fixture.job_ref)
+            assert job is not None
+            job.status = "done"
+            job.parsing_status = "completed"
+            job.indexing_status = "completed"
             document = Document(
                 document_id="additive-publication-doc", user_id=fixture.user_ref,
                 namespace=fixture.namespace_ref, status="active", source_file_name=fixture.source_file_name,
