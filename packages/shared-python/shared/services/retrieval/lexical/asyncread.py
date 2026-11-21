@@ -60,7 +60,6 @@ class AsyncPublishedLexicalRead(PublishedLexicalRead):
                 raise LexicalIndexError("Native registry and read index differ")
         self._asyncNative = native
         self.usesAdditiveVisibility = True
-        self._manifestDeadline = time.monotonic() + MANIFEST_READ_TIMEOUT_SECONDS
         self._hasStarted = True
 
     async def searchAdditiveAsync(
@@ -71,14 +70,14 @@ class AsyncPublishedLexicalRead(PublishedLexicalRead):
         self.assertAlive()
         if self._indexUuid is None:
             return ()
-        if not self.usesAdditiveVisibility or self._manifestDeadline is None or self._asyncNative is None:
+        if not self.usesAdditiveVisibility or self._asyncNative is None:
             raise LexicalIndexError("Additive native search has no active read")
         native = self._asyncNative
         LexicalRecency.recordAccess(self.scope.fingerprint)
         search = partial(native.searchNamespace, queryTokens=queryTokens, limit=limit,
             filterCandidates=filterCandidates, extraFilters=filters, exclusions=exclusions)
         try:
-            async with asyncio.timeout(max(0, self._manifestDeadline - time.monotonic())):
+            async with asyncio.timeout(MANIFEST_READ_TIMEOUT_SECONDS):
                 try:
                     return await search()
                 except LexicalIndexError as error:

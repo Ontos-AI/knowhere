@@ -1,16 +1,16 @@
 """Persist and index one isolated enrichment attempt alongside the initial body."""
 
 from collections.abc import Callable
-from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from shared.core.config import settings
 from shared.core.database_sync import get_sync_session_factory
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.document_enrichment_publication import DocumentEnrichmentPublication
+from shared.services.retrieval.lexical.additivecleanup import NATIVE_WRITE_SETTLEMENT
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
 from shared.services.retrieval.lexical.error import LexicalIndexError
 from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
@@ -113,9 +113,7 @@ class AdditivePublication:
             return
         publication.state = "failed"
         if publication.index_uuid is not None:
-            publication.cleanup_after = db.scalar(select(func.now())) + timedelta(
-                seconds=settings.KNOWHERE_INDEXING_SETTLEMENT_TIMEOUT_SECONDS,
-            )
+            publication.cleanup_after = LexicalCoordination.getDatabaseTime(db) + NATIVE_WRITE_SETTLEMENT
 
     @staticmethod
     def cleanup(*, scope: DocumentPublicationScope, attemptId: str) -> bool:

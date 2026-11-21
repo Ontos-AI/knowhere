@@ -26,6 +26,7 @@ from __future__ import annotations
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 
 from typing import Any
 
@@ -178,6 +179,7 @@ async def _chunk_asset_rows(
         )
         .order_by(corpusStorage.DocumentChunk.document_id, corpusStorage.DocumentChunk.sort_order, corpusStorage.DocumentChunk.chunk_id)
     )
+    stmt = stmt.where(AdditiveVisibility.allowsFreshChunk(ctx.namespace))
     if scope:
         stmt = stmt.where(corpusStorage.Document.document_id.in_(scope_document_ids(scope)))
     asset_rows = (await ctx.db.execute(stmt)).all()
@@ -348,6 +350,7 @@ async def _reverse_lookup(
             CorpusRevisionContext.build_revision_column(corpusStorage.Document) == corpusStorage.DocumentChunk.job_result_id,
             corpusStorage.DocumentChunk.document_id.in_(sorted({key[0] for key in hosts})),
             corpusStorage.DocumentChunk.chunk_id.in_(target_ids),
+            AdditiveVisibility.allowsFreshChunk(ctx.namespace),
         )
     )
     asset_type_by_key = {

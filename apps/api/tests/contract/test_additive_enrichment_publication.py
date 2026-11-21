@@ -29,6 +29,9 @@ def test_same_source_path_keeps_independent_chunk_bodies(
     monkeypatch: Any, postgresql_proc: PostgreSQLProcess,
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
+    from shared.core.config import settings
+    monkeypatch.setitem(settings.__dict__, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
+    monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
     asyncio.run(prepare_contract_storage())
     engine = create_engine(make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2"))
     fixture = PublicationScope(
@@ -87,6 +90,8 @@ def test_same_source_path_keeps_independent_chunk_bodies(
             }
             assert {row.source_chunk_path for row in bodies} == {path}
             assert len({row.id for row in bodies}) == 3
+            assert len({row.chunk_id for row in bodies}) == 3
+            retained_id = next(row.id for row in bodies if row.enrichment_attempt_id == "attempt-one")
             assert stored.state == "failed"
             assert not AdditivePublication.complete(db, scope=scope, attemptId="attempt-one")
         async def assert_candidates() -> None:
@@ -103,12 +108,33 @@ def test_same_source_path_keeps_independent_chunk_bodies(
                     lexical_scope = LexicalScope(ownerId=scope.user_id, namespace=scope.namespace)
                     eligible = await AdditiveVisibility.filterCandidates(db, lexical_scope, candidates)
                     assert eligible == {candidates[0], candidates[3]}
-                with Session(engine) as db, db.begin():
-                    archived = db.get(Document, scope.document_id)
-                    assert archived is not None
-                    archived.status = "archived"
+                    from app.repositories.document_repository import DocumentRepository
+                    repository = DocumentRepository()
+                    assert await repository.count_current_document_chunks(
+                        db, document_id=scope.document_id, job_result_id=scope.job_result_id,
+                    ) == 2
+                from app.services.documents.lifecycle_service import DocumentService
+                from shared.services.retrieval.hydration.reference import hydrate_referenced_chunk_rows
+
+                service = DocumentService()
+                async with AsyncSession(async_engine, expire_on_commit=False) as db:
+                    refs = [{"document_id": scope.document_id, "chunk_id": "original"}]
+                    pins = {scope.document_id: scope.job_result_id}
+                    assert await hydrate_referenced_chunk_rows(db=db, user_id=scope.user_id,
+                        namespace=scope.namespace, refs=refs, revision_pins=pins)
+                    archived = await service.archive_document(db, user_id=scope.user_id, document_id=scope.document_id)
+                    assert archived is not None and archived["status"] == "archived"
+
                 async with AsyncSession(async_engine) as db:
                     assert not await AdditiveVisibility.filterCandidates(db, lexical_scope, candidates)
+                    assert not await hydrate_referenced_chunk_rows(db=db, user_id=scope.user_id,
+                        namespace=scope.namespace, refs=refs, revision_pins=pins)
+                    retained = await service.get_document_chunk(db, user_id=scope.user_id,
+                        document_id=scope.document_id, job_result_id=scope.job_result_id,
+                        document_chunk_id=retained_id, include_asset_urls=False)
+                    assert retained is not None and retained["chunk"]["content"] == "Enriched page 1."
+                    document = await db.get(Document, scope.document_id)
+                    assert document is not None and document.index_cleanup_after is not None
             finally:
                 await async_engine.dispose()
 

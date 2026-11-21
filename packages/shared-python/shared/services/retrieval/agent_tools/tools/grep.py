@@ -24,6 +24,7 @@ from __future__ import annotations
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 
 import re
 from collections import defaultdict
@@ -269,6 +270,7 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             ctx.document_scope.predicate(corpusStorage.DocumentChunk.document_id),
         )
     )
+    matched = matched.where(AdditiveVisibility.allowsFreshChunk(ctx.namespace))
     if scope_filter is not None:
         matched = matched.where(scope_filter)
     if chunk_types:

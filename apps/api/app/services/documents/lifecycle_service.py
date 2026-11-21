@@ -22,6 +22,9 @@ from shared.services.retrieval.cache_service import (
     invalidate_retrieval_cache_namespaces,
 )
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
+from shared.services.retrieval.hydration.artifact_origin import resolve_artifact_raw_prefix
+from shared.services.retrieval.lexical.additivecleanup import NATIVE_WRITE_SETTLEMENT
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.hydration.build_snapshot import BuildSnapshot
 from shared.services.retrieval.lexical.asyncdatabase import AsyncLexicalDatabase
 from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
@@ -71,6 +74,7 @@ def _document_chunk_asset_url(
     file_path: str | None,
     include_asset_urls: bool,
     result_storage: ResultStorage | None,
+    metadata: dict[str, Any] | None = None,
 ) -> str | None:
     if (
         not include_asset_urls
@@ -85,7 +89,10 @@ def _document_chunk_asset_url(
         return _generate_artifact_url(
             result_storage,
             job_id=job_id,
-            raw_prefix=raw_prefix,
+            raw_prefix=resolve_artifact_raw_prefix(
+                {"job_id": job_id, "result_raw_prefix": raw_prefix, "chunk_metadata": metadata},
+                file_path, storage=result_storage,
+            ).get("raw_prefix") if metadata and metadata.get("artifact_origins") else raw_prefix,
             artifact_ref=file_path,
             expires_in=_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS,
         )
@@ -120,6 +127,7 @@ def _document_page_assets(
                 job_id=job_id,
                 raw_prefix=raw_prefix,
                 artifact_ref=asset["artifact_ref"],
+                metadata=metadata,
                 result_storage=result_storage,
             )
             if asset_url:
@@ -210,6 +218,7 @@ def _page_asset_url(
     raw_prefix: str | None,
     artifact_ref: str,
     result_storage: ResultStorage,
+    metadata: dict[str, Any] | None = None,
 ) -> str | None:
     normalized_ref = result_storage.normalize_artifact_ref(artifact_ref)
     if not normalized_ref or not normalized_ref.startswith("page_citation_assets/"):
@@ -218,7 +227,10 @@ def _page_asset_url(
         return _generate_artifact_url(
             result_storage,
             job_id=job_id,
-            raw_prefix=raw_prefix,
+            raw_prefix=resolve_artifact_raw_prefix(
+                {"job_id": job_id, "result_raw_prefix": raw_prefix, "chunk_metadata": metadata},
+                normalized_ref, storage=result_storage,
+            ).get("raw_prefix") if metadata and metadata.get("artifact_origins") else raw_prefix,
             artifact_ref=normalized_ref,
             expires_in=_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS,
         )
@@ -390,7 +402,10 @@ class DocumentService:
             _, revision = await resolve_demo_revision(db, document_id=document_id, job_result_id=job_result_id)
             job_result_id = revision.id
         else:
-            job_result_id = job_result_id or document.latest_parsed_job_result_id or document.current_job_result_id
+            job_result_id = job_result_id or (
+                document.current_job_result_id if AdditiveVisibility.isEnabled(document.namespace)
+                else document.latest_parsed_job_result_id or document.current_job_result_id
+            )
         if not job_result_id:
             return {
                 "document_id": document.document_id,
@@ -659,6 +674,7 @@ class DocumentService:
                     file_path=file_path,
                     include_asset_urls=include_asset_urls,
                     result_storage=result_storage,
+                    metadata=raw_metadata,
                 )
             ),
             "created_at": _datetime_payload(chunk.created_at),
@@ -705,6 +721,8 @@ class DocumentService:
                     return document_payload(document)
                 namespace = document.namespace
                 hasPublishedBuild = document.current_indexing_build_id is not None
+            if AdditiveVisibility.isEnabled(namespace):
+                return await self._archive_document(db, user_id=user_id, document_id=document_id)
             storage = CorpusStorage.resolve_namespace(namespace)
             scope = LexicalScope(ownerId=storage.resolve_owner(user_id), namespace=namespace,
                 corpusKind="demo" if storage.is_demo else "private")
@@ -754,6 +772,7 @@ class DocumentService:
             return document_payload(document)
 
         previous_namespace = document.namespace
+        additive = AdditiveVisibility.isEnabled(previous_namespace)
         if manifestScope is not None:
             if previous_namespace != manifestScope.namespace or (document.current_indexing_build_id and prepared is None):
                 raise ManifestPublicationAdvanced("Document publication changed during archival", isRetryable=True)
@@ -762,27 +781,31 @@ class DocumentService:
             buildId = document.current_indexing_build_id
             if buildId is not None:
                 await db.run_sync(lambda session: BuildSnapshot.capture(session, scope=manifestScope, buildId=buildId))
-        else:
+        elif not additive:
             if settings.KNOWHERE_LEXICAL_BACKEND == "opensearch":
                 await db.run_sync(LexicalCoordination.lockControl)
             await db.run_sync(lambda session: lock_namespace_generation(
                 session, user_id=user_id, namespace=previous_namespace))
         await self._repository.archive_document(db, document=document)
-        await db.run_sync(
-            lambda sync_db: remove_document_from_namespace_map_snapshot(
-                sync_db,
-                user_id=user_id,
-                namespace=previous_namespace,
-                document_id=document_id,
+        generation: int = 0
+        if additive:
+            document.index_cleanup_after = await db.run_sync(LexicalCoordination.getDatabaseTime) + NATIVE_WRITE_SETTLEMENT
+        else:
+            await db.run_sync(
+                lambda sync_db: remove_document_from_namespace_map_snapshot(
+                    sync_db,
+                    user_id=user_id,
+                    namespace=previous_namespace,
+                    document_id=document_id,
+                )
             )
-        )
-        generation: int = await db.run_sync(
-            lambda sync_db: advance_namespace_generation(
-                sync_db,
-                user_id=user_id,
-                namespace=previous_namespace,
+            generation = await db.run_sync(
+                lambda sync_db: advance_namespace_generation(
+                    sync_db,
+                    user_id=user_id,
+                    namespace=previous_namespace,
+                )
             )
-        )
         if prepared is not None and lockedGeneration is not None:
             await db.run_sync(lambda session: ManifestPublication.activate(session, prepared,
                 previousGeneration=generationBefore, publishedGeneration=generation))

@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select, tuple_
+from sqlalchemy import ColumnElement, and_, func, or_, select, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.config import settings
@@ -21,13 +21,23 @@ class AdditiveVisibility:
             and bool(getattr(settings, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", False)))
 
     @staticmethod
-    def allowsChunk():
+    def allowsChunk() -> ColumnElement[bool]:
         """An attempt's retained body is enumerable only while it can serve."""
         publication = DocumentEnrichmentPublication
         return or_(DocumentChunk.enrichment_attempt_id.is_(None), select(publication.id).where(
             publication.id == DocumentChunk.enrichment_attempt_id,
             publication.state.in_(("writing", "published")),
         ).exists())
+
+    @staticmethod
+    def allowsFreshChunk(namespace: str) -> ColumnElement[bool]:
+        if not AdditiveVisibility.isEnabled(namespace):
+            return true()
+        return and_(AdditiveVisibility.allowsChunk(), select(Document.document_id).where(
+            Document.document_id == DocumentChunk.document_id,
+            Document.current_job_result_id == DocumentChunk.job_result_id,
+            Document.status == "active",
+        ).correlate(DocumentChunk).exists())
 
     @staticmethod
     async def filterCandidates(

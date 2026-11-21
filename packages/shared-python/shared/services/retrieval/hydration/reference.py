@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 
 from collections.abc import Mapping
 from typing import Any
@@ -93,8 +94,10 @@ async def hydrate_referenced_chunk_rows(
         .where(corpusStorage.DocumentChunk.chunk_id.in_(chunk_ids))
         .order_by(corpusStorage.DocumentChunk.sort_order)
     )
-    if revision_pins is None:
+    if revision_pins is None or AdditiveVisibility.isEnabled(namespace):
         stmt = stmt.where(corpusStorage.Document.status == "active")
+    if AdditiveVisibility.isEnabled(namespace):
+        stmt = stmt.where(AdditiveVisibility.allowsFreshChunk(namespace))
     result = await db.execute(stmt)
 
     rows_by_key: dict[ReferenceLookupKey, dict[str, Any]] = {}

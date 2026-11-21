@@ -33,6 +33,7 @@ from __future__ import annotations
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 
 import asyncio
 import re
@@ -216,6 +217,7 @@ async def _resolve_same_as_markers(
             .where(corpusStorage.DocumentChunk.job_result_id == job_result_id)
             .where(corpusStorage.DocumentSection.section_path == owner_path)
             .where(corpusStorage.DocumentChunk.chunk_type == "page")
+            .where(AdditiveVisibility.allowsFreshChunk("__knowhere_demo__" if corpusStorage.is_demo else "default"))
         )
         content_row = result.first()
         owner_content[(document_id, owner_path)] = (
@@ -581,6 +583,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                     .where(corpusStorage.DocumentChunk.document_id == document_id)
                     .where(corpusStorage.DocumentChunk.job_result_id == job_result_id)
                     .where(corpusStorage.DocumentChunk.chunk_id == chunk_id)
+                    .where(AdditiveVisibility.allowsFreshChunk(ctx.namespace))
                 )
             ).first()
             if row is None:
@@ -695,6 +698,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                                 {job["job_result_id"] for job in section_jobs}
                             ),
                             corpusStorage.DocumentChunk.section_id.in_(section_ids),
+                            AdditiveVisibility.allowsFreshChunk(ctx.namespace),
                             # Body chunks only (text/page). image/table chunks share a
                             # section_id with whichever section happens to store them
                             # in the DB, which is not the same as belonging to that

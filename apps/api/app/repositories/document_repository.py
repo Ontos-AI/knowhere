@@ -4,6 +4,7 @@ Document data access for retrieval document lifecycle flows.
 
 from __future__ import annotations
 
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from app.services.demo.revision_reader import resolve_demo_revision
 
@@ -136,6 +137,12 @@ class DocumentRepository:
             .where(corpusStorage.DocumentChunk.document_id == document_id)
             .where(corpusStorage.DocumentChunk.job_result_id == job_result_id)
         )
+        if not corpusStorage.is_demo and AdditiveVisibility.isEnabled("default"):
+            stmt = stmt.where(select(corpusStorage.Document.document_id).where(
+                corpusStorage.Document.document_id == corpusStorage.DocumentChunk.document_id,
+                corpusStorage.Document.current_job_result_id == corpusStorage.DocumentChunk.job_result_id,
+                corpusStorage.Document.status == "active",
+            ).correlate(corpusStorage.DocumentChunk).exists(), AdditiveVisibility.allowsChunk())
         if chunk_type is not None:
             stmt = stmt.where(func.lower(corpusStorage.DocumentChunk.chunk_type) == chunk_type)
 
@@ -170,6 +177,12 @@ class DocumentRepository:
             .limit(limit)
             .offset(offset)
         )
+        if not corpusStorage.is_demo and AdditiveVisibility.isEnabled("default"):
+            stmt = stmt.where(select(corpusStorage.Document.document_id).where(
+                corpusStorage.Document.document_id == corpusStorage.DocumentChunk.document_id,
+                corpusStorage.Document.current_job_result_id == corpusStorage.DocumentChunk.job_result_id,
+                corpusStorage.Document.status == "active",
+            ).correlate(corpusStorage.DocumentChunk).exists(), AdditiveVisibility.allowsChunk())
         if chunk_type is not None:
             stmt = stmt.where(func.lower(corpusStorage.DocumentChunk.chunk_type) == chunk_type)
 

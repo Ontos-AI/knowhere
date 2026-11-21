@@ -555,6 +555,9 @@ def build_node_rows(
                     output_dir=output_dir,
                 ),
             }
+            row["extra_metadata"]["searchable_page_nums"] = [
+                page for page in view.owned_pages if resolved_text.get(page)
+            ]
             row["extra_metadata"]["body_text_preview"] = _preview_owned_body(
                 view=view, page_to_leaves=page_to_leaves,
                 body_text_by_page=body_text_by_page or {},

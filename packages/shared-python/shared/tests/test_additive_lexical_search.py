@@ -54,3 +54,26 @@ async def test_namespace_search_refills_after_ineligible_records() -> None:
         hits = await native.searchNamespace(queryTokens=("needle",), limit=1, filterCandidates=isEligible)
     assert [hit.unit.documentId for hit in hits] == ["eligible"]
     assert hits[0].pathRank == hits[0].contentRank == 0
+
+
+def test_document_cleanup_deletes_all_builds_by_exact_document_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+
+    native = OpenSearchLexicalIndex(endpoint="http://127.0.0.1:65191",
+        scope=LexicalScope(ownerId="publisher", namespace="archival-neighbors"))
+    requests: list[tuple[str, object]] = []
+    records = {"old-baseline": "archived", "current-fine": "archived", "neighbor": "archived-neighbor"}
+
+    def respond(method: str, path: str, *, payload: dict) -> object:
+        requests.append((path, payload))
+        match = payload["query"]["term"]["documentId"]
+        if "_delete_by_query" in path:
+            for record in [record for record, document_id in records.items() if document_id == match]:
+                records.pop(record)
+            return {"timed_out": False, "version_conflicts": 0, "failures": []}
+        return {"count": sum(document_id == match for document_id in records.values()), "_shards": {"failed": 0}}
+
+    monkeypatch.setattr(native, "_request", respond)
+    assert native.deleteDocument("archived")
+    assert records == {"neighbor": "archived-neighbor"}
+    assert len(requests) == 2

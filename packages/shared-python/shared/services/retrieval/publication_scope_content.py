@@ -80,7 +80,8 @@ def append_document_scope_content(
     section_summaries: dict[str, str] | None,
 ) -> None:
     """Append an attempt's body without editing any earlier representation."""
-    prepared: list[tuple[dict[str, Any], dict[str, Any], str | None, list[str]]] = []
+    prepared: list[tuple[str, dict[str, Any], dict[str, Any], str | None, list[str]]] = []
+    identities: dict[str, str] = {}
     paths: dict[str, list[str]] = {}
     for chunk in deduplicate_chunks_by_source_path(chunks):
         safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
@@ -91,7 +92,11 @@ def append_document_scope_content(
         extract_and_strip_page_embeddings(metadata)
         source_path = _get_source_path(chunk=safe_chunk, chunk_metadata=metadata)
         parts = section_parts_from_chunk_path(source_path, source_file_name=scope.source_file_name) or ["Root"]
-        prepared.append((safe_chunk, metadata, source_path, parts))
+        identity = f"dchk_{uuid4().hex[:30]}"
+        original_id = str(safe_chunk.get("chunk_id") or "")
+        if original_id:
+            identities.setdefault(original_id, identity)
+        prepared.append((identity, safe_chunk, metadata, source_path, parts))
         for depth in range(1, len(parts) + 1):
             paths[" / ".join(parts[:depth])] = parts[:depth]
     if not prepared:
@@ -132,12 +137,28 @@ def append_document_scope_content(
             ]))
             sections.update((section.section_path, section) for section in db.scalars(statement))
 
-    for order, (chunk, metadata, source_path, parts) in enumerate(prepared):
+    for order, (identity, chunk, metadata, source_path, parts) in enumerate(prepared):
+        connections = parse_connect_to(metadata.get("connect_to"))
+        if connections:
+            for connection in connections:
+                if isinstance(connection, dict):
+                    target = str(connection.get("target") or "")
+                    if target in identities:
+                        connection["target"] = identities[target]
+            metadata["connect_to"] = connections
+        page_media = metadata.get("page_media_assets")
+        if isinstance(page_media, list):
+            for asset in page_media:
+                if isinstance(asset, dict):
+                    asset_id = str(asset.get("asset_id") or "")
+                    if asset_id in identities:
+                        asset["asset_id"] = identities[asset_id]
         row = _build_document_chunk(
             chunk=chunk, chunk_metadata=metadata, source_path=source_path,
             section=sections[" / ".join(parts)], scope=scope, fallback_sort_order=order,
         )
-        row.id = f"dchk_{uuid4().hex[:30]}"
+        row.id = identity
+        row.chunk_id = identity
         row.enrichment_attempt_id = attempt_id
         db.add(row)
     db.flush()

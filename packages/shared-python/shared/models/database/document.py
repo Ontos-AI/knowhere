@@ -72,6 +72,7 @@ class Document(Base):
         nullable=False,
     )
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    index_cleanup_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     sections: Mapped[List["DocumentSection"]] = relationship(
         "DocumentSection",
@@ -89,6 +90,7 @@ class Document(Base):
     __table_args__ = (
         Index("idx_documents_user_namespace_status", "user_id", "namespace", "status"),
         Index("idx_documents_current_job_result", "current_job_result_id"),
+        Index("ix_documents_due_index_cleanup", "index_cleanup_after", postgresql_where=index_cleanup_after.is_not(None)),
     )
 
 

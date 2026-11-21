@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 
 from typing import Any
@@ -189,13 +190,16 @@ async def _hydrate_chunk_paths(
     )
     if document_id:
         stmt = stmt.where(corpusStorage.Document.document_id == document_id)
+    stmt = stmt.where(AdditiveVisibility.allowsFreshChunk(namespace))
     result = await db.execute(stmt)
 
     rows: list[dict[str, Any]] = []
-    seen_paths: set[str] = set()
+    seen_paths: set[tuple[str, str, str]] = set()
+    additive = AdditiveVisibility.isEnabled(namespace)
     for document, chunk, section, job_result in result.all():
         row_path = (section.section_path if section else None) or chunk.source_chunk_path or ''
-        if row_path in seen_paths:
+        body_key = (document.document_id, row_path, chunk.id if additive else "")
+        if body_key in seen_paths:
             continue
 
         matched_path = row_path
@@ -216,7 +220,7 @@ async def _hydrate_chunk_paths(
             if chunk_type_lower not in allowed_types:
                 continue
 
-        seen_paths.add(row_path)
+        seen_paths.add(body_key)
         agent_score = confidence_by_path.get(matched_path, 0.0)
         rows.append({
             'document_id': document.document_id,

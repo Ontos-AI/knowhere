@@ -188,6 +188,10 @@ async def _hydrateRevisionTargets(
         .where(or_(*revision_filters))
         .order_by(corpusStorage.DocumentChunk.sort_order)
     )
+    if not corpusStorage.is_demo:
+        from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
+
+        stmt = stmt.where(AdditiveVisibility.allowsFreshChunk("default"))
     result = await db.execute(stmt)
 
     hydrated_rows: list[dict[str, Any]] = []
