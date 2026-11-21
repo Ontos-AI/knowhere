@@ -107,7 +107,7 @@ def test_native_connection_failure_consumes_one_terminal_execution(
         assert job.billing_status == "charged" and job.credits_charged == 123456
         assert session.scalar(select(func.count()).select_from(JobResult)) == 1
         events: list[WebhookEvent] = list(session.scalars(select(WebhookEvent)))
-        assert sorted(event.payload["event"] for event in events) == ["job.failed", "job.parsed"]
+        assert sorted(event.payload["event"] for event in events) == ["job.failed"]
 
 
 def test_committed_parsing_runs_inline_without_waiting_for_webhook_transport(
@@ -865,4 +865,4 @@ def test_expired_activation_does_not_commit_prepared_publication(
         assert attempt.state == "failed" and attempt.executionCount == 1
         assert document.current_job_result_id is None and document.current_indexing_build_id is None
         assert build.state == "failed"
-        assert sorted(event.payload["event"] for event in db.scalars(select(WebhookEvent))) == ["job.failed", "job.parsed"]
+        assert sorted(event.payload["event"] for event in db.scalars(select(WebhookEvent))) == ["job.failed"]

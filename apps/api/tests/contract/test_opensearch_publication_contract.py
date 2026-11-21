@@ -231,9 +231,10 @@ def _prepareParsedJob(
     *, webhookEvents: list[str] | None = None,
     content: str = "工程验收计划",
     preparedChunks: list[dict[str, object]] | None = None,
+    backend: str = "opensearch",
 ) -> tuple[Engine, str, str]:
     configure_contract_environment(monkeypatch, postgresqlProcess)
-    monkeypatch.setenv("KNOWHERE_LEXICAL_BACKEND", "opensearch")
+    monkeypatch.setenv("KNOWHERE_LEXICAL_BACKEND", backend)
     monkeypatch.setenv("KNOWHERE_OPENSEARCH_URL", os.environ.get("KNOWHERE_TEST_OPENSEARCH_URL") or "http://127.0.0.1:1")
     monkeypatch.setenv("KNOWHERE_OPENSEARCH_INDEX_PREFIX", "knowhere-slice-test")
     clear_application_modules()
@@ -586,7 +587,7 @@ def test_late_parser_failure_cannot_refund_or_fail_a_completed_parse(
         engine.dispose()
 
 
-def test_parsed_and_completed_events_preserve_distinct_phase_snapshots(
+def test_private_native_publication_emits_one_completed_event(
     monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess,
 ) -> None:
     endpoint: str = _getNativeEndpoint()
@@ -601,27 +602,13 @@ def test_parsed_and_completed_events_preserve_distinct_phase_snapshots(
         scope=LexicalScope(ownerId="native-contract-user", namespace=namespace), indexPrefix="knowhere-slice-test")
     try:
         with Session(engine) as session:
-            event = session.scalar(select(WebhookEvent).where(WebhookEvent.job_id == jobId))
-            assert event is not None
-            parsedId: str = event.id
-            assert event.payload["event"] == "job.parsed"
-            assert event.payload["status"] == "running"
-            assert event.payload["parsing_status"] == "completed"
-            assert event.payload["indexing_status"] == "pending"
-            assert event.milestone_key == f"{jobId}:job.parsed:job"
-            from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
-            replay = SyncJobWebhookOutbox().create_event(session, job_id=jobId, event_type="job.parsed")
-            assert replay is not None and replay.event_id == parsedId
-            session.commit()
+            assert session.scalar(select(WebhookEvent).where(WebhookEvent.job_id == jobId)) is None
         worker = IndexingWorker(sessionFactory=sessionmaker(engine, expire_on_commit=False))
         assert worker.run(jobId) == "completed"
         assert worker.run(jobId) == "completed"
         with Session(engine) as session:
-            events = list(session.scalars(select(WebhookEvent).where(WebhookEvent.job_id == jobId)))
-            assert len(events) == 2
-            original = session.get(WebhookEvent, parsedId)
-            assert original is not None and original.payload["indexing_status"] == "pending"
-            completed = next(event for event in events if event.payload["event"] == "job.completed")
+            completed = session.scalars(select(WebhookEvent).where(WebhookEvent.job_id == jobId)).one()
+            assert completed.payload["event"] == "job.completed"
             assert completed.payload["status"] == "completed"
             assert completed.payload["indexing_status"] == "completed"
             assert completed.payload["event_id"] == completed.id
@@ -1029,15 +1016,20 @@ def test_obsolete_queue_reconciliation_never_reexecutes_and_sweep_settles_unstar
         engine.dispose()
 
 
-def test_parsed_notification_exposes_retained_result_without_changing_its_phase_snapshot(
-    monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess,
+@pytest.mark.parametrize("backend", ["opensearch", "postgresql"])
+def test_parse_event_follows_the_serving_contract(
+    monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLProcess, backend: str,
 ) -> None:
-    engine, jobId, _ = _prepareParsedJob(monkeypatch, postgresql_proc, webhookEvents=["job.parsed"])
+    engine, jobId, _ = _prepareParsedJob(monkeypatch, postgresql_proc, webhookEvents=["job.parsed"], backend=backend)
     from shared.models.database.webhook import WebhookEvent
     from shared.services.webhook.qstash_payload import QStashPayloadEnricher
     try:
         with Session(engine) as session:
-            event = session.scalars(select(WebhookEvent).where(WebhookEvent.job_id == jobId)).one()
+            event = session.scalars(select(WebhookEvent).where(WebhookEvent.job_id == jobId)).one_or_none()
+            if backend == "opensearch":
+                assert event is None
+                return
+            assert event is not None
             payload = QStashPayloadEnricher().enrich(session, event)
             assert payload.get("result_url")
             assert payload.get("job_result_id")

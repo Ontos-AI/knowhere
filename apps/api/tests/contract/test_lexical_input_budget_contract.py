@@ -18,7 +18,7 @@ def _admitNative(worker: object, engine: Engine, monkeypatch: pytest.MonkeyPatch
     from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
     from shared.services.retrieval.lexical.scope import LexicalScope
 
-    def admit(*, scope: LexicalScope, native: object) -> tuple[str, int]:
+    def admit(*, scope: LexicalScope, native: object, updateWarmIndexRecency: bool = True) -> tuple[str, int]:
         with Session(engine) as db:
             control = db.get(LexicalBackendControl, 1)
             assert control is not None
