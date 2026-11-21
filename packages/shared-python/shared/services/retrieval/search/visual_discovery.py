@@ -6,6 +6,7 @@ import asyncio
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from loguru import logger
@@ -26,6 +27,8 @@ from shared.services.retrieval.hydration.row_utils import (
     iter_connected_target_ids,
     normalize_chunk_type,
 )
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
+from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.scoring.knowhere_hybrid import (
     CHANNEL_WEIGHT_CONTENT,
     CHANNEL_WEIGHT_PATH,
@@ -127,6 +130,10 @@ def _build_visual_exclude_sections_clause(
     return f"AND NOT ({' OR '.join(parts)})", params
 
 
+def _stored_chunk_key(row: Mapping[str, Any]) -> tuple[str, str]:
+    return (str(row.get("document_id") or ""), str(row.get("source_row_id") or row.get("chunk_id") or ""))
+
+
 def _aggregate_visual_page_hits(raw_rows: Sequence[Any]) -> list[dict[str, Any]]:
     primaries: list[dict[str, Any]] = []
     groups: dict[tuple[str, str], dict[str, Any]] = {}
@@ -134,7 +141,7 @@ def _aggregate_visual_page_hits(raw_rows: Sequence[Any]) -> list[dict[str, Any]]
         row = dict(raw_row._mapping)
         similarity = max(0.0, float(row.pop("similarity", 0.0) or 0.0))
         page_nums = coerce_page_nums([row.pop("page_num", None)])
-        key = (str(row.get("document_id") or ""), str(row.get("chunk_id") or ""))
+        key = _stored_chunk_key(row)
         existing = groups.get(key)
         if existing is None:
             row["chunk_metadata"] = _as_metadata_dict(row.get("chunk_metadata"))
@@ -210,6 +217,7 @@ def _resolve_visual_document_scope(
         and native_read.scope.namespace == namespace
         and native_read.scope.ownerId == storage.resolve_owner(user_id)
         and native_read.manifestId is None
+        and not AdditiveVisibility.isEnabled(namespace)
     ):
         has_inline_build_pins = True
         # Inline native builds can still be searched after PostgreSQL publishes
@@ -369,9 +377,22 @@ async def visual_page_discovery(
         "top_k": int(top_k),
     }
 
+    additive = AdditiveVisibility.isEnabled(namespace)
+    attempt_join = ("LEFT JOIN document_enrichment_publications ep ON ep.id = dc.enrichment_attempt_id"
+        if additive else "")
+    attempt_columns = ("""dc.id AS source_row_id, dc.enrichment_attempt_id,
+        ep.scope_id AS enrichment_scope_id, ep.state AS enrichment_publication_state,""" if additive else "")
+    attempt_projection = ("""sc.source_row_id, sc.enrichment_attempt_id,
+        sc.enrichment_scope_id, sc.enrichment_publication_state,""" if additive else "")
+    attempt_filter = ("AND (dc.enrichment_attempt_id IS NULL OR ep.state IN ('writing', 'published'))"
+        if additive else "")
+    visual_build = ("COALESCE(dc.enrichment_attempt_id, d.current_indexing_build_id)"
+        if additive else "d.current_indexing_build_id")
     search_sql = f"""
         WITH scoped_chunks AS MATERIALIZED (
             SELECT
+                dc.id AS row_id,
+                {attempt_columns}
                 dc.chunk_id,
                 dc.document_id,
                 dc.section_id,
@@ -382,7 +403,7 @@ async def visual_page_discovery(
                 dc.chunk_metadata,
                 dc.job_result_id,
                 dc.sort_order,
-                d.current_indexing_build_id AS visual_build_id,
+                {visual_build} AS visual_build_id,
                 ds.section_path,
                 d.source_file_name,
                 jr.job_id,
@@ -391,6 +412,7 @@ async def visual_page_discovery(
             JOIN document_chunks dc
                 ON dc.document_id = d.document_id
                 AND dc.chunk_type = 'page'
+            {attempt_join}
             LEFT JOIN document_sections ds
                 ON ds.section_id = dc.section_id
             LEFT JOIN job_results jr
@@ -398,7 +420,9 @@ async def visual_page_discovery(
             WHERE d.user_id = :user_id
                 AND d.namespace = :namespace
                 AND d.status = 'active'
-                { "AND d.current_job_result_id = dc.job_result_id" if revision_pins is None else scope.revision_clause.replace("dpe.", "dc.") }
+                { "AND d.current_job_result_id = dc.job_result_id" if revision_pins is None or additive else "" }
+                {scope.revision_clause.replace("dpe.", "dc.") if revision_pins is not None else ""}
+                {attempt_filter}
                 {scope.document_clause}
                 {signal_clause}
                 {section_clause}
@@ -406,7 +430,7 @@ async def visual_page_discovery(
         ),
         scoped_chunk_pages AS MATERIALIZED (
             SELECT
-                sc.chunk_id,
+                sc.row_id,
                 sc.document_id,
                 sc.job_result_id,
                 CAST(p.val AS integer) AS page_num
@@ -443,6 +467,7 @@ async def visual_page_discovery(
         SELECT
             tp.page_num,
             tp.similarity,
+            {attempt_projection}
             sc.chunk_id,
             sc.document_id,
             sc.section_id,
@@ -464,9 +489,7 @@ async def visual_page_discovery(
             AND scp.job_result_id = tp.job_result_id
             AND scp.page_num = tp.page_num
         JOIN scoped_chunks sc
-            ON sc.document_id = scp.document_id
-            AND sc.job_result_id = scp.job_result_id
-            AND sc.chunk_id = scp.chunk_id
+            ON sc.row_id = scp.row_id
         ORDER BY tp.distance ASC,
                  tp.page_num ASC,
                  sc.sort_order ASC,
@@ -477,10 +500,13 @@ async def visual_page_discovery(
     )
 
     primaries = _aggregate_visual_page_hits(result.all())
-    if scope.has_inline_build_pins:
+    if scope.has_inline_build_pins or additive:
         for primary in primaries:
             primary["build_id"] = primary["visual_build_id"]
-            primary["uses_inline_build"] = True
+            if additive:
+                primary["uses_additive_visibility"] = True
+            else:
+                primary["uses_inline_build"] = True
 
     if chunk_types is not None and chunk_types.issubset(ASSET_CHUNK_TYPES):
         connected = await hydrate_connected_target_rows(
@@ -490,6 +516,7 @@ async def visual_page_discovery(
             exclude_sections=exclude_sec_list,
             document_scope=scope.documents,
             revision_pins=revision_pins,
+            lexicalScope=LexicalScope(ownerId=scope.storage.resolve_owner(user_id), namespace=namespace) if additive else None,
         )
         connected_by_id = {
             (row.get("build_id"), str(row["chunk_id"])): row
@@ -645,46 +672,58 @@ async def hybrid_discovery(
     exclude_doc_list = list(exclude_document_ids or [])
     exclude_sec_list = list(exclude_sections or [])
 
-    lexical_result = await map_unit_discovery(
-        db,
-        user_id=user_id,
-        namespace=namespace,
-        query=query,
-        top_k=top_k,
-        exclude_document_ids=exclude_doc_list,
-        exclude_sections=exclude_sec_list,
-        document_scope=document_scope,
-        chunk_types=chunk_types,
-        signal_paths=signal_paths,
-        filter_mode=filter_mode,
-        revision_pins=revision_pins,
-        publish_index_readiness=publish_index_readiness,
-        section_targets=section_targets,
-    )
+    searchParameters = {
+        "user_id": user_id,
+        "namespace": namespace,
+        "query": query,
+        "top_k": top_k,
+        "exclude_document_ids": exclude_doc_list,
+        "exclude_sections": exclude_sec_list,
+        "document_scope": document_scope,
+        "chunk_types": chunk_types,
+        "signal_paths": signal_paths,
+        "filter_mode": filter_mode,
+        "revision_pins": revision_pins,
+        "section_targets": section_targets,
+    }
+    textSearch = partial(map_unit_discovery, db,
+        publish_index_readiness=publish_index_readiness, **searchParameters)
     if (
         not use_visual
         or not settings.VISUAL_RETRIEVAL_ENABLED
         or getattr(PublishedLexicalRead.current(), "manifestId", None) is not None
     ):
-        return lexical_result
+        return await textSearch()
 
     embedding = query_embedding or VisualQueryEmbedding(str(query or '').strip())
-    visual_result = await visual_page_discovery(
-        db,
-        user_id=user_id,
-        namespace=namespace,
-        query=query,
-        top_k=top_k,
-        exclude_document_ids=exclude_doc_list,
-        exclude_sections=exclude_sec_list,
-        document_scope=document_scope,
-        chunk_types=chunk_types,
-        signal_paths=signal_paths,
-        filter_mode=filter_mode,
-        revision_pins=revision_pins,
-        section_targets=section_targets,
-        query_embedding=embedding,
-    )
+    visualSearch = partial(visual_page_discovery, query_embedding=embedding, **searchParameters)
+    additive = AdditiveVisibility.isEnabled(namespace)
+    if additive:
+        if db is None or db.bind is None:
+            raise ValueError("parallel visual retrieval requires an asynchronous database bind")
+
+        async def runVisual(visualDb: AsyncSession) -> DiscoveryResult:
+            return await visualSearch(visualDb)
+
+        async with AsyncSession(bind=db.bind) as visualDb:
+            hasVisual = await has_visual_query_embeddings(
+                visualDb, user_id=user_id, namespace=namespace, query=query, top_k=top_k,
+                exclude_document_ids=exclude_doc_list, document_scope=document_scope,
+                chunk_types=chunk_types, revision_pins=revision_pins,
+            )
+            if not hasVisual:
+                return await textSearch()
+            tasks = (asyncio.create_task(textSearch()), asyncio.create_task(runVisual(visualDb)))
+            try:
+                lexical_result, visual_result = await asyncio.gather(*tasks)
+            except BaseException:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+    else:
+        lexical_result = await textSearch()
+        visual_result = await visualSearch(db)
 
     lexical_rows = list(lexical_result.payload.get("fused_rows") or [])
     lexical_builds: dict[str, str] = {
@@ -694,7 +733,7 @@ async def hybrid_discovery(
     }
     visual_rows = [
         row for row in visual_result.payload.get("fused_rows") or []
-        if row.get("document_id") not in lexical_builds
+        if additive or row.get("document_id") not in lexical_builds
         or row.get("visual_build_id") == lexical_builds[row["document_id"]]
     ]
 
@@ -709,14 +748,14 @@ async def hybrid_discovery(
     rows_by_key: dict[tuple[str, str], dict[str, Any]] = {}
 
     for rank, row in enumerate(lexical_rows):
-        key = (str(row.get("document_id") or ""), str(row.get("chunk_id") or ""))
+        key = _stored_chunk_key(row)
         rows_by_key[key] = dict(row)
         rrf_scores[key] = rrf_scores.get(key, 0.0) + lexical_weight / (
             RRF_K + rank + 1
         )
 
     for rank, row in enumerate(visual_rows):
-        key = (str(row.get("document_id") or ""), str(row.get("chunk_id") or ""))
+        key = _stored_chunk_key(row)
         if key not in rows_by_key:
             rows_by_key[key] = dict(row)
         else:

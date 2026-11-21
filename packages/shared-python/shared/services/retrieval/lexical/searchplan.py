@@ -84,14 +84,19 @@ class NativeSearchPlan:
         return payload
 
     @staticmethod
-    def fuseChannels(bodies: tuple[object, object], *, buildIds: tuple[str, ...] | None,
-                     limit: int) -> tuple[LexicalHit, ...]:
+    def decodeChannel(body: object) -> _SearchResponse:
         try:
-            channels: tuple[_SearchResponse, ...] = tuple(_SearchResponse.model_validate(body) for body in bodies)
+            channel = _SearchResponse.model_validate(body)
         except ValidationError as error:
             raise LexicalIndexError("Native lexical response was invalid") from error
-        if any(channel.timed_out or channel.shards.failed for channel in channels):
+        if channel.timed_out or channel.shards.failed:
             raise LexicalIndexError("Lexical channel returned partial results", isRetryable=True)
+        return channel
+
+    @staticmethod
+    def fuseChannels(bodies: tuple[object, object], *, buildIds: tuple[str, ...] | None,
+                     limit: int) -> tuple[LexicalHit, ...]:
+        channels = tuple(NativeSearchPlan.decodeChannel(body) for body in bodies)
         allowedBuildIds: frozenset[str] | None = frozenset(buildIds) if buildIds is not None else None
         hits: dict[str, LexicalHit] = {}
         for channelNumber, channel in enumerate(channels):

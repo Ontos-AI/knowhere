@@ -48,6 +48,7 @@ from shared.services.retrieval.lexical.asyncread import AsyncPublishedLexicalRea
 from shared.services.retrieval.lexical.error import LexicalIndexError
 from shared.services.retrieval.lexical.reader import PublishedLexicalRead
 from shared.services.retrieval.lexical.stage_observer import StageObserver
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.manifest_cache import discard_cached_manifest_payloads
 from shared.services.retrieval.required_query_embedding import (
     RequiredQueryEmbeddingException,
@@ -164,13 +165,16 @@ class RetrievalExecutionPlan:
             reader = AsyncPublishedLexicalRead(userId=request.user_id,
                 namespace=request.namespace, bind=bind, isClassic=request.use_agentic is False,
                 preferContentCoverage=request.use_agentic is False and request.include_document_ids is not None)
+            additive = AdditiveVisibility.isEnabled(request.namespace)
             admittedManifest: bool = (
-                reader.isClassic
+                not additive and reader.isClassic
                 and reader.scope.corpusKind == "private" and not request.signal_paths
                 and await reader.startManifestAsync(documentScope=request.build_route_context().document_scope,
                     chunkTypes=request.resolve_allowed_chunk_types(), topK=request.top_k)
             )
-            if not admittedManifest:
+            if additive:
+                await reader.startAdditiveAsync()
+            elif not admittedManifest:
                 await reader.startAsync()
             with reader.bind(), failureState.bind():
                 async with AsyncSession(bind=bind, expire_on_commit=False) as ownedDb:
@@ -272,8 +276,9 @@ class RetrievalExecutionPlan:
 
         native_read: PublishedLexicalRead | None = PublishedLexicalRead.current()
         is_demo: bool = CorpusStorage.resolve_namespace(request.namespace).is_demo
+        additive = isinstance(native_read, AsyncPublishedLexicalRead) and native_read.usesAdditiveVisibility
         captured_pins: RetrievalRevisionPins | None = (
-            native_read.pins if native_read is not None and native_read.manifestId is None else None
+            native_read.pins if native_read is not None and native_read.manifestId is None and not additive else None
         )
         cache_extra = request.build_cache_extra()
         isPostgresqlClassic: bool = self._postgresqlEpoch is not None and request.use_agentic is not True
@@ -309,15 +314,19 @@ class RetrievalExecutionPlan:
             cache_extra["lexical_backend"] = "postgresql"
             cache_extra["backend_epoch"] = self._postgresqlEpoch
 
-        cache_version, cached_response = await _read_cached_response(
-            user_id=request.user_id,
-            namespace=request.namespace,
-            query=request.query,
-            top_k=request.top_k,
-            exclude_document_ids=request.exclude_document_ids,
-            exclude_sections=request.exclude_sections,
-            cache_extra=cache_extra,
-        )
+        # Until cache entries can prove DB visibility across failed publication
+        # and archival, use fresh candidate admission on every additive read.
+        cache_version, cached_response = None, None
+        if not additive:
+            cache_version, cached_response = await _read_cached_response(
+                user_id=request.user_id,
+                namespace=request.namespace,
+                query=request.query,
+                top_k=request.top_k,
+                exclude_document_ids=request.exclude_document_ids,
+                exclude_sections=request.exclude_sections,
+                cache_extra=cache_extra,
+            )
         if cached_response is not None:
             StageObserver.record("bypass", "cache")
             return cached_response
@@ -327,7 +336,7 @@ class RetrievalExecutionPlan:
         )
 
         route_context = request.build_route_context()
-        if native_read is not None and native_read.manifestId is not None:
+        if additive or (native_read is not None and native_read.manifestId is not None):
             outcome = await run_retrieval_route(route_context)
         else:
             for attempt in range(2):

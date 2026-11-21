@@ -35,9 +35,16 @@ async def hydrate_connected_target_rows(
         return []
 
     document_scope = document_scope.excluding(exclude_document_ids)
-    buildRows: list[dict[str, Any]] = [row for row in rows if row.get('build_id')]
-    revisionRows: list[dict[str, Any]] = [row for row in rows if not row.get('build_id')]
+    additiveRows = [row for row in rows if row.get("uses_additive_visibility")]
+    buildRows: list[dict[str, Any]] = [
+        row for row in rows if row.get('build_id') and not row.get("uses_additive_visibility")
+    ]
+    revisionRows: list[dict[str, Any]] = [
+        row for row in rows if not row.get('build_id') and not row.get("uses_additive_visibility")
+    ]
     hydratedRows: list[dict[str, Any]] = await _hydrateBuildTargets(db, buildRows, lexicalScope)
+    if additiveRows:
+        hydratedRows.extend(await _hydrateAdditiveTargets(db, additiveRows, lexicalScope))
     if revisionRows:
         hydratedRows.extend(await _hydrateRevisionTargets(
             db, revisionRows, document_scope=document_scope, revision_pins=revision_pins,
@@ -48,6 +55,28 @@ async def hydrate_connected_target_rows(
         exclude_sections=exclude_sections,
         document_scope=document_scope,
     )
+
+
+async def _hydrateAdditiveTargets(
+    db: AsyncSession, rows: list[dict[str, Any]], scope: LexicalScope | None,
+) -> list[dict[str, Any]]:
+    from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
+    from shared.services.retrieval.lexical.reader import PublishedLexicalRead
+
+    reader = PublishedLexicalRead.current()
+    if scope is None:
+        if reader is None:
+            raise LexicalIndexError("Additive connected hydration requires a published read scope")
+        scope = reader.scope
+    existing = {(row["build_id"], row["chunk_id"]) for row in rows}
+    targets = {
+        (str(row["document_id"]), str(row["job_result_id"]), str(row["build_id"]), target)
+        for row in rows
+        for target in iter_connected_target_ids(row)
+        if (row["build_id"], target) not in existing
+    }
+    found = await AdditiveVisibility.loadRows(db, scope=scope, chunkTargets=tuple(targets))
+    return [{**row, "score": 0.0} for row in found]
 
 
 async def _hydrateBuildTargets(

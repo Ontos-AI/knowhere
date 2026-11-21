@@ -10,6 +10,7 @@ from loguru import logger
 
 from shared.core.config import settings
 from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.lexical.asyncdatabase import AsyncLexicalDatabase
 from shared.services.retrieval.lexical.asynccoordination import AsyncLexicalCoordination
 from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
@@ -110,6 +111,8 @@ class AsyncIndexingWorker:
                     logger.error("Async indexing use remains unresolved: build_id={}, error_type={}", claim.buildId, type(error).__name__)
 
     async def _publishVisibleBuild(self, claim: _Claim, native: AsyncOpenSearchLexicalIndex) -> Literal["completed"]:
+        if AdditiveVisibility.isEnabled(claim.context.scope.namespace):
+            return await self.database.run(partial(self.repository._activate, claim, None))
         publication = ManifestPublication(self.repository.sessions)
         for _ in range(8):
             prepared = await self.database.run(partial(publication.prepareMetadata, scope=claim.context.scope,

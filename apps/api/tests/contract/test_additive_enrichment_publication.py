@@ -48,6 +48,7 @@ def test_same_source_path_keeps_independent_chunk_bodies(
                 document_id="additive-publication-doc", user_id=fixture.user_ref,
                 namespace=fixture.namespace_ref, status="active", source_file_name=fixture.source_file_name,
                 accepted_job_id=fixture.job_ref, current_job_result_id=fixture.revision_ref,
+                current_indexing_build_id="original-build",
             )
             db.add(document)
             db.flush()
@@ -88,5 +89,29 @@ def test_same_source_path_keeps_independent_chunk_bodies(
             assert len({row.id for row in bodies}) == 3
             assert stored.state == "failed"
             assert not AdditivePublication.complete(db, scope=scope, attemptId="attempt-one")
+        async def assert_candidates() -> None:
+            from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+            from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
+            from shared.services.retrieval.lexical.scope import LexicalScope
+
+            async_engine = create_async_engine(make_url(get_contract_database_url()).set(drivername="postgresql+asyncpg"))
+            try:
+                async with AsyncSession(async_engine) as db:
+                    candidates = tuple((scope.document_id, scope.job_result_id, build) for build in (
+                        "original-build", "unpublished-build", "attempt-one", "attempt-two",
+                    ))
+                    lexical_scope = LexicalScope(ownerId=scope.user_id, namespace=scope.namespace)
+                    eligible = await AdditiveVisibility.filterCandidates(db, lexical_scope, candidates)
+                    assert eligible == {candidates[0], candidates[3]}
+                with Session(engine) as db, db.begin():
+                    archived = db.get(Document, scope.document_id)
+                    assert archived is not None
+                    archived.status = "archived"
+                async with AsyncSession(async_engine) as db:
+                    assert not await AdditiveVisibility.filterCandidates(db, lexical_scope, candidates)
+            finally:
+                await async_engine.dispose()
+
+        asyncio.run(assert_candidates())
     finally:
         engine.dispose()

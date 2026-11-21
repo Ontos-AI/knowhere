@@ -17,6 +17,7 @@ from shared.services.retrieval.execution.postgresql_snapshot import PostgreSQLSe
 from shared.services.retrieval.hydration.build_snapshot import BuildSnapshot
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.row_utils import iter_connected_target_ids, normalize_chunk_type
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.lexical.error import LexicalIndexError
 from shared.services.retrieval.lexical.hit import LexicalHit
 from shared.services.retrieval.lexical.manifest_filters import buildManifestFilters
@@ -53,13 +54,23 @@ async def discoverOpenSearch(
     try:
         if current is None:
             assert isinstance(reader, AsyncPublishedLexicalRead)
-            await reader.startAsync()
+            if AdditiveVisibility.isEnabled(namespace):
+                await reader.startAdditiveAsync()
+            else:
+                await reader.startAsync()
         scope: DocumentScope = documentScope.excluding(excludeDocumentIds)
-        if reader.isClassic or reader.manifestId is not None:
+        additive = isinstance(reader, AsyncPublishedLexicalRead) and reader.usesAdditiveVisibility
+        if reader.isClassic or reader.manifestId is not None or additive:
             storage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
             if reader.scope.namespace != namespace or reader.scope.ownerId != storage.resolve_owner(userId):
                 raise LexicalIndexError("Discovery request differs from its published read scope")
         tokens: tuple[str, ...] = tuple(tokenize_query_for_ranker(query))
+        if isinstance(reader, AsyncPublishedLexicalRead) and reader.usesAdditiveVisibility:
+            if db.info.get("lexical_read_owned") and db.in_transaction():
+                await db.commit()
+            return await _discoverAdditive(db, reader=reader, scope=scope, queryTokens=tokens, topK=topK,
+                chunkTypes=chunkTypes, excludeSections=excludeSections, sectionTargets=sectionTargets,
+                signalPaths=signalPaths or [], filterMode=filterMode, revisionPins=revisionPins, started=started)
         if isinstance(reader, AsyncPublishedLexicalRead) and reader.manifestId is not None:
             if revisionPins is not None:
                 scope = scope.narrow(list(revisionPins))
@@ -136,6 +147,80 @@ async def discoverOpenSearch(
         if current is None:
             assert isinstance(reader, AsyncPublishedLexicalRead)
             await reader.closeAsync()
+
+
+async def _discoverAdditive(
+    db: AsyncSession, *, reader: AsyncPublishedLexicalRead, scope: DocumentScope,
+    queryTokens: tuple[str, ...], topK: int, chunkTypes: set[str] | None,
+    excludeSections: list[dict[str, str]], sectionTargets: list[tuple[str, str | None]] | None,
+    signalPaths: list[str], filterMode: str, revisionPins: Mapping[str, str] | None, started: float,
+) -> DiscoveryResult:
+    if revisionPins is not None:
+        scope = scope.narrow(list(revisionPins))
+    if scope.include == frozenset():
+        return _formatDiscovery([], startedAt=started, hasUnhydratedHits=False)
+    filters, excludes = buildManifestFilters(scope=scope, chunkTypes=chunkTypes, excludeSections=excludeSections)
+    if sectionTargets:
+        targets: list[dict[str, object]] = []
+        for documentId, sectionPath in sectionTargets:
+            target: list[dict[str, object]] = [{"term": {"documentId": documentId}}]
+            if sectionPath:
+                target.append({"bool": {"minimum_should_match": 1, "should": [
+                    {"term": {"sectionPath": sectionPath}}, {"prefix": {"sectionPath": sectionPath + " / "}},
+                ]}})
+            targets.append({"bool": {"filter": target}})
+        targeted: dict[str, object] = {"bool": {"minimum_should_match": 1, "should": targets}}
+        filters += (targeted,)
+    if signalPaths:
+        matches: dict[str, object] = {"bool": {"minimum_should_match": 1, "should": [
+            {"wildcard": {"sectionPath": {"value": "*" + _escapeWildcard(path) + "*", "case_insensitive": True}}}
+            for path in signalPaths
+        ]}}
+        if filterMode == "keep":
+            filters += (matches,)
+        else:
+            excludes += (matches,)
+
+    async def filterCandidates(candidates: tuple[tuple[str, str, str], ...]) -> set[tuple[str, str, str]]:
+        requested = tuple(candidate for candidate in candidates if scope.allows(candidate[0])
+            and (revisionPins is None or revisionPins.get(candidate[0]) == candidate[1]))
+        if not requested:
+            return set()
+        # Path and content channels can validate candidate pages concurrently.
+        async with AsyncSession(reader.database.engine) as validationDb:
+            return await AdditiveVisibility.filterCandidates(validationDb, reader.scope, requested)
+
+    hits = await reader.searchAdditiveAsync(queryTokens=queryTokens, limit=topK,
+        filterCandidates=filterCandidates, filters=filters, exclusions=excludes)
+    if not hits:
+        return _formatDiscovery([], startedAt=started, hasUnhydratedHits=False)
+    rows = await AdditiveVisibility.loadRows(db, scope=reader.scope, hits=hits)
+    sections: dict[tuple[object, object], list[dict[str, object]]] = {}
+    for row in rows:
+        if not _is_parked_root_asset(row):
+            sections.setdefault((row["build_id"], row["section_id"]), []).append(row)
+    primaries = [
+        {**row, "score": hit.score}
+        for hit in hits
+        for row in sections.get((hit.buildId, hit.unit.sectionId), ())
+    ]
+    if chunkTypes is not None and chunkTypes.issubset(ASSET_CHUNK_TYPES):
+        connected = await hydrate_connected_target_rows(db=db, rows=primaries,
+            exclude_document_ids=[], exclude_sections=excludeSections, document_scope=scope, lexicalScope=reader.scope)
+        assets = {(row["build_id"], row["chunk_id"]): row for row in [*primaries, *connected]
+            if normalize_chunk_type(row["chunk_type"]) in chunkTypes}
+        selected: dict[tuple[object, object], dict[str, object]] = {}
+        for row in primaries:
+            for chunkId in (row["chunk_id"], *iter_connected_target_ids(row)):
+                key = (row["build_id"], chunkId)
+                if key in assets:
+                    selected.setdefault(key, {**assets[key], "score": row["score"]})
+        primaries = list(selected.values())
+    return _formatDiscovery(primaries, startedAt=started, hasUnhydratedHits=False)
+
+
+def _escapeWildcard(value: str) -> str:
+    return value.replace(chr(92), chr(92) * 2).replace("*", chr(92) + "*").replace("?", chr(92) + "?")
 
 
 async def _hydrateBuildHits(
