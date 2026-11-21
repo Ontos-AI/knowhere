@@ -608,11 +608,16 @@ async def promote_scopes_on_read(
                 DocumentScopeEnrichment.attempts < MAX_SCOPE_ENRICHMENT_ATTEMPTS,
             )
         for job_result_id, scope_id in targets:
+            scope_rows = select(DocumentScopeEnrichment.id).where(
+                DocumentScopeEnrichment.job_result_id == job_result_id,
+                DocumentScopeEnrichment.scope_id == scope_id,
+                claimable,
+            )
+            if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+                scope_rows = scope_rows.with_for_update(skip_locked=True)
             result = await db.execute(
                 update(DocumentScopeEnrichment)
-                .where(DocumentScopeEnrichment.job_result_id == job_result_id)
-                .where(DocumentScopeEnrichment.scope_id == scope_id)
-                .where(claimable)
+                .where(DocumentScopeEnrichment.id == scope_rows.scalar_subquery())
                 .values(
                     state=_QUEUED_STATE,
                     priority="high",
@@ -749,7 +754,7 @@ def _needs_progressive_recovery(
 ) -> bool:
     state: ProgressiveIngestionState | None = read_progressive_state(metadata)
     if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
-        repair = state.stages.get("vector_repair", {}) if state is not None else {}
+        repair: EnhancementStage = state.stages.get("vector_repair", {}) if state is not None else {}
         return (
             parse_track == "page_memory"
             and bool(repair.get("pending_pages"))

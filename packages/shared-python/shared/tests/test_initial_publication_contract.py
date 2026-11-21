@@ -34,6 +34,16 @@ def test_directory_accepts_a_newer_committed_version() -> None:
     assert directory.directory_version == 2
 
 
+def test_additive_activation_requires_native_lexical_publication() -> None:
+    from shared.core.config.publication import PublicationConfig
+
+    with pytest.raises(ValidationError, match="OpenSearch"):
+        PublicationConfig(
+            KNOWHERE_LEXICAL_BACKEND="postgresql",
+            KNOWHERE_ADDITIVE_PUBLICATION_ENABLED=True,
+        )
+
+
 def test_new_document_replacement_cannot_also_name_an_update_target() -> None:
     from shared.models.schemas.job import JobCreateV2
 

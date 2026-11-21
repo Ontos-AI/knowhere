@@ -178,7 +178,7 @@ def test_initial_coarse_commit_stores_directory_and_scope_before_indexing(
                 publish=False,
             )
             result = session.get(JobResult, scope.revision_ref)
-            assert result is not None
+            assert result is not None and result.document_metadata is not None
             directory = result.document_metadata["initial_directory"]
             assert directory["directory_version"] == 1
             assert any(section["page_nums"] == [1, 2] for section in directory["sections"])
@@ -659,13 +659,16 @@ def test_replace_document_scope_content_isolates_scope_reuses_ancestor_rebuilds_
         engine.dispose()
 
 
+@pytest.mark.parametrize("after_failure", [False, True])
 def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants(
     monkeypatch,
     postgresql_proc: PostgreSQLProcess,
+    after_failure: bool,
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
     from shared.core import celery_app as celery_app_mod
+    from shared.core.config import settings
     from shared.core.database import get_db_context
 
     database_url = make_url(get_contract_database_url()).set(
@@ -729,12 +732,18 @@ def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants
             ).all():
                 if row.scope_id == "p5-6":
                     row.state = "refined"
+                if after_failure and row.scope_id == "p1-2":
+                    row.state = "failed"
+                    row.attempts = 1
             doc_id = session.execute(
                 select(Document.document_id).where(
                     Document.current_job_result_id == scope.revision_ref
                 )
             ).scalar_one()
             session.commit()
+
+        if after_failure:
+            monkeypatch.setattr(settings, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
 
         async def _call_read() -> None:
             async with get_db_context() as async_db:
@@ -798,6 +807,7 @@ def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants
             ]
             assert rows[0].last_hit_at is not None
             assert rows[1].last_hit_at is not None
+            assert rows[0].attempts == int(after_failure)
     finally:
         engine.dispose()
 

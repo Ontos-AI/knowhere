@@ -31,6 +31,7 @@ async def test_replacement_creates_a_new_document_in_the_validated_scope(monkeyp
     from app.services.document_ingestion import service
     from app.services.document_ingestion.command import build_v2_ingestion_command
     from app.services.document_ingestion.scope_service import DocumentRepository
+    from app.services.rate_limit.data_structures import CurrentUser
 
     monkeypatch.setattr(service, "settings", service.settings.model_copy(
         update={"KNOWHERE_ADDITIVE_PUBLICATION_ENABLED": True},
@@ -48,7 +49,7 @@ async def test_replacement_creates_a_new_document_in_the_validated_scope(monkeyp
     )
 
     scope = await service.DocumentIngestionService()._resolve_scope(
-        AsyncMock(), command=command, current_user=SimpleNamespace(user_id="owner"),
+        AsyncMock(), command=command, current_user=CurrentUser(user_id="owner", user_tier="free"),
     )
 
     assert scope.document_id.startswith("doc_") and scope.document_id != "doc_current"

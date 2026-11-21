@@ -68,6 +68,7 @@ class PageMemoryInput:
         default_factory=PageMemoryConfig.default,
     )
     ingestion_mode: str = "full"
+    uses_private_corpus: bool = True
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 )
         _persist_source_pdf(pdf_path=pdf_path, output_dir=full_output_dir)
         is_progressive = str(request.ingestion_mode or "full").strip().lower() == "progressive"
-        publish_coarse: bool = is_progressive and bool(
+        publish_coarse: bool = is_progressive and request.uses_private_corpus and bool(
             getattr(settings, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", False)
         )
         visual_m0_enabled = is_progressive and bool(

@@ -33,8 +33,11 @@ def _is_saved_hipo_callback(webhook_url: str) -> bool:
     configured_origin = settings.KNOWHERE_HIPO_CALLBACK_ORIGIN
     if not configured_origin:
         return False
-    origin = urlsplit(configured_origin)
-    target = urlsplit(webhook_url)
+    try:
+        origin = urlsplit(configured_origin)
+        target = urlsplit(webhook_url)
+    except ValueError:
+        return False
     return (
         origin.scheme in {"http", "https"}
         and bool(origin.netloc)
@@ -68,9 +71,11 @@ class SyncJobWebhookOutbox:
             logger.warning(f"Job not found for webhook check: {job_id}")
             return None
 
-        if settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and event_type in {
-            "job.parsed", "job.enrichment.completed",
-        }:
+        if (
+            settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
+            and event_type in {"job.parsed", "job.enrichment.completed"}
+            and (job.job_metadata or {}).get("corpus_target") != "DEMO"
+        ):
             return None
         webhook_url, webhook_enabled = job.webhook_url, job.webhook_enabled
         if not webhook_enabled or not webhook_url:

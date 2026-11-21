@@ -75,6 +75,8 @@ class PublicationConfig(BaseSettings):
 
     @model_validator(mode="after")
     def validateIdleWatermarks(self) -> Self:
+        if self.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and self.KNOWHERE_LEXICAL_BACKEND != "opensearch":
+            raise ValueError("Additive publication requires the OpenSearch lexical backend")
         if self.KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK > self.KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT:
             raise ValueError("OpenSearch idle high watermark must not exceed the open index limit")
         if self.KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK >= self.KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK:

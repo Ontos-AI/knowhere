@@ -190,7 +190,10 @@ async def build_job_result_response(
         source_size_bytes=source_size_bytes,
         enhancement=(
             progressive_state.enhancement
-            if progressive_state and not settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
+            if progressive_state and (
+                not settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
+                or (job_metadata or {}).get("corpus_target") == "DEMO"
+            )
             else None
         ),
         snapshots=(
