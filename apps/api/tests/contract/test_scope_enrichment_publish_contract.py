@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import create_engine, event, select, text
@@ -25,10 +26,6 @@ from shared.services.jobs.lifecycle.scope_enrichments import (
     NORMAL_ENRICHMENT_QUEUE,
     write_coarse_scope_enrichments,
 )
-from shared.services.jobs.lifecycle.success_finalizer import (
-    JobSuccessFinalization,
-    SyncJobSuccessFinalizer,
-)
 from shared.services.retrieval.agent_tools.registry import ToolContext
 from shared.services.retrieval.agent_tools.tools.assets import assets
 from shared.services.retrieval.agent_tools.tools.grep import grep
@@ -50,6 +47,9 @@ from shared.testing.contract_runtime import (
     prepare_contract_storage,
 )
 from tests.support.publication_benchmark_support import ensure_benchmark_import_path
+
+if TYPE_CHECKING:
+    from shared.services.jobs.lifecycle.success_finalizer import JobSuccessFinalization
 
 ensure_benchmark_import_path()
 
@@ -116,6 +116,7 @@ def _finalize(
     chunks: list[dict[str, object]],
     publish: bool = True,
 ) -> JobSuccessFinalization:
+    from shared.services.jobs.lifecycle.success_finalizer import SyncJobSuccessFinalizer
     from shared.services.retrieval.lexical.worker import IndexingWorker
 
     finalization = SyncJobSuccessFinalizer().finalize(
@@ -155,11 +156,12 @@ def test_initial_coarse_commit_stores_directory_and_scope_before_indexing(
     monkeypatch: pytest.MonkeyPatch,
     postgresql_proc: PostgreSQLProcess,
 ) -> None:
-    from shared.core.config import settings
     from shared.models.database.job_result import JobResult
 
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
+    from shared.core.config import settings
+
     monkeypatch.setattr(settings, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
     engine = create_engine(make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2"))
     scope = _scope("initial-coarse")
