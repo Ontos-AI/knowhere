@@ -15,7 +15,12 @@ from shared.models.database.document import (
     DocumentChunk,
     DocumentSection,
 )
-from shared.services.chunks.asset_descriptor import PAGE_MEDIA_KINDS, PageMedia
+from shared.services.chunks.asset_descriptor import (
+    EXTRACTED_ASSET_KEY,
+    PAGE_MEDIA_ASSETS_KEY,
+    PAGE_MEDIA_KINDS,
+    PageMedia,
+)
 from shared.services.chunks.chunk_connections import (
     RELATION_EMBEDDED_BY,
     RELATION_EMBEDS,
@@ -137,7 +142,23 @@ def append_document_scope_content(
             ]))
             sections.update((section.section_path, section) for section in db.scalars(statement))
 
+    page_metadata: list[object] = []
+    if any((chunk.get("type") or chunk.get("chunk_type")) == "page" for _, chunk, _, _, _ in prepared):
+        original_scope = DocumentChunk.chunk_metadata["scope_id"].as_string()
+        page_metadata = list(db.scalars(select(DocumentChunk.chunk_metadata).where(
+            DocumentChunk.document_id == scope.document_id,
+            DocumentChunk.job_result_id == scope.job_result_id,
+            DocumentChunk.enrichment_attempt_id.is_(None),
+            DocumentChunk.chunk_type == "page",
+            or_(original_scope == scope_id, original_scope.is_(None)),
+        ).order_by(DocumentChunk.sort_order, DocumentChunk.id)))
+    retained_assets = page_assets_by_page(page_metadata)
+    retained_media = PageMedia.from_page_metadatas(page_metadata)
+
     for order, (identity, chunk, metadata, source_path, parts) in enumerate(prepared):
+        if (chunk.get("type") or chunk.get("chunk_type")) == "page":
+            inherit_missing_page_assets(metadata, retained_assets)
+            inherit_missing_page_media(chunk, metadata, retained_media)
         path = " / ".join(parts)
         if not metadata.get("summary") and (summary := (section_summaries or {}).get(path)):
             metadata["summary"] = summary
@@ -149,13 +170,18 @@ def append_document_scope_content(
                     if target in identities:
                         connection["target"] = identities[target]
             metadata["connect_to"] = connections
-        page_media = metadata.get("page_media_assets")
+        descriptor = metadata.get(EXTRACTED_ASSET_KEY)
+        if isinstance(descriptor, dict) and descriptor.get("asset_id") == chunk.get("chunk_id"):
+            descriptor["asset_id"] = identity
+        page_media = metadata.get(PAGE_MEDIA_ASSETS_KEY)
         if isinstance(page_media, list):
             for asset in page_media:
                 if isinstance(asset, dict):
                     asset_id = str(asset.get("asset_id") or "")
-                    if asset_id in identities:
-                        asset["asset_id"] = identities[asset_id]
+                    if remapped_id := identities.get(asset_id):
+                        asset["asset_id"] = remapped_id
+                        if isinstance(content := chunk.get("content"), str):
+                            chunk["content"] = content.replace(f"asset:{asset_id}", f"asset:{remapped_id}")
         row = _build_document_chunk(
             chunk=chunk, chunk_metadata=metadata, source_path=source_path,
             section=sections[path], scope=scope, fallback_sort_order=order,

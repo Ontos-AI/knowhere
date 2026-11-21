@@ -15,6 +15,8 @@ from shared.services.chunks.asset_descriptor import PageMedia, page_media_connec
 from shared.services.chunks.chunk_connections import merge_connections
 from shared.services.ai.embedding import embed_query, resolve_embedding_model
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.models.database.document import DocumentChunk
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 
 __all__ = [
@@ -165,7 +167,7 @@ def _build_owner_chunk_by_page(
     scope: DocumentPublicationScope,
 ) -> dict[int, str]:
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
-    rows = db.execute(
+    statement = (
         select(
             corpusStorage.DocumentChunk.chunk_id,
             corpusStorage.DocumentChunk.chunk_metadata,
@@ -179,7 +181,10 @@ def _build_owner_chunk_by_page(
             corpusStorage.DocumentChunk.sort_order,
             corpusStorage.DocumentChunk.id,
         )
-    ).all()
+    )
+    if AdditiveVisibility.isEnabled(scope.namespace):
+        statement = statement.where(DocumentChunk.enrichment_attempt_id.is_(None))
+    rows = db.execute(statement).all()
     owner_by_page: dict[int, str] = {}
     start_owner_pages: set[int] = set()
     for chunk_id, metadata in rows:

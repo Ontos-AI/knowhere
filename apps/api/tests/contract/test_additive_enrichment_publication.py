@@ -71,7 +71,12 @@ def test_same_source_path_keeps_independent_chunk_bodies(
                 id="original-row", section_id="original-heading", chunk_id="original", document_id=scope.document_id,
                 user_id=scope.user_id, namespace=scope.namespace, job_result_id=scope.job_result_id,
                 source_chunk_path=path, chunk_type="page", content="Baseline spans original pages 1 through 3.",
-                chunk_metadata={"page_nums": [1, 2, 3], "page_texts": [{"page_num": 1, "text": "Original physical page 1"}]},
+                chunk_metadata={
+                    "page_nums": [1, 2, 3], "scope_id": "p1-3",
+                    "page_texts": [{"page_num": 1, "text": "Original physical page 1"}],
+                    "assets": [{"asset_id": "original-recording", "kind": "audio", "origin": "embedded",
+                        "page_nums": [1], "ref": {"kind": "artifact", "path": "embedded_media/recording.m4a"}}],
+                },
             ))
             db.add(DocumentChunk(
                 id="original-recording-row", chunk_id="original-recording", document_id=scope.document_id,
@@ -82,7 +87,7 @@ def test_same_source_path_keeps_independent_chunk_bodies(
             db.flush()
             payload: list[dict[str, Any]] = [{
                 "chunk_id": "fine", "path": path, "type": "page", "content": "Enriched page 1.",
-                "metadata": {"page_nums": [1], "connect_to": [{"target": "original-recording", "relation": "embeds"}]},
+                "metadata": {"page_nums": [1]},
             }]
             AdditivePublication.storeBody(db, scope=scope, scopeId="p1-3", attemptId="attempt-one",
                 chunks=payload, rawPrefix="retained/enrichment")
@@ -97,7 +102,7 @@ def test_same_source_path_keeps_independent_chunk_bodies(
                 chunks=[{**payload[0], "content": "Replacement enrichment."}])
             bodies = db.scalars(select(DocumentChunk).where(DocumentChunk.document_id == scope.document_id,
                 DocumentChunk.chunk_type != "audio")).all()
-            assert {row.enrichment_attempt_id: row.content for row in bodies} == {
+            assert {row.enrichment_attempt_id: str(row.content or "").splitlines()[0] for row in bodies} == {
                 None: "Baseline spans original pages 1 through 3.",
                 "attempt-one": "Enriched page 1.",
                 "attempt-two": "Replacement enrichment.",
@@ -109,7 +114,8 @@ def test_same_source_path_keeps_independent_chunk_bodies(
             assert stored.state == "failed"
             assert not AdditivePublication.complete(db, scope=scope, attemptId="attempt-one")
             AdditivePublication.storeBody(db, scope=scope, scopeId="p5-7", attemptId="attempt-hidden",
-                chunks=[{**payload[0], "path": "same-file.pdf/Hidden", "content": "Fine failed summary"}],
+                chunks=[{**payload[0], "path": "same-file.pdf/Hidden", "content": "Fine failed summary",
+                    "metadata": {"page_nums": [9]}}],
                 sectionSummaries={"Hidden": "Fine failed summary"})
             AdditivePublication.fail(db, scope=scope, attemptId="attempt-hidden")
         from sqlalchemy.orm import sessionmaker
@@ -120,6 +126,11 @@ def test_same_source_path_keeps_independent_chunk_bodies(
             assert completed is not None
             completed.expected_index_count = 1
             assert AdditivePublication.complete(db, scope=scope, attemptId="attempt-two")
+        from shared.services.retrieval.page_embedding_index import load_missing_document_page_embedding_pages
+
+        with sessions.begin() as db:
+            assert load_missing_document_page_embedding_pages(db, scope=scope) == [1, 2, 3]
+
         retained_inputs = AdditivePublication.preparePublishedInputs(sessions, scope=scope)
         assert len(retained_inputs) == 1
         identity, units = retained_inputs[0]
@@ -191,7 +202,7 @@ def test_same_source_path_keeps_independent_chunk_bodies(
                     retained = await service.get_document_chunk(db, user_id=scope.user_id,
                         document_id=scope.document_id, job_result_id=scope.job_result_id,
                         document_chunk_id=retained_id, include_asset_urls=False)
-                    assert retained is not None and retained["chunk"]["content"] == "Enriched page 1."
+                    assert retained is not None and retained["chunk"]["content"].splitlines()[0] == "Enriched page 1."
                     document = await db.get(Document, scope.document_id)
                     assert document is not None and document.index_cleanup_after is not None
             finally:
