@@ -3,6 +3,7 @@
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import (
     ConflictException,
     NotFoundException,
@@ -32,6 +33,12 @@ async def retry_job_enrichment(
     ).scalar_one_or_none()
     if job is None:
         raise NotFoundException(resource="Job", resource_id=job_id)
+    if settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+        raise ConflictException(
+            user_message="Retrieval triggers enrichment retries when it returns eligible baseline content.",
+            resource="Job",
+            resource_id=job_id,
+        )
     result: JobResult | None = (
         await db.execute(select(JobResult).where(JobResult.job_id == job_id))
     ).scalar_one_or_none()

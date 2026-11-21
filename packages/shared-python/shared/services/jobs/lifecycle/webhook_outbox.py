@@ -68,6 +68,10 @@ class SyncJobWebhookOutbox:
             logger.warning(f"Job not found for webhook check: {job_id}")
             return None
 
+        if settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and event_type in {
+            "job.parsed", "job.enrichment.completed",
+        }:
+            return None
         webhook_url, webhook_enabled = job.webhook_url, job.webhook_enabled
         if not webhook_enabled or not webhook_url:
             return None

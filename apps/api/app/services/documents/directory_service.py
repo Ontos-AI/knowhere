@@ -1,6 +1,6 @@
-"""Authorized reads of the initial directory without loading document bodies."""
+"""Authorized reads of the published directory without loading document bodies."""
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, noload
 
@@ -31,7 +31,10 @@ class DocumentDirectoryService:
                 Document.namespace,
                 JobResult.id,
                 JobResult.job_id,
-                JobResult.document_metadata["initial_directory"],
+                func.coalesce(
+                    JobResult.document_metadata["latest_directory"],
+                    JobResult.document_metadata["initial_directory"],
+                ),
             )
             .join(JobResult, JobResult.id == Document.current_job_result_id)
             .join(Job, Job.job_id == JobResult.job_id)
@@ -107,9 +110,10 @@ class DocumentDirectoryService:
         if result is None:
             return None
         metadata = dict(result.document_metadata or {})
-        if metadata.get("initial_directory") is not None:
+        saved = metadata.get("latest_directory") or metadata.get("initial_directory")
+        if saved is not None:
             return DocumentDirectoryResponse.model_validate(
-                metadata["initial_directory"]
+                saved
             )
         state = read_progressive_state(metadata)
         if metadata.get("enrichment_status") not in {"coarse", "complete"} and (

@@ -6,6 +6,7 @@ from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
 from shared.core.billing import MicroDollar
+from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import JobOperationException
 from shared.models.schemas.job import JobResultResponse, StandardErrorObject
 from shared.models.schemas.job_metadata import JobMetadataHelper
@@ -187,7 +188,11 @@ async def build_job_result_response(
         job_id=job.job_id,
         page_count=page_count,
         source_size_bytes=source_size_bytes,
-        enhancement=progressive_state.enhancement if progressive_state else None,
+        enhancement=(
+            progressive_state.enhancement
+            if progressive_state and not settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
+            else None
+        ),
         snapshots=(
             publish_snapshot_descriptors(progressive_state, JobFileStorage())
             if progressive_state and shouldSignResultURL

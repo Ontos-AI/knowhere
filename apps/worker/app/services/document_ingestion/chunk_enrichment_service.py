@@ -31,6 +31,11 @@ from app.services.document_ingestion.office_compat_normalizer import (
 from app.services.document_ingestion.processing_context import (
     merge_persisted_job_token_usage,
 )
+from app.services.document_ingestion.scope_refinement import (
+    ScopeRefinementOutput,
+    freeze_scope_artifacts,
+    upload_scope_artifacts,
+)
 from app.services.document_parser.formats.docx.baseline import (
     PAGE_TEXT_CACHE_REL,
     load_page_text_cache,
@@ -60,6 +65,7 @@ from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.progressive_ingestion import (
+    EnhancementProgress,
     EnhancementStage,
     StoredSnapshot,
 )
@@ -89,15 +95,18 @@ from shared.services.retrieval.cache_service import (
 )
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.graph.service import DocumentGraphService
+from shared.services.retrieval.lexical.additivepublication import AdditivePublication
 from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
 from shared.services.retrieval.publication_content import (
     deduplicate_chunks_by_source_path,
     replace_document_revision_content,
 )
 from shared.services.retrieval.publication_models import DocumentPublicationScope
+from shared.services.retrieval.publication_scope_content import _invalidate_namespace_after_commit
 from shared.services.retrieval.publication_service import RetrievalPublicationService
 from shared.services.storage.job_file_storage import JobFileStorage
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
+from shared.utils.utc_now import utc_now_naive
 from shared.services.storage.zip_result_service import ZipResultService
 
 
@@ -123,6 +132,16 @@ def execute_chunk_final_enrichment(
     if target is None:
         return {"status": "aborted", "job_result_id": job_result_id}
 
+    additive = (
+        settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
+        and settings.KNOWHERE_LEXICAL_BACKEND == "opensearch"
+    )
+    scope = DocumentPublicationScope(
+        user_id=target.user_id, namespace=target.namespace, document_id=target.document_id,
+        job_result_id=job_result_id, source_file_name=target.source_file_name,
+    )
+    if additive and _recover_interrupted_whole_file(scope):
+        return {"status": "recovered", "job_result_id": job_result_id}
     claim_token = claim_progressive_stage(
         job_result_id=job_result_id,
         stage_name="finalization",
@@ -159,6 +178,34 @@ def execute_chunk_final_enrichment(
             source_file_name=target.source_file_name,
             job_metadata=target.job_metadata,
         )
+        if additive:
+            output = freeze_scope_artifacts(
+                output=ScopeRefinementOutput(
+                    scope_id="whole-document",
+                    dataframe=parsed_df,
+                    chunks=cast(list[dict[str, Any]], chunks),
+                    section_summaries=section_summaries,
+                    artifact_refs=collect_referenced_artifact_refs(chunks),
+                ),
+                workspace_dir=workspace_dir,
+                claim_generation=claim_token,
+                raw_prefix=target.raw_prefix,
+                add_dir=add_dir,
+            )
+            upload_scope_artifacts(
+                storage=storage, job_id=target.job_id, raw_prefix=target.raw_prefix,
+                workspace_dir=workspace_dir, add_dir=add_dir, artifact_refs=output.artifact_refs,
+            )
+            with get_sync_db_context() as db:
+                AdditivePublication.storeBody(
+                    db, scope=scope, scopeId=output.scope_id, attemptId=claim_token,
+                    chunks=output.chunks, sectionSummaries=output.section_summaries,
+                    rawPrefix=target.raw_prefix,
+                )
+            AdditivePublication.writeIndex(scope=scope, attemptId=claim_token)
+            if not _settle_whole_file(scope, claim_token, succeeded=True):
+                raise RuntimeError("Whole-document enrichment lost publication authority")
+            return {"status": "success", "job_result_id": job_result_id}
         document_top_summary = (
             load_nav_top_summary(add_dir, target.source_file_name)
             if add_dir and target.source_file_name
@@ -199,12 +246,15 @@ def execute_chunk_final_enrichment(
             "snapshot_id": snapshot.snapshot_id,
         }
     except Exception as exc:
-        finish_progressive_stage(
-            job_result_id=job_result_id,
-            stage_name="finalization",
-            claim_generation=claim_token,
-            error=str(exc),
-        )
+        if additive:
+            _settle_whole_file(scope, claim_token, succeeded=False)
+        else:
+            finish_progressive_stage(
+                job_result_id=job_result_id,
+                stage_name="finalization",
+                claim_generation=claim_token,
+                error=str(exc),
+            )
         logger.warning(
             "Chunk final enrichment failed for {}: {}",
             job_result_id,
@@ -228,6 +278,77 @@ def execute_chunk_final_enrichment(
         cleanup_llm_overrides()
         cleanup_token_tracker()
         shutil.rmtree(workspace_dir, ignore_errors=True)
+
+
+def _recover_interrupted_whole_file(scope: DocumentPublicationScope) -> bool:
+    from datetime import datetime, timedelta
+
+    with get_sync_db_context() as db:
+        result = db.get(JobResult, scope.job_result_id)
+        state = read_progressive_state(result.document_metadata) if result is not None else None
+        stage = state.stages.get("finalization", {}) if state else {}
+        token, claimed_at = stage.get("claim_generation"), stage.get("claimed_at")
+        if stage.get("status") != "running" or not token or not claimed_at:
+            return False
+        age = utc_now_naive() - datetime.fromisoformat(claimed_at).replace(tzinfo=None)
+        if age < timedelta(seconds=settings.TASK_TIME_LIMIT_SECONDS):
+            return False
+    complete = AdditivePublication.hasCompleteIndex(scope=scope, attemptId=token)
+    return _settle_whole_file(scope, token, succeeded=complete)
+
+
+def _settle_whole_file(
+    scope: DocumentPublicationScope, claim_token: str, *, succeeded: bool,
+) -> bool:
+    outbox = SyncJobWebhookOutbox()
+    event = None
+    with get_sync_db_context() as db:
+        document = db.scalar(select(Document).where(
+            Document.document_id == scope.document_id,
+        ).with_for_update())
+        result = db.scalar(select(JobResult).options(noload("*")).where(
+            JobResult.id == scope.job_result_id,
+        ).with_for_update(of=JobResult))
+        state = read_progressive_state(result.document_metadata) if result is not None else None
+        if result is None or state is None:
+            return False
+        stage = state.stages.get("finalization", {})
+        if stage.get("status") != "running" or stage.get("claim_generation") != claim_token:
+            return False
+        if succeeded:
+            if (document is None or document.status != "active"
+                or document.current_job_result_id != scope.job_result_id
+                or not AdditivePublication.complete(db, scope=scope, attemptId=claim_token)):
+                return False
+        else:
+            AdditivePublication.fail(db, scope=scope, attemptId=claim_token)
+            attempt = stage.get("attempts", 0)
+            event = outbox.create_event(
+                db, job_id=result.job_id, event_type="job.enrichment.failed",
+                attempt_key=claim_token,
+                extra_payload={
+                    "document_id": scope.document_id,
+                    "unit_id": "whole-document",
+                    "attempt": attempt,
+                    "can_retry": attempt < 3,
+                    "error": {"code": "ENRICHMENT_ATTEMPT_FAILED"},
+                },
+            )
+        stage["status"] = "complete" if succeeded else "failed"
+        state.stages["finalization"] = stage
+        state.enhancement = EnhancementProgress(
+            status="complete" if succeeded else "pending",
+            attempt=state.enhancement.attempt,
+        )
+        result.document_metadata = write_progressive_state(result.document_metadata, state)
+        _invalidate_namespace_after_commit(db, user_id=scope.user_id, namespace=scope.namespace)
+    outbox.enqueue_after_commit(event)
+    if not succeeded:
+        try:
+            AdditivePublication.cleanup(scope=scope, attemptId=claim_token)
+        except Exception as error:
+            logger.warning("Whole-document cleanup deferred: {}", type(error).__name__)
+    return True
 
 
 def _load_chunk_final_target(*, job_result_id: str) -> _ChunkFinalTarget | None:

@@ -49,10 +49,14 @@ def claim_progressive_stage(
         if result is None:
             return None
         state = read_progressive_state(result.document_metadata)
-        if state is None or state.enhancement.status in ("complete", "failed"):
+        independent_repair = app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and stage_name == "vector_repair"
+        if state is None or (not independent_repair and state.enhancement.status in ("complete", "failed")):
             return None
         stages: dict[str, EnhancementStage] = dict(state.stages)
         stage: EnhancementStage = {**stages.get(stage_name, {})}
+        if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and stage_name == "finalization":
+            if stage.get("status") != "running" or stage.get("claim_generation"):
+                return None
         if stage.get("status") == "complete":
             return None
         if stage.get("status") == "running" and stage.get("claimed_at"):
@@ -62,6 +66,8 @@ def claim_progressive_stage(
             if now - claimed_at < timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS):
                 return None
         attempts: int = int(stage.get("attempts", 0))
+        if attempts >= 3 and independent_repair:
+            return None
         if attempts >= 3:
             stages[stage_name] = {**stage, "status": "failed", "claim_generation": None}
             state.stages = stages
@@ -85,9 +91,10 @@ def claim_progressive_stage(
             "error": None,
         }
         state.stages = stages
-        state.enhancement = EnhancementProgress(
-            status="running", attempt=state.enhancement.attempt
-        )
+        if not independent_repair:
+            state.enhancement = EnhancementProgress(
+                status="running", attempt=state.enhancement.attempt
+            )
         result.document_metadata = write_progressive_state(
             result.document_metadata, state
         )
@@ -168,7 +175,9 @@ def finish_progressive_stage(
             stage["pending_pages"] = pending_pages
         stages[stage_name] = stage
         state.stages = stages
-        if error and int(stage.get("attempts", 0)) >= 3:
+        if error and int(stage.get("attempts", 0)) >= 3 and not (
+            app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and stage_name == "vector_repair"
+        ):
             state.enhancement = EnhancementProgress(
                 status="failed",
                 can_retry=True,

@@ -151,6 +151,45 @@ def _write_scope_rows(session: Session, *, scope: PublicationScope) -> None:
     )
 
 
+def test_initial_coarse_commit_stores_directory_and_scope_before_indexing(
+    monkeypatch: pytest.MonkeyPatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    from shared.core.config import settings
+    from shared.models.database.job_result import JobResult
+
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    monkeypatch.setattr(settings, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
+    engine = create_engine(make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2"))
+    scope = _scope("initial-coarse")
+    try:
+        with Session(engine) as session:
+            seed_publication_fixture(session, scope=scope)
+            _set_job_progressive(session, job_id=scope.job_ref)
+            session.commit()
+            finalization = _finalize(
+                session,
+                job_id=scope.job_ref,
+                chunks=[_page_chunk(
+                    chunk_id="first-chapter", path=f"{scope.source_file_name}/First chapter",
+                    scope_id="p1-2", page_nums=[1, 2],
+                )],
+                publish=False,
+            )
+            result = session.get(JobResult, scope.revision_ref)
+            assert result is not None
+            directory = result.document_metadata["initial_directory"]
+            assert directory["directory_version"] == 1
+            assert any(section["page_nums"] == [1, 2] for section in directory["sections"])
+            assert session.scalar(select(DocumentScopeEnrichment.scope_id).where(
+                DocumentScopeEnrichment.job_result_id == result.id,
+            )) == "p1-2"
+            assert finalization.post_commit_effects.structure_job_result_ids == ()
+    finally:
+        engine.dispose()
+
+
 def test_write_coarse_scope_enrichments_inserts_one_row_per_published_scope(
     monkeypatch,
     postgresql_proc: PostgreSQLProcess,

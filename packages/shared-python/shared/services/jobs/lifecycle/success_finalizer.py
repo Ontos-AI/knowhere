@@ -7,13 +7,17 @@ from typing import Any, Literal, cast
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from shared.core.config import settings
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.progressive_ingestion import StoredSnapshot
 from shared.services.jobs.lifecycle.scope_enrichments import (
+    write_coarse_scope_enrichments,
     write_coarse_sheet_group_scopes,
 )
+from shared.services.jobs.lifecycle.directory_ready import capture_initial_directory
+from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
 from shared.services.jobs.progressive_ingestion import (
     initialize_baseline_state,
     initialize_sheet_baseline_state,
@@ -24,6 +28,7 @@ from shared.services.jobs.lifecycle.publication_trace import (
     PUBLICATION_PARSE_TRACKS,
     PublicationTrace,
 )
+from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.utils.json_utils import remove_nul_characters
 
 
@@ -121,8 +126,8 @@ class SyncJobSuccessFinalizer:
         if not finalization.post_commit_effects.indexing_job_ids:
             return finalization
 
-        job_result, job_metadata = db.execute(
-            select(JobResult, Job.job_metadata)
+        job_result, job_metadata, user_id = db.execute(
+            select(JobResult, Job.job_metadata, Job.user_id)
             .join(Job, Job.job_id == JobResult.job_id)
             .where(JobResult.job_id == job_id)
         ).one()
@@ -135,6 +140,13 @@ class SyncJobSuccessFinalizer:
             if parse_track in PUBLICATION_PARSE_TRACKS:
                 trace.bind_parse_track(parse_track)
         baseline_enrichment_status = _BASELINE_ENRICHMENT_STATUS_BY_TRACK.get(parse_track)
+        coarse_initial = (
+            settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
+            and parse_track == "page_memory"
+            and job_result.document_id is not None
+        )
+        if coarse_initial:
+            baseline_enrichment_status = "coarse"
         if (
             document_id is None
             or baseline_enrichment_status is None
@@ -171,15 +183,41 @@ class SyncJobSuccessFinalizer:
             if parse_track == "page_memory" and isinstance(raw_pages, list)
             else []
         )
-        job_result.document_metadata = write_progressive_state(
-            job_result.document_metadata,
-            initialize_baseline_state(snapshot=baseline_snapshot, missing_pages=missing_pages),
-        )
+        state = initialize_baseline_state(snapshot=baseline_snapshot, missing_pages=missing_pages)
+        effects = finalization.post_commit_effects
+        if coarse_initial:
+            state.stages["structure"] = {"status": "complete", "attempts": 1}
+            scope = DocumentPublicationScope(
+                user_id=user_id,
+                namespace=JobMetadataHelper.get_namespace(job_metadata, "default") or "default",
+                document_id=document_id,
+                job_result_id=job_result.id,
+                source_file_name=str(job_metadata.get("source_file_name") or ""),
+            )
+            write_coarse_scope_enrichments(db, document_id=document_id, job_result_id=job_result.id)
+            directory = capture_initial_directory(db, scope=scope, job_id=job_id)
+            job_result.document_metadata = {
+                **dict(job_result.document_metadata or {}),
+                "enrichment_status": "coarse",
+                "initial_directory": directory.model_dump(mode="json"),
+            }
+            directory_event = SyncJobWebhookOutbox().create_event(
+                db,
+                job_id=job_id,
+                event_type="job.document.directory_ready",
+                extra_payload=directory.model_dump(mode="json", exclude={"sections"}),
+            )
+            if directory_event is not None:
+                effects = replace(
+                    effects,
+                    webhook_event_ids=(*effects.webhook_event_ids, directory_event.event_id),
+                )
+        job_result.document_metadata = write_progressive_state(job_result.document_metadata, state)
         return replace(
             finalization,
             post_commit_effects=replace(
-                finalization.post_commit_effects,
-                structure_job_result_ids=(job_result.id,) if parse_track == "page_memory" else (),
+                effects,
+                structure_job_result_ids=(job_result.id,) if parse_track == "page_memory" and not coarse_initial else (),
                 chunk_final_job_result_ids=(),
             ),
         )
