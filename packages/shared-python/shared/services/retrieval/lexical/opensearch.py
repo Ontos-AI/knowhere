@@ -344,6 +344,15 @@ class OpenSearchLexicalIndex:
         bodies: tuple[object, object] = self._runtime.queryChannels(queryChannel)
         return NativeSearchPlan.fuseChannels(bodies, buildIds=buildIds, limit=limit)
 
+    def countBuild(self, buildId: str) -> int:
+        visible = _CountResponse.model_validate(self._request(
+            "POST", f"/{self.indexName}/_count",
+            payload={"query": {"term": {"buildId": buildId}}},
+        ))
+        if visible.shards.failed:
+            raise LexicalIndexError("Native record count returned partial results", isRetryable=True)
+        return visible.count
+
     def deleteBuild(self, buildId: str) -> bool:
         response: _DeleteResponse = _DeleteResponse.model_validate(
             self._request(

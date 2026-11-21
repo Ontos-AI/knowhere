@@ -19,6 +19,7 @@ class _NativeHit(BaseModel):
     identity: str = Field(alias="_id")
     score: float = Field(alias="_score")
     source: _StoredUnit = Field(alias="_source")
+    sort: tuple[str | int | float, ...] = ()
 
 
 class _Hits(BaseModel):
@@ -37,15 +38,18 @@ class _SearchResponse(BaseModel):
 
 class NativeSearchPlan:
     @staticmethod
-    def buildPayload(channel: str, *, buildIds: tuple[str, ...], queryTokens: tuple[str, ...],
+    def buildPayload(channel: str, *, buildIds: tuple[str, ...] | None, queryTokens: tuple[str, ...],
                      limit: int, unitIds: tuple[str, ...] | None,
                      preferContentCoverage: bool = False,
                      sectionIds: tuple[str, ...] | None = None,
                      buildLookup: dict[str, str] | None = None,
                      extraFilters: tuple[dict[str, object], ...] = (),
-                     exclusions: tuple[dict[str, object], ...] = ()) -> dict[str, object]:
-        buildFilter: dict[str, str] | list[str] = buildLookup if buildLookup is not None else list(buildIds)
-        filters: list[dict[str, object]] = [{"terms": {"buildId": buildFilter}}, *extraFilters]
+                     exclusions: tuple[dict[str, object], ...] = (),
+                     searchAfter: tuple[str | int | float, ...] | None = None) -> dict[str, object]:
+        filters: list[dict[str, object]] = list(extraFilters)
+        if buildLookup is not None or buildIds is not None:
+            buildFilter: dict[str, str] | list[str] = buildLookup if buildLookup is not None else list(buildIds or ())
+            filters.insert(0, {"terms": {"buildId": buildFilter}})
         if unitIds is not None:
             filters.append({"terms": {"unitId": list(unitIds)}})
         if sectionIds is not None:
@@ -70,9 +74,14 @@ class NativeSearchPlan:
                     {"constant_score": {"filter": {"term": {channel: term}}, "boost": _CONTENT_COVERAGE_BONUS}}
                     for term in terms
                 ]
-        return {"size": max(100, limit), "_source": {"excludes": ["pathTokens", "contentTokens"]},
-            "query": {"bool": query},
-            "sort": [{"_score": "desc"}, {"documentId": "asc"}, {"sortOrder": "asc"}, {"unitId": "asc"}]}
+        sort = [{"_score": "desc"}, {"documentId": "asc"}, {"sortOrder": "asc"}, {"unitId": "asc"}]
+        if buildIds is None and buildLookup is None:
+            sort.append({"buildId": "asc"})
+        payload: dict[str, object] = {"size": max(100, limit), "_source": {"excludes": ["pathTokens", "contentTokens"]},
+            "query": {"bool": query}, "sort": sort}
+        if searchAfter is not None:
+            payload["search_after"] = searchAfter
+        return payload
 
     @staticmethod
     def fuseChannels(bodies: tuple[object, object], *, buildIds: tuple[str, ...] | None,

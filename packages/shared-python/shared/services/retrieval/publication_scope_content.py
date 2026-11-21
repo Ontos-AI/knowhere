@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
+from uuid import uuid4
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import delete, event, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import (
@@ -66,6 +68,79 @@ _SHEET_GROUP_SCOPE_ID_RE = re.compile(
     rf"^{re.escape(SHEET_GROUP_SCOPE_PREFIX)}([1-9]\d*)$"
 )
 _REFINED_ENRICHMENT_STATE = "refined"
+
+
+def append_document_scope_content(
+    db: Session,
+    *,
+    scope: DocumentPublicationScope,
+    scope_id: str,
+    attempt_id: str,
+    chunks: list[dict[str, Any]],
+    section_summaries: dict[str, str] | None,
+) -> None:
+    """Append an attempt's body without editing any earlier representation."""
+    prepared: list[tuple[dict[str, Any], dict[str, Any], str | None, list[str]]] = []
+    paths: dict[str, list[str]] = {}
+    for chunk in deduplicate_chunks_by_source_path(chunks):
+        safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
+        metadata = dict(_get_chunk_metadata(safe_chunk))
+        metadata["scope_id"] = scope_id
+        if (safe_chunk.get("type") or safe_chunk.get("chunk_type")) == "page":
+            metadata["enrichment_state"] = _REFINED_ENRICHMENT_STATE
+        extract_and_strip_page_embeddings(metadata)
+        source_path = _get_source_path(chunk=safe_chunk, chunk_metadata=metadata)
+        parts = section_parts_from_chunk_path(source_path, source_file_name=scope.source_file_name) or ["Root"]
+        prepared.append((safe_chunk, metadata, source_path, parts))
+        for depth in range(1, len(parts) + 1):
+            paths[" / ".join(parts[:depth])] = parts[:depth]
+    if not prepared:
+        return
+
+    sections: dict[str, DocumentSection] = {}
+    ordered_paths = sorted(paths, key=lambda path: (len(paths[path]), path))
+    # Read only this attempt's paths. Insert missing paths by depth so concurrent
+    # writers reuse shared ancestors and preserve existing section metadata.
+    for depth in sorted({len(parts) for parts in paths.values()}):
+        group = [path for path in ordered_paths if len(paths[path]) == depth]
+        statement = select(DocumentSection).where(
+            DocumentSection.document_id == scope.document_id,
+            DocumentSection.job_result_id == scope.job_result_id,
+            DocumentSection.section_path.in_(group),
+        )
+        sections.update((section.section_path, section) for section in db.scalars(statement))
+        missing = [path for path in group if path not in sections]
+        if missing:
+            db.execute(insert(DocumentSection).values([
+                {
+                    "section_id": f"sec_{uuid4().hex[:12]}",
+                    "user_id": scope.user_id,
+                    "namespace": scope.namespace,
+                    "document_id": scope.document_id,
+                    "job_result_id": scope.job_result_id,
+                    "parent_section_id": sections[" / ".join(paths[path][:-1])].section_id if depth > 1 else None,
+                    "section_path": path,
+                    "section_title": paths[path][-1],
+                    "section_level": depth,
+                    "sort_order": order,
+                    "summary": (section_summaries or {}).get(path),
+                    "section_metadata": {},
+                }
+                for order, path in enumerate(missing)
+            ]).on_conflict_do_nothing(index_elements=[
+                DocumentSection.document_id, DocumentSection.job_result_id, DocumentSection.section_path,
+            ]))
+            sections.update((section.section_path, section) for section in db.scalars(statement))
+
+    for order, (chunk, metadata, source_path, parts) in enumerate(prepared):
+        row = _build_document_chunk(
+            chunk=chunk, chunk_metadata=metadata, source_path=source_path,
+            section=sections[" / ".join(parts)], scope=scope, fallback_sort_order=order,
+        )
+        row.id = f"dchk_{uuid4().hex[:30]}"
+        row.enrichment_attempt_id = attempt_id
+        db.add(row)
+    db.flush()
 
 
 def replace_document_scope_content(
