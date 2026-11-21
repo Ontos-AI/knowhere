@@ -54,7 +54,7 @@ async def discoverOpenSearch(
     try:
         if current is None:
             assert isinstance(reader, AsyncPublishedLexicalRead)
-            if AdditiveVisibility.isEnabled(namespace):
+            if CorpusStorage.resolve_namespace(namespace).usesAdditivePublication():
                 await reader.startAdditiveAsync()
             else:
                 await reader.startAsync()

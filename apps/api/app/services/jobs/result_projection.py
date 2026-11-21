@@ -6,12 +6,12 @@ from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
 from shared.core.billing import MicroDollar
-from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import JobOperationException
 from shared.models.schemas.job import JobResultResponse, StandardErrorObject
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.jobs.result_delivery import JobResultDeliveryResolver
 from shared.services.jobs.progressive_ingestion import read_progressive_state, publish_snapshot_descriptors
+from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.storage.job_file_storage import JobFileStorage
 from shared.utils.error_details import normalize_error_details
 
@@ -183,6 +183,7 @@ async def build_job_result_response(
         else None
     )
 
+    corpus_storage = CorpusStorage.resolve_namespace(JobMetadataHelper.get_namespace(job_metadata))
     return JobResultResponse(
         job_result_id=getattr(getattr(job, "job_result", None), "id", None),
         job_id=job.job_id,
@@ -191,7 +192,7 @@ async def build_job_result_response(
         enhancement=(
             progressive_state.enhancement
             if progressive_state and (
-                not settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
+                not corpus_storage.usesAdditivePublication()
                 or (job_metadata or {}).get("corpus_target") == "DEMO"
             )
             else None

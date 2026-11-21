@@ -132,10 +132,7 @@ def execute_chunk_final_enrichment(
     if target is None:
         return {"status": "aborted", "job_result_id": job_result_id}
 
-    additive = (
-        settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
-        and settings.KNOWHERE_LEXICAL_BACKEND == "opensearch"
-    )
+    additive: bool = CorpusStorage.resolve_namespace(target.namespace).usesAdditivePublication()
     scope = DocumentPublicationScope(
         user_id=target.user_id, namespace=target.namespace, document_id=target.document_id,
         job_result_id=job_result_id, source_file_name=target.source_file_name,

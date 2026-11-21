@@ -163,7 +163,7 @@ def test_initial_coarse_commit_stores_directory_and_scope_before_indexing(
     asyncio.run(prepare_contract_storage())
     from shared.core.config import settings
 
-    monkeypatch.setattr(settings, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
+    monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
     engine = create_engine(make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2"))
     scope = _scope("initial-coarse")
     try:
@@ -746,7 +746,7 @@ def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants
             session.commit()
 
         if after_failure:
-            monkeypatch.setattr(scope_runtime.app_config, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
+            monkeypatch.setattr(scope_runtime.app_config, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
 
         async def _call_read() -> None:
             async with get_db_context() as async_db:

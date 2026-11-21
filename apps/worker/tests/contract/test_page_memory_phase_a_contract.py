@@ -809,7 +809,7 @@ def test_additive_progressive_first_result_is_coarse_and_retains_reader_assets(
         memory_service,
         "settings",
         SimpleNamespace(
-            KNOWHERE_ADDITIVE_PUBLICATION_ENABLED=True, VISUAL_RETRIEVAL_ENABLED=True
+            KNOWHERE_LEXICAL_BACKEND="opensearch", VISUAL_RETRIEVAL_ENABLED=True
         ),
     )
     monkeypatch.setattr(page_tagger, "tag_pages", prevent_fine)

@@ -16,7 +16,6 @@ from shared.services.chunks.chunk_connections import merge_connections
 from shared.services.ai.embedding import embed_query, resolve_embedding_model
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.models.database.document import DocumentChunk
-from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 
 __all__ = [
@@ -182,7 +181,7 @@ def _build_owner_chunk_by_page(
             corpusStorage.DocumentChunk.id,
         )
     )
-    if AdditiveVisibility.isEnabled(scope.namespace):
+    if CorpusStorage.resolve_namespace(scope.namespace).usesAdditivePublication():
         statement = statement.where(DocumentChunk.enrichment_attempt_id.is_(None))
     rows = db.execute(statement).all()
     owner_by_page: dict[int, str] = {}

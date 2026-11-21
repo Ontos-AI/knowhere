@@ -127,10 +127,8 @@ def execute_structure_enrichment(
     result_storage_factory: Callable[[], ResultStorage] = get_result_storage,
     scope_publisher: ScopePublisher | None = None,
 ) -> dict[str, Any]:
-    """Resume profiling (TOC + anatomy + Phase A) and publish the coarse structure."""
-    from shared.core.config import settings
-
-    if settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+    """Resume a legacy text stage on the backend that still publishes it."""
+    if CorpusStorage("PRIVATE").usesAdditivePublication():
         return {"status": "skipped", "job_result_id": job_result_id}
     claim_status, target = _load_and_validate_structure_target(
         job_result_id=job_result_id,
@@ -1279,9 +1277,6 @@ def execute_progressive_recovery(
     result_storage_factory: Callable[[], ResultStorage] = get_result_storage,
 ) -> dict[str, Any]:
     """Recover persisted stages without replaying parsing or completed scope work."""
-    from shared.core.config import settings
-
-    additive = settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
     with get_sync_db_context() as db:
         document_id: str | None = db.scalar(
             select(JobResult.document_id).where(JobResult.id == job_result_id)
@@ -1305,12 +1300,14 @@ def execute_progressive_recovery(
         job = db.get(Job, result.job_id)
         if (
             state is None
-            or (not additive and state.enhancement.status in ("failed", "complete"))
             or document is None
             or job is None
             or document.status != "active"
             or document.current_job_result_id != job_result_id
         ):
+            return {"status": "skipped"}
+        additive: bool = CorpusStorage.resolve_namespace(document.namespace).usesAdditivePublication()
+        if not additive and state.enhancement.status in ("failed", "complete"):
             return {"status": "skipped"}
         parse_track = str(
             JobMetadataHelper.get_parse_track(job.job_metadata or {})

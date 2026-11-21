@@ -34,14 +34,16 @@ def test_directory_accepts_a_newer_committed_version() -> None:
     assert directory.directory_version == 2
 
 
-def test_additive_activation_requires_native_lexical_publication() -> None:
-    from shared.core.config.publication import PublicationConfig
+def test_private_native_publication_uses_additive_contract_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from shared.core.config import settings
+    from shared.services.retrieval.corpus_storage import CorpusStorage, DEMO_NAMESPACE
 
-    with pytest.raises(ValidationError, match="OpenSearch"):
-        PublicationConfig(
-            KNOWHERE_LEXICAL_BACKEND="postgresql",
-            KNOWHERE_ADDITIVE_PUBLICATION_ENABLED=True,
-        )
+    monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
+    assert CorpusStorage.resolve_namespace("library").usesAdditivePublication()
+    assert not CorpusStorage.resolve_namespace(DEMO_NAMESPACE).usesAdditivePublication()
+
+    monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "postgresql")
+    assert not CorpusStorage.resolve_namespace("library").usesAdditivePublication()
 
 
 def test_new_document_replacement_cannot_also_name_an_update_target() -> None:
@@ -97,3 +99,33 @@ def test_enrichment_failure_events_deduplicate_by_attempt() -> None:
     assert first != second
     assert create("attempt-1") == first
     assert len(persisted) == 2
+
+
+@pytest.mark.parametrize(("callback_url", "subscribed_events", "delivers_failure"), [
+    ("https://hipo.example/api/internal/webhooks/knowhere/parse", None, True),
+    ("https://hipo.example/api/internal/webhooks/knowhere/parse", ["job.completed"], False),
+    ("https://hipo.example/api/internal/webhooks/knowhere/other", None, False),
+    ("https://hipo.example.invalid/api/internal/webhooks/knowhere/parse", None, False),
+    ("https://subscriber.example/notify", ["job.enrichment.failed"], True),
+])
+def test_failure_callback_respects_saved_trusted_route(
+    monkeypatch: pytest.MonkeyPatch, callback_url: str, subscribed_events: list[str] | None,
+    delivers_failure: bool,
+) -> None:
+    from shared.core.config import settings
+    from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
+
+    monkeypatch.setattr(settings, "KNOWHERE_HIPO_CALLBACK_ORIGIN", "https://hipo.example")
+    db = MagicMock()
+    db.scalar.return_value = SimpleNamespace(
+        webhook_url=callback_url, webhook_enabled=True, webhook_events=subscribed_events,
+        failure_stage=None, parsing_status="completed", indexing_status="completed",
+        current_indexing_attempt_id=None,
+    )
+    db.scalars.return_value.first.return_value = None
+    db.execute.return_value.one_or_none.return_value = SimpleNamespace(id="result_123")
+    event = SyncJobWebhookOutbox().create_event(
+        db, job_id="job_123", event_type="job.enrichment.failed", attempt_key="attempt-1",
+    )
+
+    assert (event is not None) == delivers_failure

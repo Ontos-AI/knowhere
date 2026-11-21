@@ -106,7 +106,7 @@ class DocumentRepository:
             .where(JobResult.document_id == corpusStorage.Document.document_id)
             .where(Job.user_id == user_id)
             .where((corpusStorage.Document.status != "archived")
-                if job_result_id is None or not AdditiveVisibility.isEnabled("default") else true())
+                if job_result_id is None or not corpusStorage.usesAdditivePublication() else true())
             .limit(1)
         )
 
@@ -138,7 +138,7 @@ class DocumentRepository:
             .where(corpusStorage.DocumentChunk.document_id == document_id)
             .where(corpusStorage.DocumentChunk.job_result_id == job_result_id)
         )
-        if not corpusStorage.is_demo and AdditiveVisibility.isEnabled("default"):
+        if corpusStorage.usesAdditivePublication():
             stmt = stmt.where(select(corpusStorage.Document.document_id).where(
                 corpusStorage.Document.document_id == corpusStorage.DocumentChunk.document_id,
                 corpusStorage.Document.current_job_result_id == corpusStorage.DocumentChunk.job_result_id,
@@ -178,7 +178,7 @@ class DocumentRepository:
             .limit(limit)
             .offset(offset)
         )
-        if not corpusStorage.is_demo and AdditiveVisibility.isEnabled("default"):
+        if corpusStorage.usesAdditivePublication():
             stmt = stmt.where(select(corpusStorage.Document.document_id).where(
                 corpusStorage.Document.document_id == corpusStorage.DocumentChunk.document_id,
                 corpusStorage.Document.current_job_result_id == corpusStorage.DocumentChunk.job_result_id,

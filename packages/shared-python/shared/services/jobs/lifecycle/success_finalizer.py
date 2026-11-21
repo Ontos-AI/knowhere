@@ -7,7 +7,6 @@ from typing import Any, Literal, cast
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from shared.core.config import settings
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.job_metadata import JobMetadataHelper
@@ -28,6 +27,7 @@ from shared.services.jobs.lifecycle.publication_trace import (
     PUBLICATION_PARSE_TRACKS,
     PublicationTrace,
 )
+from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.utils.json_utils import remove_nul_characters
 
@@ -140,10 +140,11 @@ class SyncJobSuccessFinalizer:
             if parse_track in PUBLICATION_PARSE_TRACKS:
                 trace.bind_parse_track(parse_track)
         baseline_enrichment_status = _BASELINE_ENRICHMENT_STATUS_BY_TRACK.get(parse_track)
-        coarse_initial = (
-            settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
-            and parse_track == "page_memory"
+        namespace: str = JobMetadataHelper.get_namespace(job_metadata) or "default"
+        coarse_initial: bool = (
+            parse_track == "page_memory"
             and job_result.document_id is not None
+            and CorpusStorage.resolve_namespace(namespace).usesAdditivePublication()
         )
         if coarse_initial:
             baseline_enrichment_status = "coarse"
@@ -151,8 +152,7 @@ class SyncJobSuccessFinalizer:
             document_id is None
             or baseline_enrichment_status is None
             or JobMetadataHelper.get_ingestion_mode(job_metadata) != "progressive"
-            or str(job_metadata.get("enrichment_status") or "").strip().lower()
-            != baseline_enrichment_status
+            or str(job_metadata.get("enrichment_status") or "").strip().lower() != baseline_enrichment_status
         ):
             return finalization
 
@@ -189,7 +189,7 @@ class SyncJobSuccessFinalizer:
             state.stages["structure"] = {"status": "complete", "attempts": 1}
             scope = DocumentPublicationScope(
                 user_id=user_id,
-                namespace=JobMetadataHelper.get_namespace(job_metadata, "default") or "default",
+                namespace=namespace,
                 document_id=document_id,
                 job_result_id=job_result.id,
                 source_file_name=str(job_metadata.get("source_file_name") or ""),

@@ -21,6 +21,7 @@ from shared.services.jobs.progressive_ingestion import (
     read_progressive_state,
     write_progressive_state,
 )
+from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.utils.utc_now import utc_now_naive
 
@@ -49,12 +50,15 @@ def claim_progressive_stage(
         if result is None:
             return None
         state = read_progressive_state(result.document_metadata)
-        independent_repair = app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and stage_name == "vector_repair"
+        additive: bool = result.document_id is not None and CorpusStorage.resolve_document(
+            result.document_id
+        ).usesAdditivePublication()
+        independent_repair: bool = additive and stage_name == "vector_repair"
         if state is None or (not independent_repair and state.enhancement.status in ("complete", "failed")):
             return None
         stages: dict[str, EnhancementStage] = dict(state.stages)
         stage: EnhancementStage = {**stages.get(stage_name, {})}
-        if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and stage_name == "finalization":
+        if additive and stage_name == "finalization":
             if stage.get("status") != "running" or stage.get("claim_generation"):
                 return None
         if stage.get("status") == "complete":
@@ -176,7 +180,9 @@ def finish_progressive_stage(
         stages[stage_name] = stage
         state.stages = stages
         if error and int(stage.get("attempts", 0)) >= 3 and not (
-            app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and stage_name == "vector_repair"
+            stage_name == "vector_repair"
+            and document is not None
+            and CorpusStorage.resolve_namespace(document.namespace).usesAdditivePublication()
         ):
             state.enhancement = EnhancementProgress(
                 status="failed",

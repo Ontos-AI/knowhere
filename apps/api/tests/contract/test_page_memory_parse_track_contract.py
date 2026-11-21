@@ -33,9 +33,9 @@ async def test_replacement_creates_a_new_document_in_the_validated_scope(monkeyp
     from app.services.document_ingestion.scope_service import DocumentRepository
     from app.services.rate_limit.data_structures import CurrentUser
 
-    monkeypatch.setattr(service, "settings", service.settings.model_copy(
-        update={"KNOWHERE_ADDITIVE_PUBLICATION_ENABLED": True},
-    ))
+    from shared.core.config import settings
+
+    monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
     get_document = AsyncMock(return_value=SimpleNamespace(
         document_id="doc_current", namespace="origin-library", status="active",
     ))

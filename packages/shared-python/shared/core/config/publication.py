@@ -9,13 +9,9 @@ DEFAULT_PUBLICATION_NAMESPACE_SNAPSHOT_MAX_BYTES: int = 8 * 1024 * 1024
 
 
 class PublicationConfig(BaseSettings):
-    """Explicit backend rollout gate and publication support settings."""
+    """Lexical backend and publication support settings."""
 
     KNOWHERE_LEXICAL_BACKEND: str = Field(default="postgresql", pattern="^(postgresql|opensearch)$")
-    KNOWHERE_ADDITIVE_PUBLICATION_ENABLED: bool = Field(
-        default=False,
-        description="Activate additive publication and its initial-ingestion contract.",
-    )
     KNOWHERE_HIPO_CALLBACK_ORIGIN: str | None = Field(
         default=None,
         description="Trusted Hipo origin for enrichment failures on existing Hipo jobs.",
@@ -75,8 +71,6 @@ class PublicationConfig(BaseSettings):
 
     @model_validator(mode="after")
     def validateIdleWatermarks(self) -> Self:
-        if self.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and self.KNOWHERE_LEXICAL_BACKEND != "opensearch":
-            raise ValueError("Additive publication requires the OpenSearch lexical backend")
         if self.KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK > self.KNOWHERE_OPENSEARCH_OPEN_INDEX_LIMIT:
             raise ValueError("OpenSearch idle high watermark must not exceed the open index limit")
         if self.KNOWHERE_OPENSEARCH_IDLE_LOW_WATERMARK >= self.KNOWHERE_OPENSEARCH_IDLE_HIGH_WATERMARK:

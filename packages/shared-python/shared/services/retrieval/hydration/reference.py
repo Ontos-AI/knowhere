@@ -94,9 +94,9 @@ async def hydrate_referenced_chunk_rows(
         .where(corpusStorage.DocumentChunk.chunk_id.in_(chunk_ids))
         .order_by(corpusStorage.DocumentChunk.sort_order)
     )
-    if revision_pins is None or AdditiveVisibility.isEnabled(namespace):
+    if revision_pins is None or CorpusStorage.resolve_namespace(namespace).usesAdditivePublication():
         stmt = stmt.where(corpusStorage.Document.status == "active")
-    if AdditiveVisibility.isEnabled(namespace):
+    if CorpusStorage.resolve_namespace(namespace).usesAdditivePublication():
         stmt = stmt.where(AdditiveVisibility.allowsFreshChunk(namespace))
     result = await db.execute(stmt)
 

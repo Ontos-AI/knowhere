@@ -14,10 +14,12 @@ from sqlalchemy.orm import Session
 from shared.core.config import settings
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.database.webhook import WebhookEvent, WebhookEventStatus
 from shared.core.response import build_standard_error_response
 from shared.services.background import BackgroundWorkPool
 from shared.services.jobs.progressive_ingestion import read_progressive_state
+from shared.services.retrieval.corpus_storage import CorpusStorage
 
 _DISPATCH_POOL: BackgroundWorkPool | None = None
 _COMPLETED_EVENTS: frozenset[str] = frozenset({
@@ -71,12 +73,11 @@ class SyncJobWebhookOutbox:
             logger.warning(f"Job not found for webhook check: {job_id}")
             return None
 
-        if (
-            settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
-            and event_type in {"job.parsed", "job.enrichment.completed"}
-            and (job.job_metadata or {}).get("corpus_target") != "DEMO"
-        ):
-            return None
+        if event_type in {"job.parsed", "job.enrichment.completed"}:
+            job_metadata = job.job_metadata or {}
+            corpus_storage = CorpusStorage.resolve_namespace(JobMetadataHelper.get_namespace(job_metadata))
+            if corpus_storage.usesAdditivePublication() and job_metadata.get("corpus_target") != "DEMO":
+                return None
         webhook_url, webhook_enabled = job.webhook_url, job.webhook_enabled
         if not webhook_enabled or not webhook_url:
             return None
@@ -86,7 +87,6 @@ class SyncJobWebhookOutbox:
         subscribed = job.webhook_events if job.webhook_events is not None else _DEFAULT_EVENTS
         legacy_hipo_failure = (
             is_enrichment_failure
-            and settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
             and job.webhook_events is None
             and _is_saved_hipo_callback(webhook_url)
         )

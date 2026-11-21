@@ -196,7 +196,7 @@ async def _hydrate_chunk_paths(
 
     rows: list[dict[str, Any]] = []
     seen_paths: set[tuple[str, str, str]] = set()
-    additive = AdditiveVisibility.isEnabled(namespace)
+    additive = CorpusStorage.resolve_namespace(namespace).usesAdditivePublication()
     for document, chunk, section, job_result in result.all():
         row_path = (section.section_path if section else None) or chunk.source_chunk_path or ''
         body_key = (document.document_id, row_path, chunk.id if additive else "")

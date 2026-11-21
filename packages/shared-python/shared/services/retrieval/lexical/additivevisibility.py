@@ -6,21 +6,15 @@ from sqlalchemy import ColumnElement, and_, func, or_, select, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from shared.core.config import settings
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.document_enrichment_publication import DocumentEnrichmentPublication
 from shared.models.database.job_result import JobResult
-from shared.services.retrieval.corpus_storage import DEMO_NAMESPACE
+from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.lexical.hit import LexicalHit
 from shared.services.retrieval.lexical.scope import LexicalScope
 
 
 class AdditiveVisibility:
-    @staticmethod
-    def isEnabled(namespace: str) -> bool:
-        return (namespace != DEMO_NAMESPACE and settings.KNOWHERE_LEXICAL_BACKEND == "opensearch"
-            and bool(getattr(settings, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", False)))
-
     @staticmethod
     def allowsChunk() -> ColumnElement[bool]:
         """An attempt's retained body is enumerable only while it can serve."""
@@ -32,7 +26,7 @@ class AdditiveVisibility:
 
     @staticmethod
     def allowsFreshChunk(namespace: str) -> ColumnElement[bool]:
-        if not AdditiveVisibility.isEnabled(namespace):
+        if not CorpusStorage.resolve_namespace(namespace).usesAdditivePublication():
             return true()
         return and_(AdditiveVisibility.allowsChunk(), select(Document.document_id).where(
             Document.document_id == DocumentChunk.document_id,
@@ -42,7 +36,7 @@ class AdditiveVisibility:
 
     @staticmethod
     def allowsFreshSection(namespace: str) -> ColumnElement[bool]:
-        if not AdditiveVisibility.isEnabled(namespace):
+        if not CorpusStorage.resolve_namespace(namespace).usesAdditivePublication():
             return true()
         descendant = aliased(DocumentSection)
         return select(DocumentChunk.id).join(descendant, descendant.section_id == DocumentChunk.section_id).where(

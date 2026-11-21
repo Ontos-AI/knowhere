@@ -24,7 +24,6 @@ from shared.services.retrieval.cache_service import (
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
 from shared.services.retrieval.hydration.artifact_origin import resolve_artifact_raw_prefix
 from shared.services.retrieval.lexical.additivecleanup import NATIVE_WRITE_SETTLEMENT
-from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.hydration.build_snapshot import BuildSnapshot
 from shared.services.retrieval.lexical.asyncdatabase import AsyncLexicalDatabase
 from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
@@ -403,7 +402,7 @@ class DocumentService:
             job_result_id = revision.id
         else:
             job_result_id = job_result_id or (
-                document.current_job_result_id if AdditiveVisibility.isEnabled(document.namespace)
+                document.current_job_result_id if CorpusStorage.resolve_namespace(document.namespace).usesAdditivePublication()
                 else document.latest_parsed_job_result_id or document.current_job_result_id
             )
         if not job_result_id:
@@ -721,7 +720,7 @@ class DocumentService:
                     return document_payload(document)
                 namespace = document.namespace
                 hasPublishedBuild = document.current_indexing_build_id is not None
-            if AdditiveVisibility.isEnabled(namespace):
+            if CorpusStorage.resolve_namespace(namespace).usesAdditivePublication():
                 return await self._archive_document(db, user_id=user_id, document_id=document_id)
             storage = CorpusStorage.resolve_namespace(namespace)
             scope = LexicalScope(ownerId=storage.resolve_owner(user_id), namespace=namespace,
@@ -772,7 +771,7 @@ class DocumentService:
             return document_payload(document)
 
         previous_namespace = document.namespace
-        additive = AdditiveVisibility.isEnabled(previous_namespace)
+        additive = CorpusStorage.resolve_namespace(previous_namespace).usesAdditivePublication()
         if manifestScope is not None:
             if previous_namespace != manifestScope.namespace or (document.current_indexing_build_id and prepared is None):
                 raise ManifestPublicationAdvanced("Document publication changed during archival", isRetryable=True)

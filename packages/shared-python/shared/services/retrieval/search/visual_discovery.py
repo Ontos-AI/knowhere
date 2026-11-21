@@ -27,7 +27,6 @@ from shared.services.retrieval.hydration.row_utils import (
     iter_connected_target_ids,
     normalize_chunk_type,
 )
-from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.scoring.knowhere_hybrid import (
     CHANNEL_WEIGHT_CONTENT,
@@ -217,7 +216,7 @@ def _resolve_visual_document_scope(
         and native_read.scope.namespace == namespace
         and native_read.scope.ownerId == storage.resolve_owner(user_id)
         and native_read.manifestId is None
-        and not AdditiveVisibility.isEnabled(namespace)
+        and not CorpusStorage.resolve_namespace(namespace).usesAdditivePublication()
     ):
         has_inline_build_pins = True
         # Inline native builds can still be searched after PostgreSQL publishes
@@ -377,7 +376,7 @@ async def visual_page_discovery(
         "top_k": int(top_k),
     }
 
-    additive = AdditiveVisibility.isEnabled(namespace)
+    additive = CorpusStorage.resolve_namespace(namespace).usesAdditivePublication()
     attempt_join = ("LEFT JOIN document_enrichment_publications ep ON ep.id = dc.enrichment_attempt_id"
         if additive else "")
     attempt_columns = ("""dc.id AS source_row_id, dc.enrichment_attempt_id,
@@ -697,7 +696,7 @@ async def hybrid_discovery(
 
     embedding = query_embedding or VisualQueryEmbedding(str(query or '').strip())
     visualSearch = partial(visual_page_discovery, query_embedding=embedding, **searchParameters)
-    additive = AdditiveVisibility.isEnabled(namespace)
+    additive = CorpusStorage.resolve_namespace(namespace).usesAdditivePublication()
     if additive:
         if db is None or db.bind is None:
             raise ValueError("parallel visual retrieval requires an asynchronous database bind")

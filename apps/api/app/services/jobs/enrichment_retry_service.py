@@ -3,7 +3,6 @@
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import (
     ConflictException,
     NotFoundException,
@@ -11,12 +10,14 @@ from shared.core.exceptions.domain_exceptions import (
 from shared.models.database.document import Document, DocumentScopeEnrichment
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.progressive_ingestion import EnhancementRetryResponse
 from shared.services.jobs.progressive_ingestion import (
     read_progressive_state,
     write_progressive_state,
 )
 from shared.services.jobs.progressive_retry import renew_failed_enhancement
+from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.utils.utc_now import utc_now_naive
 
 
@@ -33,7 +34,8 @@ async def retry_job_enrichment(
     ).scalar_one_or_none()
     if job is None:
         raise NotFoundException(resource="Job", resource_id=job_id)
-    if settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+    corpus_storage = CorpusStorage.resolve_namespace(JobMetadataHelper.get_namespace(job.job_metadata))
+    if corpus_storage.usesAdditivePublication():
         raise ConflictException(
             user_message="Retrieval triggers enrichment retries when it returns eligible baseline content.",
             resource="Job",

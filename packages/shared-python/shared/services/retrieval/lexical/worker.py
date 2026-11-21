@@ -37,7 +37,6 @@ from shared.services.retrieval.lexical.input import LexicalInput
 from shared.services.retrieval.lexical.input_retention import LexicalInputRetention
 from shared.services.retrieval.lexical.input_budget import LexicalInputBudget
 from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
-from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.lexical.manifest_publication import (
     ManifestPublication, ManifestPublicationAdvanced, PreparedManifest,
 )
@@ -139,7 +138,7 @@ class IndexingWorker:
                 )
                 self._deadline.getRemainingSeconds()
                 warmIndexOptions = ({"updateWarmIndexRecency": False}
-                    if AdditiveVisibility.isEnabled(context.scope.namespace) else {})
+                    if CorpusStorage.resolve_namespace(context.scope.namespace).usesAdditivePublication() else {})
                 indexUuid, epoch = self.coordination.ensureIndex(
                     scope=context.scope, native=native, **warmIndexOptions,
                 )
@@ -208,7 +207,7 @@ class IndexingWorker:
         with self._transaction() as db:
             self._authorize(db, context)
             control = self.coordination.lockControl(db)
-            if not AdditiveVisibility.isEnabled(context.scope.namespace):
+            if not CorpusStorage.resolve_namespace(context.scope.namespace).usesAdditivePublication():
                 lock_namespace_generation(db, user_id=context.scope.ownerId, namespace=context.scope.namespace)
             storage: CorpusStorage = CorpusStorage.resolve_namespace(context.scope.namespace)
             document = db.scalars(select(storage.Document).where(
@@ -268,7 +267,7 @@ class IndexingWorker:
         with self._transaction() as db:
             self._authorize(db, context)
             control = self.coordination.lockControl(db)
-            additive = AdditiveVisibility.isEnabled(context.scope.namespace)
+            additive = CorpusStorage.resolve_namespace(context.scope.namespace).usesAdditivePublication()
             if not additive:
                 lock_namespace_generation(db, user_id=context.scope.ownerId, namespace=context.scope.namespace)
             registry = db.scalars(select(LexicalNamespaceIndex).where(
@@ -321,7 +320,7 @@ class IndexingWorker:
         context: _Context = claim.context
         self._authorize(db, context)
         control = self.coordination.lockControl(db)
-        generation = None if AdditiveVisibility.isEnabled(context.scope.namespace) else lock_namespace_generation(
+        generation = None if CorpusStorage.resolve_namespace(context.scope.namespace).usesAdditivePublication() else lock_namespace_generation(
             db, user_id=context.scope.ownerId, namespace=context.scope.namespace,
         )
         registry = db.scalars(select(LexicalNamespaceIndex).where(
@@ -481,7 +480,7 @@ class IndexingWorker:
             job_result_id=context.revisionId, source_file_name=str((job.job_metadata or {}).get("source_file_name") or "")))
 
     def _publishVisibleBuild(self, claim: _Claim, native: OpenSearchLexicalIndex) -> Literal["completed"]:
-        if AdditiveVisibility.isEnabled(claim.context.scope.namespace):
+        if CorpusStorage.resolve_namespace(claim.context.scope.namespace).usesAdditivePublication():
             return self._activate(claim, None)
         publication = ManifestPublication(self.sessions)
         for _ in range(8):

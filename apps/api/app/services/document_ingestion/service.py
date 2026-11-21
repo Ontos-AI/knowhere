@@ -352,16 +352,17 @@ class DocumentIngestionService:
         job_metadata["corpus_target"] = "PRIVATE"
         requested_document_id = JobMetadataHelper.get_document_id(job_metadata)
         requested_namespace = payload.namespace
-        if settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and requested_document_id:
+        native_publication: bool = CorpusStorage.resolve_namespace(requested_namespace).usesAdditivePublication()
+        if native_publication and requested_document_id:
             raise ValidationException(
                 user_message="Create a replacement job with replaces_document_id.",
                 violations=[{"field": "document_id", "description": "Private ingestion creates a new document"}],
             )
         if payload.replaces_document_id is not None:
-            if not settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+            if not native_publication:
                 raise ValidationException(
-                    user_message="Private document replacement is not enabled.",
-                    violations=[{"field": "replaces_document_id", "description": "Replacement is unavailable"}],
+                    user_message="Private document replacement requires the OpenSearch backend.",
+                    violations=[{"field": "replaces_document_id", "description": "Replacement requires OpenSearch"}],
                 )
             if CorpusStorage.resolve_document(payload.replaces_document_id).is_demo:
                 raise ValidationException(

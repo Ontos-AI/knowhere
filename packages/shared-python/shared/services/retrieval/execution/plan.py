@@ -48,7 +48,6 @@ from shared.services.retrieval.lexical.asyncread import AsyncPublishedLexicalRea
 from shared.services.retrieval.lexical.error import LexicalIndexError
 from shared.services.retrieval.lexical.reader import PublishedLexicalRead
 from shared.services.retrieval.lexical.stage_observer import StageObserver
-from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.manifest_cache import discard_cached_manifest_payloads
 from shared.services.retrieval.required_query_embedding import (
     RequiredQueryEmbeddingException,
@@ -165,7 +164,7 @@ class RetrievalExecutionPlan:
             reader = AsyncPublishedLexicalRead(userId=request.user_id,
                 namespace=request.namespace, bind=bind, isClassic=request.use_agentic is False,
                 preferContentCoverage=request.use_agentic is False and request.include_document_ids is not None)
-            additive = AdditiveVisibility.isEnabled(request.namespace)
+            additive = CorpusStorage.resolve_namespace(request.namespace).usesAdditivePublication()
             admittedManifest: bool = (
                 not additive and reader.isClassic
                 and reader.scope.corpusKind == "private" and not request.signal_paths

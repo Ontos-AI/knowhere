@@ -27,7 +27,6 @@ from app.services.document_ingestion.artifact_refs import (
 from app.services.document_ingestion.processing_context import (
     merge_persisted_job_token_usage,
 )
-from shared.core.config import settings
 from shared.core.database_sync import get_sync_db_context
 from shared.models.database.document import (
     Document,
@@ -53,6 +52,7 @@ from shared.services.jobs.progressive_stages import (
     finish_progressive_stage,
     required_stages_before_finalization,
 )
+from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.lexical.additivepublication import AdditivePublication
 from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
 from shared.services.retrieval.publication_scope_content import _invalidate_namespace_after_commit
@@ -297,10 +297,7 @@ def publish_and_mark_refined(
         target=target,
         job_result_id=job_result_id,
     )
-    additive = (
-        settings.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED
-        and settings.KNOWHERE_LEXICAL_BACKEND == "opensearch"
-    )
+    additive: bool = CorpusStorage.resolve_namespace(target.namespace).usesAdditivePublication()
     attempt_id = target.claim_generation
 
     def publish(

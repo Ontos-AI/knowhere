@@ -34,6 +34,7 @@ from shared.services.jobs.progressive_ingestion import (
 from shared.services.jobs.progressive_stages import (
     required_stages_before_finalization,
 )
+from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.hydration.row_utils import (
     extract_matched_page_nums,
     extract_page_nums,
@@ -49,6 +50,7 @@ _RUNNING_STATE = "running"
 _FAILED_STATE = "failed"
 _RESETTABLE_STATES = (COARSE_SCOPE_STATE, _QUEUED_STATE)
 MAX_SCOPE_ENRICHMENT_ATTEMPTS = 3
+_PRIVATE_STORAGE: CorpusStorage = CorpusStorage("PRIVATE")
 _RECOVERY_BATCH_SIZE = 100
 
 ENRICH_SCOPE_TASK_NAME = "app.core.tasks.enrichment_tasks.enrich_page_memory_scope"
@@ -84,7 +86,7 @@ def scope_claimable_filter(now: datetime) -> ColumnElement[bool]:
     ``TASK_TIME_LIMIT_SECONDS`` is strictly smaller than the broker redelivery
     window, so a running row older than it cannot still be owned by a live task.
     """
-    if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+    if _PRIVATE_STORAGE.usesAdditivePublication():
         return and_(
             DocumentScopeEnrichment.state == _QUEUED_STATE,
             DocumentScopeEnrichment.attempts < MAX_SCOPE_ENRICHMENT_ATTEMPTS,
@@ -145,7 +147,7 @@ def mark_scope_enrichment_failed(
             .values(state=_FAILED_STATE, updated_at=now)
             .returning(DocumentScopeEnrichment.document_id, DocumentScopeEnrichment.attempts)
         ).one_or_none()
-        if failed is None or not claim_generation or not app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+        if failed is None or not claim_generation or not _PRIVATE_STORAGE.usesAdditivePublication():
             return
         from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
         from shared.services.retrieval.lexical.additivepublication import AdditivePublication
@@ -397,7 +399,7 @@ def _revision_enrichment_status(doc_meta: object, job_meta: object) -> str:
 
 def _on_demand_retryable_scope_filter(now: datetime) -> ColumnElement[bool]:
     stale_cutoff = now - timedelta(seconds=app_config.TASK_TIME_LIMIT_SECONDS)
-    if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+    if _PRIVATE_STORAGE.usesAdditivePublication():
         return or_(
             and_(
                 DocumentScopeEnrichment.state == COARSE_SCOPE_STATE,
@@ -443,7 +445,7 @@ def _get_pending_chunk_final_state(
         return None
     stage = state.stages.get("finalization", {})
     stage_status = str(stage.get("status") or "pending").strip().lower()
-    if stage_status == "failed" and app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+    if stage_status == "failed" and _PRIVATE_STORAGE.usesAdditivePublication():
         return state if int(stage.get("attempts", 0)) < MAX_SCOPE_ENRICHMENT_ATTEMPTS else None
     if stage_status != "pending":
         return None
@@ -508,7 +510,7 @@ async def _enqueue_chunk_final_on_returned_rows(
                     continue
                 stages: dict[str, EnhancementStage] = dict(state.stages)
                 stage: EnhancementStage = {**stages.get("finalization", {})}
-                if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+                if _PRIVATE_STORAGE.usesAdditivePublication():
                     stage["claim_generation"] = None
                     stage["claimed_at"] = None
                 stages["finalization"] = {**stage, "status": "running"}
@@ -602,7 +604,7 @@ async def promote_scopes_on_read(
     now = utc_now_naive()
     try:
         claimable = DocumentScopeEnrichment.state == COARSE_SCOPE_STATE
-        if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+        if _PRIVATE_STORAGE.usesAdditivePublication():
             claimable = and_(
                 DocumentScopeEnrichment.state.in_((COARSE_SCOPE_STATE, _FAILED_STATE)),
                 DocumentScopeEnrichment.attempts < MAX_SCOPE_ENRICHMENT_ATTEMPTS,
@@ -613,7 +615,7 @@ async def promote_scopes_on_read(
                 DocumentScopeEnrichment.scope_id == scope_id,
                 claimable,
             )
-            if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+            if _PRIVATE_STORAGE.usesAdditivePublication():
                 scope_rows = scope_rows.with_for_update(skip_locked=True)
             result = await db.execute(
                 update(DocumentScopeEnrichment)
@@ -687,7 +689,7 @@ def _should_skip_chunk_final_recovery(*, doc_meta: object, now: datetime) -> boo
     if state.enhancement.status in {"failed", "complete"}:
         return True
     finalization = state.stages.get("finalization", {})
-    if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and finalization.get("status") != "running":
+    if _PRIVATE_STORAGE.usesAdditivePublication() and finalization.get("status") != "running":
         return True
     if str(finalization.get("status") or "pending").strip().lower() == "pending":
         return True
@@ -753,7 +755,7 @@ def _needs_progressive_recovery(
     has_exhausted_scopes: bool,
 ) -> bool:
     state: ProgressiveIngestionState | None = read_progressive_state(metadata)
-    if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED:
+    if _PRIVATE_STORAGE.usesAdditivePublication():
         repair: EnhancementStage = state.stages.get("vector_repair", {}) if state is not None else {}
         return (
             parse_track == "page_memory"
@@ -826,8 +828,9 @@ def sweep_progressive_enrichments_sync(
                 if not _should_skip_chunk_final_recovery(doc_meta=doc_meta, now=now):
                     reenqueued_chunk_finals.append(str(revision_id))
                 continue
-            if not app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and not _should_skip_structure_recovery(
-                doc_meta=doc_meta, job_meta=job_meta, now=now
+            if (
+                not _PRIVATE_STORAGE.usesAdditivePublication()
+                and not _should_skip_structure_recovery(doc_meta=doc_meta, job_meta=job_meta, now=now)
             ):
                 reenqueued_structures.append(str(revision_id))
 
@@ -865,7 +868,7 @@ def sweep_progressive_enrichments_sync(
             .with_for_update(of=DocumentScopeEnrichment, skip_locked=True)
         ).all()
         for rev_id, scope_id, attempts, scope_state, claim_generation in scope_candidates:
-            if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED and scope_state == _RUNNING_STATE:
+            if _PRIVATE_STORAGE.usesAdditivePublication() and scope_state == _RUNNING_STATE:
                 if claim_generation:
                     interrupted_scopes.append((rev_id, scope_id, claim_generation))
                 continue
@@ -931,7 +934,7 @@ def sweep_progressive_enrichments_sync(
             .where(
                 JobResult.document_metadata["progressive"]["stages"]["vector_repair"]["status"]
                 .as_string().in_(("pending", "running", "failed"))
-                if app_config.KNOWHERE_ADDITIVE_PUBLICATION_ENABLED else
+                if _PRIVATE_STORAGE.usesAdditivePublication() else
                 JobResult.document_metadata["progressive"]["enhancement"]["status"]
                 .as_string().in_(("pending", "running"))
             )

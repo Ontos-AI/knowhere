@@ -179,7 +179,7 @@ async def _resolve_same_as_markers(
     """Mutate ``page`` rows in place, replacing SAME-AS markers with owner text."""
     corpusStorage: CorpusStorage = CorpusStorage.resolve_document(next(iter(revision_by_doc), ''))
     namespace = DEMO_NAMESPACE if corpusStorage.is_demo else "default"
-    additive = AdditiveVisibility.isEnabled(namespace)
+    additive = CorpusStorage.resolve_namespace(namespace).usesAdditivePublication()
     matches_by_index: dict[int, list[tuple[str, tuple[str, str, str | None, int]]]] = {}
     needed: set[tuple[str, str, str | None, int]] = set()
     for index, row in enumerate(rows):

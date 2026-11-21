@@ -10,7 +10,6 @@ from shared.services.retrieval.search import visual_discovery
 
 @pytest.mark.asyncio
 async def test_visual_channel_runs_while_text_is_waiting(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setitem(visual_discovery.settings.__dict__, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
     monkeypatch.setattr(visual_discovery.settings, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
     monkeypatch.setattr(visual_discovery.settings, "VISUAL_RETRIEVAL_ENABLED", True)
     ready = asyncio.Event()

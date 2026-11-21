@@ -30,7 +30,6 @@ def test_same_source_path_keeps_independent_chunk_bodies(
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
     from shared.core.config import settings
-    monkeypatch.setitem(settings.__dict__, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
     monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
     asyncio.run(prepare_contract_storage())
     engine = create_engine(make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2"))
@@ -253,7 +252,6 @@ def test_native_partial_enrichment_is_eligible_until_failed(
     from shared.services.retrieval.lexical.unit import LexicalUnit
     from shared.services.retrieval.serving_generation import lock_namespace_generation
 
-    monkeypatch.setitem(settings.__dict__, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
     monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
     monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_URL", endpoint)
     monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_INDEX_PREFIX", "knowhere-additive-test")
