@@ -334,7 +334,8 @@ class DocumentIngestionService:
                 ingestion_mode=command.ingestion_mode,
             ),
         )
-        if CorpusStorage.resolve_namespace(payload.namespace).is_demo:
+        corpus_storage: CorpusStorage = CorpusStorage.resolve_namespace(payload.namespace)
+        if corpus_storage.is_demo:
             if payload.replaces_document_id is not None:
                 raise ValidationException(
                     user_message="Private document replacement requires a private namespace.",
@@ -350,12 +351,14 @@ class DocumentIngestionService:
         if payload.demo_category_id is not None:
             raise ValidationException(user_message="demo_category_id applies only to the reserved demo namespace.", violations=[{"field": "demo_category_id", "description": "Use namespace __knowhere_demo__"}])
         job_metadata["corpus_target"] = "PRIVATE"
-        requested_document_id = JobMetadataHelper.get_document_id(job_metadata)
-        requested_namespace = payload.namespace
-        native_publication: bool = CorpusStorage.resolve_namespace(requested_namespace).usesAdditivePublication()
-        if native_publication and requested_document_id:
+        requested_namespace: str | None = payload.namespace
+        native_publication: bool = corpus_storage.usesAdditivePublication()
+        if payload.document_id is not None:
+            user_message: str = "Private ingestion creates a new document."
+            if native_publication:
+                user_message = "Create a replacement job with replaces_document_id."
             raise ValidationException(
-                user_message="Create a replacement job with replaces_document_id.",
+                user_message=user_message,
                 violations=[{"field": "document_id", "description": "Private ingestion creates a new document"}],
             )
         if payload.replaces_document_id is not None:
@@ -376,39 +379,22 @@ class DocumentIngestionService:
                 requested_namespace=requested_namespace,
             )
             job_metadata["replaces_document_id"] = replaces_document_id
-        if requested_document_id:
-            active_job = await find_active_job_for_document(
-                db,
-                user_id=current_user.user_id,
-                document_id=requested_document_id,
-            )
-            if active_job is not None:
-                raise_document_ingestion_conflict(
-                    document_id=requested_document_id,
-                    active_job_id=active_job.job_id,
-                )
-
-        (
-            effective_document_id,
-            effective_namespace,
-        ) = await resolve_effective_document_scope(
+        effective_document_id, effective_namespace = await resolve_effective_document_scope(
             db,
             user_id=current_user.user_id,
-            document_id=requested_document_id,
+            document_id=None,
             requested_namespace=requested_namespace,
         )
-
-        if not requested_document_id:
-            active_job = await find_active_job_for_document(
-                db,
-                user_id=current_user.user_id,
+        active_job = await find_active_job_for_document(
+            db,
+            user_id=current_user.user_id,
+            document_id=effective_document_id,
+        )
+        if active_job is not None:
+            raise_document_ingestion_conflict(
                 document_id=effective_document_id,
+                active_job_id=active_job.job_id,
             )
-            if active_job is not None:
-                raise_document_ingestion_conflict(
-                    document_id=effective_document_id,
-                    active_job_id=active_job.job_id,
-                )
 
         JobMetadataHelper.set_document_scope(
             job_metadata,

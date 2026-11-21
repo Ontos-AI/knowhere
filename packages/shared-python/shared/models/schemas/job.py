@@ -96,17 +96,17 @@ class JobCreateBase(BaseModel):
         description="Retrieval namespace; defaults to default",
     )
     document_id: Optional[str] = Field(
-        None, description="Existing document ID for update flows"
+        None, description="Optional demo document ID matching the demo data_id"
     )
     reparse: bool = Field(
         False,
-        description="Reparse unchanged original bytes for the specified existing document ID",
+        description="Legacy selector for reparsing the specified demo document",
     )
     replaces_document_id: str | None = Field(
         default=None,
         min_length=1,
         max_length=36,
-        description="Allow the original bytes of one authorized document in a new job",
+        description="On OpenSearch, allow the original bytes of one authorized private document in a new job",
     )
 
     @model_validator(mode="after")
