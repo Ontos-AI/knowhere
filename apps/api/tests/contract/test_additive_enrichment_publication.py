@@ -238,12 +238,18 @@ def test_native_partial_enrichment_is_eligible_until_failed(
     from shared.core.config import settings
     from shared.services.retrieval.document_scope import DocumentScope
     from shared.services.retrieval.lexical import additivepublication
+    from shared.services.retrieval.lexical.additivecleanup import AdditiveCleanup
     from shared.services.retrieval.lexical.coordination import LexicalCoordination
     from shared.services.retrieval.lexical.discovery import discoverOpenSearch
     from shared.services.retrieval.lexical.error import LexicalIndexError
+    from shared.models.database.document_enrichment_publication import DocumentEnrichmentPublication
+    from shared.models.database.job import Job
     from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
+    from shared.services.jobs.lifecycle.success_finalizer import SyncJobSuccessFinalizer
+    from shared.services.retrieval.lexical.worker import IndexingWorker
     from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
     from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.lexical.transition import LexicalTransition, _Binding
     from shared.services.retrieval.lexical.unit import LexicalUnit
     from shared.services.retrieval.serving_generation import lock_namespace_generation
 
@@ -288,6 +294,8 @@ def test_native_partial_enrichment_is_eligible_until_failed(
     writer_paused = Event()
     release_writer = Event()
     neighbor_attempt = f"neighbor-{suffix}"
+    initial_job = f"initial-job-{suffix}"
+    initial_document = f"doc_initial_{suffix}"
 
     def pauseAfterFirstBatch() -> None:
         nonlocal callbacks
@@ -311,6 +319,11 @@ def test_native_partial_enrichment_is_eligible_until_failed(
         additivepublication.AdditivePublication.writeIndex(scope=scope, attemptId=neighbor_attempt)
         with sessions.begin() as db:
             assert additivepublication.AdditivePublication.complete(db, scope=scope, attemptId=neighbor_attempt)
+        return monotonic() - start
+
+    def publishInitialDocument() -> float:
+        start = monotonic()
+        assert IndexingWorker(sessionFactory=sessions).run(initial_job) == "completed"
         return monotonic() - start
 
     async def repeatFreshReads() -> tuple[list[dict[str, Any]], list[float]]:
@@ -353,8 +366,23 @@ def test_native_partial_enrichment_is_eligible_until_failed(
             unitId=section_id, sectionPath="Main", contentTokens="climate chapter baseline",
         ),))
         with sessions.begin() as db:
+            db.add(Job(job_id=initial_job, user_id=scope.user_id, job_type="document_ingestion",
+                status="running", source_type="file", job_metadata={
+                    "document_id": initial_document, "namespace": scope.namespace,
+                    "source_file_name": "independent.txt", "parse_track": "chunk", "ingestion_mode": "full",
+                }))
+        with sessions.begin() as db:
+            parsed = SyncJobSuccessFinalizer().finalize(db, job_id=initial_job,
+                result_s3_key=f"results/{initial_job}/result.zip", checksum="fixture-checksum",
+                zip_size=10, stored_count=1, delivery_mode="url", section_summaries=None, chunks=[{
+                    "chunk_id": f"initial-body-{suffix}", "type": "text",
+                    "path": "independent.txt/Induction", "content": "Induction entered the namespace while A was paused.",
+                    "metadata": {},
+                }])
+            assert parsed.response.should_commit()
+        with sessions.begin() as db:
             saved_generation = lock_namespace_generation(db, user_id=scope.user_id, namespace=scope.namespace).generation
-        with ThreadPoolExecutor(max_workers=3) as executor, sessions.begin() as hold:
+        with ThreadPoolExecutor(max_workers=4) as executor, sessions.begin() as hold:
             generation = lock_namespace_generation(hold, user_id=scope.user_id, namespace=scope.namespace)
             writer = executor.submit(additivepublication.AdditivePublication.writeIndex, scope=scope,
                 attemptId=attempt, assertOwned=pauseAfterFirstBatch)
@@ -363,15 +391,19 @@ def test_native_partial_enrichment_is_eligible_until_failed(
                 assert native.countBuild(attempt) == 1
                 reads = executor.submit(asyncio.run, repeatFreshReads())
                 neighbor = executor.submit(publishNeighbor)
+                initial = executor.submit(publishInitialDocument)
                 partial_rows, latencies = reads.result(timeout=12)
                 neighbor_time = neighbor.result(timeout=12)
+                initial_time = initial.result(timeout=12)
                 assert not writer.done(), "Independent work completed only after Writer A resumed"
                 assert sorted(row["build_id"] for row in asyncio.run(discover("independent"))) == [neighbor_attempt]
+                assert {row["document_id"] for row in asyncio.run(discover("induction"))} == {initial_document}
                 assert generation.generation == saved_generation
                 first_row_id = str(next(row["source_row_id"] for row in partial_rows if row["build_id"] == attempt))
                 record_property("fresh_reads_during_partial_bulk_and_generation_lock", len(latencies))
                 record_property("fresh_read_max_seconds", round(max(latencies), 4))
                 record_property("same_document_neighbor_publication_seconds", round(neighbor_time, 4))
+                record_property("same_namespace_initial_publication_seconds", round(initial_time, 4))
             finally:
                 release_writer.set()
             with pytest.raises(InterruptedWrite):
@@ -383,6 +415,8 @@ def test_native_partial_enrichment_is_eligible_until_failed(
             additivepublication.AdditivePublication.fail(db, scope=scope, attemptId=attempt)
         assert {row["build_id"] for row in asyncio.run(discover("climate"))} == {baseline_build}
         assert native.countBuild(attempt) == 1
+        late_units = LexicalTransition._readNativeUnits(native, attempt)
+        assert len(late_units) == 1
 
         async def readRetained(identity: str) -> dict[str, Any] | None:
             async_engine = create_async_engine(get_contract_database_url())
@@ -399,6 +433,17 @@ def test_native_partial_enrichment_is_eligible_until_failed(
         assert additivepublication.AdditivePublication.cleanup(scope=scope, attemptId=attempt)
         assert native.countBuild(attempt) == 0
         assert native.countBuild(baseline_build) == 1
+
+        # An already accepted native request can arrive after immediate cleanup.
+        native.writeBuild(buildId=attempt, units=late_units)
+        assert native.countBuild(attempt) == 1
+        assert {row["build_id"] for row in asyncio.run(discover("climate"))} == {baseline_build}
+        with sessions.begin() as db:
+            failed_publication = db.get(DocumentEnrichmentPublication, attempt)
+            assert failed_publication and failed_publication.cleanup_after
+            failed_publication.cleanup_after = LexicalCoordination.getDatabaseTime(db)
+        assert AdditiveCleanup(sessions).run() == 1
+        assert native.countBuild(attempt) == 0
 
         registry_attempt = f"hot-registry-{suffix}"
         with sessions.begin() as db:
@@ -441,8 +486,6 @@ def test_native_partial_enrichment_is_eligible_until_failed(
         assert {row["build_id"] for row in before_rebuild} == {baseline_build, completed_attempt}
         assert native.deleteBuild(completed_attempt)
 
-        from shared.services.retrieval.lexical.transition import LexicalTransition, _Binding
-
         with sessions.begin() as db:
             control = LexicalCoordination.lockControl(db, isExclusive=True)
             control.mode = "gated"
@@ -458,6 +501,31 @@ def test_native_partial_enrichment_is_eligible_until_failed(
             (row["build_id"], row["source_row_id"], row["content"]) for row in before_rebuild
         }
         assert native.countBuild(attempt) == 0
+
+        async def archiveDocument() -> None:
+            async_engine = create_async_engine(get_contract_database_url())
+            try:
+                async with AsyncSession(async_engine, expire_on_commit=False) as db:
+                    archived = await DocumentService().archive_document(db, user_id=scope.user_id,
+                        document_id=scope.document_id)
+                    assert archived is not None and archived["status"] == "archived"
+            finally:
+                await async_engine.dispose()
+
+        asyncio.run(archiveDocument())
+        assert not asyncio.run(discover("climate"))
+        assert native.countBuild(baseline_build) == 1
+        assert native.countBuild(completed_attempt) == 1
+        assert asyncio.run(readRetained(first_row_id))
+        with sessions.begin() as db:
+            document = db.get(Document, scope.document_id)
+            assert document and document.index_cleanup_after is not None
+            document.index_cleanup_after = LexicalCoordination.getDatabaseTime(db)
+        assert AdditiveCleanup(sessions).run() == 1
+        assert native.countBuild(baseline_build) == 0
+        assert native.countBuild(completed_attempt) == 0
+        assert native.countBuild(neighbor_attempt) == 0
+        assert {row["document_id"] for row in asyncio.run(discover("induction"))} == {initial_document}
     finally:
         try:
             deleted = httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False)

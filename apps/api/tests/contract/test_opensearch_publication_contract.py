@@ -2779,3 +2779,62 @@ def test_parallel_document_refinements_rebase_the_published_manifest(
         native.close()
         response = httpx.delete(f"{_getNativeEndpoint()}/{native.manifestIndexName}", timeout=15, trust_env=False)
         assert response.status_code in (200, 404)
+
+
+def test_legacy_enrichment_exhausts_manifest_retries_when_namespace_keeps_advancing(
+    classicRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy.orm import sessionmaker
+
+    from shared.core.config import settings
+    from shared.models.database.document import Document
+    from shared.services.retrieval.lexical.manifest_publication import ManifestPublication, ManifestPublicationAdvanced, PreparedManifest
+    from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+    from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
+    from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.publication_models import DocumentPublicationScope
+    from shared.services.retrieval.publication_scope_content import replace_document_scope_content
+
+    engine, namespace = classicRuntime
+    sessions = sessionmaker(engine, expire_on_commit=False)
+    with sessions.begin() as db:
+        document = db.scalars(select(Document).where(Document.namespace == namespace)).one()
+        assert document.current_job_result_id
+    scope = DocumentPublicationScope(user_id=document.user_id, namespace=namespace,
+        document_id=document.document_id, job_result_id=document.current_job_result_id, source_file_name="report.pdf")
+    lexicalScope = LexicalScope(ownerId=document.user_id, namespace=namespace)
+    native = OpenSearchLexicalIndex(endpoint=_getNativeEndpoint(),
+        scope=lexicalScope,
+        indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX)
+    native.createManifestIndex()
+    monkeypatch.setattr(settings, "KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND", True)
+    original_prepare = ManifestPublication.prepare
+    displaced: list[str] = []
+
+    def prepareWithConcurrentActivation(self: ManifestPublication, **options: Any) -> PreparedManifest:
+        candidate = original_prepare(self, **options)
+        assert candidate
+        displaced.append(candidate.id)
+        self.seed(scope=lexicalScope, native=native)
+        return candidate
+
+    def update(db: Session, staged: DocumentPublicationScope) -> None:
+        replace_document_scope_content(db, scope=staged, scope_id="*", chunks=[{
+            "chunk_id": "legacy-candidate",
+            "type": "text",
+            "content": "Proposed enrichment while unrelated native publications are committing.",
+            "path": "report.pdf/Legacy",
+        }])
+
+    try:
+        monkeypatch.setattr(ManifestPublication, "prepare", prepareWithConcurrentActivation)
+        with pytest.raises(ManifestPublicationAdvanced, match="Namespace manifest kept advancing during refinement"):
+            ProgressivePublication(sessionFactory=sessions).publish(scope=scope, update=update)
+        assert len(displaced) == len(set(displaced)) == 8
+        with sessions.begin() as db:
+            retained = db.get(Document, document.document_id)
+            assert retained and retained.current_indexing_build_id == document.current_indexing_build_id
+    finally:
+        native.close()
+        response = httpx.delete(f"{_getNativeEndpoint()}/{native.manifestIndexName}", timeout=15, trust_env=False)
+        assert response.status_code in (200, 404)
