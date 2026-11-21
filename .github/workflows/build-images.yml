@@ -572,6 +572,7 @@ jobs:
           API_WEBHOOK_ENDPOINT: https://api-staging.knowhereto.ai/v1/internal/s3-events
           SNS_TOPIC_ARN: arn:aws:sns:us-east-1:107424103509:knowhere-staging-s3-events
           QSTASH_CALLBACK_BASE_URL: https://api-staging.knowhereto.ai/api/v1
+          QSTASH_BASE_URL: https://qstash-us-east-1.upstash.io
           KNOWHERE_HIPO_CALLBACK_ORIGIN: https://hipo-staging.vercel.app
           API_CPU: "256"
           API_MEMORY: "1024"
