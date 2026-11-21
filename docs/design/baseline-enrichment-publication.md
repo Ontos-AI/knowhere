@@ -838,9 +838,10 @@ both an existing Hipo job and a new Hipo job receive and handle a failure.
    enrichment retry method. Document the successor request for a private
    Reparse. Install the exact registry version in a clean
    environment, verify the package, then pin that version in Hipo and deploy
-   Hipo Web/API. Confirm the deployed callback understands both old deliveries
-   and the new attempt-failure event. During preparation, the new Hipo build
-   can still receive old job responses. After activation, acknowledge any
+   Hipo Web/API with `HIPO_KNOWHERE_BASELINE_PUBLICATION` disabled. Confirm the
+   deployed callback understands both old deliveries and the new attempt-failure
+   event. During preparation, the new Hipo build can still receive old job
+   responses. After activation, acknowledge any
    late old enrichment completion without copying a final snapshot. Verify MCP
    reads through the deployed Hipo application. If a Gateway release is
    required by the changed files, use its existing Web/API-first sequence.
@@ -851,8 +852,9 @@ both an existing Hipo job and a new Hipo job receive and handle a failure.
    passes its compatibility checks, drain in-flight
    legacy publications and fence queued legacy writers, finalizers, and
    maintenance from changing the new state. Switch Knowhere's reader and
-   publisher together. At activation, Hipo uses the new-document Reparse
-   request and stops initiating manual enrichment retries. Knowhere starts
+   publisher together, then enable `HIPO_KNOWHERE_BASELINE_PUBLICATION` before
+   resuming writes. Hipo uses the new-document Reparse request and stops
+   initiating manual enrichment retries. Knowhere starts
    new jobs with the single success outcome, enables the failure notification
    for updated subscribers, and ends the old private-update behavior and
    legacy completion milestones. Resume writes after a scoped smoke check.
