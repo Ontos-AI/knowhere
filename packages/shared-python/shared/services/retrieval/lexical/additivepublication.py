@@ -16,6 +16,7 @@ from shared.services.retrieval.lexical.error import LexicalIndexError
 from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
 from shared.services.retrieval.lexical.preparation import LexicalPreparation
 from shared.services.retrieval.lexical.scope import LexicalScope
+from shared.services.retrieval.lexical.unit import LexicalUnit
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.publication_scope_content import append_document_scope_content
 from shared.services.retrieval.scoring.knowhere_provider import SectionRow, UnitRow
@@ -50,11 +51,7 @@ class AdditivePublication:
         *, scope: DocumentPublicationScope, attemptId: str, assertOwned: Callable[[], None] | None = None,
     ) -> None:
         sessions = get_sync_session_factory()
-        sections, chunks = AdditivePublication._readBody(sessions, scope, attemptId)
-        payload = LexicalPreparation.prepare(documentId=scope.document_id, revisionId=scope.job_result_id,
-            sections=sections, chunks=chunks)
-        populated = {chunk.section_id for chunk in chunks}
-        units = tuple(unit for unit in payload.units if unit.sectionId in populated)
+        units = AdditivePublication._prepareUnits(sessions, scope, attemptId, state="writing")
         lexicalScope, native = AdditivePublication._native(scope)
         try:
             indexUuid, _ = LexicalCoordination(sessions).ensureIndex(scope=lexicalScope, native=native)
@@ -150,12 +147,39 @@ class AdditivePublication:
         )) is not None
 
     @staticmethod
+    def preparePublishedInputs(
+        sessions: sessionmaker[Session], *, scope: DocumentPublicationScope,
+    ) -> tuple[tuple[str, tuple[LexicalUnit, ...]], ...]:
+        """Reconstruct completed publications from their retained, exact bodies."""
+        with sessions.begin() as db:
+            if not AdditivePublication._isCurrent(db, scope):
+                return ()
+            publication = DocumentEnrichmentPublication
+            attempts = tuple(db.scalars(select(publication.id).where(
+                publication.document_id == scope.document_id, publication.job_result_id == scope.job_result_id,
+                publication.user_id == scope.user_id, publication.namespace == scope.namespace,
+                publication.state == "published",
+            ).order_by(publication.id)))
+        return tuple((identity, AdditivePublication._prepareUnits(sessions, scope, identity, state="published"))
+            for identity in attempts)
+
+    @staticmethod
+    def _prepareUnits(
+        sessions: sessionmaker[Session], scope: DocumentPublicationScope, attemptId: str, *, state: str,
+    ) -> tuple[LexicalUnit, ...]:
+        sections, chunks = AdditivePublication._readBody(sessions, scope, attemptId, state=state)
+        payload = LexicalPreparation.prepare(documentId=scope.document_id, revisionId=scope.job_result_id,
+            sections=sections, chunks=chunks)
+        populated = {chunk.section_id for chunk in chunks}
+        return tuple(unit for unit in payload.units if unit.sectionId in populated)
+
+    @staticmethod
     def _readBody(
-        sessions: sessionmaker[Session], scope: DocumentPublicationScope, attemptId: str,
+        sessions: sessionmaker[Session], scope: DocumentPublicationScope, attemptId: str, *, state: str,
     ) -> tuple[tuple[SectionRow, ...], tuple[UnitRow, ...]]:
         with sessions.begin() as db:
             publication = AdditivePublication._load(db, scope, attemptId)
-            if publication is None or publication.state != "writing" or not AdditivePublication._isCurrent(db, scope):
+            if publication is None or publication.state != state or not AdditivePublication._isCurrent(db, scope):
                 raise LexicalIndexError("Enrichment has no eligible stored body")
             chunk = DocumentChunk
             section = DocumentSection

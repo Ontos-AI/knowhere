@@ -105,7 +105,8 @@ class DocumentRepository:
             .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
             .where(JobResult.document_id == corpusStorage.Document.document_id)
             .where(Job.user_id == user_id)
-            .where(corpusStorage.Document.status != "archived")
+            .where((corpusStorage.Document.status != "archived")
+                if job_result_id is None or not AdditiveVisibility.isEnabled("default") else true())
             .limit(1)
         )
 

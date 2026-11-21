@@ -71,17 +71,23 @@ class AdditiveVisibility:
     async def loadRows(
         db: AsyncSession, *, scope: LexicalScope, hits: tuple[LexicalHit, ...] = (),
         chunkTargets: tuple[tuple[str, str, str, str], ...] = (),
+        baselineTargets: tuple[tuple[str, str, str], ...] = (),
     ) -> list[dict[str, Any]]:
-        if not hits and not chunkTargets:
+        if not hits and not chunkTargets and not baselineTargets:
             return []
         chunk = DocumentChunk
         publication = DocumentEnrichmentPublication
         build = func.coalesce(chunk.enrichment_attempt_id, Document.current_indexing_build_id)
-        keys = tuple_(
-            chunk.document_id, chunk.job_result_id, build, chunk.section_id if hits else chunk.chunk_id,
-        )
-        targets = (tuple((hit.unit.documentId, hit.unit.revisionId, hit.buildId, hit.unit.sectionId) for hit in hits)
-            if hits else chunkTargets)
+        if baselineTargets:
+            matches = and_(chunk.enrichment_attempt_id.is_(None),
+                tuple_(chunk.document_id, chunk.job_result_id, chunk.chunk_id).in_(baselineTargets))
+        else:
+            keys = tuple_(
+                chunk.document_id, chunk.job_result_id, build, chunk.section_id if hits else chunk.chunk_id,
+            )
+            targets = (tuple((hit.unit.documentId, hit.unit.revisionId, hit.buildId, hit.unit.sectionId) for hit in hits)
+                if hits else chunkTargets)
+            matches = keys.in_(targets)
         output = await db.execute(select(
             chunk, DocumentSection.section_path, Document.source_file_name, JobResult.job_id,
             JobResult.document_metadata["result_raw_prefix"].as_string(), build,
@@ -93,7 +99,7 @@ class AdditiveVisibility:
             .outerjoin(publication, publication.id == chunk.enrichment_attempt_id)
             .where(
                 Document.user_id == scope.ownerId, Document.namespace == scope.namespace, Document.status == "active",
-                keys.in_(targets),
+                matches,
                 or_(chunk.enrichment_attempt_id.is_(None), publication.state.in_(("writing", "published"))),
             ).order_by(chunk.sort_order, chunk.chunk_id, chunk.id))
         return [

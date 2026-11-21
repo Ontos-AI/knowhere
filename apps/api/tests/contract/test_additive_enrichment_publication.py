@@ -66,10 +66,16 @@ def test_same_source_path_keeps_independent_chunk_bodies(
                 user_id=scope.user_id, namespace=scope.namespace, job_result_id=scope.job_result_id,
                 source_chunk_path=path, content="Baseline spans original pages 1 through 3.",
             ))
+            db.add(DocumentChunk(
+                id="original-recording-row", chunk_id="original-recording", document_id=scope.document_id,
+                user_id=scope.user_id, namespace=scope.namespace, job_result_id=scope.job_result_id,
+                source_chunk_path="same-file.pdf/Recording", chunk_type="audio", content="Original recording",
+                file_path="embedded_media/recording.m4a",
+            ))
             db.flush()
             payload: list[dict[str, Any]] = [{
                 "chunk_id": "fine", "path": path, "type": "page", "content": "Enriched page 1.",
-                "metadata": {"page_nums": [1]},
+                "metadata": {"page_nums": [1], "connect_to": [{"target": "original-recording", "relation": "embeds"}]},
             }]
             AdditivePublication.storeBody(db, scope=scope, scopeId="p1-3", attemptId="attempt-one",
                 chunks=payload, rawPrefix="retained/enrichment")
@@ -82,7 +88,8 @@ def test_same_source_path_keeps_independent_chunk_bodies(
             AdditivePublication.fail(db, scope=scope, attemptId="attempt-one")
             AdditivePublication.storeBody(db, scope=scope, scopeId="p1-3", attemptId="attempt-two",
                 chunks=[{**payload[0], "content": "Replacement enrichment."}])
-            bodies = db.scalars(select(DocumentChunk).where(DocumentChunk.document_id == scope.document_id)).all()
+            bodies = db.scalars(select(DocumentChunk).where(DocumentChunk.document_id == scope.document_id,
+                DocumentChunk.chunk_type != "audio")).all()
             assert {row.enrichment_attempt_id: row.content for row in bodies} == {
                 None: "Baseline spans original pages 1 through 3.",
                 "attempt-one": "Enriched page 1.",
@@ -94,6 +101,20 @@ def test_same_source_path_keeps_independent_chunk_bodies(
             retained_id = next(row.id for row in bodies if row.enrichment_attempt_id == "attempt-one")
             assert stored.state == "failed"
             assert not AdditivePublication.complete(db, scope=scope, attemptId="attempt-one")
+        from sqlalchemy.orm import sessionmaker
+
+        sessions = sessionmaker(engine)
+        with sessions.begin() as db:
+            completed = db.get(DocumentEnrichmentPublication, "attempt-two")
+            assert completed is not None
+            completed.expected_index_count = 1
+            assert AdditivePublication.complete(db, scope=scope, attemptId="attempt-two")
+        retained_inputs = AdditivePublication.preparePublishedInputs(sessions, scope=scope)
+        assert len(retained_inputs) == 1
+        identity, units = retained_inputs[0]
+        assert identity == "attempt-two"
+        assert len(units) == 1 and units[0].sectionPath == "Heading"
+
         async def assert_candidates() -> None:
             from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
             from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
@@ -112,7 +133,17 @@ def test_same_source_path_keeps_independent_chunk_bodies(
                     repository = DocumentRepository()
                     assert await repository.count_current_document_chunks(
                         db, document_id=scope.document_id, job_result_id=scope.job_result_id,
-                    ) == 2
+                    ) == 3
+                    from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
+                    from shared.services.retrieval.lexical.hit import LexicalHit
+                    enriched = await AdditiveVisibility.loadRows(db, scope=lexical_scope, hits=(
+                        LexicalHit(buildId=identity, unit=units[0], score=1.0),
+                    ))
+                    connected = await hydrate_connected_target_rows(db=db, rows=enriched,
+                        exclude_document_ids=[], exclude_sections=[], lexicalScope=lexical_scope)
+                    assert [(row["chunk_id"], row["source_row_id"], row["build_id"]) for row in connected] == [
+                        ("original-recording", "original-recording-row", "attempt-two"),
+                    ]
                 from app.services.documents.lifecycle_service import DocumentService
                 from shared.services.retrieval.hydration.reference import hydrate_referenced_chunk_rows
 
@@ -274,6 +305,40 @@ def test_native_partial_enrichment_is_eligible_until_failed(
         assert additivepublication.AdditivePublication.cleanup(scope=scope, attemptId=attempt)
         assert native.countBuild(attempt) == 0
         assert native.countBuild(baseline_build) == 1
+
+        completed_attempt = f"completed-{suffix}"
+        with sessions.begin() as db:
+            additivepublication.AdditivePublication.storeBody(db, scope=scope, scopeId="p1-2",
+                attemptId=completed_attempt, chunks=[{
+                    "chunk_id": "main", "type": "page", "path": "chapter.pdf/Main",
+                    "content": "Climate results from both original pages.",
+                    "metadata": {"page_nums": [1, 2], "searchable_page_nums": [1, 2]},
+                }])
+        additivepublication.AdditivePublication.writeIndex(scope=scope, attemptId=completed_attempt)
+        assert additivepublication.AdditivePublication.hasCompleteIndex(scope=scope, attemptId=completed_attempt)
+        with sessions.begin() as db:
+            assert additivepublication.AdditivePublication.complete(db, scope=scope, attemptId=completed_attempt)
+        before_rebuild = asyncio.run(discover("climate"))
+        assert {row["build_id"] for row in before_rebuild} == {baseline_build, completed_attempt}
+        assert native.deleteBuild(completed_attempt)
+
+        from shared.services.retrieval.lexical.transition import LexicalTransition, _Binding
+
+        with sessions.begin() as db:
+            control = LexicalCoordination.lockControl(db, isExclusive=True)
+            control.mode = "gated"
+            epoch = control.epoch
+        transition = LexicalTransition(sessionFactory=sessions)
+        binding = _Binding("private", scope.user_id, scope.namespace, scope.document_id,
+            scope.job_result_id, fixture.job_ref, None, None, None, baseline_build)
+        transition._restoreEnrichmentRecords(binding, epoch, native)
+        with sessions.begin() as db:
+            LexicalCoordination.lockControl(db, isExclusive=True, requiresServing=False).mode = "serving"
+        after_rebuild = asyncio.run(discover("climate"))
+        assert {(row["build_id"], row["source_row_id"], row["content"]) for row in after_rebuild} == {
+            (row["build_id"], row["source_row_id"], row["content"]) for row in before_rebuild
+        }
+        assert native.countBuild(attempt) == 0
     finally:
         try:
             deleted = httpx.delete(f"{endpoint}/{native.indexName}", timeout=15, trust_env=False)

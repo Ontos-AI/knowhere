@@ -25,6 +25,7 @@ from shared.models.database.lexicalcontrol import LexicalBackendControl
 from shared.models.database.lexicallease import LexicalLease
 from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.lexical.additivepublication import AdditivePublication
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
 from shared.services.retrieval.lexical.deadline import IndexingDeadline
 from shared.services.retrieval.lexical.error import LexicalIndexError
@@ -40,6 +41,7 @@ from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.lexical.settlement import IndexingSettlement
 from shared.services.retrieval.lexical.storage import LexicalInputStorage
 from shared.services.retrieval.lexical.unit import LexicalUnit
+from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.scoring.knowhere_hybrid import (
     MAP_UNIT_INDEX_FORMAT_VERSION,
 )
@@ -1108,6 +1110,7 @@ class LexicalTransition:
         *,
         allowOpen: bool = False,
         epoch: int | None = None,
+        verifyEnrichment: bool = True,
     ) -> dict[str, object]:
         buildId: str = self._findBuild(binding)
         native: OpenSearchLexicalIndex = self._createNative(binding.scope)
@@ -1180,7 +1183,13 @@ class LexicalTransition:
                 raise LexicalIndexError(
                     "Native exact unit/token/input coverage is incomplete"
                 )
+            enrichmentCount = 0
+            if verifyEnrichment:
+                for identity, units in self._loadEnrichmentInputs(binding):
+                    self._verifyEnrichmentRecords(native, identity, units)
+                    enrichmentCount += len(units)
             return {
+                "enrichmentUnitCount": enrichmentCount,
                 "documentId": binding.documentId,
                 "revisionId": binding.revisionId,
                 "corpusKind": binding.corpusKind,
@@ -1247,10 +1256,16 @@ class LexicalTransition:
     def _backfillNative(self, binding: _Binding, epoch: int) -> None:
         payload: LexicalInput = self._loadInput(binding)
         try:
-            self._verifyNative(binding, payload, allowOpen=True, epoch=epoch)
-            return
+            self._verifyNative(binding, payload, allowOpen=True, epoch=epoch, verifyEnrichment=False)
         except LexicalIndexError:
             pass
+        else:
+            native = self._createNative(binding.scope)
+            try:
+                self._restoreEnrichmentRecords(binding, epoch, native)
+            finally:
+                native.close()
+            return
         native: OpenSearchLexicalIndex = self._createNative(binding.scope)
         coordinator: LexicalCoordination = self._coordinator(epoch)
         buildId: str | None = None
@@ -1326,6 +1341,7 @@ class LexicalTransition:
                 units=payload.units,
                 beforeBatch=lambda: self._assertShadow(binding, epoch, buildId),
             )
+            self._restoreEnrichmentRecords(binding, epoch, native)
             actual: tuple[LexicalUnit, ...] = self._readNativeUnits(native, buildId)
             if {unit.unitId: unit for unit in actual} != {
                 unit.unitId: unit for unit in payload.units
@@ -1394,6 +1410,40 @@ class LexicalTransition:
             raise
         finally:
             native.close()
+
+    def _loadEnrichmentInputs(self, binding: _Binding) -> tuple[tuple[str, tuple[LexicalUnit, ...]], ...]:
+        if binding.scope.corpusKind != "private":
+            return ()
+        scope = DocumentPublicationScope(user_id=binding.scope.ownerId, namespace=binding.scope.namespace,
+            document_id=binding.documentId, job_result_id=binding.revisionId, source_file_name="")
+        return AdditivePublication.preparePublishedInputs(self.sessions, scope=scope)
+
+    @classmethod
+    def _verifyEnrichmentRecords(
+        cls, native: OpenSearchLexicalIndex, identity: str, units: tuple[LexicalUnit, ...],
+    ) -> None:
+        actual = cls._readNativeUnits(native, identity)
+        if len(actual) != len(units) or {unit.unitId: unit for unit in actual} != {unit.unitId: unit for unit in units}:
+            raise LexicalIndexError("Native exact enrichment coverage is incomplete")
+
+    def _restoreEnrichmentRecords(
+        self, binding: _Binding, epoch: int, native: OpenSearchLexicalIndex,
+    ) -> None:
+        def assertOwned() -> None:
+            with self.sessions.begin() as db:
+                control = self._getControl(db, expectedEpoch=epoch)
+                if not (control.mode == "gated" or (control.mode == "serving" and control.backend == "postgresql")):
+                    raise LexicalIndexError("Native enrichment rebuild lost its operator epoch")
+                if self._getCurrentBinding(db, binding) != binding:
+                    raise LexicalIndexError("Native enrichment rebuild lost its current revision")
+
+        for identity, units in self._loadEnrichmentInputs(binding):
+            try:
+                self._verifyEnrichmentRecords(native, identity, units)
+            except LexicalIndexError:
+                assertOwned()
+                native.writeBuild(buildId=identity, units=units, beforeBatch=assertOwned)
+                self._verifyEnrichmentRecords(native, identity, units)
 
     def _assertShadow(self, binding: _Binding, epoch: int, buildId: str) -> None:
         with self.sessions.begin() as db:

@@ -76,6 +76,18 @@ async def _hydrateAdditiveTargets(
         if (row["build_id"], target) not in existing
     }
     found = await AdditiveVisibility.loadRows(db, scope=scope, chunkTargets=tuple(targets))
+    matched = {(row["document_id"], row["job_result_id"], row["build_id"], row["chunk_id"]) for row in found}
+    attempts = {str(row["build_id"]) for row in rows if row.get("enrichment_attempt_id")}
+    fallback = {key for key in targets - matched if key[2] in attempts}
+    if fallback:
+        baseline = await AdditiveVisibility.loadRows(db, scope=scope,
+            baselineTargets=tuple({(doc, revision, target) for doc, revision, _, target in fallback}))
+        baselineById = {(row["document_id"], row["job_result_id"], row["chunk_id"]): row for row in baseline}
+        for doc, revision, build, target in sorted(fallback):
+            original = baselineById.get((doc, revision, target))
+            if original is not None:
+                # Shared original media remains addressable under its initial ID.
+                found.append({**original, "build_id": build})
     return [{**row, "score": 0.0} for row in found]
 
 
