@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from shared.services.retrieval.document_scope import DocumentScope
 
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -100,8 +101,7 @@ async def assemble_retrieval_results(
             if target_id in rows_by_build.get(build_id, {}):
                 embedded_targets.add((build_id, target_id))
 
-    assembled: list[dict[str, Any]] = []
-    emitted_media: set[tuple[str | None, str]] = set()
+    prepared: list[tuple[dict[str, Any], dict[str, Any], str, str | None]] = []
     for row in filtered_rows:
         build_id: str | None = row.get('build_id')
         if (build_id, row.get('chunk_id')) in embedded_targets:
@@ -130,11 +130,29 @@ async def assemble_retrieval_results(
         time_ranges = extract_time_ranges(assembled_row)
         if time_ranges is not None:
             assembled_row['time_ranges'] = time_ranges
-        assembled_row['composed'] = compose_evidence_parts(
-            assembled_row,
-            rows_by_build.get(build_id, {}),
-            queried_tables=queried_tables,
+        prepared.append((assembled_row, row, chunk_type, build_id))
+
+    # Composing evidence downloads table HTML and image bytes from object
+    # storage with blocking calls; worker threads keep them off the event loop
+    # so concurrent requests are not stalled, and let rows download together.
+    composed_parts = await asyncio.gather(
+        *(
+            asyncio.to_thread(
+                compose_evidence_parts,
+                assembled_row,
+                rows_by_build.get(build_id, {}),
+                queried_tables=queried_tables,
+            )
+            for assembled_row, _row, _chunk_type, build_id in prepared
         )
+    )
+
+    assembled: list[dict[str, Any]] = []
+    emitted_media: set[tuple[str | None, str]] = set()
+    for (assembled_row, row, chunk_type, build_id), composed in zip(
+        prepared, composed_parts, strict=True
+    ):
+        assembled_row['composed'] = composed
         if (
             chunk_type == 'page'
             and assembled_row.get('content_source') == 'summary'
