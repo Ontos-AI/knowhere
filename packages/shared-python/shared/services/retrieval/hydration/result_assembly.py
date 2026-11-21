@@ -70,7 +70,6 @@ async def assemble_retrieval_results(
     allowed_chunk_types: set[str] | None = None,
     revision_pins: Mapping[str, str] | None = None,
     queried_tables: Mapping[tuple[str, str], str] | None = None,
-    skip_locked_chunk_final: bool = False,
     loaded_rows: RetrievalResultRows | None = None,
 ) -> list[dict[str, Any]]:
     if loaded_rows is None:
@@ -176,9 +175,7 @@ async def assemble_retrieval_results(
             promote_scopes_on_read,
         )
 
-        await promote_scopes_on_read(
-            db, assembled, skip_locked_chunk_final=skip_locked_chunk_final
-        )
+        await promote_scopes_on_read(db, assembled, skip_locked_chunk_final=True)
     return assembled
 
 

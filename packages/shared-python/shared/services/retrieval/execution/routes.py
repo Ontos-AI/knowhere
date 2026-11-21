@@ -359,7 +359,6 @@ async def _finish_classic_route(
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
         revision_pins=context.revision_pins,
-        skip_locked_chunk_final=True,
         loaded_rows=loaded_rows,
     )
     response = {
