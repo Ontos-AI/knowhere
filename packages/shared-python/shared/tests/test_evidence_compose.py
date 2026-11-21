@@ -1,20 +1,26 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import os
+import threading
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
 os.environ.setdefault("S3_BUCKET_NAME", "test-uploads")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
+from pathlib import Path
+
 import pytest
 
+from shared.services.retrieval.hydration import evidence_compose
 from shared.services.retrieval.hydration.evidence_compose import (
     compose_evidence_parts,
     group_evidence_units,
 )
 from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
+from shared.services.retrieval.hydration.table_grid import load_table_html
 
 
 def test_page_parts_are_summary_then_page_image(monkeypatch) -> None:
@@ -239,6 +245,103 @@ async def test_assemble_coarse_page_shrinks_to_matched_pages() -> None:
     assert [item["page_num"] for item in assembled[0]["chunk_metadata"]["page_assets"]] == [
         141
     ]
+
+
+@pytest.mark.asyncio
+async def test_assemble_downloads_evidence_without_blocking_the_event_loop(
+    monkeypatch,
+) -> None:
+    # A download only finishes once the event loop runs the releaser, so it
+    # times out if assembly downloads on the loop itself.
+    download_started = threading.Event()
+    release = threading.Event()
+    released: list[bool] = []
+
+    def blocking_read(row, artifact, media_type):
+        download_started.set()
+        released.append(release.wait(timeout=5))
+        return {"type": "image", "media_type": media_type, "data": artifact}
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.evidence_compose._try_read_image_artifact",
+        blocking_read,
+    )
+
+    async def release_after_first_download() -> None:
+        await asyncio.to_thread(download_started.wait, 5)
+        release.set()
+
+    def page_row(chunk_id: str, page: int) -> dict:
+        return {
+            "chunk_id": chunk_id,
+            "chunk_type": "page",
+            "content": f"page {page}",
+            "chunk_metadata": {
+                "enrichment_state": "refined",
+                "page_nums": [page],
+                "page_assets": [{"page_num": page, "artifact_ref": f"p{page}.png"}],
+            },
+        }
+
+    assembled, _ = await asyncio.gather(
+        assemble_retrieval_results(
+            rows=[page_row("c1", 1), page_row("c2", 2)],
+            exclude_document_ids=[],
+            exclude_sections=[],
+        ),
+        release_after_first_download(),
+    )
+
+    assert released == [True, True]
+    assert [row["chunk_id"] for row in assembled] == ["c1", "c2"]
+    assert [
+        [part["data"] for part in row["composed"] if part["type"] == "image"]
+        for row in assembled
+    ] == [["p1.png"], ["p2.png"]]
+
+
+class _TempFileStorage:
+    """Writes each download to a file in the caller's temp directory."""
+
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+        self.paths: list[Path] = []
+
+    def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None:
+        return artifact_ref
+
+    def download_raw_to_temp(self, *, suffix: str, temp_dir: str, **_: object) -> str:
+        path = Path(temp_dir) / f"download{suffix}"
+        path.write_bytes(self.body)
+        self.paths.append(path)
+        return str(path)
+
+
+def test_image_download_leaves_no_temp_file(monkeypatch) -> None:
+    storage = _TempFileStorage(b"page image")
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.evidence_compose.get_result_storage",
+        lambda: storage,
+    )
+    image = evidence_compose._try_read_image_artifact(
+        {"job_id": "job-1"}, "page-1.png", media_type="image/png"
+    )
+    assert image is not None
+    assert base64.b64decode(image["data"]) == b"page image"
+    assert len(storage.paths) == 1
+    assert not storage.paths[0].parent.exists()
+
+
+def test_table_download_leaves_no_temp_file(monkeypatch) -> None:
+    storage = _TempFileStorage(b"<table><tr><td>1</td></tr></table>")
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.table_grid.get_result_storage",
+        lambda: storage,
+    )
+    html = load_table_html({"job_id": "job-1", "file_path": "tables/t1.html"})
+    assert html == "<table><tr><td>1</td></tr></table>"
+    assert len(storage.paths) == 1
+    assert not storage.paths[0].parent.exists()
 
 
 @pytest.mark.asyncio

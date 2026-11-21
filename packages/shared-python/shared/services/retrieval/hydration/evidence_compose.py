@@ -455,14 +455,16 @@ def _try_read_image_artifact(
         _warn_skipped(row, "image", "missing artifact")
         return None
     try:
-        temp_path = storage.download_raw_to_temp(
-            **resolve_artifact_raw_prefix(row, normalized, storage=storage),
-            job_id=job_id,
-            relative_path=normalized,
-            suffix=Path(normalized).suffix or ".bin",
-            temp_dir=tempfile.gettempdir(),
-        )
-        body = Path(temp_path).read_bytes()
+        # The download lands in a directory removed once the bytes are read.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = storage.download_raw_to_temp(
+                **resolve_artifact_raw_prefix(row, normalized, storage=storage),
+                job_id=job_id,
+                relative_path=normalized,
+                suffix=Path(normalized).suffix or ".bin",
+                temp_dir=temp_dir,
+            )
+            body = Path(temp_path).read_bytes()
     except Exception as exc:
         _warn_skipped(row, "image", str(exc))
         return None
