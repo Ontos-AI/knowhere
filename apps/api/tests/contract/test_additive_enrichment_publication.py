@@ -214,9 +214,12 @@ def test_same_source_path_keeps_independent_chunk_bodies(
 
 
 def test_native_partial_enrichment_is_eligible_until_failed(
-    monkeypatch: Any, postgresql_proc: PostgreSQLProcess,
+    monkeypatch: Any, postgresql_proc: PostgreSQLProcess, record_property: Any,
 ) -> None:
+    from concurrent.futures import ThreadPoolExecutor
     import os
+    from threading import Event
+    from time import monotonic
     from uuid import uuid4
 
     import httpx
@@ -237,9 +240,12 @@ def test_native_partial_enrichment_is_eligible_until_failed(
     from shared.services.retrieval.lexical import additivepublication
     from shared.services.retrieval.lexical.coordination import LexicalCoordination
     from shared.services.retrieval.lexical.discovery import discoverOpenSearch
+    from shared.services.retrieval.lexical.error import LexicalIndexError
+    from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
     from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
     from shared.services.retrieval.lexical.scope import LexicalScope
     from shared.services.retrieval.lexical.unit import LexicalUnit
+    from shared.services.retrieval.serving_generation import lock_namespace_generation
 
     monkeypatch.setitem(settings.__dict__, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
     monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
@@ -279,21 +285,48 @@ def test_native_partial_enrichment_is_eligible_until_failed(
         pass
 
     callbacks = 0
-    first_row_id: str | None = None
+    writer_paused = Event()
+    release_writer = Event()
+    neighbor_attempt = f"neighbor-{suffix}"
 
     def pauseAfterFirstBatch() -> None:
-        nonlocal callbacks, first_row_id
+        nonlocal callbacks
         callbacks += 1
         if callbacks != 3:
             return
-        rows = asyncio.run(discover("climate"))
-        assert {row["build_id"] for row in rows} == {baseline_build, attempt}
-        fine = [row for row in rows if row["build_id"] == attempt]
-        assert len(fine) == 1
-        assert fine[0]["section_path"] in {"Main", "Secondary"}
-        first_row_id = fine[0]["source_row_id"]
-        assert native.countBuild(attempt) == 1
+        writer_paused.set()
+        if not release_writer.wait(25):
+            raise TimeoutError("Partial writer was never released by the test")
         raise InterruptedWrite()
+
+    def publishNeighbor() -> float:
+        start = monotonic()
+        with sessions.begin() as db:
+            additivepublication.AdditivePublication.storeBody(db, scope=scope, scopeId="p3-4",
+                attemptId=neighbor_attempt, chunks=[{
+                    "chunk_id": "neighbor", "type": "page", "path": "chapter.pdf/Independent",
+                    "content": "Independent sibling chapter under the same document",
+                    "metadata": {"page_nums": [3, 4]},
+                }])
+        additivepublication.AdditivePublication.writeIndex(scope=scope, attemptId=neighbor_attempt)
+        with sessions.begin() as db:
+            assert additivepublication.AdditivePublication.complete(db, scope=scope, attemptId=neighbor_attempt)
+        return monotonic() - start
+
+    async def repeatFreshReads() -> tuple[list[dict[str, Any]], list[float]]:
+        semaphore = asyncio.Semaphore(4)
+
+        async def read_once() -> tuple[list[dict[str, Any]], float]:
+            async with semaphore:
+                start = monotonic()
+                rows = await discover("climate")
+                return rows, monotonic() - start
+
+        read_windows = await asyncio.gather(*(read_once() for _ in range(12)))
+        for rows, _ in read_windows:
+            assert {row["build_id"] for row in rows} == {baseline_build, attempt}
+            assert len([row for row in rows if row["build_id"] == attempt]) == 1
+        return read_windows[0][0], [duration for _, duration in read_windows]
 
     try:
         LexicalCoordination(sessions).ensureIndex(scope=native_scope, native=native)
@@ -319,9 +352,32 @@ def test_native_partial_enrichment_is_eligible_until_failed(
             documentId=scope.document_id, revisionId=scope.job_result_id, sectionId=section_id,
             unitId=section_id, sectionPath="Main", contentTokens="climate chapter baseline",
         ),))
-        with pytest.raises(InterruptedWrite):
-            additivepublication.AdditivePublication.writeIndex(scope=scope, attemptId=attempt, assertOwned=pauseAfterFirstBatch)
-        assert first_row_id is not None
+        with sessions.begin() as db:
+            saved_generation = lock_namespace_generation(db, user_id=scope.user_id, namespace=scope.namespace).generation
+        with ThreadPoolExecutor(max_workers=3) as executor, sessions.begin() as hold:
+            generation = lock_namespace_generation(hold, user_id=scope.user_id, namespace=scope.namespace)
+            writer = executor.submit(additivepublication.AdditivePublication.writeIndex, scope=scope,
+                attemptId=attempt, assertOwned=pauseAfterFirstBatch)
+            try:
+                assert writer_paused.wait(15), "Writer A did not put its first batch on the network"
+                assert native.countBuild(attempt) == 1
+                reads = executor.submit(asyncio.run, repeatFreshReads())
+                neighbor = executor.submit(publishNeighbor)
+                partial_rows, latencies = reads.result(timeout=12)
+                neighbor_time = neighbor.result(timeout=12)
+                assert not writer.done(), "Independent work completed only after Writer A resumed"
+                assert sorted(row["build_id"] for row in asyncio.run(discover("independent"))) == [neighbor_attempt]
+                assert generation.generation == saved_generation
+                first_row_id = str(next(row["source_row_id"] for row in partial_rows if row["build_id"] == attempt))
+                record_property("fresh_reads_during_partial_bulk_and_generation_lock", len(latencies))
+                record_property("fresh_read_max_seconds", round(max(latencies), 4))
+                record_property("same_document_neighbor_publication_seconds", round(neighbor_time, 4))
+            finally:
+                release_writer.set()
+            with pytest.raises(InterruptedWrite):
+                writer.result(timeout=12)
+        with sessions.begin() as db:
+            assert lock_namespace_generation(db, user_id=scope.user_id, namespace=scope.namespace).generation == saved_generation
         assert not additivepublication.AdditivePublication.hasCompleteIndex(scope=scope, attemptId=attempt)
         with sessions.begin() as db:
             additivepublication.AdditivePublication.fail(db, scope=scope, attemptId=attempt)
@@ -343,6 +399,31 @@ def test_native_partial_enrichment_is_eligible_until_failed(
         assert additivepublication.AdditivePublication.cleanup(scope=scope, attemptId=attempt)
         assert native.countBuild(attempt) == 0
         assert native.countBuild(baseline_build) == 1
+
+        registry_attempt = f"hot-registry-{suffix}"
+        with sessions.begin() as db:
+            additivepublication.AdditivePublication.storeBody(db, scope=scope, scopeId="p5-6",
+                attemptId=registry_attempt, chunks=[{
+                    "chunk_id": "hot", "type": "page", "path": "chapter.pdf/Uncontended",
+                    "content": "Uncontended page discovery during a registry transaction",
+                    "metadata": {"page_nums": [5, 6]},
+                }])
+        with ThreadPoolExecutor(max_workers=2) as executor, sessions.begin() as hold:
+            held = hold.scalar(select(LexicalNamespaceIndex.id).where(
+                LexicalNamespaceIndex.id == native_scope.fingerprint).with_for_update())
+            assert held == native_scope.fingerprint
+            legacy_started = monotonic()
+            legacy = executor.submit(LexicalCoordination(sessions).ensureIndex, scope=native_scope, native=native)
+            hot = executor.submit(additivepublication.AdditivePublication.writeIndex, scope=scope, attemptId=registry_attempt)
+            hot.result(timeout=4)
+            record_property("additive_publication_under_registry_lock_seconds", round(monotonic() - legacy_started, 4))
+            assert not legacy.done()
+            with pytest.raises(LexicalIndexError, match="Native index admission timed out"):
+                legacy.result(timeout=8)
+            record_property("legacy_registry_timeout_seconds", round(monotonic() - legacy_started, 4))
+            with sessions.begin() as db:
+                assert additivepublication.AdditivePublication.complete(db, scope=scope, attemptId=registry_attempt)
+            assert {row["build_id"] for row in asyncio.run(discover("uncontended"))} == {registry_attempt}
 
         completed_attempt = f"completed-{suffix}"
         with sessions.begin() as db:

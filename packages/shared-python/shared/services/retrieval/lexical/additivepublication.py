@@ -10,6 +10,8 @@ from shared.core.config import settings
 from shared.core.database_sync import get_sync_session_factory
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.document_enrichment_publication import DocumentEnrichmentPublication
+from shared.models.database.lexicalcontrol import LexicalBackendControl
+from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
 from shared.services.retrieval.lexical.additivecleanup import NATIVE_WRITE_SETTLEMENT
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
 from shared.services.retrieval.lexical.error import LexicalIndexError
@@ -54,7 +56,9 @@ class AdditivePublication:
         units = AdditivePublication._prepareUnits(sessions, scope, attemptId, state="writing")
         lexicalScope, native = AdditivePublication._native(scope)
         try:
-            indexUuid, _ = LexicalCoordination(sessions).ensureIndex(scope=lexicalScope, native=native)
+            indexUuid, epoch = LexicalCoordination(sessions).ensureIndex(
+                scope=lexicalScope, native=native, updateWarmIndexRecency=False,
+            )
             with sessions.begin() as db:
                 publication = AdditivePublication._load(db, scope, attemptId, lock=True)
                 if publication is None or publication.state != "writing" or not AdditivePublication._isCurrent(db, scope):
@@ -71,6 +75,14 @@ class AdditivePublication:
                     publication = AdditivePublication._load(db, scope, attemptId)
                     if publication is None or publication.state != "writing" or not AdditivePublication._isCurrent(db, scope):
                         raise LexicalIndexError("Enrichment attempt lost write authority")
+                    control = db.get(LexicalBackendControl, 1)
+                    registry = db.get(LexicalNamespaceIndex, lexicalScope.fingerprint)
+                    if (
+                        control is None or control.epoch != epoch or control.mode != "serving"
+                        or control.backend != "opensearch" or registry is None
+                        or registry.state != "open" or registry.indexUuid != indexUuid
+                    ):
+                        raise LexicalIndexError("Enrichment lost its native index or serving epoch", isRetryable=True)
 
             checkOwnership()
             native.writeBuild(buildId=attemptId, units=units, beforeBatch=checkOwnership)

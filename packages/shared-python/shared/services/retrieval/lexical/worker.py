@@ -138,7 +138,11 @@ class IndexingWorker:
                     deadline=self._deadline,
                 )
                 self._deadline.getRemainingSeconds()
-                indexUuid, epoch = self.coordination.ensureIndex(scope=context.scope, native=native)
+                warmIndexOptions = ({"updateWarmIndexRecency": False}
+                    if AdditiveVisibility.isEnabled(context.scope.namespace) else {})
+                indexUuid, epoch = self.coordination.ensureIndex(
+                    scope=context.scope, native=native, **warmIndexOptions,
+                )
                 claim = self._claim(context, ownerToken=ownerToken, indexUuid=indexUuid, epoch=epoch)
                 if claim is None:
                     raise LexicalIndexError("Indexing execution lost admission authority")

@@ -68,7 +68,11 @@ class AsyncIndexingWorker:
                     scope=context.scope, indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX,
                     maximumBulkBytes=settings.KNOWHERE_OPENSEARCH_BULK_MAXIMUM_BYTES, deadline=self.deadline)
                 coordination: AsyncLexicalCoordination = AsyncLexicalCoordination(self.database, executionDeadline=self.deadline)
-                indexUuid, epoch = await coordination.ensureIndex(scope=context.scope, native=native)
+                warmIndexOptions = ({"updateWarmIndexRecency": False}
+                    if AdditiveVisibility.isEnabled(context.scope.namespace) else {})
+                indexUuid, epoch = await coordination.ensureIndex(
+                    scope=context.scope, native=native, **warmIndexOptions,
+                )
                 claim = await self.database.run(partial(self.repository._claim, context,
                     ownerToken=ownerToken, indexUuid=indexUuid, epoch=epoch))
                 if claim is None:
