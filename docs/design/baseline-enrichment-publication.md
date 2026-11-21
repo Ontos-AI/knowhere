@@ -387,29 +387,19 @@ broker redelivery and interrupted-claim resolution in recovery.
 [Current retrieval handoff](https://github.com/Ontos-AI/knowhere/blob/51112729e6d1f596f95d4eaf306080b69796722a/packages/shared-python/shared/services/jobs/lifecycle/scope_enrichments.py#L514-L566),
 [current failed-scope sweep](https://github.com/Ontos-AI/knowhere/blob/51112729e6d1f596f95d4eaf306080b69796722a/packages/shared-python/shared/services/jobs/lifecycle/scope_enrichments.py#L764-L811)
 
-Report each recorded attempt failure to Hipo through the nonterminal
-`job.enrichment.failed` event. The current
-[Knowhere event schema](https://github.com/Ontos-AI/knowhere/blob/51112729e6d1f596f95d4eaf306080b69796722a/packages/shared-python/shared/models/schemas/job.py#L15-L22)
-and [Hipo callback](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/app/api/internal/webhooks/knowhere/parse/route.ts#L14-L47)
-have ingestion failure and enrichment completion events. Use the existing
-authenticated webhook delivery and outbox with an identity per failed
-attempt. The [outbox](https://github.com/Ontos-AI/knowhere/blob/51112729e6d1f596f95d4eaf306080b69796722a/packages/shared-python/shared/services/jobs/lifecycle/webhook_outbox.py#L37-L70)
-currently deduplicates most events by job and event type. Record the
-notification with the attempt's failure transition. Include the job,
-document, unit, attempt, error code, and remaining retry eligibility. Hipo
-records the failure for handling and deduplicates callback redelivery.
-Preserve Parsing Complete, the current snapshot, and normal search access.
-The callback does not enqueue enrichment.
+Knowhere records each failed attempt and controls cleanup and retry eligibility.
+Jobs that explicitly subscribe to `job.enrichment.failed` receive an event
+for each failed attempt with its own identity. Hipo uses the ordinary
+webhook for initial ingestion. Later attempt failures leave Parsing Complete,
+the current snapshot, and normal search access intact.
 
 For example, stop the worker after the last batch becomes searchable and
 before it records completion. Recovery marks that attempt successful and
 the next identical request runs a fresh search if it only has the old
 cached result. If the worker instead stops with an incomplete write, the
 baseline stays eligible and the failed attempt's index records are cleaned up.
-Verify Hipo receives two distinct failures for two failed attempts in the same
-job, including duplicate delivery of one event. Repeat the last query after
-a failure, including a cache hit, and verify it can start one retry without a
-Hipo retry request. Exercise the last allowed attempt and confirm later
+Repeat the last query after a failure, including a cache hit, and verify it
+can start one retry. Exercise the last allowed attempt and confirm later
 retrievals still return the baseline.
 
 ## Retrieval result cache
@@ -726,8 +716,6 @@ document-wide enrichment progress.
    and the Tree View check provide that recovery in the new flow. Remove
    the Hipo Retry Enhancement action and its upstream call. Retry initial
    ingestion through a new job and keep local synchronization retry available.
-   Route recorded enrichment attempt failures through the dedicated callback
-   above.
 5. **Make Reparse a replacement.** Apply the Source binding, archival, and
    historical reference rules above. Retire the old existing-document job
    path after Hipo moves to the new contract.
@@ -789,11 +777,9 @@ creating or charging a job. Keep document lookup, archival, and the Demo
 Catalog's `data_id` path available to Hipo.
 [Current Hipo Reparse request](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/infrastructure/knowhere/resumable-parse-client.ts#L449-L457)
 
-Hipo submits its callback URL using the wire format accepted by the previous
-Knowhere release. The new Knowhere deployment delivers attempt-failure events
-for these subscriptions when the saved destination matches the trusted Hipo
-callback origin and path for that environment. Preserve callback authentication.
-Verify both an existing Hipo job and a new Hipo job receive and handle a failure.
+Hipo submits its authenticated callback URL using the wire format accepted
+by the previous Knowhere release. Verify initial ingestion completion and
+failure callbacks for both an existing Hipo job and a new Hipo job.
 [Current Hipo submission](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/infrastructure/knowhere/resumable-parse-client.ts#L449-L457),
 [Hipo callback identity](https://github.com/Ontos-AI/hipo/blob/3daa0aa3bc81dc6373bec8ae4f799cd5e6f0ef08/src/infrastructure/knowhere/parse-webhook-auth.ts#L18-L30),
 [Knowhere subscription lookup](https://github.com/Ontos-AI/knowhere/blob/51112729e6d1f596f95d4eaf306080b69796722a/packages/shared-python/shared/services/jobs/lifecycle/webhook_outbox.py#L52-L57)
@@ -824,8 +810,7 @@ Verify both an existing Hipo job and a new Hipo job receive and handle a failure
    through the release workflow, verify OpenSearch is serving, and keep queued
    legacy writers, finalizers, and maintenance from changing the new state.
    The deployed build publishes and searches additive records for private
-   OpenSearch namespaces. Configure the matching Hipo callback origin as a
-   trusted destination for existing subscriptions. The new-document Reparse
+   OpenSearch namespaces. The new-document Reparse
    request and single completion contract are effective with the deployed
    services. Run a scoped smoke check and resume affected writes. Existing
    documents use the same eligibility rules on their already published
@@ -870,7 +855,7 @@ them.
 | --- | --- |
 | Hipo wire contract and SDK | The SDK pinned by Hipo reads legacy directory versions and a new version above one. Full and progressive jobs send one `job.completed` after the initial index is searchable. Hipo handles poll-first and webhook-first delivery for the same result. A redelivered callback preserves its event identity. A pre-upgrade Source remains readable and an in-flight initial synchronization can finish. |
 | Publication and recovery | A PDF and a PPTX first publish a coarse directory and searchable baseline. Searches see additive batches. A failed batch disappears from fresh and cached retrieval and its already-issued reference still opens. A later baseline hit queues one retry. An initial indexing failure is terminal, refunds the charge once, and can recover through a new job. Verify the supported rollback path with an already published fine unit and a pending legacy write. |
-| Hipo browser and callbacks | From a signed-in session, upload a PDF and PPTX and confirm the Source enters Ask after initial synchronization. Open the saved tree and see a newer directory appear without blocking it. Verify a fine citation, a historical citation after Reparse, and moving a ready Source without waiting for fine work. Deliver an enrichment failure twice and verify it is recorded once, the Source stays ready, and Hipo issues neither a retry request nor a final-snapshot copy. |
+| Hipo browser and callbacks | From a signed-in session, upload a PDF and PPTX and confirm the Source enters Ask after initial synchronization. Open the saved tree and see a newer directory appear without blocking it. Verify a fine citation, a historical citation after Reparse, and moving a ready Source without waiting for fine work. Cause an enrichment attempt to fail in Knowhere. Verify the Source stays ready and Hipo receives no failure callback for the attempt. |
 | Hipo compatibility with the retired endpoints | Repeat representative PDF, PPTX, a full-ingestion Source, and an existing-document read with the candidate Hipo and Knowhere releases in staging. Exercise Reparse, fine parsing failure, search-triggered recovery, and initial failure followed by a new job. Confirm zero Hipo calls to either retired retry route before authorizing production retirement. |
 | Page image authorization | Open the same historical page citation in Ask and Library after a Brain move. Verify both render the original snapshot and page through an authenticated address. Revoke access and replay that exact address to confirm it returns `404`, including a conditional request carrying the cached validator. Restore access and verify the same address renders the page again. |
 

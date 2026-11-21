@@ -89,9 +89,9 @@ recovered.
   index records. The next retrieval returning the unit's baseline can start
   another attempt while attempts remain. After three failures and cleanup,
   later retrievals leave the unit on its baseline.
-- **Report an enrichment attempt failure separately.** Notify Hipo of the
-  failed attempt using a dedicated webhook event. Keep the Source ready and
-  the ingestion outcome successful.
+- **Record failed enrichment attempts in Knowhere.** Keep the Source ready
+  and the ingestion outcome successful. Deliver `job.enrichment.failed`
+  only to jobs that explicitly subscribe to it.
 
 ## Consequences
 

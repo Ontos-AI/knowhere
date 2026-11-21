@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlsplit
 from uuid import uuid4
 from functools import partial
 
@@ -11,7 +10,6 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from shared.core.config import settings
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.job_metadata import JobMetadataHelper
@@ -29,24 +27,6 @@ _COMPLETED_EVENTS: frozenset[str] = frozenset({
 })
 _DEFAULT_EVENTS: frozenset[str] = _COMPLETED_EVENTS | {"job.failed"}
 ENRICHMENT_FAILED_EVENT = "job.enrichment.failed"
-
-
-def _is_saved_hipo_callback(webhook_url: str) -> bool:
-    configured_origin = settings.KNOWHERE_HIPO_CALLBACK_ORIGIN
-    if not configured_origin:
-        return False
-    try:
-        origin = urlsplit(configured_origin)
-        target = urlsplit(webhook_url)
-    except ValueError:
-        return False
-    return (
-        origin.scheme in {"http", "https"}
-        and bool(origin.netloc)
-        and target.scheme == origin.scheme
-        and target.netloc == origin.netloc
-        and target.path == "/api/internal/webhooks/knowhere/parse"
-    )
 
 
 @dataclass(frozen=True)
@@ -85,12 +65,7 @@ class SyncJobWebhookOutbox:
         if is_enrichment_failure and not attempt_key:
             raise ValueError("Enrichment failure requires an attempt identity")
         subscribed = job.webhook_events if job.webhook_events is not None else _DEFAULT_EVENTS
-        legacy_hipo_failure = (
-            is_enrichment_failure
-            and job.webhook_events is None
-            and _is_saved_hipo_callback(webhook_url)
-        )
-        if event_type not in subscribed and not legacy_hipo_failure:
+        if event_type not in subscribed:
             return None
         is_indexing_failure: bool = event_type == "job.failed" and job.failure_stage == "indexing"
         milestone_identity = (

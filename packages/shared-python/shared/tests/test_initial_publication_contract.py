@@ -63,7 +63,7 @@ def test_enrichment_failure_events_deduplicate_by_attempt() -> None:
 
     db = MagicMock()
     db.scalar.return_value = SimpleNamespace(
-        webhook_url="https://hipo.example/api/internal/webhooks/knowhere/parse",
+        webhook_url="https://subscriber.example/notify",
         webhook_enabled=True,
         webhook_events=["job.enrichment.failed"],
         failure_stage=None,
@@ -101,31 +101,44 @@ def test_enrichment_failure_events_deduplicate_by_attempt() -> None:
     assert len(persisted) == 2
 
 
-@pytest.mark.parametrize(("callback_url", "subscribed_events", "delivers_failure"), [
-    ("https://hipo.example/api/internal/webhooks/knowhere/parse", None, True),
-    ("https://hipo.example/api/internal/webhooks/knowhere/parse", ["job.completed"], False),
-    ("https://hipo.example/api/internal/webhooks/knowhere/other", None, False),
-    ("https://hipo.example.invalid/api/internal/webhooks/knowhere/parse", None, False),
-    ("https://subscriber.example/notify", ["job.enrichment.failed"], True),
+@pytest.mark.parametrize(("subscribed_events", "event_type", "delivers_event"), [
+    (None, "job.enrichment.failed", False),
+    (["job.completed"], "job.enrichment.failed", False),
+    (None, "job.completed", True),
+    (None, "job.failed", True),
+    (None, "job.document.directory_ready", True),
 ])
-def test_failure_callback_respects_saved_trusted_route(
-    monkeypatch: pytest.MonkeyPatch, callback_url: str, subscribed_events: list[str] | None,
-    delivers_failure: bool,
+def test_hipo_callback_respects_ordinary_subscriptions(
+    monkeypatch: pytest.MonkeyPatch,
+    subscribed_events: list[str] | None,
+    event_type: str,
+    delivers_event: bool,
 ) -> None:
     from shared.core.config import settings
     from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
 
-    monkeypatch.setattr(settings, "KNOWHERE_HIPO_CALLBACK_ORIGIN", "https://hipo.example")
+    # Simulate a deployment that still has the retired setting.
+    monkeypatch.setitem(vars(settings), "KNOWHERE_HIPO_CALLBACK_ORIGIN", "https://hipo.example")
+    is_initial_failure: bool = event_type == "job.failed"
     db = MagicMock()
     db.scalar.return_value = SimpleNamespace(
-        webhook_url=callback_url, webhook_enabled=True, webhook_events=subscribed_events,
-        failure_stage=None, parsing_status="completed", indexing_status="completed",
+        webhook_url="https://hipo.example/api/internal/webhooks/knowhere/parse",
+        webhook_enabled=True, webhook_events=subscribed_events,
+        failure_stage="parsing" if is_initial_failure else None,
+        parsing_status="failed" if is_initial_failure else "completed",
+        indexing_status="pending" if is_initial_failure else "completed",
         current_indexing_attempt_id=None,
+        error_message="Cannot parse the document" if is_initial_failure else None,
+        error_code="INTERNAL_ERROR" if is_initial_failure else None,
+        job_metadata={},
     )
     db.scalars.return_value.first.return_value = None
-    db.execute.return_value.one_or_none.return_value = SimpleNamespace(id="result_123")
+    db.execute.return_value.one_or_none.return_value = (
+        None if is_initial_failure else SimpleNamespace(id="result_123", document_metadata={})
+    )
     event = SyncJobWebhookOutbox().create_event(
-        db, job_id="job_123", event_type="job.enrichment.failed", attempt_key="attempt-1",
+        db, job_id="job_123", event_type=event_type,
+        attempt_key="attempt-1" if event_type == "job.enrichment.failed" else None,
     )
 
-    assert (event is not None) == delivers_failure
+    assert (event is not None) == delivers_event

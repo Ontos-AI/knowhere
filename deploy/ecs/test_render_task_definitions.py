@@ -207,7 +207,7 @@ def test_production_templates_publish_webhooks_in_the_token_region(
     "template_name",
     ["task-definition-api.staging.json", "task-definition-worker.staging.json"],
 )
-def test_task_definitions_keep_the_trusted_hipo_callback(
+def test_task_definitions_ignore_the_obsolete_hipo_callback_origin(
     tmp_path: Path,
     deployment_environment: str,
     origin: str,
@@ -227,7 +227,7 @@ def test_task_definitions_keep_the_trusted_hipo_callback(
     rendered = json.loads(output_path.read_text(encoding="utf-8"))
     for container in rendered["containerDefinitions"]:
         environment = {entry["name"]: entry["value"] for entry in container["environment"]}
-        assert environment["KNOWHERE_HIPO_CALLBACK_ORIGIN"] == origin
+        assert "KNOWHERE_HIPO_CALLBACK_ORIGIN" not in environment
 
 
 @pytest.mark.parametrize(

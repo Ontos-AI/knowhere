@@ -12,10 +12,6 @@ class PublicationConfig(BaseSettings):
     """Lexical backend and publication support settings."""
 
     KNOWHERE_LEXICAL_BACKEND: str = Field(default="postgresql", pattern="^(postgresql|opensearch)$")
-    KNOWHERE_HIPO_CALLBACK_ORIGIN: str | None = Field(
-        default=None,
-        description="Trusted Hipo origin for enrichment failures on existing Hipo jobs.",
-    )
     KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND: bool = Field(
         default=False,
         description="Build PostgreSQL scoring terms only during a backend transition from OpenSearch.",
