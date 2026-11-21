@@ -98,6 +98,7 @@ class DocumentRepository:
             return document, result, job
         stmt = (
             select(corpusStorage.Document, JobResult, Job)
+            .select_from(corpusStorage.Document)
             .join(JobResult, JobResult.id == (job_result_id or func.coalesce(
                 corpusStorage.Document.latest_parsed_job_result_id, corpusStorage.Document.current_job_result_id)))
             .join(Job, Job.job_id == JobResult.job_id)

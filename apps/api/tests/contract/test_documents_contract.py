@@ -7,7 +7,7 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -763,6 +763,48 @@ async def test_should_return_page_citation_source_for_page_memory_document(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("document_status", ["active", "archived"])
+async def test_should_return_pinned_page_citation_source_for_private_opensearch_document(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+    document_status: str,
+) -> None:
+    document_id: str = f"doc_{uuid4().hex[:12]}"
+    route: str = f"/api/v2/documents/{document_id}/files/page-citation-source"
+
+    async with developer_api_client_factory() as api_client:
+        from shared.core.config import settings
+
+        monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
+        revision: dict[str, str] = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            parse_track="page_memory",
+            status=document_status,
+            chunks=[],
+        )
+        _upload_page_citation_source(job_id=revision["job_id"])
+
+        unpinned: Response = await api_client.get(route)
+        assert unpinned.status_code == (200 if document_status == "active" else 404)
+
+        pinned: Response = await api_client.get(
+            route, params={"job_result_id": revision["job_result_id"]}
+        )
+        assert pinned.status_code == 200
+        payload: dict[str, object] = cast(dict[str, object], pinned.json())
+        assert payload["job_result_id"] == revision["job_result_id"]
+        assert payload["file_name"] == "source.pdf"
+        assert payload["content_type"] == "application/pdf"
+
+        missing: Response = await api_client.get(
+            route, params={"job_result_id": str(uuid4())}
+        )
+        assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_should_return_not_found_for_chunk_document_page_citation_source(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
@@ -855,10 +897,12 @@ async def test_should_return_not_found_for_archived_page_citation_source(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("pin_revision", [False, True])
 async def test_should_return_not_found_for_other_users_page_citation_source(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
+    pin_revision: bool,
 ) -> None:
     document_id = f"doc_{uuid4().hex[:12]}"
     other_user_id = f"contract-user-{uuid4().hex[:12]}"
@@ -882,7 +926,8 @@ async def test_should_return_not_found_for_other_users_page_citation_source(
         )
         _upload_page_citation_source(job_id=revision["job_id"])
         response = await api_client.get(
-            f"/api/v2/documents/{document_id}/files/page-citation-source"
+            f"/api/v2/documents/{document_id}/files/page-citation-source",
+            params={"job_result_id": revision["job_result_id"]} if pin_revision else None,
         )
 
     assert response.status_code == 404
