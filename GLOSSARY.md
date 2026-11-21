@@ -16,9 +16,8 @@ _Avoid_: Parsing job, source filename, in-place update
 **Archived Document**:
 A document excluded from new retrievals by archival. A retrieval already
 in progress may use bodies it read before archival committed. Ongoing work
-cannot return the document to the searchable corpus, and the document is
-ineligible for indexing retry. Retained parsing results and processing
-history follow existing retention rules.
+cannot return the document to the searchable corpus. Retained parsing results
+and processing history follow existing retention rules.
 _Avoid_: Failed parsing job, permanently deleted data
 
 **Document Revision**:
@@ -39,7 +38,7 @@ _Avoid_: Latest parsed revision, activated replacement
 
 **Latest Parsed Revision**:
 The document's stored parsing result. Workers can retain it before initial
-indexing finishes and reuse it for an indexing retry.
+indexing finishes. A retained result from a failed ingestion remains internal.
 _Avoid_: Latest submitted revision, a second revision of the same document
 
 **Primary Lexical Backend**:
@@ -77,14 +76,12 @@ _Avoid_: Search completion, indexing completion, enrichment completion
 
 **Indexing**:
 The phase of a document-processing job that makes an already parsed revision
-available for retrieval. An initial indexing failure preserves the stored
-parsing output for retry within the same job.
+available for retrieval. Initial indexing is part of the ingestion job.
 _Avoid_: Parsing in progress, separate indexing job
 
 **Job Termination**:
-The end of the current document-processing attempt, through overall success
-or failure. A failed job may become active again through an eligible explicit
-retry. Successful job completion remains irreversible.
+The end of a document-processing job through overall success or failure.
+Retrying failed ingestion starts a new job.
 _Avoid_: Job success, parsing completion
 
 **Client Wait Satisfaction**:
@@ -107,23 +104,19 @@ _Avoid_: Running parser, parsing-only activity
 **Indexing Failure**:
 A final unsuccessful indexing or publication outcome for an already parsed
 revision. It can result from an unsuccessful or interrupted indexing attempt,
-or archival before publication completes. Its stored parsing output remains
-available.
+or archival before publication completes. An initial indexing failure ends
+the ingestion job and keeps any retained parsing output internal.
 _Avoid_: Parsing failure, job completion
 
-**Indexing Retry**:
-A free new indexing attempt for an eligible, already parsed document revision
-explicitly requested by a client using its retained parsing result. It requires
-neither reparsing nor another parsing charge and has no separate age-based
-expiry while the revision remains eligible and its parsing result is available.
-It cannot reactivate an archived document.
-_Avoid_: Reparse, document resubmission, in-place document update
+**Ingestion Retry**:
+An explicit resubmission of the original source after a failed ingestion.
+The resubmission creates a new ingestion job.
+_Avoid_: Indexing retry, reactivation, in-place document update
 
 **Indexing Attempt**:
-One indexing cycle admitted initially or by an eligible explicit retry for a
-parsed revision, with at most one execution belonging to the same job and parsing
-result. Another attempt requires a new eligible explicit request; repeated
-delivery of the same processing request does not create one.
+One initial indexing cycle for a parsed revision, with at most one execution
+belonging to the same job and parsing result. Repeated delivery of the
+processing request refers to the same attempt.
 _Avoid_: Automatic retry cycle, new parsing job, webhook delivery attempt
 
 **Indexing Execution**:

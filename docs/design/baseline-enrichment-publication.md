@@ -796,8 +796,11 @@ failure callbacks for both an existing Hipo job and a new Hipo job.
    Install the exact registry version in a clean environment and pin it in
    the Hipo release.
 3. **Deploy Hipo in the coordinated release window.** Let old publications
-   settle and hold affected writes, including Reparse, until both services
-   have been deployed and checked. Rehearse this operational step in staging.
+   and in-place Reparse finish before stopping the old workers. Deploy Hipo
+   while the previous Knowhere API still serves. A replacement request rejected
+   specifically because that API does not recognize `replaces_document_id`
+   stays queued on the same Hipo operation. The existing Source remains readable.
+   Verify this behavior and recovery in staging.
    Confirm the new Web/API accepts old job responses and both callback formats.
    Acknowledge late legacy enhancement completions for Sources that already
    synchronized their initial result. Verify MCP reads through the deployed
@@ -809,6 +812,15 @@ failure callbacks for both an existing Hipo job and a new Hipo job.
 4. **Deploy Knowhere API and workers together.** Apply the schema changes
    through the release workflow, verify OpenSearch is serving, and keep queued
    legacy writers, finalizers, and maintenance from changing the new state.
+   After Hipo is serving the compatible release, close Knowhere's external
+   ingress for the worker drain and migration. The existing ALB fixed-response
+   procedure returns HTTP 503 with JSON
+   `{"error":{"code":"INGESTION_ADMISSION_PAUSED"}}` before any request reaches
+   the job-create handler. Hipo defers that confirmed non-admission using its
+   normal durable queue and original deadline. Generic errors keep the
+   submission-uncertainty behavior. Restore the saved ALB forward action only
+   after both new services are healthy. The same Hipo operation can then create
+   one replacement job. Rehearse the response and restart in staging.
    The deployed build publishes and searches additive records for private
    OpenSearch namespaces. The new-document Reparse
    request and single completion contract are effective with the deployed

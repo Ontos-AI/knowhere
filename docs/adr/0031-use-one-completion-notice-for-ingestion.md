@@ -13,6 +13,8 @@ This decision also supersedes the separate public completion milestones
 in [ADR 0025](0025-separate-parsing-completion-from-search-readiness.md),
 [ADR 0026](0026-publish-search-readiness-from-background-tasks.md), and
 [ADR 0028](0028-select-webhook-events-on-a-single-callback-url.md).
+The terminal initial ingestion failure policy supersedes
+[ADR 0029](0029-keep-parsing-charges-and-allow-free-indexing-retries.md).
 
 ## Context
 
@@ -46,11 +48,11 @@ recovered.
   Full ingestion publishes the full body. Progressive ingestion publishes
   the baseline body. Use `done` and `job.completed` for the outcome.
   Search and on-demand enrichment are ongoing capabilities of that Source.
-- **Initial index retry reuses durable parsing output.** An initial indexing
-  failure can be retried on the same job using the stored result, under the
-  billing and eligibility rules in
-  [ADR 0029](0029-keep-parsing-charges-and-allow-free-indexing-retries.md).
-  Index visibility must be confirmed before reporting Parsing Complete.
+- **Retry starts a new ingestion job.** Initial indexing must succeed before
+  Knowhere reports Parsing Complete. A failure during parsing or initial
+  indexing ends the job. Knowhere refunds any charge for an initial indexing
+  failure once and withholds generated result files and links, even if storage
+  retains the parsing output. Retry submits the original to a new job.
 - **Progressive PDF and PPTX ingestion first publishes coarse chapters.**
   Compute the chapter ranges before publishing the baseline. Complete
   ingestion after the coarse body and directory are committed and the

@@ -485,8 +485,10 @@ class DocumentService:
         if CorpusStorage.resolve_document(document_id).is_demo:
             _, revision = await resolve_demo_revision(db, document_id=document_id, job_result_id=job_result_id)
             job_result_id = revision.id
-        else:
+        elif not CorpusStorage.resolve_namespace(document.namespace).usesAdditivePublication():
             job_result_id = job_result_id or document.latest_parsed_job_result_id or document.current_job_result_id
+        else:
+            job_result_id = job_result_id or document.current_job_result_id
         if job_result_id is None:
             return None
         row = await self._repository.get_current_document_chunk(
