@@ -455,6 +455,12 @@ The same visibility guarantees apply when a cache invalidation fails or
 arrives late. Retrieval can bypass a cached response when it cannot
 establish that the response is current.
 
+The first additive OpenSearch implementation uses fresh reads for private
+retrieval because the old result cache cannot prove attempt and archival
+visibility. Measure that path with the replay workload before activation.
+Reuse cached results once their freshness can be established without a
+namespace-wide build enumeration.
+
 Cache a response containing a hit from the first enrichment batch. Fail
 the next batch and repeat the query after the failure is recorded, while
 index cleanup is still pending. Verify that the query can return the
@@ -819,9 +825,13 @@ both an existing Hipo job and a new Hipo job receive and handle a failure.
    activation.
 2. **Deploy Knowhere preparation.** Deploy additive persistence changes
    and the compatible API and workers before exposing the new behavior.
-   Keep the current writer and old wire behavior during preparation. Keep
+   Keep the current writer and old wire behavior during preparation with
+   `KNOWHERE_ADDITIVE_PUBLICATION_ENABLED` disabled. The additive
+   implementation requires the OpenSearch lexical backend. Keep
    the old retry command available until activation. Enable the new failure
    event for Hipo only after its deployed receiver passes the callback check.
+   Configure `KNOWHERE_HIPO_CALLBACK_ORIGIN` to the matching Hipo environment
+   so existing jobs with the saved Hipo callback can receive attempt failures.
 3. **Publish the Node SDK and deploy Hipo.** Publish the new Node SDK major
    release through Changesets. It accepts whole-number directory versions,
    keeps reading existing snapshots, and removes the public manual
