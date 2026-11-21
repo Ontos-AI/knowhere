@@ -10,6 +10,7 @@ Each returned row lists the asset ids it rendered in ``mounted_chunk_ids``.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from shared.services.chunks.asset_descriptor import PAGE_MEDIA_KINDS
@@ -113,9 +114,11 @@ async def mount_explore_hits(
         chunk_type = normalize_chunk_type(row.get("chunk_type"))
         enriched_self = by_id.get(chunk_id, row)
         mounted_ids: list[str] = []
+        # Table display downloads stored HTML with blocking calls; worker
+        # threads keep them off the event loop.
         if chunk_type == "table":
-            row["rendered"] = render_explore_table(
-                enriched_self, char_budget=char_budget
+            row["rendered"] = await asyncio.to_thread(
+                render_explore_table, enriched_self, char_budget=char_budget
             )
         elif chunk_type == "image":
             row["rendered"] = _image_display_content(enriched_self)
@@ -128,7 +131,9 @@ async def mount_explore_hits(
                     continue
                 target_type = normalize_chunk_type(target.get("chunk_type"))
                 if target_type == "table":
-                    body = render_explore_table(target, char_budget=char_budget)
+                    body = await asyncio.to_thread(
+                        render_explore_table, target, char_budget=char_budget
+                    )
                     if body:
                         parts.append(f"mounted table chunk_id={target_id}:\n{body}")
                         mounted_ids.append(target_id)

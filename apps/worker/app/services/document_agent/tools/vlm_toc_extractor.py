@@ -314,25 +314,6 @@ def build_toc_tree(entries: list[dict[str, Any]]) -> dict[str, Any]:
     return root
 
 
-def build_toc_with_level_md(entries: list[dict[str, Any]]) -> str:
-    """Build a compact Markdown table of TOC entries (heading + level only).
-
-    Accepts both raw VLM entries (key='title') and stored toc_with_level
-    dicts (key='heading'). Call this dynamically at consumption time rather
-    than persisting the MD string.
-    """
-    if not entries:
-        return ""
-    lines = ["| heading | level |", "|---------|-------|"]
-    for entry in entries:
-        heading = str(
-            entry.get("heading") or entry.get("title") or ""
-        ).strip().replace("|", "\\|")
-        level = entry.get("level", 1)
-        lines.append(f"| {heading} | {level} |")
-    return "\n".join(lines)
-
-
 def vlm_entries_to_toc_hierarchies(
     entries: list[dict[str, Any]],
     *,

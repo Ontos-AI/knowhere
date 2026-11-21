@@ -34,6 +34,7 @@ from shared.services.retrieval.corpus_revision_context import CorpusRevisionCont
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
 
+import asyncio
 import re
 from typing import Any
 
@@ -830,9 +831,12 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             continue
         chunk_type = normalize_chunk_type(row.get("chunk_type"))
         composed = dict(row)
+        # Table display downloads stored HTML with blocking calls; worker
+        # threads keep them off the event loop.
         if chunk_type in _BODY_CHUNK_TYPES:
             composed["content"] = (
-                _compose_explore_text(
+                await asyncio.to_thread(
+                    _compose_explore_text,
                     row,
                     rows_by_chunk_id,
                     char_budget=char_budget,
@@ -848,8 +852,8 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                 )
             )
         elif chunk_type == "table":
-            composed["content"] = render_explore_table(
-                row, char_budget=char_budget
+            composed["content"] = await asyncio.to_thread(
+                render_explore_table, row, char_budget=char_budget
             )
         elif chunk_type == "image":
             composed["content"] = _image_display_content(row)

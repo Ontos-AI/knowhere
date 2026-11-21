@@ -119,7 +119,6 @@ def eval_md_headings(
     smart_parse=False,
     model_name=None,
     output_dir=None,
-    layout_json_path=None,
 ):
     """Evaluate markdown headings with optional TOC hierarchies context"""
     heading_preds = predict_heading_hierarchy(
@@ -131,7 +130,6 @@ def eval_md_headings(
             smart_parse=smart_parse,
             model_name=model_name,
             output_dir=output_dir,
-            layout_json_path=layout_json_path,
         )
     )
 
@@ -281,12 +279,6 @@ def parse_md(
             json.dump(toc_hierarchies, f, ensure_ascii=False, indent=2)
         logger.info(f"Saved TOC hierarchies to {toc_json_path}")
 
-    # Find layout.json path
-    layout_json_path = os.path.join(output_dir, "layout.json")
-    if not os.path.exists(layout_json_path):
-        layout_json_path = None
-        logger.debug("layout.json not found, META features will not be added")
-
     # estimate hierarchies with toc_hierarchies context
     with stage_timer(
         "md.predict_headings",
@@ -301,7 +293,6 @@ def parse_md(
             smart_parse=base_llm_paras["smart_title_parse"],
             model_name=hierarchy_model_name,
             output_dir=output_dir,
-            layout_json_path=layout_json_path,
         )
 
     # ── Phase B: MarkdownParseState traversal ──
