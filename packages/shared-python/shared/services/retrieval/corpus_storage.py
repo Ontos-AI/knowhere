@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
+from shared.core.config import settings
 from shared.models.database import document as private, demo_corpus as demo
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 
@@ -20,6 +21,10 @@ class CorpusStorage:
     @property
     def is_demo(self) -> bool:
         return self.target == "DEMO"
+
+    def usesAdditivePublication(self) -> bool:
+        """Private OpenSearch corpora publish bodies and search bindings independently."""
+        return not self.is_demo and settings.KNOWHERE_LEXICAL_BACKEND == "opensearch"
 
     def resolve_owner(self, caller_id: str) -> str:
         """Storage ownership only; auth, billing, telemetry keep the caller."""

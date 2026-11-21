@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from shared.models.database.job import Job
-from shared.services.jobs.result_delivery import JobResultDeliveryResolver
+from shared.services.jobs.result_delivery import JobResultDeliveryResolver, canDeliverJobResult
 
 
 class QStashPayloadEnricher:
@@ -29,6 +29,9 @@ class QStashPayloadEnricher:
             )
             job = result.scalar_one_or_none()
             if not job or not job.job_result:
+                return payload
+
+            if not canDeliverJobResult(job.status, job.failure_stage, job.job_metadata):
                 return payload
 
             return self._resolver.enrich_payload(

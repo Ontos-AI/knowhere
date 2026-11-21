@@ -26,6 +26,7 @@ from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.lexical.error import LexicalIndexError
 from shared.services.retrieval.lexical.nativestate import NativeLifecycleSnapshot
 from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
+from shared.services.retrieval.lexical.recency import LexicalRecency
 from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.lexical.stage_observer import StageObserver
 
@@ -94,7 +95,8 @@ class LexicalCoordination:
         return db.scalars(select(func.clock_timestamp())).one()
 
     def ensureIndex(
-        self, *, scope: LexicalScope, native: OpenSearchLexicalIndex
+        self, *, scope: LexicalScope, native: OpenSearchLexicalIndex,
+        updateWarmIndexRecency: bool = True,
     ) -> tuple[str, int]:
         deadline: float = time.monotonic() + _WAIT_SECONDS
         observation: _Observation = self._beginObservation(deadline)
@@ -102,7 +104,8 @@ class LexicalCoordination:
             isExact=True, timeoutSeconds=self._remaining(deadline)
         )
         observed: tuple[str, int] | None = self.observeIndex(scope=scope, indexName=native.indexName,
-            observation=observation, exact=exact, deadline=deadline)
+            observation=observation, exact=exact, deadline=deadline,
+            updateWarmIndexRecency=updateWarmIndexRecency)
         if observed is not None:
             return observed
         while True:
@@ -141,15 +144,12 @@ class LexicalCoordination:
 
     def observeIndex(self, *, scope: LexicalScope, indexName: str,
                      observation: _Observation, exact: NativeLifecycleSnapshot,
-                     deadline: float) -> tuple[str, int] | None:
+                     deadline: float, updateWarmIndexRecency: bool = True) -> tuple[str, int] | None:
         with self._transaction(deadline) as db:
             control: LexicalBackendControl = self.lockControl(db)
             self._checkObservation(control, observation, exact)
-            row: LexicalNamespaceIndex | None = db.scalar(
-                select(LexicalNamespaceIndex)
-                .where(LexicalNamespaceIndex.id == scope.fingerprint)
-                .with_for_update()
-            )
+            index = select(LexicalNamespaceIndex).where(LexicalNamespaceIndex.id == scope.fingerprint)
+            row = db.scalar(index.with_for_update() if updateWarmIndexRecency else index)
             if (
                 row is not None
                 and control.nodeIncarnation == exact.getIncarnation()
@@ -159,7 +159,10 @@ class LexicalCoordination:
                 and row.indexUuid == exact.getIndexUuid(row.indexName)
                 and exact.isReady(row.indexName)
             ):
-                row.lastUsedAt = self.getDatabaseTime(db)
+                if updateWarmIndexRecency:
+                    row.lastUsedAt = self.getDatabaseTime(db)
+                else:
+                    LexicalRecency.recordAccess(scope.fingerprint)
                 return row.indexUuid, control.epoch
         return None
 

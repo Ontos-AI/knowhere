@@ -18,7 +18,7 @@ from shared.services.retrieval.lexical.opensearch import (
     OpenSearchLexicalIndex, _Acknowledgment, _CloseAcknowledgment, _SettingsResponse, _CountResponse,
 )
 from shared.services.retrieval.lexical.scope import LexicalScope
-from shared.services.retrieval.lexical.searchplan import NativeSearchPlan
+from shared.services.retrieval.lexical.searchplan import NativeSearchPlan, _NativeHit, _SearchResponse
 from shared.services.retrieval.lexical.unit import LexicalUnit
 from shared.services.retrieval.lexical.stage_observer import StageObserver
 
@@ -135,6 +135,54 @@ class AsyncOpenSearchLexicalIndex:
                 raise body
         return NativeSearchPlan.fuseChannels((bodies[0], bodies[1]),
             buildIds=buildIds if buildLookup is None else None, limit=limit)
+
+    async def searchNamespace(
+        self, *, queryTokens: tuple[str, ...], limit: int,
+        filterCandidates: Callable[[tuple[tuple[str, str, str], ...]], Awaitable[set[tuple[str, str, str]]]],
+        extraFilters: tuple[dict[str, object], ...] = (),
+        exclusions: tuple[dict[str, object], ...] = (),
+    ) -> tuple[LexicalHit, ...]:
+        """Rank eligible records in each channel before combining their ranks."""
+        if not queryTokens or limit <= 0:
+            return ()
+        pageSize = max(100, limit)
+
+        async def queryChannel(channel: str) -> _SearchResponse:
+            cursor: tuple[str | int | float, ...] | None = None
+            retained: dict[str, _NativeHit] = {}
+            while True:
+                StageObserver.add("path_channel_calls" if channel == "pathTokens" else "content_channel_calls")
+                page = NativeSearchPlan.decodeChannel(await self._request(
+                    "POST", f"/{self.indexName}/_search?allow_partial_search_results=false&ignore_unavailable=false",
+                    payload=NativeSearchPlan.buildPayload(channel, buildIds=None, queryTokens=queryTokens,
+                        limit=limit, unitIds=None, preferContentCoverage=self._preferContentCoverage,
+                        extraFilters=extraFilters, exclusions=exclusions, searchAfter=cursor),
+                ))
+                nativeHits = page.hits.hits
+                if nativeHits:
+                    candidates = tuple((hit.source.documentId, hit.source.revisionId, hit.source.buildId) for hit in nativeHits)
+                    eligible = await filterCandidates(candidates)
+                    for hit, candidate in zip(nativeHits, candidates, strict=True):
+                        if candidate in eligible:
+                            retained.setdefault(hit.identity, hit)
+                if len(nativeHits) < pageSize or len(retained) >= pageSize:
+                    return page.model_copy(update={"hits": page.hits.model_copy(
+                        update={"hits": tuple(retained.values())[:pageSize]},
+                    )})
+                nextCursor = nativeHits[-1].sort
+                if not nextCursor or nextCursor == cursor:
+                    raise LexicalIndexError("Native search pagination did not advance", isRetryable=True)
+                cursor = nextCursor
+
+        tasks = (asyncio.create_task(queryChannel("pathTokens")), asyncio.create_task(queryChannel("contentTokens")))
+        try:
+            path, content = await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        return NativeSearchPlan.fuseChannels((path, content), buildIds=None, limit=limit)
 
     async def writePublishedManifest(self, *, manifestId: str, scopeId: str, buildIds: tuple[str, ...]) -> None:
         response: object = await self._request("PUT", f"/{self._indexPrefix}-published-manifests/_create/{manifestId}",

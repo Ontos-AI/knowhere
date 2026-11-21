@@ -18,7 +18,7 @@ def _admitNative(worker: object, engine: Engine, monkeypatch: pytest.MonkeyPatch
     from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
     from shared.services.retrieval.lexical.scope import LexicalScope
 
-    def admit(*, scope: LexicalScope, native: object) -> tuple[str, int]:
+    def admit(*, scope: LexicalScope, native: object, updateWarmIndexRecency: bool = True) -> tuple[str, int]:
         with Session(engine) as db:
             control = db.get(LexicalBackendControl, 1)
             assert control is not None
@@ -82,7 +82,7 @@ def test_native_raw_input_budget_rejects_before_any_canonical_orm_load(
         job = db.get(Job, jobId)
         assert job is not None
         assert (job.status, job.parsing_status, job.indexing_status, job.failure_stage) == ("failed", "completed", "failed", "indexing")
-        assert (job.billing_status, job.credits_charged) == ("charged", 123456)
+        assert (job.billing_status, job.credits_charged) == ("refunded", 123456)
         assert db.scalars(select(JobResult).where(JobResult.job_id == jobId)).one().result_s3_key == "results/execution.zip"
         assert db.scalars(select(Document)).one().current_job_result_id is None
         attempt = db.scalars(select(IndexingAttempt)).one()

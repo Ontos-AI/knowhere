@@ -15,6 +15,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from shared.models.database.document import Document
+from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.testing.contract_runtime import (
     PostgreSQLProcess,
@@ -32,9 +33,11 @@ from scripts.publication_benchmark.publication_execution import (  # noqa: E402
 )
 
 
-def test_readable_delivery_is_authorized_and_pinned_to_retained_snapshot(
+@pytest.mark.parametrize("hasFailedInitialIndexing", [False, True])
+def test_readable_delivery_hides_failed_initial_results_and_preserves_retained_pins(
     monkeypatch: pytest.MonkeyPatch,
     postgresql_proc: PostgreSQLProcess,
+    hasFailedInitialIndexing: bool,
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
@@ -69,12 +72,22 @@ def test_readable_delivery_is_authorized_and_pinned_to_retained_snapshot(
     ]
     with Session(engine) as database:
         seed_publication_fixture(database, scope=scope)
+        job: Job | None = database.get(Job, scope.job_ref)
+        assert job is not None
+        job.parsing_status = "completed"
+        if hasFailedInitialIndexing:
+            job.status = "failed"
+            job.indexing_status = "failed"
+            job.failure_stage = "indexing"
+        else:
+            job.status = "done"
+            job.indexing_status = "completed"
         database.add(
             Document(
                 document_id="snapshot-document",
                 user_id=scope.user_ref,
                 namespace=scope.namespace_ref,
-                current_job_result_id=scope.revision_ref,
+                current_job_result_id=None if hasFailedInitialIndexing else scope.revision_ref,
             )
         )
         database.flush()
@@ -185,6 +198,19 @@ def test_readable_delivery_is_authorized_and_pinned_to_retained_snapshot(
             transport=ASGITransport(app=application), base_url="http://test"
         ) as client:
             endpoint: str = f"/v2/jobs/{scope.job_ref}/snapshots/baseline"
+            if hasFailedInitialIndexing:
+                metadata = await client.get(f"{endpoint}/readable")
+                objectResponse = await client.get(
+                    f"{endpoint}/objects",
+                    params={"path": "page_citation_assets/page-1.jpg"},
+                )
+                batch = await client.post(
+                    f"{endpoint}/objects/access",
+                    json={"paths": ["page_citation_assets/page-1.jpg"]},
+                )
+                assert metadata.status_code == objectResponse.status_code == batch.status_code == 404
+                assert objects.reads == objects.heads == objects.signed == []
+                return
             response = await client.get(f"{endpoint}/readable")
             assert response.status_code == 200, response.text
             payload = response.json()

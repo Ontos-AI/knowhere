@@ -112,7 +112,7 @@ async def run_retrieval_route(
             return await _run_postgresql_classic_route(context, try_small_corpus=True)
 
         native_read: PublishedLexicalRead | None = PublishedLexicalRead.current()
-        if native_read is None or native_read.manifestId is None:
+        if native_read is None or (native_read.manifestId is None and not getattr(native_read, "usesAdditiveVisibility", False)):
             small_corpus_outcome = await _try_run_small_corpus_route(context)
             if small_corpus_outcome is not None:
                 return small_corpus_outcome
@@ -359,7 +359,6 @@ async def _finish_classic_route(
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
         revision_pins=context.revision_pins,
-        skip_locked_chunk_final=True,
         loaded_rows=loaded_rows,
     )
     response = {

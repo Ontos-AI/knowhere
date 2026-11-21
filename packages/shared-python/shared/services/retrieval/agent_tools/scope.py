@@ -23,6 +23,7 @@ from __future__ import annotations
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 
 from dataclasses import dataclass
 from typing import Any
@@ -140,6 +141,7 @@ async def resolve_scope(
                 .where(corpusStorage.DocumentSection.document_id == document_id)
                 .where(corpusStorage.DocumentSection.job_result_id == job_result_id)
                 .where(corpusStorage.DocumentSection.section_path == normalized)
+                .where(AdditiveVisibility.allowsFreshSection(namespace))
             )
         ).first()
         if exists is None:

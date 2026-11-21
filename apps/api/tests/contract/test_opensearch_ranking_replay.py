@@ -188,7 +188,6 @@ def test_frozen_ranking_across_publication(
     from shared.services.retrieval.lexical.input_retention import LexicalInputRetention
     from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
     from shared.services.retrieval.lexical.preparation import LexicalPreparation
-    from shared.services.retrieval.lexical.retry import IndexingRetry
     from shared.services.retrieval.lexical.scope import LexicalScope
     from shared.services.retrieval.lexical.storage import LexicalInputStorage
     from shared.services.retrieval.lexical.unit import LexicalUnit
@@ -234,7 +233,7 @@ def test_frozen_ranking_across_publication(
         "derivation": manifest.derivation,
         "query_count": len(manifest.queries),
         "completed": False,
-        "indexing_policy": "single-execution-per-attempt-with-explicit-manual-admission",
+        "indexing_policy": "single-execution-per-ingestion-job",
         "indexing_input_mode": inputMode,
         "raw_compilation_deadline_qualified": False,
         "indexing_deadline_seconds": settings.KNOWHERE_INDEXING_TIMEOUT_SECONDS,
@@ -257,7 +256,7 @@ def test_frozen_ranking_across_publication(
         "observation_policy": {
             "full_replay": "outside-production-indexing-deadline",
             "failed_write_stages": "after-intentional-failure-and-durable-settlement",
-            "successful_retry_stage": "after-committed-activation",
+            "successful_replacement_stage": "after-committed-activation",
             "inside_write": "authoritative-write-visibility-acknowledgment-only",
         },
     }
@@ -674,7 +673,7 @@ def test_frozen_ranking_across_publication(
                 active = db.get(Document, doc_ids[target.key])
                 assert active is not None and active.current_indexing_build_id
                 old_build: str = active.current_indexing_build_id
-            candidate, new_revision = stage(target, replacement=True)
+            candidate, candidateRevision = stage(target, replacement=True)
             capture("parsed-unactivated", native, queries, revisions, old_pg)
             original_write = OpenSearchLexicalIndex.writeBuild
 
@@ -697,25 +696,20 @@ def test_frozen_ranking_across_publication(
                     "observation_point": "inside-write-after-authoritative-visibility-count-check",
                     "full_retrieval_matrix": False,
                 })
-                if label != "explicit-retry-visible":
+                if label != "new-job-visible":
                     raise LexicalIndexError(
                         "Injected indexing failure after visible write",
                         isRetryable=True,
                     )
 
+            failedRevisions: list[str] = []
             with monkeypatch.context() as fault:
                 fault.setattr(OpenSearchLexicalIndex, "writeBuild", observe_write)
-                for execution, label in enumerate(
-                    (
-                        "partial-visible",
-                        "manual-retry-visible",
-                        "complete-unactivated",
-                    )
-                ):
-                    if execution:
-                        with factory.begin() as db:
-                            assert IndexingRetry().request(db, jobId=candidate, userId=owner)
+                for label in ("partial-visible", "replacement-visible", "complete-unactivated"):
+                    if failedRevisions:
+                        candidate, candidateRevision = stage(target, replacement=True)
                     runIndexing(candidate, label=label, expected="failed")
+                    failedRevisions.append(candidateRevision)
                     capture(
                         f"{label}-after-failure-and-settlement",
                         native,
@@ -724,17 +718,15 @@ def test_frozen_ranking_across_publication(
                         old_pg,
                     )
                     with factory.begin() as db:
+                        failedJob = db.get(Job, candidate)
+                        assert failedJob is not None and failedJob.billing_status == "refunded"
                         attempt = db.scalars(
-                            select(IndexingAttempt).where(
-                                IndexingAttempt.jobId == candidate,
-                                IndexingAttempt.attemptNumber == execution + 1,
-                            )
+                            select(IndexingAttempt).where(IndexingAttempt.jobId == candidate)
                         ).one()
                         assert attempt.executionCount == 1
-                        assert attempt.origin == ("initial" if execution == 0 else "manual")
-                with factory.begin() as db:
-                    assert IndexingRetry().request(db, jobId=candidate, userId=owner)
-                label = "explicit-retry-visible"
+                        assert attempt.attemptNumber == 1 and attempt.origin == "initial"
+                candidate, new_revision = stage(target, replacement=True)
+                label = "new-job-visible"
                 runIndexing(candidate, label=label, expected="completed")
             revisions[doc_ids[target.key]] = new_revision
             build_pg(target, new_revision)
@@ -751,9 +743,9 @@ def test_frozen_ranking_across_publication(
                 failures: list[str] = list(
                     db.scalars(
                         select(LexicalBuild.id).where(
-                            LexicalBuild.revisionId == new_revision,
+                            LexicalBuild.revisionId.in_(failedRevisions),
                             LexicalBuild.state == "failed",
-                        )
+                        ).order_by(LexicalBuild.createdAt, LexicalBuild.id)
                     )
                 )
                 job = db.get(Job, candidate)

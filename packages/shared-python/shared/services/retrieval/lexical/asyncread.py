@@ -1,6 +1,7 @@
 """Run lock-free published reads on the API's existing async pools."""
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from functools import partial
 import time
 from sqlalchemy import func, select
@@ -34,9 +35,59 @@ class AsyncPublishedLexicalRead(PublishedLexicalRead):
         self._asyncNative: AsyncOpenSearchLexicalIndex | None = None
         self.preferContentCoverage: bool = preferContentCoverage
         self._manifestDeadline: float | None = None
+        self.usesAdditiveVisibility: bool = False
 
     async def startAsync(self) -> None:
         await self.database.run(self._captureRead)
+
+    async def startAdditiveAsync(self) -> None:
+        """Capture index identity and the backend gate without reading the corpus."""
+        native = AsyncOpenSearchLexicalIndex(endpoint=settings.KNOWHERE_OPENSEARCH_URL,
+            scope=self.scope, indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX,
+            preferContentCoverage=self.preferContentCoverage)
+        control = LexicalBackendControl
+        registry = LexicalNamespaceIndex
+        async with AsyncSession(self.database.engine) as session:
+            row = (await session.execute(select(
+                control.backend, control.mode, control.epoch, registry.indexName, registry.indexUuid,
+            ).select_from(control).outerjoin(registry, registry.id == self.scope.fingerprint)
+                .where(control.id == 1))).one_or_none()
+        if row is not None:
+            backend, mode, self.epoch, indexName, self._indexUuid = row
+            if backend != "opensearch" or mode != "serving":
+                raise LexicalIndexError("Lexical backend transition is in progress", isRetryable=True)
+            if indexName is not None and indexName != native.indexName:
+                raise LexicalIndexError("Native registry and read index differ")
+        self._asyncNative = native
+        self.usesAdditiveVisibility = True
+        self._hasStarted = True
+
+    async def searchAdditiveAsync(
+        self, *, queryTokens: tuple[str, ...], limit: int,
+        filterCandidates: Callable[[tuple[tuple[str, str, str], ...]], Awaitable[set[tuple[str, str, str]]]],
+        filters: tuple[dict[str, object], ...], exclusions: tuple[dict[str, object], ...],
+    ) -> tuple[LexicalHit, ...]:
+        self.assertAlive()
+        if self._indexUuid is None:
+            return ()
+        if not self.usesAdditiveVisibility or self._asyncNative is None:
+            raise LexicalIndexError("Additive native search has no active read")
+        native = self._asyncNative
+        LexicalRecency.recordAccess(self.scope.fingerprint)
+        search = partial(native.searchNamespace, queryTokens=queryTokens, limit=limit,
+            filterCandidates=filterCandidates, extraFilters=filters, exclusions=exclusions)
+        try:
+            async with asyncio.timeout(MANIFEST_READ_TIMEOUT_SECONDS):
+                try:
+                    return await search()
+                except LexicalIndexError as error:
+                    if not error.isIndexClosed:
+                        raise
+                    indexUuid, epoch = await self._asyncCoordination.ensureIndex(scope=self.scope, native=native)
+                    self._validateRecovery(indexUuid, epoch)
+                    return await search()
+        except TimeoutError as error:
+            raise LexicalIndexError("Native namespace search exceeded its deadline", isRetryable=True, isTimeout=True) from error
 
     async def startManifestAsync(
         self, *, documentScope: DocumentScope, chunkTypes: set[str] | None, topK: int,

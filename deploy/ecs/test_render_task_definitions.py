@@ -200,6 +200,37 @@ def test_production_templates_publish_webhooks_in_the_token_region(
 
 
 @pytest.mark.parametrize(
+    ("deployment_environment", "origin"),
+    [("staging", "https://hipo-staging.vercel.app"), ("prod", "https://hipohipo.ai")],
+)
+@pytest.mark.parametrize(
+    "template_name",
+    ["task-definition-api.staging.json", "task-definition-worker.staging.json"],
+)
+def test_task_definitions_ignore_the_obsolete_hipo_callback_origin(
+    tmp_path: Path,
+    deployment_environment: str,
+    origin: str,
+    template_name: str,
+) -> None:
+    output_path: Path = tmp_path / template_name
+    render_template(
+        TEMPLATE_DIRECTORY / template_name,
+        output_path,
+        {
+            **RENDER_VARIABLES,
+            "DEPLOYMENT_ENVIRONMENT": deployment_environment,
+            "KNOWHERE_HIPO_CALLBACK_ORIGIN": origin,
+        },
+    )
+
+    rendered = json.loads(output_path.read_text(encoding="utf-8"))
+    for container in rendered["containerDefinitions"]:
+        environment = {entry["name"]: entry["value"] for entry in container["environment"]}
+        assert "KNOWHERE_HIPO_CALLBACK_ORIGIN" not in environment
+
+
+@pytest.mark.parametrize(
     ("template_name", "container_name", "expected_environment"),
     [
         (

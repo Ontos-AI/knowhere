@@ -391,9 +391,15 @@ def persist_m0_inputs(
     profile: Any,
 ) -> list[str]:
     """Persist M0 blackboard snapshot + text caches under ``output_dir/phase_b/``."""
+    root: Path = Path(output_dir)
+    _persist_blackboard(root, profile)
+    _persist_page_text_caches(root, profile)
+    return existing_phase_b_input_refs(output_dir)
+
+
+def _persist_blackboard(root: Path, profile: Any) -> None:
     from app.services.document_agent.pdf_text import PageTextBands
 
-    root = Path(output_dir)
     blackboard = getattr(profile, "blackboard", None)
     if blackboard is not None:
         doc_profile = getattr(blackboard, "document_profile", None)
@@ -421,6 +427,9 @@ def persist_m0_inputs(
             "page_full_text_bands": bands_json,
         }
         write_json(root / PHASE_B_BLACKBOARD_REL, snapshot)
+
+
+def _persist_page_text_caches(root: Path, profile: Any) -> None:
     write_json(
         root / PHASE_B_FULL_TEXT_REL,
         _jsonable_page_map(getattr(profile, "page_full_text_cache", None)),
@@ -429,7 +438,6 @@ def persist_m0_inputs(
         root / PHASE_B_BODY_TEXT_REL,
         _jsonable_page_map(getattr(profile, "page_body_text_cache", None)),
     )
-    return existing_phase_b_input_refs(output_dir)
 
 
 def persist_phase_b_inputs(
@@ -437,18 +445,14 @@ def persist_phase_b_inputs(
     output_dir: str,
     profile: Any,
     manifest: dict[str, Any],
+    retain_blackboard: bool = False,
 ) -> list[str]:
     """Write Phase B inputs under ``output_dir`` and return existing relative paths."""
-    root = Path(output_dir)
+    root: Path = Path(output_dir)
     write_json(root / PHASE_B_MANIFEST_REL, manifest)
-    write_json(
-        root / PHASE_B_FULL_TEXT_REL,
-        _jsonable_page_map(getattr(profile, "page_full_text_cache", None)),
-    )
-    write_json(
-        root / PHASE_B_BODY_TEXT_REL,
-        _jsonable_page_map(getattr(profile, "page_body_text_cache", None)),
-    )
+    _persist_page_text_caches(root, profile)
+    if retain_blackboard:
+        _persist_blackboard(root, profile)
     anatomy = getattr(profile, "anatomy", None)
     if anatomy is not None and hasattr(anatomy, "to_dict"):
         write_json(root / PHASE_B_ANATOMY_REL, anatomy.to_dict())

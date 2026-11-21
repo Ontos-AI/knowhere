@@ -333,7 +333,11 @@ class OpenSearchOperations:
     @staticmethod
     def _renderApplicationRoles(indexPrefix: str) -> dict[str, dict[str, list]]:
         """Render the API and worker roles; both processes read and publish builds and manifests."""
-        publication: list[str] = ["indices:admin/create", "indices:admin/open", "indices:admin/close", "indices:data/write/bulk*", "indices:data/write/index", "indices:data/read/count"]
+        # Closing also verifies the shards through the indices:admin/close[s] transport action.
+        publication: list[str] = [
+            "indices:admin/create", "indices:admin/open", "indices:admin/close*",
+            "indices:data/write/bulk*", "indices:data/write/index", "indices:data/read/count",
+        ]
         # Build cleanup runs _delete_by_query?refresh=true, which scrolls, bulk-deletes and then refreshes.
         cleanup: list[str] = ["indices:data/write/delete/byquery", "indices:data/write/delete", "indices:admin/refresh"]
         # Namespace indexes use a 48-character fingerprint. Keep their actions off the manifest index.

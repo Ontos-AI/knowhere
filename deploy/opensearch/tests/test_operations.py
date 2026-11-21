@@ -135,7 +135,7 @@ def test_preserves_namespace_publication_and_deployment_probe_search(roleName: s
     namespaceSuffix: str = "0123456789abcdef" * 3
     expectedNamespaceActions: set[str] = {
         "indices:data/read/search*", "indices:admin/get", "indices:monitor/settings/get",
-        "indices:monitor/stats", "indices:admin/create", "indices:admin/open", "indices:admin/close",
+        "indices:monitor/stats", "indices:admin/create", "indices:admin/open", "indices:admin/close*",
         "indices:data/write/bulk*", "indices:data/write/index", "indices:data/read/count",
     }
     expectedClusterActions: set[str] = {
@@ -172,6 +172,26 @@ def test_application_role_check_passes_the_rendered_roles() -> None:
     assert result["missing"] == {"knowhere_api": [], "knowhere_worker": []}
 
 
+@pytest.mark.parametrize("roleName", ["knowhere_api", "knowhere_worker"])
+def test_application_role_check_detects_missing_close_shard_action(roleName: str) -> None:
+    operations: type = loadOperations()
+    prefix: str = "knowhere-staging-lexical-v1"
+    bundle: dict[str, object] = operations.renderBundle({**createManifest(), "index_prefix": prefix})
+    roles: dict[str, _Role] = cast(dict[str, _Role], bundle["roles.yml"])
+    namespaceActions: list[str] = roles[roleName]["index_permissions"][0]["allowed_actions"]
+    roles[roleName]["index_permissions"][0]["allowed_actions"] = [
+        "indices:admin/close" if action == "indices:admin/close*" else action
+        for action in namespaceActions
+    ]
+
+    result: dict[str, object] = operations.checkApplicationRoles(roles, indexPrefix=prefix, rolePrefix="knowhere_")
+
+    assert result["passed"] is False
+    assert cast(dict[str, list[str]], result["missing"])[roleName] == [
+        f"{prefix}-{'0' * 48} indices:admin/close*",
+    ]
+
+
 def test_application_role_check_reports_the_read_only_production_api_role() -> None:
     operations: type = loadOperations()
     prefix: str = "knowhere-prod-lexical-v1"
@@ -198,12 +218,14 @@ def test_application_role_check_reports_the_read_only_production_api_role() -> N
         "knowhere_prod_api": [
             "cluster indices:data/write/bulk",
             f"{namespace} indices:admin/create", f"{namespace} indices:admin/open",
-            f"{namespace} indices:admin/close", f"{namespace} indices:data/write/bulk*",
+            f"{namespace} indices:admin/close*", f"{namespace} indices:data/write/bulk*",
             f"{namespace} indices:data/write/index",
             f"{manifest} indices:admin/create", f"{manifest} indices:data/read/get",
             f"{manifest} indices:data/write/index",
         ],
-        "knowhere_prod_worker": [f"{manifest} indices:data/read/get"],
+        "knowhere_prod_worker": [
+            f"{namespace} indices:admin/close*", f"{manifest} indices:data/read/get",
+        ],
     }
 
 

@@ -25,6 +25,7 @@ from .document import (
     RetrievalRun,
     RetrievalStep,
 )
+from .document_enrichment_publication import DocumentEnrichmentPublication
 from .document_page_plan import DocumentPagePlan
 from .demo_materialization import DemoMaterialization
 from .guest_device import GuestDevice
@@ -81,6 +82,7 @@ __all__ = [
     "Document",
     "DocumentSection",
     "DocumentChunk",
+    "DocumentEnrichmentPublication",
     "DocumentScopeEnrichment",
     "DocumentMapUnit",
     "DocumentMapUnitIndex",

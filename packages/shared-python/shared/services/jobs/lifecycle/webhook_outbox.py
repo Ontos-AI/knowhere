@@ -12,10 +12,12 @@ from sqlalchemy.orm import Session
 
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.database.webhook import WebhookEvent, WebhookEventStatus
 from shared.core.response import build_standard_error_response
 from shared.services.background import BackgroundWorkPool
 from shared.services.jobs.progressive_ingestion import read_progressive_state
+from shared.services.retrieval.corpus_storage import CorpusStorage
 
 _DISPATCH_POOL: BackgroundWorkPool | None = None
 _COMPLETED_EVENTS: frozenset[str] = frozenset({
@@ -24,6 +26,7 @@ _COMPLETED_EVENTS: frozenset[str] = frozenset({
     "job.document.directory_ready",
 })
 _DEFAULT_EVENTS: frozenset[str] = _COMPLETED_EVENTS | {"job.failed"}
+ENRICHMENT_FAILED_EVENT = "job.enrichment.failed"
 
 
 @dataclass(frozen=True)
@@ -42,6 +45,7 @@ class SyncJobWebhookOutbox:
         event_type: str,
         extra_payload: dict[str, Any] | None = None,
         event_id: str | None = None,
+        attempt_key: str | None = None,
     ) -> WebhookOutboxEvent | None:
         job: Job | None = db.scalar(select(Job).where(Job.job_id == job_id).with_for_update())
 
@@ -49,14 +53,27 @@ class SyncJobWebhookOutbox:
             logger.warning(f"Job not found for webhook check: {job_id}")
             return None
 
+        if event_type in {"job.parsed", "job.enrichment.completed"}:
+            job_metadata = job.job_metadata or {}
+            corpus_storage = CorpusStorage.resolve_namespace(JobMetadataHelper.get_namespace(job_metadata))
+            if corpus_storage.usesAdditivePublication() and job_metadata.get("corpus_target") != "DEMO":
+                return None
         webhook_url, webhook_enabled = job.webhook_url, job.webhook_enabled
         if not webhook_enabled or not webhook_url:
             return None
+        is_enrichment_failure = event_type == ENRICHMENT_FAILED_EVENT
+        if is_enrichment_failure and not attempt_key:
+            raise ValueError("Enrichment failure requires an attempt identity")
         subscribed = job.webhook_events if job.webhook_events is not None else _DEFAULT_EVENTS
         if event_type not in subscribed:
             return None
         is_indexing_failure: bool = event_type == "job.failed" and job.failure_stage == "indexing"
-        milestone_key: str = f"{job_id}:{event_type}:{job.current_indexing_attempt_id if is_indexing_failure else 'job'}"
+        milestone_identity = (
+            attempt_key if is_enrichment_failure
+            else job.current_indexing_attempt_id if is_indexing_failure
+            else "job"
+        )
+        milestone_key: str = f"{job_id}:{event_type}:{milestone_identity}"
         previous = select(WebhookEvent).where(
             WebhookEvent.job_id == job_id,
             WebhookEvent.payload["event"].astext == event_type,
@@ -65,6 +82,8 @@ class SyncJobWebhookOutbox:
             previous = previous.where(
                 WebhookEvent.payload["indexing_attempt_id"].astext == job.current_indexing_attempt_id
             )
+        if is_enrichment_failure:
+            previous = previous.where(WebhookEvent.milestone_key == milestone_key)
         existing: WebhookEvent | None = db.scalars(previous.limit(1)).first()
         if existing is not None:
             return WebhookOutboxEvent(event_id=existing.id)

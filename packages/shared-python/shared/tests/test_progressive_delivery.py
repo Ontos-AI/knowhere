@@ -12,15 +12,12 @@ from shared.services.webhook import payload_enrichment
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "payload",
-    [{"event": "job.parsed"}, {"event": "job.failed", "failure_stage": "indexing"}],
-)
 async def test_webhook_enricher_loads_result_for_parse_milestones(
-    monkeypatch: pytest.MonkeyPatch, payload: dict[str, str]
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    payload: dict[str, str] = {"event": "job.parsed"}
     job_result = JobResult(id="r", job_id="j")
-    job = Mock(job_result=job_result)
+    job = Mock(job_result=job_result, status="running", failure_stage=None)
     result = Mock()
     result.scalar_one_or_none.return_value = job
     db = Mock(execute=AsyncMock(return_value=result))

@@ -4,13 +4,14 @@ Document data access for retrieval document lifecycle flows.
 
 from __future__ import annotations
 
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from app.services.demo.revision_reader import resolve_demo_revision
 
 from datetime import datetime, timezone
 from typing import Sequence, cast
 
-from sqlalchemy import func, select, true
+from sqlalchemy import ColumnElement, SQLColumnExpression, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
@@ -20,6 +21,13 @@ from shared.models.database.job_result import JobResult
 
 DocumentChunkRow = tuple[DocumentChunk, DocumentSection | None, JobResult]
 DocumentJobRevisionRow = tuple[Document, JobResult, Job]
+
+
+def _allows_job_result_delivery(corpus_storage: CorpusStorage) -> ColumnElement[bool]:
+    """Apply the job result delivery policy in the same query as the artifact."""
+    if corpus_storage.usesAdditivePublication():
+        return Job.status == "done"
+    return or_(Job.status != "failed", Job.failure_stage != "indexing", Job.failure_stage.is_(None))
 
 
 class DocumentRepository:
@@ -95,16 +103,23 @@ class DocumentRepository:
             document, result = await resolve_demo_revision(db, document_id=document_id, job_result_id=job_result_id)
             job = (await db.execute(select(Job).where(Job.job_id == result.job_id))).scalar_one()
             return document, result, job
+        default_revision: SQLColumnExpression[str | None] = corpusStorage.Document.current_job_result_id
+        if not corpusStorage.usesAdditivePublication():
+            default_revision = func.coalesce(
+                corpusStorage.Document.latest_parsed_job_result_id, default_revision
+            )
         stmt = (
             select(corpusStorage.Document, JobResult, Job)
-            .join(JobResult, JobResult.id == (job_result_id or func.coalesce(
-                corpusStorage.Document.latest_parsed_job_result_id, corpusStorage.Document.current_job_result_id)))
+            .select_from(corpusStorage.Document)
+            .join(JobResult, JobResult.id == (job_result_id or default_revision))
             .join(Job, Job.job_id == JobResult.job_id)
             .where(corpusStorage.Document.document_id == document_id)
             .where(corpusStorage.Document.user_id == corpusStorage.resolve_owner(user_id))
             .where(JobResult.document_id == corpusStorage.Document.document_id)
             .where(Job.user_id == user_id)
-            .where(corpusStorage.Document.status != "archived")
+            .where(_allows_job_result_delivery(corpusStorage))
+            .where((corpusStorage.Document.status != "archived")
+                if job_result_id is None or not corpusStorage.usesAdditivePublication() else true())
             .limit(1)
         )
 
@@ -136,6 +151,16 @@ class DocumentRepository:
             .where(corpusStorage.DocumentChunk.document_id == document_id)
             .where(corpusStorage.DocumentChunk.job_result_id == job_result_id)
         )
+        if corpusStorage.usesAdditivePublication():
+            stmt = stmt.where(select(corpusStorage.Document.document_id).where(
+                corpusStorage.Document.document_id == corpusStorage.DocumentChunk.document_id,
+                corpusStorage.Document.current_job_result_id == corpusStorage.DocumentChunk.job_result_id,
+                corpusStorage.Document.status == "active",
+            ).correlate(corpusStorage.DocumentChunk).exists(), AdditiveVisibility.allowsChunk())
+        elif not corpusStorage.is_demo:
+            stmt = stmt.join(JobResult, JobResult.id == corpusStorage.DocumentChunk.job_result_id).join(
+                Job, Job.job_id == JobResult.job_id
+            ).where(_allows_job_result_delivery(corpusStorage))
         if chunk_type is not None:
             stmt = stmt.where(func.lower(corpusStorage.DocumentChunk.chunk_type) == chunk_type)
 
@@ -170,6 +195,14 @@ class DocumentRepository:
             .limit(limit)
             .offset(offset)
         )
+        if corpusStorage.usesAdditivePublication():
+            stmt = stmt.where(select(corpusStorage.Document.document_id).where(
+                corpusStorage.Document.document_id == corpusStorage.DocumentChunk.document_id,
+                corpusStorage.Document.current_job_result_id == corpusStorage.DocumentChunk.job_result_id,
+                corpusStorage.Document.status == "active",
+            ).correlate(corpusStorage.DocumentChunk).exists(), AdditiveVisibility.allowsChunk())
+        elif not corpusStorage.is_demo:
+            stmt = stmt.join(Job, Job.job_id == JobResult.job_id).where(_allows_job_result_delivery(corpusStorage))
         if chunk_type is not None:
             stmt = stmt.where(func.lower(corpusStorage.DocumentChunk.chunk_type) == chunk_type)
 
@@ -197,6 +230,8 @@ class DocumentRepository:
             .where(corpusStorage.DocumentChunk.id == document_chunk_id)
             .limit(1)
         )
+        if not corpusStorage.is_demo:
+            stmt = stmt.join(Job, Job.job_id == JobResult.job_id).where(_allows_job_result_delivery(corpusStorage))
 
         result = await db.execute(stmt)
         row = result.first()

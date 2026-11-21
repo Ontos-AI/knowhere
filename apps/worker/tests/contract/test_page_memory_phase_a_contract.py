@@ -714,3 +714,242 @@ def test_native_baseline_defers_visual_vectors_without_losing_required_work(
     chunks = dataframe_to_chunks(dataframe)
     assert [chunk["metadata"]["embedding_status"] for chunk in chunks] == ["pending", "pending"]
     assert all("_page_embedding" not in chunk["metadata"] for chunk in chunks)
+
+
+@pytest.mark.parametrize("filename", ["doc.pdf", "deck.pptx"])
+def test_additive_progressive_first_result_is_coarse_and_retains_reader_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filename: str
+) -> None:
+    import pymupdf
+
+    from app.services.page_memory import memory_service, page_tagger, presentation_media
+    from shared.services.chunks.asset_descriptor import PageMedia
+    from shared.services.retrieval.page_embedding_index import (
+        extract_and_strip_page_embeddings,
+    )
+    from shared.services.storage.zip_result_service import ZipResultService
+
+    source = tmp_path / "normalized.pdf"
+    with pymupdf.open() as document:
+        for page_text in (
+            "First chapter",
+            "Continuation",
+            "Second chapter",
+            "Last page",
+        ):
+            document.new_page().insert_text((20, 20), page_text)
+        document.save(source)
+    page_texts = {
+        1: "First chapter",
+        2: "Continuation",
+        3: "Second chapter",
+        4: "Last page",
+    }
+    skeletons = [
+        SectionSkeleton(
+            f"{filename}/First chapter", 1, 1, 2, "First chapter", filename
+        ),
+        SectionSkeleton(
+            f"{filename}/Second chapter", 1, 3, 4, "Second chapter", filename
+        ),
+    ]
+    profile = _profile(
+        skeletons=skeletons,
+        page_texts=page_texts,
+        body_texts=page_texts,
+        monkeypatch=monkeypatch,
+    )
+    is_presentation: bool = filename.endswith(".pptx")
+    profile.is_scanned = not is_presentation
+    profile.blackboard = SimpleNamespace(
+        page_count=4,
+        page_full_text_cache=page_texts,
+    )
+    profiling_calls: list[tuple[object, object]] = []
+
+    def profile_document(*args: object, **kwargs: object) -> SimpleNamespace:
+        del args
+        profiling_calls.append(
+            (kwargs.get("stop_after"), kwargs.get("presentation_source"))
+        )
+        return profile
+
+    def prevent_fine(**kwargs: object) -> None:
+        raise AssertionError(f"The first result must not run Fine: {kwargs.keys()}")
+
+    asset = {
+        "asset_id": "asset-video",
+        "kind": "video",
+        "origin": "embedded",
+        "title": "Demo video",
+        "page_nums": [3],
+        "duration_ms": 5000,
+        "ref": {"kind": "artifact", "path": "embedded_media/demo.mp4"},
+    }
+    if is_presentation:
+        monkeypatch.setattr(
+            memory_service,
+            "separate_presentation_media",
+            lambda **kwargs: presentation_media.PresentationMedia(
+                conversion_path=kwargs["file_path"],
+                page_media=PageMedia.from_descriptors([asset], []),
+                media_rows=(presentation_media._media_row(asset, transcript="hello"),),
+            ),
+        )
+    monkeypatch.setattr(memory_service, "profile_document", profile_document)
+    monkeypatch.setattr(
+        memory_service,
+        "normalize_to_pdf",
+        lambda **kwargs: (str(source), "normalized.pdf"),
+    )
+    monkeypatch.setattr(
+        memory_service, "embed_rendered_pages", lambda **kwargs: {1: [1.0], 4: [4.0]}
+    )
+    monkeypatch.setattr(
+        memory_service,
+        "settings",
+        SimpleNamespace(
+            KNOWHERE_LEXICAL_BACKEND="opensearch", VISUAL_RETRIEVAL_ENABLED=True
+        ),
+    )
+    monkeypatch.setattr(page_tagger, "tag_pages", prevent_fine)
+    monkeypatch.setattr(page_tagger, "tag_page_titles", prevent_fine)
+    output_dir, dataframe = memory_service.run(
+        memory_service.PageMemoryInput(
+            file_path=str(source),
+            filename=filename,
+            output_dir=str(tmp_path / "out"),
+            page_memory_config=PageMemoryConfig(asset_extraction_enabled=False),
+            ingestion_mode="progressive",
+        )
+    )
+    assert profiling_calls == [(None, is_presentation)]
+    chunks = dataframe_to_chunks(dataframe)
+    page_chunks = [chunk for chunk in chunks if chunk["type"] == "page"]
+    assert [chunk["path"] for chunk in page_chunks] == [
+        skeleton.section_path for skeleton in skeletons
+    ]
+    assert [chunk["metadata"]["scope_id"] for chunk in page_chunks] == ["p1-2", "p3-4"]
+    assert [chunk["metadata"]["enrichment_state"] for chunk in page_chunks] == [
+        "coarse",
+        "coarse",
+    ]
+    assert [chunk["metadata"]["page_nums"] for chunk in page_chunks] == [[1, 2], [3, 4]]
+    assert [
+        [item["artifact_ref"] for item in chunk["metadata"]["page_assets"]]
+        for chunk in page_chunks
+    ] == [
+        ["page_citation_assets/page-1.png", "page_citation_assets/page-2.png"],
+        ["page_citation_assets/page-3.png", "page_citation_assets/page-4.png"],
+    ]
+    assert [
+        extract_and_strip_page_embeddings(dict(chunk["metadata"]))
+        for chunk in page_chunks
+    ] == ([{}, {}] if is_presentation else [{1: [1.0]}, {4: [4.0]}])
+    if is_presentation:
+        assert page_chunks[1]["metadata"]["assets"][0]["asset_id"] == "asset-video"
+        assert page_chunks[1]["metadata"]["connect_to"][0]["target"] == "asset-video"
+        assert [chunk["chunk_id"] for chunk in chunks if chunk["type"] == "video"] == [
+            "asset-video"
+        ]
+    manifest = json.loads((Path(output_dir) / PHASE_B_MANIFEST_REL).read_text())
+    assert [scope["scope_id"] for scope in manifest["scopes"]] == ["p1-2", "p3-4"]
+    for path in (
+        PHASE_B_BLACKBOARD_REL,
+        PHASE_B_ANATOMY_REL,
+        PHASE_B_FULL_TEXT_REL,
+        PHASE_B_BODY_TEXT_REL,
+    ):
+        assert (Path(output_dir) / path).is_file()
+    assert (
+        Path(output_dir) / PHASE_B_SOURCE_PDF_REL
+    ).read_bytes() == source.read_bytes()
+
+    import zipfile
+
+    zip_path, _, _, _ = ZipResultService().generate_zip_package(
+        job_id="job-coarse",
+        chunks=chunks,
+        add_dir=output_dir,
+        source_file_name=filename,
+        data_id=None,
+        job_metadata={"parse_track": "page_memory", "ingestion_mode": "progressive"},
+        parsed_df=dataframe,
+        temp_dir=str(tmp_path),
+    )
+    with zipfile.ZipFile(zip_path) as archive:
+        assert set(archive.namelist()) >= {
+            "source.pdf",
+            "chunks.json",
+            "doc_nav.json",
+            *(f"page_citation_assets/page-{page}.png" for page in range(1, 5)),
+        }
+        entries = json.loads(archive.read("chunks.json"))["chunks"]
+    assert [entry["path"] for entry in entries if entry["type"] == "page"] == [
+        skeleton.section_path for skeleton in skeletons
+    ]
+    assert all("_page_embeddings" not in entry["metadata"] for entry in entries)
+
+
+def test_uploaded_coarse_baseline_marks_only_unembedded_physical_pages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "phase_b").mkdir()
+    for ref in (
+        PHASE_B_SOURCE_PDF_REL,
+        PHASE_B_BLACKBOARD_REL,
+        PHASE_B_MANIFEST_REL,
+        PHASE_B_FULL_TEXT_REL,
+        PHASE_B_BODY_TEXT_REL,
+    ):
+        (tmp_path / ref).write_text("{}", encoding="utf-8")
+    upload_refs: list[str] = []
+
+    class Storage:
+        def upload_raw_file(self, *, relative_path: str, **kwargs: object) -> None:
+            assert kwargs["raw_prefix"] == "results/job-coarse/"
+            upload_refs.append(relative_path)
+
+        def upload(self, **kwargs: object) -> SimpleNamespace:
+            assert kwargs["snapshot_id"]
+            return SimpleNamespace(
+                zip_key="snapshot.zip", raw_prefix="snapshot/", raw_files={}
+            )
+
+    persisted: dict[str, object] = {}
+    monkeypatch.setattr(
+        success_finalization_mod,
+        "persist_job_metadata_updates",
+        lambda **kwargs: persisted.update(kwargs["metadata_updates"]),
+    )
+    success_finalization_mod._upload_result_package(
+        result_package=ParseResultPackage(
+            artifact=ParseArtifact(add_dir=str(tmp_path), dataframe=pd.DataFrame()),
+            chunks=[
+                {
+                    "type": "page",
+                    "path": "doc.pdf/Chapter",
+                    "metadata": {
+                        "page_nums": [1, 2, 3],
+                        "embedding_status": "missing",
+                        "_page_embeddings": {"1": [1.0], "3": [3.0]},
+                    },
+                }
+            ],
+        ),
+        generated_package=GeneratedResultPackage(
+            zip_file_path=str(tmp_path / "result.zip"),
+            checksum_value="checksum",
+            statistics={},
+            zip_size=1,
+        ),
+        job_id="job-coarse",
+        result_storage_factory=Storage,
+        job_context=SimpleNamespace(
+            job_metadata={"parse_track": "page_memory", "ingestion_mode": "progressive"}
+        ),
+    )
+    assert persisted["enrichment_status"] == "coarse"
+    assert persisted["progressive_missing_embedding_pages"] == [2]
+    assert persisted["page_memory_phase_b"] == upload_refs
+    assert PHASE_B_MANIFEST_REL in upload_refs

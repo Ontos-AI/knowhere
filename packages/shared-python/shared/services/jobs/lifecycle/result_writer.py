@@ -11,6 +11,11 @@ from shared.models.database.job_result import JobChunk, JobResult
 from shared.utils.json_utils import remove_nul_characters
 
 
+_TRANSIENT_PAGE_EMBEDDINGS: frozenset[str] = frozenset(
+    {"_page_embedding", "_page_embeddings"}
+)
+
+
 class SyncJobResultWriter:
     """Persist terminal Job Result artifacts inside an existing transaction."""
 
@@ -101,8 +106,13 @@ class SyncJobResultWriter:
             chunk_identifier = safe_chunk.get("chunk_id") or str(uuid4())
             raw_metadata = safe_chunk.get("metadata")
             metadata = (
-                {k: v for k, v in raw_metadata.items() if k != "_page_embedding"}
-                if isinstance(raw_metadata, dict) and "_page_embedding" in raw_metadata
+                {
+                    key: value
+                    for key, value in raw_metadata.items()
+                    if key not in _TRANSIENT_PAGE_EMBEDDINGS
+                }
+                if isinstance(raw_metadata, dict)
+                and not _TRANSIENT_PAGE_EMBEDDINGS.isdisjoint(raw_metadata)
                 else raw_metadata
             )
             chunk_text = safe_chunk.get("text") or safe_chunk.get("content")

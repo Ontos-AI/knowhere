@@ -1,5 +1,8 @@
 # Keep parsing charges and allow free indexing retries
 
+- The initial ingestion design supersedes this policy for the new staging
+  candidate. An initial indexing failure refunds the charge, and a new job
+  handles any retry. See [Initial ingestion failure and retry](../design/baseline-enrichment-publication.md#initial-ingestion-failure-and-retry).
 - Status: Accepted for the planned OpenSearch integration, revised on
   2026-11-02; formal integration and production acceptance remain open. This
   replaces the earlier mode-dependent indexing-failure refund decision.
