@@ -890,6 +890,11 @@ it.
 | Hipo compatibility with the retired endpoint | Repeat representative PDF, PPTX, a full-ingestion Source, and an existing-document read with the candidate Hipo and Knowhere releases in staging. Exercise Reparse, fine parsing failure, and search-triggered recovery with the old route absent. Confirm same-job initial indexing retry and zero Hipo calls to the old route before authorizing production retirement. |
 | Page image authorization | Open the same historical page citation in Ask and Library after a Brain move. Verify both render the original snapshot and page through an authenticated address. Revoke access and replay that exact address to confirm it returns `404`, including a conditional request carrying the cached validator. Restore access and verify the same address renders the page again. |
 
+Library page positioning still needs acceptance. The moved historical citation
+in staging selected page 3 and loaded its image, but the viewport initially
+showed page 1. Verify that opening the citation scrolls to the pinned page
+when the reader first loads.
+
 ### Retention and rebuild
 
 Rebuilding an active document's index restores its baseline and every
