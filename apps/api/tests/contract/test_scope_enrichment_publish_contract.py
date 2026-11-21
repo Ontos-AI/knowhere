@@ -668,8 +668,8 @@ def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
     from shared.core import celery_app as celery_app_mod
-    from shared.core.config import settings
     from shared.core.database import get_db_context
+    from shared.services.jobs.lifecycle import scope_enrichments as scope_runtime
 
     database_url = make_url(get_contract_database_url()).set(
         drivername="postgresql+psycopg2"
@@ -743,10 +743,23 @@ def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants
             session.commit()
 
         if after_failure:
-            monkeypatch.setattr(settings, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
+            monkeypatch.setattr(scope_runtime.app_config, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", True)
 
         async def _call_read() -> None:
             async with get_db_context() as async_db:
+                if after_failure:
+                    await scope_runtime.promote_scopes_on_read(
+                        async_db,
+                        [
+                            {
+                                **chunk,
+                                "job_result_id": scope.revision_ref,
+                                "chunk_type": "page",
+                            }
+                            for chunk in chunks
+                        ],
+                    )
+                    return
                 ctx = ToolContext(
                     db=async_db,
                     user_id=scope.user_ref,
