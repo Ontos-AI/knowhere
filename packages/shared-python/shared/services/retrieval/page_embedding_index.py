@@ -50,18 +50,29 @@ def _coerce_page_nums(raw_page_nums: object) -> list[int]:
 def extract_and_strip_page_embeddings(
     chunk_metadata: dict[str, Any],
 ) -> dict[int, list[float]]:
-    """Pop transient ``_page_embedding`` from ``chunk_metadata`` and key by page_num."""
-    raw_embedding = chunk_metadata.pop("_page_embedding", None)
-    if not isinstance(raw_embedding, list) or not raw_embedding:
-        return {}
-    try:
-        vector = [float(val) for val in raw_embedding]
-    except (TypeError, ValueError):
-        return {}
-    pages = _coerce_page_nums(chunk_metadata.get("page_nums"))
+    """Remove transient vectors and bind them to physical pages in this chunk."""
+    raw_embedding: object = chunk_metadata.pop("_page_embedding", None)
+    grouped_embeddings: object = chunk_metadata.pop("_page_embeddings", None)
+    pages: list[int] = _coerce_page_nums(chunk_metadata.get("page_nums"))
     if not pages:
         return {}
-    return {pages[0]: vector}
+    embeddings: dict[int, list[float]] = {}
+    if vector := _coerce_embedding(raw_embedding):
+        embeddings[pages[0]] = vector
+    if isinstance(grouped_embeddings, dict):
+        for page in pages:
+            if vector := _coerce_embedding(grouped_embeddings.get(str(page))):
+                embeddings[page] = vector
+    return embeddings
+
+
+def _coerce_embedding(raw_embedding: object) -> list[float]:
+    if not isinstance(raw_embedding, list) or not raw_embedding:
+        return []
+    try:
+        return [float(val) for val in raw_embedding]
+    except (TypeError, ValueError):
+        return []
 
 
 def load_revision_page_metadatas(

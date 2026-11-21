@@ -43,6 +43,7 @@ from app.services.page_memory.phase_a import (
     build_coarse_text_dataframe,
     build_phase_a,
     persist_m0_inputs,
+    persist_phase_b_inputs,
 )
 
 from loguru import logger
@@ -80,6 +81,14 @@ class _ScopeRunResult:
     fine_text_by_page: dict[int, str] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class _ProgressivePages:
+    page_texts: dict[int, str]
+    body_text_by_page: dict[int, str]
+    image_path_by_page: dict[int, str] | None
+    embeddings_by_page: dict[int, list[float]] | None
+
+
 def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
     """Run the page-memory track via leaf section nodes (C1-C7 pipeline)."""
     full_output_dir = _resolve_output_dir(request)
@@ -99,6 +108,9 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 )
         _persist_source_pdf(pdf_path=pdf_path, output_dir=full_output_dir)
         is_progressive = str(request.ingestion_mode or "full").strip().lower() == "progressive"
+        publish_coarse: bool = is_progressive and bool(
+            getattr(settings, "KNOWHERE_ADDITIVE_PUBLICATION_ENABLED", False)
+        )
         visual_m0_enabled = is_progressive and bool(
             getattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
         )
@@ -108,7 +120,9 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 pdf_filename,
                 job_id=request.job_id,
                 output_dir=full_output_dir,
-                stop_after="native_baseline" if is_progressive else None,
+                stop_after=(
+                    "native_baseline" if is_progressive and not publish_coarse else None
+                ),
                 presentation_source=_is_presentation(request),
             )
         trace_recorder = getattr(profile, "trace_recorder", None)
@@ -119,7 +133,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
         }
 
         if is_progressive:
-            parsed_df = _build_progressive_m0_dataframe(
+            progressive_pages: _ProgressivePages = _prepare_progressive_pages(
                 pdf_path=pdf_path,
                 filename=request.filename,
                 output_dir=full_output_dir,
@@ -127,10 +141,33 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 profile=profile,
                 include_page_assets=visual_m0_enabled,
             )
-            persist_m0_inputs(
-                output_dir=full_output_dir,
-                profile=profile,
-            )
+            if publish_coarse:
+                phase_a = build_phase_a(
+                    profile=profile,
+                    filename=request.filename,
+                    trace_recorder=trace_recorder,
+                    page_memory_config=page_memory_config,
+                )
+                persist_phase_b_inputs(
+                    output_dir=full_output_dir,
+                    profile=profile,
+                    manifest=phase_a.manifest,
+                    retain_blackboard=True,
+                )
+                parsed_df = _attach_coarse_page_assets(
+                    phase_a.coarse_df, progressive_pages, output_dir=full_output_dir
+                )
+            else:
+                parsed_df = build_coarse_text_dataframe(
+                    page_texts=progressive_pages.page_texts,
+                    body_text_by_page=progressive_pages.body_text_by_page,
+                    page_count=page_count,
+                    filename=request.filename,
+                    image_path_by_page=progressive_pages.image_path_by_page,
+                    embeddings_by_page=progressive_pages.embeddings_by_page,
+                    output_dir=full_output_dir,
+                )
+                persist_m0_inputs(output_dir=full_output_dir, profile=profile)
         else:
             parsed_df = _build_page_dataframe(
                 pdf_path=pdf_path,
@@ -242,7 +279,7 @@ def _has_corrupt_native_text(text: str) -> bool:
     return invalid_count >= 3 and invalid_count * 20 >= len(text)
 
 
-def _build_progressive_m0_dataframe(
+def _prepare_progressive_pages(
     *,
     pdf_path: str,
     filename: str,
@@ -250,7 +287,7 @@ def _build_progressive_m0_dataframe(
     page_count: int,
     profile: ParserDocumentProfile,
     include_page_assets: bool,
-) -> pd.DataFrame:
+) -> _ProgressivePages:
     from app.services.document_agent.tools.ocr_pages import ocr_rendered_pages
     from app.services.page_memory.page_renderer import render_document_pages
 
@@ -307,15 +344,57 @@ def _build_progressive_m0_dataframe(
         if embed_pages
         else None
     )
-    return build_coarse_text_dataframe(
+    return _ProgressivePages(
         page_texts=page_texts,
         body_text_by_page=body_text_by_page,
-        page_count=page_count,
-        filename=filename,
         image_path_by_page=image_path_by_page if include_page_assets else None,
         embeddings_by_page=embeddings_by_page,
-        output_dir=output_dir,
     )
+
+
+def _attach_coarse_page_assets(
+    dataframe: pd.DataFrame, pages: _ProgressivePages, *, output_dir: str
+) -> pd.DataFrame:
+    from app.services.page_memory.node_assembler import _build_page_citation_assets
+
+    image_paths: dict[int, str] | None = pages.image_path_by_page
+    if image_paths is None:
+        return dataframe
+    assets_by_page: dict[int, dict[str, Any]] = {
+        asset["page_num"]: asset
+        for asset in _build_page_citation_assets(
+            pages=sorted(image_paths),
+            image_path_by_page=image_paths,
+            output_dir=output_dir,
+        )
+    }
+    available_embeddings: dict[int, list[float]] = pages.embeddings_by_page or {}
+    unassigned_embeddings: dict[int, list[float]] = dict(available_embeddings)
+    rows: list[dict[str, Any]] = dataframe.to_dict("records")
+    for row in rows:
+        row_pages: list[int] = [
+            int(page) for page in row["page_nums"].split(",") if page
+        ]
+        metadata: dict[str, Any] = row["extra_metadata"]
+        if assets := [
+            assets_by_page[page] for page in row_pages if page in assets_by_page
+        ]:
+            metadata["page_assets"] = assets
+        if embeddings := {
+            str(page): unassigned_embeddings.pop(page)
+            for page in row_pages
+            if page in unassigned_embeddings
+        }:
+            metadata["_page_embeddings"] = embeddings
+        if pages.embeddings_by_page is None:
+            metadata["embedding_status"] = "pending"
+        else:
+            metadata["embedding_status"] = (
+                "complete"
+                if all(page in available_embeddings for page in row_pages)
+                else "missing"
+            )
+    return pd.DataFrame(rows, columns=dataframe.columns)
 
 
 def _resolve_hierarchy_model(page_memory_config: PageMemoryConfig) -> str | None:
