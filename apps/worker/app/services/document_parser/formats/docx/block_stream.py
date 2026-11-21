@@ -154,14 +154,10 @@ def iter_block_items(doc_data):
                     )
                     ele_num += 1
 
-                # TODO: Re-evaluate VML group extraction strategy. 
-                # Complex VML composite images (<v:group>) are currently skipped because extracting 
-                # <v:imagedata> piece-by-piece loses textual overlay and positioning. 
-                # Future plan: Use LibreOffice headless conversion to render the entire document 
-                # and map the perfectly rendered images back to the layout via text anchors.
-                #
-                # Temporary: detect VML-only paragraphs and inject a placeholder so the
-                # paragraph isn't silently swallowed, leaving its parent section empty.
+                # Complex VML composite images (<v:group>) are skipped because extracting
+                # <v:imagedata> piece-by-piece loses textual overlay and positioning.
+                # VML-only paragraphs get a placeholder so the paragraph isn't silently
+                # swallowed, leaving its parent section empty.
                 if not text and not seen_rids:
                     # No text and no DrawingML images — check for VML content
                     vml_groups = elem.xpath(".//v:group", namespaces=ns)
@@ -174,44 +170,6 @@ def iter_block_items(doc_data):
                             f"Injected VML placeholder for paragraph with "
                             f"{len(vml_groups)} v:group, {len(vml_images_check)} v:imagedata"
                         )
-                """
-                # images (VML: <v:imagedata>) — convert to PNG
-                from PIL import Image as PILImage
-
-                vml_images = elem.xpath(".//v:imagedata", namespaces=ns)
-                for v in vml_images:
-                    rid = v.get(f"{r_ns}id")
-                    if not rid or rid in seen_rids:
-                        continue
-                    target = rel_map.get(rid)
-                    if not target or not target.startswith("media/"):
-                        continue
-                    seen_rids.add(rid)
-                    raw_data = docx.read("word/" + target)
-                    # Convert to PNG for uniform downstream handling
-                    try:
-                        pil_img = PILImage.open(io.BytesIO(raw_data))
-                        png_buf = io.BytesIO()
-                        pil_img.save(png_buf, format="PNG")
-                        png_data = png_buf.getvalue()
-                    except Exception as e:
-                        logger.warning(f"Failed to convert VML image to PNG: {e}")
-                        continue
-                    orig_name = target.split("/")[-1]
-                    png_name = os.path.splitext(orig_name)[0] + ".png"
-                    yield (
-                        ele_num,
-                        None,
-                        "IMAGE",
-                        {
-                            "image_name": png_name,
-                            "from": "paragraph_vml",
-                            "size": len(png_data),
-                            "data": png_data,
-                        },
-                    )
-                    ele_num += 1
-                """
                 map_index += 1
 
                 if toc_info["is_field_end"]:
@@ -250,44 +208,7 @@ def iter_block_items(doc_data):
                                     "size": len(data),
                                 }
                             )
-                        # TODO: VML in tables is temporarily skipped to avoid extracting 
-                        # fragmented textless background images. (Same as paragraph VML logic)
-                        """
-                        # VML images in cell — convert to PNG
-                        from PIL import Image as PILImage
-
-                        vml_in_cell = tc.xpath(".//v:imagedata", namespaces=ns)
-                        for v in vml_in_cell:
-                            rid = v.get(f"{r_ns}id")
-                            if not rid or rid in cell_seen_rids:
-                                continue
-                            target = rel_map.get(rid)
-                            if not target or not target.startswith("media/"):
-                                continue
-                            cell_seen_rids.add(rid)
-                            raw_data = docx.read("word/" + target)
-                            try:
-                                pil_img = PILImage.open(io.BytesIO(raw_data))
-                                png_buf = io.BytesIO()
-                                pil_img.save(png_buf, format="PNG")
-                                png_data = png_buf.getvalue()
-                            except Exception as e:
-                                logger.warning(
-                                    f"Failed to convert VML cell image to PNG: {e}"
-                                )
-                                continue
-                            if is_below_img_min_size(len(png_data)):
-                                continue
-                            orig_name = target.split("/")[-1]
-                            png_name = os.path.splitext(orig_name)[0] + ".png"
-                            imgs_in_cell.append(
-                                {
-                                    "image_name": png_name,
-                                    "data": png_data,
-                                    "size": len(png_data),
-                                }
-                            )
-                        """
+                        # VML images in cells are skipped, like paragraph VML.
                         if imgs_in_cell:
                             cell_images[(row_idx, col_idx)] = imgs_in_cell
 

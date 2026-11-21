@@ -59,14 +59,16 @@ def load_table_html(row: Mapping[str, Any]) -> str:
     if not job_id or not normalized:
         return ""
     try:
-        temp_path = storage.download_raw_to_temp(
-            **resolve_artifact_raw_prefix(row, normalized, storage=storage),
-            job_id=job_id,
-            relative_path=normalized,
-            suffix=".html",
-            temp_dir=tempfile.gettempdir(),
-        )
-        return Path(temp_path).read_text(encoding="utf-8")
+        # The download lands in a directory removed once the HTML is read.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = storage.download_raw_to_temp(
+                **resolve_artifact_raw_prefix(row, normalized, storage=storage),
+                job_id=job_id,
+                relative_path=normalized,
+                suffix=".html",
+                temp_dir=temp_dir,
+            )
+            return Path(temp_path).read_text(encoding="utf-8")
     except Exception as exc:
         raise TableDownloadError(
             f"job_id={job_id} path={normalized}: {exc}"

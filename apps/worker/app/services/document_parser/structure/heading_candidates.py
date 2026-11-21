@@ -158,19 +158,7 @@ _ZERO_POS_CODE = judge_by_conditions("")
 _ZERO_NEG_CODE = remove_by_conditions("")
 
 
-def filter_markdown_headings(
-    md_lines: list[str],
-    layout_json_path: str | None = None,
-) -> pd.DataFrame:
-    meta_ctx = None
-    if layout_json_path:
-        try:
-            from app.services.document_parser.structure.metadata_extractor import MetadataContext
-
-            meta_ctx = MetadataContext(md_lines, layout_json_path)
-        except Exception as exc:
-            logger.warning(f"Failed to create MetadataContext: {exc}")
-
+def filter_markdown_headings(md_lines: list[str]) -> pd.DataFrame:
     raw_candidates = []
     for line_index, line in enumerate(md_lines):
         line = line.strip()
@@ -180,11 +168,9 @@ def filter_markdown_headings(
         if _is_non_heading_markdown_line(line):
             est_level = -1
             reason = f"POS {_ZERO_POS_CODE} NEG {_ZERO_NEG_CODE}"
-            if meta_ctx:
-                reason += " META [0, 0, 0]"
             line = "Figure/Image"
         else:
-            est_level, reason, line = _estimate_markdown_heading_level(line, meta_ctx)
+            est_level, reason, line = _estimate_markdown_heading_level(line)
 
         raw_candidates.append((line_index, line, est_level, reason))
 
@@ -275,8 +261,8 @@ def _is_non_heading_markdown_line(line: str) -> bool:
     )
 
 
-def _estimate_markdown_heading_level(line: str, meta_ctx: Any | None):
-    from app.services.document_parser.structure.metadata_extractor import detect_and_strip_md_bold
+def _estimate_markdown_heading_level(line: str):
+    from app.services.document_parser.structure.markdown_heading_text import detect_and_strip_md_bold
 
     line_clean, hash_level = md_heading_match(line, as_is=False)
     stripped_line, is_full_bold = detect_and_strip_md_bold(line_clean)
@@ -293,11 +279,7 @@ def _estimate_markdown_heading_level(line: str, meta_ctx: Any | None):
         code_level = -1
         code_reason = f"POS {pos_code} NEG {neg_code}"
 
-    if meta_ctx:
-        size_rank, occurrence = meta_ctx.get_meta_for_line(line_clean)
-        bold_value = 1 if is_full_bold else 0
-        code_reason += meta_ctx.format_meta_suffix(size_rank, occurrence, bold_value)
-    elif is_full_bold:
+    if is_full_bold:
         code_reason += " META [0, 0, 1]"
 
     if hash_level <= 0:

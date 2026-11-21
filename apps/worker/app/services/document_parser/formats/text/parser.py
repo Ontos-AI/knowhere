@@ -110,7 +110,6 @@ def postprocess_leaf_dics(
     merge_df["path"] = merge_df["path_identifier"].apply(split_escaped_document_path)
     merge_df = merge_df[["path", "content_lst", "path_identifier"]]
 
-    # TODO rough dividing of contents (need more smart dividing)
     df_with_divides = pd.DataFrame(columns=["path", "content_lst", "path_identifier"])
     for i, row in merge_df.iterrows():
         local_contents = row["content_lst"]

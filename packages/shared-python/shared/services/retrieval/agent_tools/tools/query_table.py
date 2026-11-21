@@ -6,6 +6,7 @@ from shared.services.retrieval.corpus_revision_context import CorpusRevisionCont
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
 
+import asyncio
 import sqlite3
 from typing import Any
 
@@ -142,7 +143,9 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(text="", error=f"unknown table chunk_id: {chunk_id} in {document_id}")
     chunk, section_path = row
     try:
-        table_html = load_table_html(
+        # The artifact download blocks; keep it off the event loop.
+        table_html = await asyncio.to_thread(
+            load_table_html,
             {
                 "content": chunk.content,
                 "file_path": chunk.file_path,

@@ -98,42 +98,17 @@ def format_toc_context_for_llm(toc_context) -> str:
             continue
 
         toc_range = toc_item.get("toc_range")
-        toc_entries = toc_item.get("toc_with_level") or []
+        # Markdown/DOCX TOC payloads store ``toc_with_level`` as a Markdown table.
+        toc_entries = (toc_item.get("toc_with_level") or "").strip()
 
         if toc_range and len(toc_range) == 2:
-            if toc_item.get("toc_range_unit") == "page":
-                formatted_blocks.append(
-                    f"TOC {toc_idx} (pages {toc_range[0]}-{toc_range[1]}):"
-                )
-            else:
-                formatted_blocks.append(
-                    f"TOC {toc_idx} (source rows {toc_range[0]}-{toc_range[1]}):"
-                )
+            formatted_blocks.append(
+                f"TOC {toc_idx} (source rows {toc_range[0]}-{toc_range[1]}):"
+            )
         else:
             formatted_blocks.append(f"TOC {toc_idx}:")
 
-        if not toc_entries:
-            formatted_blocks.append("- No TOC entries available")
-            continue
-
-        if isinstance(toc_entries, str):
-            toc_entries = toc_entries.strip()
-            if toc_entries:
-                formatted_blocks.append(toc_entries)
-            else:
-                formatted_blocks.append("- No TOC entries available")
-            continue
-
-        # Dynamically generate MD table from JSON list (more token-efficient)
-        from app.services.document_agent.tools.vlm_toc_extractor import (
-            build_toc_with_level_md,
-        )
-
-        md_table = build_toc_with_level_md(toc_entries)
-        if md_table:
-            formatted_blocks.append(md_table)
-        else:
-            formatted_blocks.append("- No TOC entries available")
+        formatted_blocks.append(toc_entries or "- No TOC entries available")
 
     return "\n".join(formatted_blocks)
 
@@ -311,9 +286,6 @@ def _compute_zone_boundaries(toc_hierarchies, coordinate_mode="post_removal"):
         - "original": heading IDs stay in original document coordinates, so zones
           can be computed directly from TOC boundaries (DOCX path).
 
-    PROFILE-owned PDF TOCs use page coordinates and never reach this stage.
-    They must never enter this line/element-coordinate calculation.
-
     Args:
         toc_hierarchies: List of toc hierarchy dicts (sorted by toc_range start)
 
@@ -454,7 +426,6 @@ def pred_titles(
     smart_parse=False,
     model_name=None,
     output_dir=None,
-    layout_json_path=None,
     first_toc_ele_num=None,
 ):
     """
@@ -469,7 +440,6 @@ def pred_titles(
         smart_parse: whether to use LLM intelligent parsing
         model_name: LLM model name
         output_dir: output directory for saving intermediate CSV results
-        layout_json_path: path to layout.json for META features (optional)
         first_toc_ele_num: ele_num of the first TOC block in DOCX (for pre-TOC exclusion)
     """
     model_name = _resolve_hierarchy_model_name(model_name)
@@ -478,7 +448,7 @@ def pred_titles(
     )
 
     if doc_type == "md":
-        raw_preds = filter_markdown_headings(infos, layout_json_path=layout_json_path)
+        raw_preds = filter_markdown_headings(infos)
     elif doc_type == "docx":
         raw_preds = filter_document_headings(infos, enable_regex=enable_regx)
     else:
