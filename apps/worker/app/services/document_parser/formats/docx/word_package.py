@@ -6,6 +6,8 @@ are otherwise identical ZIP+XML documents and fail with:
 
     file '...' is not a Word file, content type is
     'application/vnd.ms-word.document.macroEnabled.main+xml'
+
+Parsing reads a package with its tracked changes accepted as well.
 """
 
 from __future__ import annotations
@@ -17,6 +19,10 @@ from typing import BinaryIO
 from docx import Document
 from docx.opc.constants import CONTENT_TYPE as CT
 from loguru import logger
+
+from app.services.document_parser.formats.docx.tracked_changes import (
+    accept_tracked_changes,
+)
 
 _CONTENT_TYPES_MEMBER = "[Content_Types].xml"
 _WML_DOCUMENT_MAIN = CT.WML_DOCUMENT_MAIN
@@ -63,6 +69,12 @@ def normalize_word_package_bytes(package_bytes: bytes) -> bytes:
     return output.getvalue()
 
 
+def read_word_package_bytes(package_bytes: bytes) -> bytes:
+    """The package as parsing reads it: openable by python-docx, with every
+    tracked change accepted."""
+    return accept_tracked_changes(normalize_word_package_bytes(package_bytes))
+
+
 def open_word_document(source: str | bytes | BinaryIO):
     """Open a Word OOXML package, including ``.docm`` / ``.dotx`` / ``.dotm``."""
     if isinstance(source, bytes):
@@ -73,7 +85,7 @@ def open_word_document(source: str | bytes | BinaryIO):
     else:
         package_bytes = source.read()
 
-    return Document(io.BytesIO(normalize_word_package_bytes(package_bytes)))
+    return Document(io.BytesIO(read_word_package_bytes(package_bytes)))
 
 
 def _rewrite_word_main_content_type(content_types_xml: bytes) -> tuple[bytes, str | None]:

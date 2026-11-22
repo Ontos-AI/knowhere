@@ -10,10 +10,7 @@ from __future__ import annotations
 from lxml import etree  # pyright: ignore[reportAttributeAccessIssue]
 
 _MATH_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
-_WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _VAL = f"{{{_MATH_NS}}}val"
-# Tracked deletions and moves away are not part of the equation as it reads.
-REMOVED_TAGS = (f"{{{_WORD_NS}}}del", f"{{{_WORD_NS}}}moveFrom")
 
 # Characters LaTeX reads as markup, written so they print as themselves.
 _ESCAPES = {
@@ -139,8 +136,8 @@ def _children(element) -> str:
         if _is_math(child):
             if not _local(child).endswith("Pr"):
                 parts.append(_convert(child))
-        elif child.tag not in REMOVED_TAGS:
-            # A Word wrapper inside an equation, such as a tracked insertion,
+        else:
+            # A Word element inside an equation, such as a content control,
             # holds equation parts of its own.
             parts.append(_children(child))
     return "".join(parts)

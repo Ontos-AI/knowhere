@@ -143,10 +143,10 @@ def test_latex_markup_characters_are_escaped() -> None:
     )
 
 
-def test_tracked_insertions_are_read_and_deletions_left_out() -> None:
+def test_word_elements_inside_an_equation_are_read_through() -> None:
     w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
     body = (
-        f"<m:sSub><m:e><w:ins {w}>{_r('o')}</w:ins><w:del {w}>{_r('q')}</w:del></m:e>"
-        f"<m:sub><w:ins {w}>{_r('1')}</w:ins></m:sub></m:sSub>"
+        f"<m:sSub><m:e><w:sdt {w}><w:sdtContent>{_r('o')}</w:sdtContent></w:sdt></m:e>"
+        f"<m:sub>{_r('1')}</m:sub></m:sSub>"
     )
     assert _latex(body) == "{o}_{1}"

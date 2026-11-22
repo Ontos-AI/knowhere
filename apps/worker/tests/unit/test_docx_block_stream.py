@@ -361,8 +361,13 @@ def test_word_equations_are_written_as_latex_in_place() -> None:
     assert _texts(blocks) == ["Area is ${x}^{2}$, so\n$$\\frac{a}{b}$$\n"]
 
 
-def test_deleted_equations_leave_nothing_and_objects_inside_are_marked() -> None:
+def test_text_and_equations_read_with_tracked_changes_accepted() -> None:
     deleted = "<m:oMath><w:del><m:r><m:t>i</m:t></m:r></w:del></m:oMath>"
+    skeleton = (
+        "<m:oMath><m:sSub><m:sSubPr><m:ctrlPr><w:del><w:rPr/></w:del></m:ctrlPr>"
+        "</m:sSubPr><m:e><w:del><m:r><m:t>o</m:t></m:r></w:del></m:e>"
+        "<m:sub><w:del><m:r><m:t>1</m:t></m:r></w:del></m:sub></m:sSub></m:oMath>"
+    )
     equation_object = _EQUATION_OBJECT.replace("{ns}", "").replace(
         "{rid}", "rIdMissing"
     )
@@ -374,9 +379,11 @@ def test_deleted_equations_leave_nothing_and_objects_inside_are_marked() -> None
         _docx_with_paragraph_xml(
             '<w:p {ns}><w:r><w:t xml:space="preserve">a </w:t></w:r>'
             + deleted
+            + skeleton
             + holding_object
             + holding_deleted_object
-            + '<w:r><w:t xml:space="preserve"> b</w:t></w:r>'
+            + '<w:ins><w:r><w:t xml:space="preserve"> b</w:t></w:r></w:ins>'
+            + "<w:del><w:r><w:delText> c</w:delText></w:r></w:del>"
             + f"<m:oMathPara>{deleted}</m:oMathPara></w:p>"
         )
     )

@@ -86,6 +86,22 @@ def test_open_word_document_accepts_template_content_type(tmp_path: Path) -> Non
     assert document.paragraphs[0].text == _PARAGRAPH_TEXT
 
 
+def test_open_word_document_reads_tracked_changes_accepted() -> None:
+    from docx.oxml import parse_xml
+
+    document = Document()
+    paragraph = document.add_paragraph("kept")._p
+    w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    paragraph.append(parse_xml(f"<w:ins {w}><w:r><w:t> inserted</w:t></w:r></w:ins>"))
+    paragraph.append(
+        parse_xml(f"<w:del {w}><w:r><w:delText> deleted</w:delText></w:r></w:del>")
+    )
+    buffer = io.BytesIO()
+    document.save(buffer)
+
+    assert open_word_document(buffer.getvalue()).paragraphs[0].text == "kept inserted"
+
+
 def test_page_estimator_counts_macro_enabled_docx(tmp_path: Path) -> None:
     path = tmp_path / "sample.docx"
     path.write_bytes(

@@ -16,10 +16,7 @@ from docx.text.paragraph import Paragraph
 from app.services.document_parser.formats.docx.legacy_graphics import (
     is_equation_object,
 )
-from app.services.document_parser.formats.docx.omml_latex import (
-    REMOVED_TAGS,
-    omml_to_latex,
-)
+from app.services.document_parser.formats.docx.omml_latex import omml_to_latex
 
 EQUATION_OBJECT_MARK = "[equation not extracted]"
 
@@ -57,15 +54,14 @@ def cell_text(cell: _Cell) -> str:
 def _equation_text(o_math, delimiter: str) -> str:
     """An equation between delimiters, then a mark for each equation object in it.
 
-    An equation whose content is all tracked deletions reads as nothing and
-    leaves nothing.
+    An equation with nothing left to read, such as one whose content was all
+    deleted under tracked changes, leaves nothing.
     """
     latex = omml_to_latex(o_math)
     marks = [
         EQUATION_OBJECT_MARK
         for obj in o_math.iter(_OBJECT_TAG)
         if is_equation_object(obj)
-        and not any(ancestor.tag in REMOVED_TAGS for ancestor in obj.iterancestors())
     ]
     text = f"{delimiter}{latex}{delimiter}" if latex.strip() else ""
     return text + "".join(marks)
