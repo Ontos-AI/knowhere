@@ -4,6 +4,8 @@ from typing import Any
 
 from docx.table import Table as DocxTable
 
+from app.services.document_parser.formats.docx.paragraph_text import cell_text
+
 
 def table2html(table: DocxTable, cell_image_map: dict | None = None) -> str:
     """Convert a DOCX table to HTML with colspan, rowspan, and nested tables."""
@@ -113,7 +115,7 @@ def table2html(table: DocxTable, cell_image_map: dict | None = None) -> str:
             if cell.tables:
                 content = "".join(table2html(nested_table) for nested_table in cell.tables)
             else:
-                content = cell.text.strip().replace("\n", "<br/>")
+                content = cell_text(cell).strip().replace("\n", "<br/>")
 
             if cell_image_map:
                 image_description = cell_image_map.get((row_idx, unique_col_idx))

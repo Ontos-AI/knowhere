@@ -6,21 +6,24 @@ import zipfile
 
 from app.services.document_parser.formats.docx.toc import detect_doc_tocs, detect_sdt_toc
 from app.services.document_parser.assets.image_size_filter import is_below_img_min_size
-from app.services.document_parser.formats.docx.vml_graphics import (
-    is_composite,
-    render_composites,
+from app.services.document_parser.formats.docx.legacy_graphics import (
+    is_vml_group,
+    render_graphics,
+    rendered_graphics,
     single_picture_rid,
+    unrendered_placeholder,
     vml_pictures,
 )
+from app.services.document_parser.formats.docx.paragraph_text import paragraph_text
 from app.services.document_parser.formats.docx.word_package import (
     normalize_word_package_bytes,
 )
 from docx import Document
+from docx.oxml.ns import qn
 from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
 from docx.table import Table
 from docx.text.paragraph import Paragraph
-from loguru import logger
 from lxml import etree
 
 
@@ -31,11 +34,14 @@ def iter_block_items(doc_data):
 
     # python-docx mapping
     p_tbl_map = []
+    sdt_nodes = []
     for child in doc.element.body:
         if isinstance(child, CT_P):
             p_tbl_map.append(("p", child))
         elif isinstance(child, CT_Tbl):
             p_tbl_map.append(("tbl", child))
+        elif child.tag == qn("w:sdt"):
+            sdt_nodes.append(child)
 
     with zipfile.ZipFile(io.BytesIO(doc_data), "r") as docx:
         xml = docx.read("word/document.xml")
@@ -51,25 +57,24 @@ def iter_block_items(doc_data):
             "o": "urn:schemas-microsoft-com:office:office",
             "mc": "http://schemas.openxmlformats.org/markup-compatibility/2006",
         }
-        r_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
-
         root = etree.fromstring(xml)
         body = root.find(".//w:body", namespaces=ns)
-        # Composite VML graphics in the paragraphs read below render together.
-        composites = list(
+        # Graphics in the paragraphs, content controls and tables read below
+        # render together.
+        graphics = list(
             dict.fromkeys(
-                pict
-                for paragraph in body.xpath(
-                    "w:p | w:sdt/w:sdtContent//w:p", namespaces=ns
+                graphic
+                for container in body.xpath(
+                    "w:p | w:sdt/w:sdtContent | w:tbl", namespaces=ns
                 )
-                for pict in vml_pictures(paragraph, ns)
-                if is_composite(pict, ns)
+                for graphic in rendered_graphics(container, ns)
             )
         )
-        composite_images = render_composites(doc_data, root, composites, ns)
+        rendered = render_graphics(doc_data, root, graphics, ns)
 
         ele_num = 1
         map_index = 0  # point to p_tbl_map
+        sdt_index = 0  # point to sdt_nodes
         toc_field_active = False
 
         for elem in body.iterchildren():
@@ -84,11 +89,18 @@ def iter_block_items(doc_data):
                 sdt_toc_info = detect_sdt_toc(elem, ns)
                 is_toc_sdt = sdt_toc_info["is_toc_sdt"]
 
+                sdt_node = sdt_nodes[sdt_index]
+                sdt_index += 1
                 sdt_content = elem.find(".//w:sdtContent", namespaces=ns)
                 if sdt_content is not None:
-                    for p_elem in sdt_content.findall(".//w:p", namespaces=ns):
-                        texts = p_elem.xpath(".//w:t/text()", namespaces=ns)
-                        text = "".join(texts).strip()
+                    # The python-docx copy of the same paragraphs, in the same order.
+                    p_nodes = list(
+                        sdt_node.find(".//" + qn("w:sdtContent")).iter(qn("w:p"))
+                    )
+                    p_elems = sdt_content.findall(".//w:p", namespaces=ns)
+                    for p_elem, p_node in zip(p_elems, p_nodes, strict=True):
+                        p_obj = Paragraph(p_node, doc)
+                        text = paragraph_text(p_obj).strip()
 
                         if is_toc_sdt:
                             label = "TOC-AREA"
@@ -110,7 +122,7 @@ def iter_block_items(doc_data):
                                     "toc_style_name": toc_info.get("style_name"),
                                     "toc_source": "sdt",
                                 }
-                            yield ele_num, text, label, meta
+                            yield ele_num, p_obj, label, meta
                             ele_num += 1
                         if p_elem.xpath("ancestor::w:p", namespaces=ns):
                             # A text-box paragraph: its images belong to the
@@ -118,11 +130,10 @@ def iter_block_items(doc_data):
                             continue
                         for content, image_label, image_meta in _paragraph_images(
                             p_elem,
-                            text=text,
                             docx=docx,
                             rel_map=rel_map,
                             ns=ns,
-                            composite_images=composite_images,
+                            rendered=rendered,
                         ):
                             yield ele_num, content, image_label, image_meta
                             ele_num += 1
@@ -130,9 +141,6 @@ def iter_block_items(doc_data):
 
             # --- text paras ---
             if tag == "p":
-                texts = elem.xpath(".//w:t/text()", namespaces=ns)
-                text = "".join(texts).strip()
-
                 if map_index < len(p_tbl_map) and p_tbl_map[map_index][0] == "p":
                     p_obj = Paragraph(p_tbl_map[map_index][1], doc)
                 else:
@@ -147,7 +155,7 @@ def iter_block_items(doc_data):
                 else:
                     label = "PTXT"
 
-                if text or p_obj is not None:
+                if p_obj is not None:
                     meta = None
                     if "TOC" in label:
                         meta = {
@@ -157,16 +165,15 @@ def iter_block_items(doc_data):
                             "toc_style_name": toc_info.get("style_name"),
                             "toc_source": "paragraph",
                         }
-                    yield ele_num, p_obj or text, label, meta
+                    yield ele_num, p_obj, label, meta
                     ele_num += 1
 
                 for content, image_label, image_meta in _paragraph_images(
                     elem,
-                    text=text,
                     docx=docx,
                     rel_map=rel_map,
                     ns=ns,
-                    composite_images=composite_images,
+                    rendered=rendered,
                 ):
                     yield ele_num, content, image_label, image_meta
                     ele_num += 1
@@ -186,29 +193,11 @@ def iter_block_items(doc_data):
                 cell_images = {}  # {(row_idx, col_idx): [{'image_name', 'data', 'size'}]}
                 for row_idx, tr in enumerate(elem.findall(".//w:tr", namespaces=ns)):
                     for col_idx, tc in enumerate(tr.findall(".//w:tc", namespaces=ns)):
-                        cell_seen_rids = set()
-                        imgs_in_cell = []
-                        # DrawingML images in cell
-                        blips = tc.xpath(".//a:blip", namespaces=ns)
-                        for b in blips:
-                            rid = b.get(f"{r_ns}embed")
-                            if not rid or rid in cell_seen_rids:
-                                continue
-                            target = rel_map.get(rid)
-                            if not target or not target.startswith("media/"):
-                                continue
-                            cell_seen_rids.add(rid)
-                            data = docx.read("word/" + target)
-                            if is_below_img_min_size(len(data)):
-                                continue
-                            imgs_in_cell.append(
-                                {
-                                    "image_name": target.split("/")[-1],
-                                    "data": data,
-                                    "size": len(data),
-                                }
-                            )
-                        # VML images in cells are skipped, like paragraph VML.
+                        # A graphic a cell cannot show leaves nothing in the
+                        # cell; table cells carry no placeholders.
+                        imgs_in_cell, _unrendered = _element_images(
+                            tc, docx=docx, rel_map=rel_map, ns=ns, rendered=rendered
+                        )
                         if imgs_in_cell:
                             cell_images[(row_idx, col_idx)] = imgs_in_cell
 
@@ -240,57 +229,59 @@ def iter_block_items(doc_data):
             map_index += 1
 
 
-def _paragraph_images(paragraph, *, text, docx, rel_map, ns, composite_images):
-    """Images a paragraph holds, or a placeholder for a VML graphic it cannot show."""
+def _paragraph_images(paragraph, *, docx, rel_map, ns, rendered):
+    """Images a paragraph holds, then a placeholder for each graphic not rendered."""
+    images, unrendered = _element_images(
+        paragraph, docx=docx, rel_map=rel_map, ns=ns, rendered=rendered
+    )
+    for image in images:
+        yield None, "IMAGE", {**image, "from": "paragraph"}
+    # A placeholder keeps the place of what could not be shown, so a reader
+    # knows something stood there.
+    for graphic in unrendered:
+        yield unrendered_placeholder(graphic), "PTXT", None
+
+
+def _element_images(element, *, docx, rel_map, ns, rendered):
+    """Pictures under ``element`` and the graphics that could not be rendered.
+
+    Pictures come in this order: DrawingML pictures, single VML pictures read
+    from their media files, then rendered VML groups and embedded objects.
+    """
     r_ns = f"{{{ns['r']}}}"
     seen_rids = set()
-    rendered_composite = False
-    # images (DrawingML: <a:blip>)
-    for blip in paragraph.xpath(".//a:blip", namespaces=ns):
+    images = []
+    for blip in element.xpath(".//a:blip", namespaces=ns):
         image = _media_image(blip.get(f"{r_ns}embed"), docx, rel_map, seen_rids)
         if image is not None:
-            yield None, "IMAGE", image
-
-    # Legacy VML: a single picture reads its media file; a composite (<v:group>)
-    # comes back as one rendered image, keeping its overlaid text and layout.
-    tree = paragraph.getroottree()
-    for pict in vml_pictures(paragraph, ns):
-        if is_composite(pict, ns):
-            rendered = composite_images.get(tree.getpath(pict))
-            if rendered is None:
-                continue
-            image_name, data = rendered
-            rendered_composite = True
-            yield (
-                None,
-                "IMAGE",
-                {
-                    "image_name": image_name,
-                    "from": "paragraph",
-                    "size": len(data),
-                    "data": data,
-                },
-            )
+            images.append(image)
+    for pict in vml_pictures(element, ns):
+        if is_vml_group(pict, ns):
             continue
         image = _media_image(single_picture_rid(pict, ns), docx, rel_map, seen_rids)
         if image is not None:
-            yield None, "IMAGE", image
+            images.append(image)
 
-    # VML that is neither read nor rendered gets a placeholder so the paragraph
-    # isn't silently swallowed, leaving its parent section empty.
-    if not text and not seen_rids and not rendered_composite:
-        vml_groups = paragraph.xpath(".//v:group", namespaces=ns)
-        vml_images_check = paragraph.xpath(".//v:imagedata", namespaces=ns)
-        if vml_groups or vml_images_check:
-            yield "[VML graphic \u2014 extraction not yet supported]", "PTXT", None
-            logger.debug(
-                f"Injected VML placeholder for paragraph with "
-                f"{len(vml_groups)} v:group, {len(vml_images_check)} v:imagedata"
-            )
+    tree = element.getroottree()
+    unrendered = []
+    for graphic in rendered_graphics(element, ns):
+        pages = rendered.get(tree.getpath(graphic))
+        if pages is None:
+            unrendered.append(graphic)
+            continue
+        for image_name, data in pages:
+            # TODO: Rendered graphics follow the size floor of media pictures,
+            # which also drops small line drawings that carry real content
+            # (such as fragments of a radar chart, around 9 KB). Decide a floor
+            # of their own for rendered graphics.
+            if is_below_img_min_size(len(data)):
+                continue
+            images.append({"image_name": image_name, "data": data, "size": len(data)})
+    return images, unrendered
 
 
 def _media_image(rid, docx, rel_map, seen_rids):
-    """The media file a relationship id points at, once per paragraph."""
+    """The media file a relationship id points at, once per element."""
     if not rid or rid in seen_rids:
         return None
     target = rel_map.get(rid)
@@ -302,7 +293,6 @@ def _media_image(rid, docx, rel_map, seen_rids):
         return None
     return {
         "image_name": target.split("/")[-1],
-        "from": "paragraph",
         "size": len(data),
         "data": data,
     }

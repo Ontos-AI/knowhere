@@ -11,6 +11,10 @@ from app.services.document_parser.formats.docx.image_summary_scheduler import (
     DocxImageSummaryScheduler,
     build_fallback_image_ref,
 )
+from app.services.document_parser.formats.docx.paragraph_text import (
+    cell_text,
+    paragraph_text,
+)
 from app.services.document_parser.formats.docx.table_html import table2html
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.assets.inline_asset import (
@@ -238,10 +242,10 @@ def _first_cols_rows(table_block, max_items=10, max_chars=20):
     for cell in table_block.rows[0].cells:
         if len(unique_row_cells) >= max_items:
             break
-        cell_text = cell.text.strip()
-        if cell_text and cell_text not in seen_row:
-            seen_row.add(cell_text)
-            unique_row_cells.append(truncate_text(cell_text, max_chars, 0))
+        text = cell_text(cell).strip()
+        if text and text not in seen_row:
+            seen_row.add(text)
+            unique_row_cells.append(truncate_text(text, max_chars, 0))
     first_row_text = " | ".join(unique_row_cells) if unique_row_cells else ""
 
     # First column extraction (deduplicated, order preserved, max items, truncated)
@@ -251,10 +255,10 @@ def _first_cols_rows(table_block, max_items=10, max_chars=20):
         if len(unique_col_cells) >= max_items:
             break
         if row.cells:
-            cell_text = row.cells[0].text.strip()
-            if cell_text and cell_text not in seen_col:
-                seen_col.add(cell_text)
-                unique_col_cells.append(truncate_text(cell_text, max_chars, 0))
+            text = cell_text(row.cells[0]).strip()
+            if text and text not in seen_col:
+                seen_col.add(text)
+                unique_col_cells.append(truncate_text(text, max_chars, 0))
     first_col_text = " | ".join(unique_col_cells) if unique_col_cells else ""
 
     return first_row_text, first_col_text
@@ -518,7 +522,7 @@ def parse_docx(
     for block_tuple in block_tuples:
         block = block_tuple[1]
         if isinstance(block, Paragraph):
-            title_text = block.text.strip()
+            title_text = paragraph_text(block).strip()
             if len(title_text) > 0:
                 heading_infos.append((block_tuple[0], block, title_text))
 
@@ -573,7 +577,9 @@ def parse_docx(
         last_heading_before_block = current_heading
 
         if label == "PTXT":  # block could be doc para or plain string
-            text = getattr(block, "text", str(block)).strip()
+            text = (
+                paragraph_text(block) if isinstance(block, Paragraph) else str(block)
+            ).strip()
             if not text:
                 continue
 
