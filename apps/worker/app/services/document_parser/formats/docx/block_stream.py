@@ -6,6 +6,12 @@ import zipfile
 
 from app.services.document_parser.formats.docx.toc import detect_doc_tocs, detect_sdt_toc
 from app.services.document_parser.assets.image_size_filter import is_below_img_min_size
+from app.services.document_parser.formats.docx.vml_graphics import (
+    is_composite,
+    render_composites,
+    single_picture_rid,
+    vml_pictures,
+)
 from app.services.document_parser.formats.docx.word_package import (
     normalize_word_package_bytes,
 )
@@ -43,11 +49,24 @@ def iter_block_items(doc_data):
             "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
             "v": "urn:schemas-microsoft-com:vml",
             "o": "urn:schemas-microsoft-com:office:office",
+            "mc": "http://schemas.openxmlformats.org/markup-compatibility/2006",
         }
         r_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
 
         root = etree.fromstring(xml)
         body = root.find(".//w:body", namespaces=ns)
+        # Composite VML graphics in the paragraphs read below render together.
+        composites = list(
+            dict.fromkeys(
+                pict
+                for paragraph in body.xpath(
+                    "w:p | w:sdt/w:sdtContent//w:p", namespaces=ns
+                )
+                for pict in vml_pictures(paragraph, ns)
+                if is_composite(pict, ns)
+            )
+        )
+        composite_images = render_composites(doc_data, root, composites, ns)
 
         ele_num = 1
         map_index = 0  # point to p_tbl_map
@@ -93,8 +112,17 @@ def iter_block_items(doc_data):
                                 }
                             yield ele_num, text, label, meta
                             ele_num += 1
+                        if p_elem.xpath("ancestor::w:p", namespaces=ns):
+                            # A text-box paragraph: its images belong to the
+                            # enclosing paragraph, which is read as well.
+                            continue
                         for content, image_label, image_meta in _paragraph_images(
-                            p_elem, text=text, docx=docx, rel_map=rel_map, ns=ns
+                            p_elem,
+                            text=text,
+                            docx=docx,
+                            rel_map=rel_map,
+                            ns=ns,
+                            composite_images=composite_images,
                         ):
                             yield ele_num, content, image_label, image_meta
                             ele_num += 1
@@ -133,7 +161,12 @@ def iter_block_items(doc_data):
                     ele_num += 1
 
                 for content, image_label, image_meta in _paragraph_images(
-                    elem, text=text, docx=docx, rel_map=rel_map, ns=ns
+                    elem,
+                    text=text,
+                    docx=docx,
+                    rel_map=rel_map,
+                    ns=ns,
+                    composite_images=composite_images,
                 ):
                     yield ele_num, content, image_label, image_meta
                     ele_num += 1
@@ -207,39 +240,45 @@ def iter_block_items(doc_data):
             map_index += 1
 
 
-def _paragraph_images(paragraph, *, text, docx, rel_map, ns):
-    """Images a paragraph holds, or a placeholder for a VML-only graphic."""
+def _paragraph_images(paragraph, *, text, docx, rel_map, ns, composite_images):
+    """Images a paragraph holds, or a placeholder for a VML graphic it cannot show."""
     r_ns = f"{{{ns['r']}}}"
     seen_rids = set()
+    rendered_composite = False
     # images (DrawingML: <a:blip>)
     for blip in paragraph.xpath(".//a:blip", namespaces=ns):
-        rid = blip.get(f"{r_ns}embed")
-        if not rid or rid in seen_rids:
-            continue
-        target = rel_map.get(rid)
-        if not target or not target.startswith("media/"):
-            continue
-        seen_rids.add(rid)
-        data = docx.read("word/" + target)
-        if is_below_img_min_size(len(data)):
-            continue
-        yield (
-            None,
-            "IMAGE",
-            {
-                "image_name": target.split("/")[-1],
-                "from": "paragraph",
-                "size": len(data),
-                "data": data,
-            },
-        )
+        image = _media_image(blip.get(f"{r_ns}embed"), docx, rel_map, seen_rids)
+        if image is not None:
+            yield None, "IMAGE", image
 
-    # Complex VML composite images (<v:group>) are skipped because extracting
-    # <v:imagedata> piece-by-piece loses textual overlay and positioning.
-    # VML-only paragraphs get a placeholder so the paragraph isn't silently
-    # swallowed, leaving its parent section empty.
-    if not text and not seen_rids:
-        # No text and no DrawingML images — check for VML content
+    # Legacy VML: a single picture reads its media file; a composite (<v:group>)
+    # comes back as one rendered image, keeping its overlaid text and layout.
+    tree = paragraph.getroottree()
+    for pict in vml_pictures(paragraph, ns):
+        if is_composite(pict, ns):
+            rendered = composite_images.get(tree.getpath(pict))
+            if rendered is None:
+                continue
+            image_name, data = rendered
+            rendered_composite = True
+            yield (
+                None,
+                "IMAGE",
+                {
+                    "image_name": image_name,
+                    "from": "paragraph",
+                    "size": len(data),
+                    "data": data,
+                },
+            )
+            continue
+        image = _media_image(single_picture_rid(pict, ns), docx, rel_map, seen_rids)
+        if image is not None:
+            yield None, "IMAGE", image
+
+    # VML that is neither read nor rendered gets a placeholder so the paragraph
+    # isn't silently swallowed, leaving its parent section empty.
+    if not text and not seen_rids and not rendered_composite:
         vml_groups = paragraph.xpath(".//v:group", namespaces=ns)
         vml_images_check = paragraph.xpath(".//v:imagedata", namespaces=ns)
         if vml_groups or vml_images_check:
@@ -248,3 +287,22 @@ def _paragraph_images(paragraph, *, text, docx, rel_map, ns):
                 f"Injected VML placeholder for paragraph with "
                 f"{len(vml_groups)} v:group, {len(vml_images_check)} v:imagedata"
             )
+
+
+def _media_image(rid, docx, rel_map, seen_rids):
+    """The media file a relationship id points at, once per paragraph."""
+    if not rid or rid in seen_rids:
+        return None
+    target = rel_map.get(rid)
+    if not target or not target.startswith("media/"):
+        return None
+    seen_rids.add(rid)
+    data = docx.read("word/" + target)
+    if is_below_img_min_size(len(data)):
+        return None
+    return {
+        "image_name": target.split("/")[-1],
+        "from": "paragraph",
+        "size": len(data),
+        "data": data,
+    }

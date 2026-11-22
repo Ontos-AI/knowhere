@@ -28,6 +28,8 @@ class ProcessingConstants:
     IMG_MIN_SIZE = 10 * 1024  # 10KB
     IMG_MAX_SIZE = 5 * 1024 * 1024  # 5MB
     IMG_QUALITY = 100
+    # Resolution page images and rendered graphics are drawn at.
+    PAGE_RENDER_DPI = 144
     IMG_CHUNK_SIZE = 1024 * 1024  # 1MB
 
     # PostgreSQL connection-pool configuration.
