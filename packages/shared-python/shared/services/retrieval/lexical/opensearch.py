@@ -344,12 +344,27 @@ class OpenSearchLexicalIndex:
         bodies: tuple[object, object] = self._runtime.queryChannels(queryChannel)
         return NativeSearchPlan.fuseChannels(bodies, buildIds=buildIds, limit=limit)
 
+    def countBuild(self, buildId: str) -> int:
+        visible = _CountResponse.model_validate(self._request(
+            "POST", f"/{self.indexName}/_count",
+            payload={"query": {"term": {"buildId": buildId}}},
+        ))
+        if visible.shards.failed:
+            raise LexicalIndexError("Native record count returned partial results", isRetryable=True)
+        return visible.count
+
     def deleteBuild(self, buildId: str) -> bool:
+        return self._deleteMatching({"query": {"term": {"buildId": buildId}}})
+
+    def deleteDocument(self, documentId: str) -> bool:
+        return self._deleteMatching({"query": {"term": {"documentId": documentId}}})
+
+    def _deleteMatching(self, query: dict[str, object]) -> bool:
         response: _DeleteResponse = _DeleteResponse.model_validate(
             self._request(
                 "POST",
                 f"/{self.indexName}/_delete_by_query?conflicts=proceed&refresh=true",
-                payload={"query": {"term": {"buildId": buildId}}},
+                payload=query,
             )
         )
         if response.timed_out or response.failures or response.version_conflicts:
@@ -358,7 +373,7 @@ class OpenSearchLexicalIndex:
             self._request(
                 "POST",
                 f"/{self.indexName}/_count",
-                payload={"query": {"term": {"buildId": buildId}}},
+                payload=query,
             )
         )
         return not remaining.shards.failed and remaining.count == 0

@@ -2,7 +2,6 @@ import asyncio
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timezone
-import json
 import socket
 from typing import cast
 from uuid import uuid4
@@ -182,75 +181,6 @@ async def _insert_document(
                     "created_at": timestamp,
                     "updated_at": timestamp,
                     "archived_at": timestamp if status == "archived" else None,
-                },
-            )
-    finally:
-        await engine.dispose()
-
-
-async def _insert_active_job(
-    *,
-    job_id: str,
-    document_id: str,
-    user_id: str = "local-dev-user",
-    namespace: str = "contract-jobs",
-    status: str = "running",
-) -> None:
-    engine = await _create_contract_engine()
-    timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
-    job_metadata: dict[str, str] = {
-        "document_id": document_id,
-        "namespace": namespace,
-        "source_type": "file",
-    }
-
-    try:
-        async with engine.begin() as connection:
-            await connection.execute(
-                text(
-                    """
-                    INSERT INTO jobs (
-                        job_id,
-                        user_id,
-                        job_type,
-                        status,
-                        source_type,
-                        webhook_enabled,
-                        job_metadata,
-                        version,
-                        created_at,
-                        updated_at,
-                        credits_charged,
-                        billing_status
-                    ) VALUES (
-                        :job_id,
-                        :user_id,
-                        :job_type,
-                        :status,
-                        :source_type,
-                        :webhook_enabled,
-                        CAST(:job_metadata AS JSON),
-                        :version,
-                        :created_at,
-                        :updated_at,
-                        :credits_charged,
-                        :billing_status
-                    )
-                    """
-                ),
-                {
-                    "job_id": job_id,
-                    "user_id": user_id,
-                    "job_type": "document_ingestion",
-                    "status": status,
-                    "source_type": "file",
-                    "webhook_enabled": False,
-                    "job_metadata": json.dumps(job_metadata),
-                    "version": 0,
-                    "created_at": timestamp,
-                    "updated_at": timestamp,
-                    "credits_charged": 0,
-                    "billing_status": "pending",
                 },
             )
     finally:
@@ -795,242 +725,77 @@ async def test_should_reject_authenticated_user_id_missing_from_user_table(
 
 
 @pytest.mark.asyncio
-async def test_should_return_conflict_when_creating_a_job_for_a_document_with_an_active_ingestion_job(
+@pytest.mark.parametrize("backend", ["postgresql", "opensearch"])
+@pytest.mark.parametrize("version", ["v1", "v2"])
+@pytest.mark.parametrize("reparse", [False, True])
+async def test_rejects_private_in_place_ingestion_before_creating_a_job(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
+    monkeypatch: MonkeyPatch,
+    backend: str,
+    version: str,
+    reparse: bool,
 ) -> None:
-    document_id = f"doc_contract_{uuid4().hex[:12]}"
-    active_job_id = f"job_contract_{uuid4().hex[:12]}"
+    monkeypatch.setenv("KNOWHERE_LEXICAL_BACKEND", backend)
+    if backend == "opensearch":
+        monkeypatch.setenv("KNOWHERE_OPENSEARCH_URL", "http://127.0.0.1:1")
 
-    payload: dict[str, str] = {
-        "document_id": document_id,
-        "namespace": "contract-jobs",
-        "source_type": "file",
-        "file_name": "conflict-upload.pdf",
-        "data_id": "contract-job-conflict",
-    }
-
-    async with developer_api_client_factory() as api_client:
-        await _insert_document(document_id=document_id)
-        await _insert_active_job(job_id=active_job_id, document_id=document_id)
-        response = await api_client.post("/api/v1/jobs", json=payload)
-
-    assert response.status_code == 409
-    assert response.headers["x-request-id"]
-
-    response_json: dict[str, object] = response.json()
-    error = cast(dict[str, object], response_json["error"])
-
-    assert response_json["success"] is False
-    assert error["code"] == "ABORTED"
-    assert (
-        error["message"]
-        == f"Document already has an active ingestion job. Active job: {active_job_id}."
-    )
-    assert error["details"] == {
-        "reason": "ABORTED",
-        "resource": "Document",
-        "id": document_id,
-        "active_job_id": active_job_id,
-    }
-    assert await _count_jobs() == 1
-
-
-@pytest.mark.asyncio
-async def test_should_return_not_found_when_creating_a_job_for_an_unknown_document_id(
-    developer_api_client_factory: Callable[
-        [], AbstractAsyncContextManager[AsyncClient]
-    ],
-) -> None:
-    payload: dict[str, str] = {
-        "document_id": f"doc_missing_{uuid4().hex[:12]}",
-        "namespace": "contract-jobs",
-        "source_type": "file",
-        "file_name": "missing-document-upload.pdf",
-        "data_id": "contract-job-missing-document",
-    }
-
-    async with developer_api_client_factory() as api_client:
-        response = await api_client.post("/api/v1/jobs", json=payload)
-
-    assert response.status_code == 404
-    assert response.headers["x-request-id"]
-
-    response_json: dict[str, object] = response.json()
-    error = cast(dict[str, object], response_json["error"])
-
-    assert response_json["success"] is False
-    assert error["code"] == "NOT_FOUND"
-    assert error["message"] == "Document not found"
-    assert error["details"] == {
-        "resource": "Document",
-        "id": payload["document_id"],
-    }
-    assert await _count_jobs() == 0
-
-
-@pytest.mark.asyncio
-async def test_should_return_not_found_when_creating_a_job_for_an_archived_document(
-    developer_api_client_factory: Callable[
-        [], AbstractAsyncContextManager[AsyncClient]
-    ],
-) -> None:
-    document_id = f"doc_archived_{uuid4().hex[:12]}"
-
-    payload: dict[str, str] = {
-        "document_id": document_id,
-        "namespace": "contract-jobs",
-        "source_type": "file",
-        "file_name": "archived-document-upload.pdf",
-        "data_id": "contract-job-archived-document",
-    }
-
-    async with developer_api_client_factory() as api_client:
-        await _insert_document(document_id=document_id, status="archived")
-        response = await api_client.post("/api/v1/jobs", json=payload)
-
-    assert response.status_code == 404
-    assert response.headers["x-request-id"]
-
-    response_json: dict[str, object] = response.json()
-    error = cast(dict[str, object], response_json["error"])
-
-    assert response_json["success"] is False
-    assert error["code"] == "NOT_FOUND"
-    assert error["message"] == "Document not found"
-    assert error["details"] == {
-        "resource": "Document",
-        "id": document_id,
-    }
-    assert await _count_jobs() == 0
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("namespace_value", [None, "", "   "])
-async def test_should_inherit_existing_document_namespace_when_update_namespace_is_blank(
-    developer_api_client_factory: Callable[
-        [], AbstractAsyncContextManager[AsyncClient]
-    ],
-    namespace_value: str | None,
-) -> None:
-    document_id = f"doc_contract_{uuid4().hex[:12]}"
-    existing_namespace = "contract.jobs.custom"
+    document_id: str = f"doc_contract_{uuid4().hex[:12]}"
+    namespace: str = "hipo-contract-private"
     payload: dict[str, object] = {
         "document_id": document_id,
-        "namespace": namespace_value,
+        "namespace": namespace,
         "source_type": "file",
         "file_name": "replacement-upload.pdf",
-        "data_id": "contract-document-update",
+        "reparse": reparse,
     }
-
     async with developer_api_client_factory() as api_client:
-        await _insert_document(
-            document_id=document_id,
-            namespace=existing_namespace,
+        await _insert_document(document_id=document_id, namespace=namespace)
+        response = await api_client.post(f"/api/{version}/jobs", json=payload)
+        assert response.status_code == 400, response.text
+        error: dict[str, object] = response.json()["error"]
+        assert error["code"] == "INVALID_ARGUMENT"
+        assert error["message"] == (
+            "Create a replacement job with replaces_document_id."
+            if backend == "opensearch"
+            else "Private ingestion creates a new document."
         )
-        response = await api_client.post("/api/v1/jobs", json=payload)
-
-    assert response.status_code == 200
-
-    response_json: dict[str, object] = response.json()
-    job_id = cast(str, response_json["job_id"])
-    job_metadata = cast(dict[str, object], (await _load_job_record(job_id))["job_metadata"])
-    original_request = cast(dict[str, object], job_metadata["original_request"])
-
-    assert response_json["namespace"] == existing_namespace
-    assert job_metadata["document_id"] == document_id
-    assert job_metadata["namespace"] == existing_namespace
-    assert original_request["namespace"] == namespace_value
+        assert error["details"] == {
+            "violations": [{
+                "field": "document_id",
+                "description": "Private ingestion creates a new document",
+            }],
+        }
+        assert await _count_jobs() == 0
 
 
 @pytest.mark.asyncio
-async def test_should_publish_a_reparse_of_an_existing_postgresql_document(
+@pytest.mark.parametrize("target_status", ["missing", "archived"])
+async def test_rejects_replacement_of_an_unavailable_private_document(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
+    monkeypatch: MonkeyPatch,
+    target_status: str,
 ) -> None:
+    monkeypatch.setenv("KNOWHERE_LEXICAL_BACKEND", "opensearch")
+    monkeypatch.setenv("KNOWHERE_OPENSEARCH_URL", "http://127.0.0.1:1")
+
+    document_id: str = f"doc_replacement_{uuid4().hex[:12]}"
     async with developer_api_client_factory() as api_client:
-        from sqlalchemy import create_engine, select
-        from sqlalchemy.engine import make_url
-        from sqlalchemy.orm import Session, sessionmaker
-
-        from shared.models.database.document import Document
-        from shared.models.database.job import Job
-        from shared.models.database.job_result import JobResult
-        from shared.services.jobs.parsing import ParsingOwnership
-        from shared.services.retrieval.lexical.parsing import ParsedRevisionFinalizer
-        from shared.services.retrieval.lexical.worker import IndexingWorker
-
-        engine = create_engine(
-            make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2")
-        )
-        sessions: sessionmaker[Session] = sessionmaker(engine)
-
-        def publish_parse(job_id: str, content: str) -> str:
-            # Model the worker's transition after its input file becomes ready.
-            with sessions.begin() as db:
-                db.scalars(select(Job).where(Job.job_id == job_id)).one().status = "running"
-            token = uuid4().hex
-            assert ParsingOwnership(sessionFactory=sessions).claim(job_id, token)
-            with sessions.begin() as db:
-                ParsedRevisionFinalizer().finalize(
-                    db,
-                    jobId=job_id,
-                    resultKey=f"results/{job_id}.zip",
-                    checksum=job_id,
-                    resultSize=100,
-                    chunks=[
-                        {
-                            "chunk_id": "page-1",
-                            "type": "text",
-                            "path": "contract-reparse.pdf/Contents",
-                            "content": content,
-                            "metadata": {},
-                        }
-                    ],
-                    storedCount=1,
-                    deliveryMode="url",
-                    sectionSummaries=None,
-                    documentTopSummary=None,
-                    parsingOwnerToken=token,
-                )
-            assert IndexingWorker(sessionFactory=sessions).run(job_id) == "completed"
-            with sessions() as db:
-                return db.scalars(select(JobResult.id).where(JobResult.job_id == job_id)).one()
-
-        payload = {
+        if target_status == "archived":
+            await _insert_document(document_id=document_id, status=target_status)
+        response = await api_client.post("/api/v2/jobs", json={
+            "replaces_document_id": document_id,
             "source_type": "file",
-            "file_name": "contract-reparse.pdf",
-            "namespace": "contract-reparse",
-            "ingestion_mode": "progressive",
-        }
-        try:
-            first = await api_client.post("/api/v2/jobs", json=payload)
-            assert first.status_code == 200
-            document_id: str = first.json()["document_id"]
-            first_job_id: str = first.json()["job_id"]
-            first_revision = publish_parse(first_job_id, "Original published text.")
-
-            replacement = await api_client.post(
-                "/api/v2/jobs", json={**payload, "document_id": document_id, "reparse": True}
-            )
-            assert replacement.status_code == 200
-            assert replacement.json()["document_id"] == document_id
-            replacement_job_id: str = replacement.json()["job_id"]
-            assert replacement_job_id != first_job_id
-            with sessions() as db:
-                document = db.scalars(select(Document).where(Document.document_id == document_id)).one()
-                assert document.current_job_result_id == first_revision
-
-            replacement_revision = publish_parse(replacement_job_id, "Recovered searchable text.")
-            with sessions() as db:
-                document = db.scalars(select(Document).where(Document.document_id == document_id)).one()
-                assert document.current_job_result_id == replacement_revision
-                assert replacement_revision != first_revision
-                assert db.scalars(select(Job.status).where(Job.job_id == replacement_job_id)).one() == "done"
-        finally:
-            engine.dispose()
+            "file_name": "replacement-upload.pdf",
+        })
+        assert response.status_code == 404, response.text
+        error: dict[str, object] = response.json()["error"]
+        assert error["code"] == "NOT_FOUND"
+        assert error["details"] == {"resource": "Document", "id": document_id}
+        assert await _count_jobs() == 0
 
 
 @pytest.mark.asyncio
@@ -1063,33 +828,39 @@ async def test_should_accept_same_file_name_before_source_content_is_available(
 
 
 @pytest.mark.asyncio
-async def test_should_update_existing_document_when_duplicate_file_name_includes_document_id(
+async def test_accepts_replacement_with_a_new_document_in_the_prior_namespace(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
+    monkeypatch: MonkeyPatch,
 ) -> None:
-    document_id = f"doc_dup_update_{uuid4().hex[:12]}"
-    file_name = f"01-p1-70-{uuid4().hex[:8]}.pdf"
-    payload: dict[str, str] = {
-        "document_id": document_id,
-        "namespace": "contract-jobs",
-        "source_type": "file",
-        "file_name": file_name,
-        "data_id": "contract-job-duplicate-filename-update",
-    }
+    monkeypatch.setenv("KNOWHERE_LEXICAL_BACKEND", "opensearch")
+    monkeypatch.setenv("KNOWHERE_OPENSEARCH_URL", "http://127.0.0.1:1")
 
+    document_id: str = f"doc_replacement_{uuid4().hex[:12]}"
+    namespace: str = "hipo-contract-private"
+    file_name: str = "replacement-upload.pdf"
     async with developer_api_client_factory() as api_client:
-        await _insert_document(document_id=document_id, source_file_name=file_name)
-        response = await api_client.post("/api/v1/jobs", json=payload)
-
-    assert response.status_code == 200
-    response_json: dict[str, object] = response.json()
-    assert response_json["document_id"] == document_id
-    assert response_json["status"] == "waiting-file"
-    job_id = cast(str, response_json["job_id"])
-    job_metadata = cast(dict[str, object], (await _load_job_record(job_id))["job_metadata"])
-    assert job_metadata["document_id"] == document_id
-    assert job_metadata["source_file_name"] == file_name
+        await _insert_document(
+            document_id=document_id, namespace=namespace, source_file_name=file_name
+        )
+        response = await api_client.post("/api/v2/jobs", json={
+            "replaces_document_id": document_id,
+            "source_type": "file",
+            "file_name": file_name,
+        })
+        assert response.status_code == 200, response.text
+        response_payload: dict[str, object] = response.json()
+        assert response_payload["document_id"] != document_id
+        assert response_payload["namespace"] == namespace
+        assert response_payload["status"] == "waiting-file"
+        job_id: str = cast(str, response_payload["job_id"])
+        metadata: dict[str, object] = cast(
+            dict[str, object], (await _load_job_record(job_id))["job_metadata"]
+        )
+        assert metadata["document_id"] == response_payload["document_id"]
+        assert metadata["replaces_document_id"] == document_id
+        assert metadata["namespace"] == namespace
 
 
 @pytest.mark.asyncio

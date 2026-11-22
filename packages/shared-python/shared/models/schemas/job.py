@@ -18,6 +18,7 @@ WebhookEventType = Literal[
     "job.completed",
     "job.failed",
     "job.enrichment.completed",
+    "job.enrichment.failed",
     "job.document.directory_ready",
 ]
 
@@ -95,17 +96,27 @@ class JobCreateBase(BaseModel):
         description="Retrieval namespace; defaults to default",
     )
     document_id: Optional[str] = Field(
-        None, description="Existing document ID for update flows"
+        None, description="Optional demo document ID matching the demo data_id"
     )
     reparse: bool = Field(
         False,
-        description="Reparse unchanged original bytes for the specified existing document ID",
+        description="Legacy selector for reparsing the specified demo document",
+    )
+    replaces_document_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=36,
+        description="On OpenSearch, allow the original bytes of one authorized private document in a new job",
     )
 
     @model_validator(mode="after")
     def validate_reparse_target(self) -> Self:
         if self.reparse and not str(self.document_id or "").strip():
             raise ValueError("reparse requires an existing document_id")
+        if self.replaces_document_id is not None and (
+            self.document_id is not None or self.reparse
+        ):
+            raise ValueError("replaces_document_id requires a new document")
         return self
 
     source_type: Literal["file", "url"] = Field(..., description="Document source type")

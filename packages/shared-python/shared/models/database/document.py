@@ -72,6 +72,7 @@ class Document(Base):
         nullable=False,
     )
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    index_cleanup_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     sections: Mapped[List["DocumentSection"]] = relationship(
         "DocumentSection",
@@ -89,6 +90,7 @@ class Document(Base):
     __table_args__ = (
         Index("idx_documents_user_namespace_status", "user_id", "namespace", "status"),
         Index("idx_documents_current_job_result", "current_job_result_id"),
+        Index("ix_documents_due_index_cleanup", "index_cleanup_after", postgresql_where=index_cleanup_after.is_not(None)),
     )
 
 
@@ -241,6 +243,10 @@ class DocumentChunk(Base):
     job_result_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("job_results.id", ondelete="CASCADE"), nullable=False
     )
+    enrichment_attempt_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("document_enrichment_publications.id", ondelete="CASCADE"),
+        nullable=True, index=True,
+    )
     section_id: Mapped[Optional[str]] = mapped_column(
         String(36),
         ForeignKey("document_sections.section_id", ondelete="SET NULL"),
@@ -266,11 +272,16 @@ class DocumentChunk(Base):
     document: Mapped[Document] = relationship("Document", back_populates="chunks")
 
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "uq_document_chunks_baseline_path",
             "document_id",
             "job_result_id",
             "source_chunk_path",
-            name="uq_document_chunks_revision_path",
+            unique=True,
+            postgresql_where=enrichment_attempt_id.is_(None),
+        ),
+        UniqueConstraint(
+            "enrichment_attempt_id", "source_chunk_path", name="uq_document_chunks_attempt_path",
         ),
         Index("idx_document_chunks_scope", "user_id", "namespace"),
         Index("idx_document_chunks_chunk_id", "chunk_id"),

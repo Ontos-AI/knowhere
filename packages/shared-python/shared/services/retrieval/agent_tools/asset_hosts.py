@@ -14,6 +14,7 @@ from __future__ import annotations
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -89,6 +90,7 @@ async def load_asset_hosts(
             CorpusRevisionContext.build_revision_column(corpusStorage.Document) == corpusStorage.DocumentChunk.job_result_id,
             ctx.document_scope.predicate(corpusStorage.Document.document_id),
             corpusStorage.DocumentChunk.chunk_type.in_(_BODY_CHUNK_TYPES),
+            AdditiveVisibility.allowsFreshChunk(ctx.namespace),
         )
         .order_by(corpusStorage.DocumentChunk.document_id, corpusStorage.DocumentChunk.sort_order, corpusStorage.DocumentChunk.chunk_id)
     )

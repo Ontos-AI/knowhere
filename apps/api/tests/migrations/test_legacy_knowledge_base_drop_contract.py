@@ -10,7 +10,7 @@ from sqlalchemy import inspect
 from sqlalchemy.engine import Engine
 
 _ROOT: Path = Path(__file__).resolve().parents[4]
-_PARENT_REVISION: str = "b0132c4d5e6f"
+_PARENT_REVISION: str = "b2354e6f7081"
 _LEGACY_TABLES: set[str] = {"knowledge_base", "path_base"}
 
 

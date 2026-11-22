@@ -20,6 +20,7 @@ subtrees become placeholders, then the call fails as too large.
 from __future__ import annotations
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 
 from typing import Any
 
@@ -144,6 +145,7 @@ async def outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             select(corpusStorage.DocumentSection)
             .where(corpusStorage.DocumentSection.document_id == target.document_id)
             .where(corpusStorage.DocumentSection.job_result_id == target.job_result_id)
+            .where(AdditiveVisibility.allowsFreshSection(ctx.namespace))
             .order_by(corpusStorage.DocumentSection.sort_order, corpusStorage.DocumentSection.section_id)
         )
         doc_sections = list((await ctx.db.execute(section_stmt)).scalars().all())

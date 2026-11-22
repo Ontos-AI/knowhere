@@ -45,6 +45,7 @@ def parsedRuntime(
     monkeypatch.setattr(qstash_publisher, "QStashWebhookPublisher", QuietPublisher)
     from shared.models.database.job import Job
     from shared.models.database.user import User
+    from shared.services.billing.credits_sync_service import SyncCreditsService
     from shared.services.jobs.lifecycle.success_finalizer import SyncJobSuccessFinalizer
 
     engine: Engine = create_engine(make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2"))
@@ -52,6 +53,7 @@ def parsedRuntime(
     with Session(engine) as session:
         session.add(User(id="execution-user", name="Execution contract", email="execution@example.invalid"))
         session.flush()
+        SyncCreditsService().deduct_credits(session, "execution-user", 123456, "Charge for parsing")
         session.add(Job(job_id=jobId, user_id="execution-user", job_type="document_ingestion",
             source_type="file", status="running", credits_charged=123456, billing_status="charged",
             webhook_enabled=True, webhook_url="https://example.invalid/callback",
@@ -73,6 +75,7 @@ def parsedRuntime(
 def test_native_connection_failure_consumes_one_terminal_execution(
     parsedRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from shared.models.database.credits_transaction import CreditsTransaction
     from shared.models.database.indexing import IndexingAttempt
     from shared.models.database.job import Job
     from shared.models.database.job_result import JobResult
@@ -104,10 +107,16 @@ def test_native_connection_failure_consumes_one_terminal_execution(
         assert attempt.executionCount == 1 and attempt.state == "failed"
         assert job.parsing_status == "completed" and job.indexing_status == "failed"
         assert job.status == "failed" and job.failure_stage == "indexing"
-        assert job.billing_status == "charged" and job.credits_charged == 123456
+        assert job.billing_status == "refunded" and job.credits_charged == 123456
+        refunds: list[CreditsTransaction] = list(session.scalars(select(CreditsTransaction).where(
+            CreditsTransaction.user_id == job.user_id, CreditsTransaction.transaction_type == "refund",
+        )))
+        assert [(entry.credits_amount, entry.transaction_metadata) for entry in refunds] == [
+            (123456, {"job_id": jobId}),
+        ]
         assert session.scalar(select(func.count()).select_from(JobResult)) == 1
         events: list[WebhookEvent] = list(session.scalars(select(WebhookEvent)))
-        assert sorted(event.payload["event"] for event in events) == ["job.failed", "job.parsed"]
+        assert sorted(event.payload["event"] for event in events) == ["job.failed"]
 
 
 def test_committed_parsing_runs_inline_without_waiting_for_webhook_transport(
@@ -179,35 +188,6 @@ def test_execution_deadline_is_persisted_before_native_admission(
     startedAt, deadlineAt = observations[0]
     assert startedAt is not None and deadlineAt is not None
     assert (deadlineAt - startedAt).total_seconds() == pytest.approx(10, abs=0.01)
-
-
-def test_manual_attempt_gets_a_fresh_admission_deadline_for_old_retained_parse(
-    parsedRuntime: tuple[Engine, str],
-) -> None:
-    from datetime import timedelta
-    from shared.models.database.indexing import IndexingAttempt
-    from shared.models.database.job import Job
-    from shared.services.retrieval.lexical.coordination import LexicalCoordination
-    from shared.services.retrieval.lexical.retry import IndexingRetry
-
-    engine, jobId = parsedRuntime
-    with Session(engine) as session:
-        job: Job = session.scalars(select(Job)).one()
-        attempt: IndexingAttempt = session.scalars(select(IndexingAttempt)).one()
-        now = LexicalCoordination.getDatabaseTime(session)
-        attempt.state = "failed"
-        attempt.createdAt = now - timedelta(days=30)
-        job.status = "failed"
-        job.indexing_status = "failed"
-        job.failure_stage = "indexing"
-        session.commit()
-        assert IndexingRetry().request(session, jobId=jobId, userId="execution-user")
-        session.commit()
-        latest: IndexingAttempt = session.scalars(select(IndexingAttempt).where(IndexingAttempt.attemptNumber == 2)).one()
-        deadline = getattr(latest, "admissionDeadlineAt", None)
-        assert getattr(latest, "origin", None) == "manual"
-        assert deadline is not None and 8 <= (deadline - now).total_seconds() <= 11
-        assert latest.executionCount == 0 and getattr(latest, "startedAt", None) is None
 
 
 def test_execution_timeout_stops_native_wait_and_returns_without_replay(
@@ -516,153 +496,6 @@ async def test_async_retained_input_uses_async_http_without_sync_transfer_or_exe
     assert calls == ["PUT", "GET"]
 
 
-@pytest.mark.parametrize("outcome", ["completed", "unavailable", "invalid", "oversized", "timeout", "cancelled"])
-@pytest.mark.asyncio
-async def test_manual_retry_waits_in_original_async_handler_until_publication(
-    parsedRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch, outcome: str,
-) -> None:
-    from fastapi import Response
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-    from app.services.jobs.indexing_retry_service import retryIndexing
-    from shared.core.config import settings
-    from shared.models.database.indexing import IndexingAttempt
-    from shared.models.database.job import Job
-    from shared.models.database.job_result import JobResult
-    from shared.models.database.lexicalnamespace import LexicalNamespaceIndex
-    from shared.services.retrieval.lexical.asynccoordination import AsyncLexicalCoordination
-    from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
-    from shared.services.retrieval.lexical.bulk import LexicalBulk
-    from shared.services.retrieval.lexical.scope import LexicalScope
-    from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
-    from shared.services.retrieval.lexical.error import LexicalIndexError
-    from shared.services.retrieval.lexical.preparation import LexicalPreparation
-    from shared.services.retrieval.lexical.unit import LexicalUnit
-    from shared.core.exceptions.knowhere_exception import KnowhereException
-
-    LexicalPreparation.warmCompiler()  # Match the API lifespan before accepting a request.
-    engine, jobId = parsedRuntime
-    scope: LexicalScope = LexicalScope(ownerId="execution-user", namespace="execution-contract")
-    with Session(engine) as session:
-        job = session.get(Job, jobId)
-        assert job is not None
-        job.status = "failed"
-        job.indexing_status = "failed"
-        job.failure_stage = "indexing"
-        attempt = session.scalars(select(IndexingAttempt)).one()
-        attempt.state = "failed"
-        session.add(LexicalNamespaceIndex(id=scope.fingerprint, ownerId=scope.ownerId,
-            namespace=scope.namespace, corpusKind="private", indexName=f"{settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX}-{scope.fingerprint[:48]}",
-            indexUuid="async-native-uuid", state="open"))
-        session.commit()
-        originalResult: str = session.scalars(select(JobResult.id)).one()
-
-    entered: asyncio.Event = asyncio.Event()
-    release: asyncio.Event = asyncio.Event()
-    writes: list[str] = []
-    copies: list[str] = []
-
-    def submitCopy(buildId: str) -> bool:
-        with Session(engine) as session:
-            job = session.get(Job, jobId)
-            assert job is not None and job.status == "done"
-        copies.append(buildId)
-        raise RuntimeError("Injected optional pool submission failure")
-
-    async def ensure(self: AsyncLexicalCoordination, **options: object) -> tuple[str, int]:
-        return "async-native-uuid", 1
-
-    async def getIdentity(self: AsyncOpenSearchLexicalIndex) -> str:
-        return "async-native-uuid"
-
-    async def write(self: AsyncOpenSearchLexicalIndex, *, buildId: str, units: tuple[LexicalUnit, ...],
-                    beforeBatch: object = None) -> None:
-        writes.append(buildId)
-        entered.set()
-        await release.wait()
-        if outcome == "unavailable":
-            raise LexicalIndexError("Injected native failure", isRetryable=True)
-        if outcome == "invalid":
-            raise LexicalIndexError("Injected invalid retained input")
-        if outcome == "oversized":
-            tuple(LexicalBulk.createRequests(buildId=buildId, units=units, maximumBytes=1))
-        if outcome == "timeout":
-            raise TimeoutError("Injected whole-operation deadline")
-
-    async def rejectExecutor(*arguments: object, **options: object) -> None:
-        raise AssertionError("Primary indexing was transferred to an executor")
-
-    async def writeManifest(self: AsyncOpenSearchLexicalIndex, **options: object) -> None:
-        return None
-
-    monkeypatch.setattr(AsyncLexicalCoordination, "ensureIndex", ensure)
-    monkeypatch.setattr(AsyncOpenSearchLexicalIndex, "getIndexUuid", getIdentity)
-    monkeypatch.setattr(AsyncOpenSearchLexicalIndex, "writeBuild", write)
-    monkeypatch.setattr(AsyncOpenSearchLexicalIndex, "writePublishedManifest", writeManifest)
-    monkeypatch.setattr(LegacyCopyDispatch, "submit", submitCopy)
-    monkeypatch.setattr(asyncio, "to_thread", rejectExecutor)
-    asyncEngine = create_async_engine(get_contract_database_url())
-    response: Response = Response()
-    try:
-        async with AsyncSession(asyncEngine, expire_on_commit=False) as db:
-            task = asyncio.create_task(retryIndexing(db, jobId=jobId, userId="execution-user", response=response))
-            try:
-                try:
-                    # This is a synchronization watchdog, not the service SLA.
-                    # A production timeout still settles and fails the task.
-                    await asyncio.wait_for(entered.wait(), timeout=(
-                        settings.KNOWHERE_INDEXING_TIMEOUT_SECONDS + settings.KNOWHERE_INDEXING_SETTLEMENT_TIMEOUT_SECONDS
-                    ))
-                except TimeoutError:
-                    if task.done():
-                        await task
-                    raise
-                assert not task.done()
-                await asyncio.sleep(0)
-                assert not task.done()
-                async with AsyncSession(asyncEngine, expire_on_commit=False) as second:
-                    with pytest.raises(KnowhereException) as conflict:
-                        await retryIndexing(second, jobId=jobId, userId="execution-user", response=Response())
-                    assert conflict.value.http_status_code == 409
-                if outcome == "cancelled":
-                    task.cancel()
-                release.set()
-                if outcome == "completed":
-                    result = await task
-                    assert result.status == "done" and response.status_code == 200
-                    assert result.job_result_id == originalResult
-                elif outcome == "cancelled":
-                    with pytest.raises(asyncio.CancelledError):
-                        await task
-                else:
-                    with pytest.raises(KnowhereException) as failed:
-                        await task
-                    assert failed.value.http_status_code == {"unavailable": 503, "invalid": 500, "oversized": 500, "timeout": 504}[outcome]
-                    assert failed.value.details["job_result_id"] == originalResult
-                    assert failed.value.details["parsing_status"] == "completed"
-                    assert failed.value.details["indexing_status"] == "failed"
-                    if outcome == "oversized":
-                        assert failed.value.details["reason"] == "INDEXING_INPUT_TOO_LARGE"
-                        assert failed.value.details["job"]["error"]["code"] == "INDEXING_INPUT_TOO_LARGE"
-                        assert "size limit" in failed.value.user_message
-            finally:
-                release.set()
-                if not task.done():
-                    task.cancel()
-                    with pytest.raises(asyncio.CancelledError):
-                        await task
-    finally:
-        await asyncEngine.dispose()
-    assert len(writes) == 1
-    assert len(copies) == (1 if outcome == "completed" else 0)
-    with Session(engine) as session:
-        assert session.scalar(select(func.count()).select_from(Job)) == 1
-        assert session.scalar(select(func.count()).select_from(IndexingAttempt)) == 2
-        assert session.scalar(select(IndexingAttempt.executionCount).where(IndexingAttempt.attemptNumber == 2)) == 1
-        job = session.get(Job, jobId)
-        assert job is not None and job.billing_status == "charged" and job.credits_charged == 123456
-        assert job.indexing_status == ("completed" if outcome == "completed" else "failed")
-
-
 @pytest.mark.parametrize("isAsync", [False, True])
 def test_postgresql_primary_uses_same_attempt_without_native_storage(
     parsedRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch, isAsync: bool,
@@ -738,7 +571,7 @@ def test_postgresql_parsing_commits_before_primary_publication(
         assert session.scalar(select(IndexingAttempt.executionCount).where(IndexingAttempt.jobId == jobId)) == 0
 
 
-def test_abandoned_indexing_sweep_settles_without_execution_or_refund(
+def test_abandoned_indexing_sweep_refunds_without_executing_the_attempt(
     parsedRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from datetime import timedelta
@@ -759,47 +592,8 @@ def test_abandoned_indexing_sweep_settles_without_execution_or_refund(
         job = session.get(Job, jobId)
         attempt = session.scalars(select(IndexingAttempt)).one()
         assert job is not None and job.status == "failed" and job.parsing_status == "completed"
-        assert job.billing_status == "charged" and job.credits_charged == 123456
+        assert job.billing_status == "refunded" and job.credits_charged == 123456
         assert attempt.state == "failed" and attempt.executionCount == 0
-
-
-@pytest.mark.asyncio
-async def test_retry_signing_failure_retains_authorized_phase_and_result_context(
-    parsedRuntime: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from fastapi import Response
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-    from app.services.jobs import indexing_retry_service
-    from shared.core.exceptions.domain_exceptions import UnavailableException
-    from shared.core.exceptions.knowhere_exception import KnowhereException
-    from shared.models.database.indexing import IndexingAttempt
-    from shared.models.database.job_result import JobResult
-    from shared.models.schemas.job import JobResultResponse
-
-    engine, jobId = parsedRuntime
-    read = indexing_retry_service.get_job_result_for_user
-
-    async def requireSigning(db: AsyncSession, job_id: str, user_id: str,
-                             *, shouldSignResultURL: bool = True) -> JobResultResponse:
-        if shouldSignResultURL:
-            raise UnavailableException("Injected result credential unavailability", retry_after=1)
-        return await read(db, job_id=job_id, user_id=user_id, shouldSignResultURL=False)
-
-    monkeypatch.setattr(indexing_retry_service, "get_job_result_for_user", requireSigning)
-    asyncEngine = create_async_engine(get_contract_database_url())
-    try:
-        async with AsyncSession(asyncEngine, expire_on_commit=False) as db:
-            with pytest.raises(KnowhereException) as failed:
-                await indexing_retry_service.retryIndexing(db, jobId=jobId, userId="execution-user", response=Response())
-            assert failed.value.http_status_code == 503
-            with Session(engine) as session:
-                assert failed.value.details["job_result_id"] == session.scalar(select(JobResult.id).where(JobResult.job_id == jobId))
-                assert session.scalar(select(func.count()).select_from(IndexingAttempt)) == 1
-                assert session.scalar(select(IndexingAttempt.executionCount)) == 0
-            assert failed.value.details["parsing_status"] == "completed"
-            assert failed.value.details["indexing_status"] == "pending"
-    finally:
-        await asyncEngine.dispose()
 
 
 def test_expired_activation_does_not_commit_prepared_publication(
@@ -861,8 +655,8 @@ def test_expired_activation_does_not_commit_prepared_publication(
         document: Document = db.scalars(select(Document)).one()
         build: LexicalBuild = db.scalars(select(LexicalBuild)).one()
         assert job.error_code == "DEADLINE_EXCEEDED" and job.parsing_status == "completed"
-        assert job.billing_status == "charged" and job.credits_charged == 123456
+        assert job.billing_status == "refunded" and job.credits_charged == 123456
         assert attempt.state == "failed" and attempt.executionCount == 1
         assert document.current_job_result_id is None and document.current_indexing_build_id is None
         assert build.state == "failed"
-        assert sorted(event.payload["event"] for event in db.scalars(select(WebhookEvent))) == ["job.failed", "job.parsed"]
+        assert sorted(event.payload["event"] for event in db.scalars(select(WebhookEvent))) == ["job.failed"]

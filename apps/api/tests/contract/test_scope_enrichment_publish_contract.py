@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from importlib import import_module
+from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import create_engine, event, select, text
@@ -25,10 +27,6 @@ from shared.services.jobs.lifecycle.scope_enrichments import (
     NORMAL_ENRICHMENT_QUEUE,
     write_coarse_scope_enrichments,
 )
-from shared.services.jobs.lifecycle.success_finalizer import (
-    JobSuccessFinalization,
-    SyncJobSuccessFinalizer,
-)
 from shared.services.retrieval.agent_tools.registry import ToolContext
 from shared.services.retrieval.agent_tools.tools.assets import assets
 from shared.services.retrieval.agent_tools.tools.grep import grep
@@ -50,6 +48,9 @@ from shared.testing.contract_runtime import (
     prepare_contract_storage,
 )
 from tests.support.publication_benchmark_support import ensure_benchmark_import_path
+
+if TYPE_CHECKING:
+    from shared.services.jobs.lifecycle.success_finalizer import JobSuccessFinalization
 
 ensure_benchmark_import_path()
 
@@ -116,6 +117,7 @@ def _finalize(
     chunks: list[dict[str, object]],
     publish: bool = True,
 ) -> JobSuccessFinalization:
+    from shared.services.jobs.lifecycle.success_finalizer import SyncJobSuccessFinalizer
     from shared.services.retrieval.lexical.worker import IndexingWorker
 
     finalization = SyncJobSuccessFinalizer().finalize(
@@ -149,6 +151,46 @@ def _write_scope_rows(session: Session, *, scope: PublicationScope) -> None:
         document_id=document_id,
         job_result_id=scope.revision_ref,
     )
+
+
+def test_initial_coarse_commit_stores_directory_and_scope_before_indexing(
+    monkeypatch: pytest.MonkeyPatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    from shared.models.database.job_result import JobResult
+
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    from shared.core.config import settings
+
+    monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
+    engine = create_engine(make_url(get_contract_database_url()).set(drivername="postgresql+psycopg2"))
+    scope = _scope("initial-coarse")
+    try:
+        with Session(engine) as session:
+            seed_publication_fixture(session, scope=scope)
+            _set_job_progressive(session, job_id=scope.job_ref)
+            session.commit()
+            finalization = _finalize(
+                session,
+                job_id=scope.job_ref,
+                chunks=[_page_chunk(
+                    chunk_id="first-chapter", path=f"{scope.source_file_name}/First chapter",
+                    scope_id="p1-2", page_nums=[1, 2],
+                )],
+                publish=False,
+            )
+            result = session.get(JobResult, scope.revision_ref)
+            assert result is not None and result.document_metadata is not None
+            directory = result.document_metadata["initial_directory"]
+            assert directory["directory_version"] == 1
+            assert any(section["page_nums"] == [1, 2] for section in directory["sections"])
+            assert session.scalar(select(DocumentScopeEnrichment.scope_id).where(
+                DocumentScopeEnrichment.job_result_id == result.id,
+            )) == "p1-2"
+            assert finalization.post_commit_effects.structure_job_result_ids == ()
+    finally:
+        engine.dispose()
 
 
 def test_write_coarse_scope_enrichments_inserts_one_row_per_published_scope(
@@ -620,14 +662,17 @@ def test_replace_document_scope_content_isolates_scope_reuses_ancestor_rebuilds_
         engine.dispose()
 
 
+@pytest.mark.parametrize("after_failure", [False, True])
 def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants(
     monkeypatch,
     postgresql_proc: PostgreSQLProcess,
+    after_failure: bool,
 ) -> None:
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
     from shared.core import celery_app as celery_app_mod
     from shared.core.database import get_db_context
+    from shared.services.jobs.lifecycle import scope_enrichments as scope_runtime
 
     database_url = make_url(get_contract_database_url()).set(
         drivername="postgresql+psycopg2"
@@ -690,6 +735,9 @@ def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants
             ).all():
                 if row.scope_id == "p5-6":
                     row.state = "refined"
+                if after_failure and row.scope_id == "p1-2":
+                    row.state = "failed"
+                    row.attempts = 1
             doc_id = session.execute(
                 select(Document.document_id).where(
                     Document.current_job_result_id == scope.revision_ref
@@ -697,8 +745,24 @@ def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants
             ).scalar_one()
             session.commit()
 
+        if after_failure:
+            monkeypatch.setattr(scope_runtime.app_config, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
+
         async def _call_read() -> None:
             async with get_db_context() as async_db:
+                if after_failure:
+                    await scope_runtime.promote_scopes_on_read(
+                        async_db,
+                        [
+                            {
+                                **chunk,
+                                "job_result_id": scope.revision_ref,
+                                "chunk_type": "page",
+                            }
+                            for chunk in chunks
+                        ],
+                    )
+                    return
                 ctx = ToolContext(
                     db=async_db,
                     user_id=scope.user_ref,
@@ -759,6 +823,7 @@ def test_read_promotes_coarse_and_queued_scopes_with_dedup_including_descendants
             ]
             assert rows[0].last_hit_at is not None
             assert rows[1].last_hit_at is not None
+            assert rows[0].attempts == int(after_failure)
     finally:
         engine.dispose()
 
@@ -1025,23 +1090,31 @@ def test_chunk_progressive_baseline_without_text_enqueues_final(
         engine.dispose()
 
 
-@pytest.mark.parametrize("claim_mode", ["full", "blocking", "skip_locked", "database_error"])
+@pytest.mark.parametrize(
+    "claim_mode",
+    ["full", "blocking", "skip_locked", "database_error", "agent_read", "agent_results"],
+)
 def test_chunk_final_read_claim_locks_only_pending_revisions(
     monkeypatch: pytest.MonkeyPatch,
     postgresql_proc: PostgreSQLProcess,
     claim_mode: str,
 ) -> None:
     from shared.models.database.job_result import JobResult
-    from shared.services.jobs.lifecycle import scope_enrichments
-    from shared.services.jobs.progressive_ingestion import read_progressive_state
-
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
+    scope_enrichments = import_module("shared.services.jobs.lifecycle.scope_enrichments")
+    from shared.services.jobs.progressive_ingestion import read_progressive_state
+    from shared.services.retrieval.agent_tools.tools.read import read as read_agent_content
+    from shared.services.retrieval.hydration.result_assembly import (
+        assemble_retrieval_results as assemble_agent_results,
+    )
+
     database_url = make_url(get_contract_database_url())
     engine = create_engine(database_url.set(drivername="postgresql+psycopg2"))
     scope = _scope(claim_mode)
     needs_finalization: bool = claim_mode != "full"
     skip_locked: bool = claim_mode in {"skip_locked", "database_error"}
+    reads_through_agent: bool = claim_mode in {"agent_read", "agent_results"}
     sent: list[str] = []
 
     def enqueue_finalization(revision_id: str) -> bool:
@@ -1076,6 +1149,12 @@ def test_chunk_final_read_claim_locks_only_pending_revisions(
                 ],
             )
 
+            document_id: str = session.scalars(
+                select(Document.document_id).where(
+                    Document.current_job_result_id == scope.revision_ref
+                )
+            ).one()
+
         async def read_concurrently() -> None:
             async_engine = create_async_engine(database_url)
             sessions = async_sessionmaker(async_engine)
@@ -1100,18 +1179,43 @@ def test_chunk_final_read_claim_locks_only_pending_revisions(
                     if lock_attempts == 2:
                         both_claims_started.set()
 
-            async def read() -> None:
+            async def read_content() -> None:
                 async with sessions() as session:
-                    await scope_enrichments.promote_scopes_on_read(
-                        session,
-                        [
-                            {
-                                "job_result_id": scope.revision_ref,
-                                "content": "Published text.",
-                            }
-                        ],
-                        skip_locked_chunk_final=skip_locked,
-                    )
+                    if claim_mode == "agent_read":
+                        context = ToolContext(
+                            db=session,
+                            user_id=scope.user_ref,
+                            namespace=scope.namespace_ref,
+                            db_factory=sessions,
+                        )
+                        result = await read_agent_content(
+                            context,
+                            {"refs": [{"document_id": document_id, "chunk_id": "text"}]},
+                        )
+                        assert result.error is None
+                        assert "Published text." in result.text
+                    elif claim_mode == "agent_results":
+                        rows = await assemble_agent_results(
+                            db=session,
+                            rows=[
+                                {
+                                    "document_id": document_id,
+                                    "job_result_id": scope.revision_ref,
+                                    "chunk_id": "text",
+                                    "chunk_type": "text",
+                                    "content": "Published text.",
+                                }
+                            ],
+                            exclude_document_ids=[],
+                            exclude_sections=[],
+                        )
+                        assert [row["content"] for row in rows] == ["Published text."]
+                    else:
+                        await scope_enrichments.promote_scopes_on_read(
+                            session,
+                            [{"job_result_id": scope.revision_ref, "content": "Published text."}],
+                            skip_locked_chunk_final=skip_locked,
+                        )
                     assert await session.scalar(text("SELECT 1")) == 1
 
             try:
@@ -1123,7 +1227,7 @@ def test_chunk_final_read_claim_locks_only_pending_revisions(
                             .with_for_update()
                         )
                     if claim_mode == "blocking":
-                        reads = asyncio.gather(read(), read())
+                        reads = asyncio.gather(read_content(), read_content())
                         try:
                             await asyncio.wait_for(
                                 both_claims_started.wait(), timeout=5
@@ -1132,12 +1236,12 @@ def test_chunk_final_read_claim_locks_only_pending_revisions(
                             await blocker.rollback()
                             _ = await reads
                     else:
-                        await asyncio.wait_for(read(), timeout=3)
+                        await asyncio.wait_for(read_content(), timeout=3)
                         assert sent == []
-                        assert lock_attempts == int(skip_locked)
-                if skip_locked:
+                        assert lock_attempts == int(skip_locked or reads_through_agent)
+                if skip_locked or reads_through_agent:
                     inject_error = False
-                    await asyncio.gather(read(), read())
+                    await asyncio.gather(read_content(), read_content())
             finally:
                 await async_engine.dispose()
 

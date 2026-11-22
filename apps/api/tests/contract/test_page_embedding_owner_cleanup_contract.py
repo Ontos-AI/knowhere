@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator
-from types import SimpleNamespace
 
 import pytest
 from pgvector.sqlalchemy import HALFVEC
@@ -65,13 +64,9 @@ def database(
     configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(prepare_contract_storage())
     address = make_url(get_contract_database_url(postgresql_proc))
-    monkeypatch.setattr(
-        index.CorpusStorage,
-        "resolve_namespace",
-        lambda _: SimpleNamespace(
-            DocumentChunk=ContractChunk, DocumentPageEmbedding=ContractEmbedding
-        ),
-    )
+    monkeypatch.setattr(index.settings, "KNOWHERE_LEXICAL_BACKEND", "postgresql")
+    monkeypatch.setattr(index.CorpusStorage, "DocumentChunk", property(lambda _: ContractChunk))
+    monkeypatch.setattr(index.CorpusStorage, "DocumentPageEmbedding", property(lambda _: ContractEmbedding))
     monkeypatch.setattr(
         index, "resolve_embedding_model", lambda _: "contract-repair-model"
     )
