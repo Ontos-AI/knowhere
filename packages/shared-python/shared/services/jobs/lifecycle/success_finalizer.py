@@ -12,6 +12,7 @@ from shared.models.database.job_result import JobResult
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.progressive_ingestion import StoredSnapshot
 from shared.services.jobs.lifecycle.scope_enrichments import (
+    mark_chunk_final_queued,
     write_coarse_scope_enrichments,
     write_coarse_sheet_group_scopes,
 )
@@ -184,6 +185,13 @@ class SyncJobSuccessFinalizer:
             else []
         )
         state = initialize_baseline_state(snapshot=baseline_snapshot, missing_pages=missing_pages)
+        # A chunk-track baseline without any text, such as an image-only DOCX,
+        # returns nothing a read would queue Final for, so Final starts now.
+        queue_final: bool = parse_track == "chunk" and not any(
+            str(chunk.get("content") or "").strip() for chunk in safe_chunks
+        )
+        if queue_final:
+            mark_chunk_final_queued(state)
         effects = finalization.post_commit_effects
         if coarse_initial:
             state.stages["structure"] = {"status": "complete", "attempts": 1}
@@ -218,6 +226,6 @@ class SyncJobSuccessFinalizer:
             post_commit_effects=replace(
                 effects,
                 structure_job_result_ids=(job_result.id,) if parse_track == "page_memory" and not coarse_initial else (),
-                chunk_final_job_result_ids=(),
+                chunk_final_job_result_ids=(job_result.id,) if queue_final else (),
             ),
         )

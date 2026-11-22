@@ -1041,6 +1041,55 @@ def test_chunk_progressive_baseline_records_text_without_enqueueing_final(
         engine.dispose()
 
 
+def test_chunk_progressive_baseline_without_text_enqueues_final(
+    monkeypatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    asyncio.run(prepare_contract_storage())
+    from shared.models.database.job_result import JobResult
+    from shared.services.jobs.progressive_ingestion import read_progressive_state
+
+    database_url = make_url(get_contract_database_url()).set(
+        drivername="postgresql+psycopg2"
+    )
+    engine = create_engine(database_url)
+    scope = _scope("chunk-blank")
+    chunks = [
+        {
+            "chunk_id": f"chunk-page-{page}",
+            "type": "page",
+            "content": blank,
+            "path": f"{scope.source_file_name}/p{page}",
+            "metadata": {},
+        }
+        for page, blank in ((1, ""), (2, " \n"))
+    ]
+    try:
+        with Session(engine) as session:
+            seed_publication_fixture(session, scope=scope)
+            _set_job_progressive(
+                session,
+                job_id=scope.job_ref,
+                ingestion_mode="progressive",
+                enrichment_status="text",
+                parse_track="chunk",
+            )
+            session.commit()
+            finalization = _finalize(session, job_id=scope.job_ref, chunks=chunks)
+            session.commit()
+            result = session.execute(
+                select(JobResult).where(JobResult.job_id == scope.job_ref)
+            ).scalar_one()
+            state = read_progressive_state(result.document_metadata)
+
+        assert finalization.post_commit_effects.chunk_final_job_result_ids == (result.id,)
+        assert state is not None
+        assert state.stages["finalization"].get("status") == "running"
+    finally:
+        engine.dispose()
+
+
 @pytest.mark.parametrize(
     "claim_mode",
     ["full", "blocking", "skip_locked", "database_error", "agent_read", "agent_results"],

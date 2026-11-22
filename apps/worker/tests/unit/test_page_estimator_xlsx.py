@@ -88,6 +88,23 @@ def test_tsv_cells_are_not_unknown_file_type(tmp_path: Path) -> None:
     assert estimate.page_count == 1
 
 
+def test_csv_counts_the_cells_the_parse_work_copy_holds(tmp_path: Path) -> None:
+    from app.services.document_parser.formats.excel.normalize import (
+        normalize_table_source,
+    )
+
+    source = tmp_path / "mixed.csv"
+    source.write_text(
+        'name,amount,note\na,,"line\nbreak"\n , 12 ,=SUM(1)\n,,\n"",x,\n',
+        encoding="utf-8",
+    )
+    work_xlsx = normalize_table_source(str(source), source.name, str(tmp_path))
+
+    assert PageEstimator._count_delimited(str(source)) == PageEstimator._count_xlsx(
+        work_xlsx
+    )
+
+
 def test_hidden_sheet_cells_are_not_billed(tmp_path: Path) -> None:
     workbook = Workbook()
     workbook.active["A1"] = "visible"
