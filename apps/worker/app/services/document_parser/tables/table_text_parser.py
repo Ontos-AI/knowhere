@@ -1,7 +1,6 @@
-# pyright: reportArgumentType=false
 from __future__ import annotations
 
-import io
+import html
 import re
 import unicodedata
 
@@ -102,6 +101,45 @@ def df2md(table_frame: pd.DataFrame, *, index: bool = False, na_rep: str = "—"
     return "\n".join([header_line, separator_line, *data_lines])
 
 
+def split_md_table_row(line: str) -> list[str]:
+    """Cells of one Markdown pipe-table row.
+
+    Follows the GFM table rule: the outer pipes delimit the row, an escaped
+    ``\\|`` is a literal pipe inside a cell, and each cell is trimmed.
+    """
+    text = line.strip()
+    if text.startswith("|"):
+        text = text[1:]
+    if text.endswith("|") and not text.endswith("\\|"):
+        text = text[:-1]
+    cells: list[str] = []
+    current: list[str] = []
+    index = 0
+    while index < len(text):
+        character = text[index]
+        if character == "\\" and text[index + 1 : index + 2] == "|":
+            current.append("|")
+            index += 2
+            continue
+        if character == "|":
+            cells.append("".join(current).strip())
+            current = []
+        else:
+            current.append(character)
+        index += 1
+    cells.append("".join(current).strip())
+    return cells
+
+
+def join_md_table_row(cells: list[str]) -> str:
+    """Inverse of ``split_md_table_row``: escape literal pipes and add the outer pipes."""
+    return "| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |"
+
+
+def _is_md_separator_row(cells: list[str]) -> bool:
+    return all(re.fullmatch(r"[\s\-:]+", cell) for cell in cells)
+
+
 def extract_tables_by_forms(table_text: str, form: str) -> str | None:
     if form == "html":
         return table_text
@@ -109,20 +147,18 @@ def extract_tables_by_forms(table_text: str, form: str) -> str | None:
     if form != "md":
         return None
 
-    table_frame = pd.read_table(
-        io.StringIO(table_text),
-        sep="|",
-        engine="python",
-        on_bad_lines="skip",
-    )
-    table_frame = table_frame.iloc[:, 1:-1]
-    table_frame.columns = table_frame.columns.astype(str).str.strip()
+    rows = [split_md_table_row(line) for line in table_text.splitlines() if line.strip()]
+    header, body = rows[0], [row for row in rows[1:] if not _is_md_separator_row(row)]
+    return _md_rows_to_html(header, body)
 
-    separator_pattern = r"^[\s\-:]+$"
-    table_frame = table_frame[
-        ~table_frame.apply(
-            lambda row: row.astype(str).str.match(separator_pattern).all(),
-            axis=1,
-        )
-    ]
-    return table_frame.to_html(index=False)
+
+def _md_rows_to_html(header: list[str], body: list[list[str]]) -> str:
+    parts = ["<table><thead><tr>"]
+    parts.extend(f"<th>{html.escape(cell)}</th>" for cell in header)
+    parts.append("</tr></thead><tbody>")
+    for row in body:
+        parts.append("<tr>")
+        parts.extend(f"<td>{html.escape(cell)}</td>" for cell in row)
+        parts.append("</tr>")
+    parts.append("</tbody></table>")
+    return "".join(parts)

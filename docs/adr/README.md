@@ -44,3 +44,5 @@ Use this shape:
 | [0027](0027-activate-document-revisions-only-after-search-readiness.md) | Activate document revisions only after search readiness |
 | [0028](0028-select-webhook-events-on-a-single-callback-url.md) | Select webhook events on a single callback URL |
 | [0029](0029-keep-parsing-charges-and-allow-free-indexing-retries.md) | Keep parsing charges and allow free indexing retries |
+| [0030](0030-search-baseline-and-enrichment-without-a-namespace-lock.md) | Search baseline and enrichment without a namespace lock |
+| [0031](0031-use-one-completion-notice-for-ingestion.md) | Use one completion notice for ingestion |

@@ -9,7 +9,7 @@ from loguru import logger
 from app.services.document_parser.formats.excel.workbook_grid import (
     Region,
     SheetGrid,
-    display_value,
+    cell_text,
     expand_visual_grid,
 )
 from shared.services.ai.llm_overrides import get_text_client
@@ -106,7 +106,7 @@ def build_region_visual(
                 origin_col = cell.merge_origin[1] - region.min_col
             visual_row.append(
                 VisualCell(
-                    text=_visual_cell_text(display_value(cell)),
+                    text=_visual_cell_text(cell_text(cell)),
                     rowspan=cell.rowspan,
                     colspan=cell.colspan,
                     origin_row=origin_row,
@@ -344,10 +344,8 @@ def _ask_json(*, system_prompt: str, user_prompt: str, usage_task: str) -> objec
         return None
 
 
-def _visual_cell_text(value: object) -> str:
-    if value is None:
-        return ""
-    return _WHITESPACE_RE.sub(" ", str(value).strip())
+def _visual_cell_text(text: str) -> str:
+    return _WHITESPACE_RE.sub(" ", text.strip())
 
 
 def _same_origin(left: VisualCell | None, right: VisualCell | None) -> bool:

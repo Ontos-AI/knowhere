@@ -178,6 +178,7 @@ def _execute_page_memory_parse(
             job_id=job_id,
             page_memory_config=page_memory_config,
             ingestion_mode=ingestion_mode,
+            uses_private_corpus=job_context.job_metadata.get("corpus_target") != "DEMO",
         )
     )
     return ParseOutput(output_dir=page_output_dir, parsed_df=parsed_df)

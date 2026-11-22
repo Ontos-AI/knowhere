@@ -14,6 +14,7 @@ from shared.services.retrieval.hydration.connected import hydrate_connected_targ
 from shared.services.retrieval.hydration.evidence_compose import compose_evidence_parts
 from shared.services.retrieval.hydration.page_media import page_media_rows
 from shared.services.retrieval.hydration.row_utils import (
+    coerce_page_nums,
     extract_page_nums,
     extract_time_ranges,
     filter_excluded_rows,
@@ -69,7 +70,6 @@ async def assemble_retrieval_results(
     allowed_chunk_types: set[str] | None = None,
     revision_pins: Mapping[str, str] | None = None,
     queried_tables: Mapping[tuple[str, str], str] | None = None,
-    skip_locked_chunk_final: bool = False,
     loaded_rows: RetrievalResultRows | None = None,
 ) -> list[dict[str, Any]]:
     if loaded_rows is None:
@@ -101,11 +101,12 @@ async def assemble_retrieval_results(
             if target_id in rows_by_build.get(build_id, {}):
                 embedded_targets.add((build_id, target_id))
 
+    selected = _select_unreplaced_hits([
+        row for row in filtered_rows if (row.get("build_id"), row.get("chunk_id")) not in embedded_targets
+    ])
     prepared: list[tuple[dict[str, Any], dict[str, Any], str, str | None]] = []
-    for row in filtered_rows:
+    for row in selected:
         build_id: str | None = row.get('build_id')
-        if (build_id, row.get('chunk_id')) in embedded_targets:
-            continue
         assembled_row = dict(row)
         base_content = str(row.get('content') or '')
         chunk_type = normalize_chunk_type(row.get('chunk_type'))
@@ -174,10 +175,59 @@ async def assemble_retrieval_results(
             promote_scopes_on_read,
         )
 
-        await promote_scopes_on_read(
-            db, assembled, skip_locked_chunk_final=skip_locked_chunk_final
-        )
+        await promote_scopes_on_read(db, assembled, skip_locked_chunk_final=True)
     return assembled
+
+
+def _select_unreplaced_hits(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Omit a baseline only when finalized replacement evidence is being returned."""
+    replacements: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        if row.get("enrichment_publication_state") != "published" or not str(row.get("content") or "").strip():
+            continue
+        key = (str(row.get("document_id") or ""), str(row.get("job_result_id") or ""),
+            str(row.get("enrichment_scope_id") or ""))
+        replacements.setdefault(key, []).append(row)
+
+    return [row for row in rows if not _is_baseline_replaced(row, replacements)]
+
+
+def _is_baseline_replaced(
+    row: dict[str, Any], replacements: dict[tuple[str, str, str], list[dict[str, Any]]],
+) -> bool:
+    if not row.get("uses_additive_visibility") or row.get("enrichment_attempt_id"):
+        return False
+    metadata = row.get("chunk_metadata") or {}
+    chunk_type = normalize_chunk_type(row.get("chunk_type"))
+    if chunk_type == "page" and not is_unrefined_page(row):
+        return False
+    scope = str(metadata.get("scope_id") or "*")
+    key = (str(row.get("document_id") or ""), str(row.get("job_result_id") or ""), scope)
+    candidates = replacements.get(key, ())
+    if not candidates:
+        return False
+    if chunk_type == "page":
+        pages = set(coerce_page_nums(row.get("original_page_nums", metadata.get("page_nums"))))
+        covered: set[int] = set()
+        for candidate in candidates:
+            if normalize_chunk_type(candidate.get("chunk_type")) != "page":
+                continue
+            candidate_metadata = candidate.get("chunk_metadata") or {}
+            coverage = candidate_metadata.get("searchable_page_nums")
+            if coverage is not None:
+                covered.update(coerce_page_nums(coverage))
+            else:
+                candidate_pages = coerce_page_nums(candidate_metadata.get("page_nums"))
+                if len(candidate_pages) == 1 and not str(candidate["content"]).lstrip().startswith("[SAME-AS"):
+                    covered.update(candidate_pages)
+        return bool(pages) and pages <= covered
+
+    source = " ".join(str(row.get("content") or "").split())
+    return bool(source) and any(
+        normalize_chunk_type(candidate.get("chunk_type")) == chunk_type
+        and source in " ".join(str(candidate["content"]).split())
+        for candidate in candidates
+    )
 
 
 def _media_result_row(media_row: dict[str, Any], *, score: object) -> dict[str, Any]:

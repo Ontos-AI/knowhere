@@ -15,6 +15,7 @@ from shared.services.chunks.asset_descriptor import PageMedia, page_media_connec
 from shared.services.chunks.chunk_connections import merge_connections
 from shared.services.ai.embedding import embed_query, resolve_embedding_model
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.models.database.document import DocumentChunk
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 
 __all__ = [
@@ -50,18 +51,29 @@ def _coerce_page_nums(raw_page_nums: object) -> list[int]:
 def extract_and_strip_page_embeddings(
     chunk_metadata: dict[str, Any],
 ) -> dict[int, list[float]]:
-    """Pop transient ``_page_embedding`` from ``chunk_metadata`` and key by page_num."""
-    raw_embedding = chunk_metadata.pop("_page_embedding", None)
-    if not isinstance(raw_embedding, list) or not raw_embedding:
-        return {}
-    try:
-        vector = [float(val) for val in raw_embedding]
-    except (TypeError, ValueError):
-        return {}
-    pages = _coerce_page_nums(chunk_metadata.get("page_nums"))
+    """Remove transient vectors and bind them to physical pages in this chunk."""
+    raw_embedding: object = chunk_metadata.pop("_page_embedding", None)
+    grouped_embeddings: object = chunk_metadata.pop("_page_embeddings", None)
+    pages: list[int] = _coerce_page_nums(chunk_metadata.get("page_nums"))
     if not pages:
         return {}
-    return {pages[0]: vector}
+    embeddings: dict[int, list[float]] = {}
+    if vector := _coerce_embedding(raw_embedding):
+        embeddings[pages[0]] = vector
+    if isinstance(grouped_embeddings, dict):
+        for page in pages:
+            if vector := _coerce_embedding(grouped_embeddings.get(str(page))):
+                embeddings[page] = vector
+    return embeddings
+
+
+def _coerce_embedding(raw_embedding: object) -> list[float]:
+    if not isinstance(raw_embedding, list) or not raw_embedding:
+        return []
+    try:
+        return [float(val) for val in raw_embedding]
+    except (TypeError, ValueError):
+        return []
 
 
 def load_revision_page_metadatas(
@@ -154,7 +166,7 @@ def _build_owner_chunk_by_page(
     scope: DocumentPublicationScope,
 ) -> dict[int, str]:
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(scope.namespace)
-    rows = db.execute(
+    statement = (
         select(
             corpusStorage.DocumentChunk.chunk_id,
             corpusStorage.DocumentChunk.chunk_metadata,
@@ -168,7 +180,10 @@ def _build_owner_chunk_by_page(
             corpusStorage.DocumentChunk.sort_order,
             corpusStorage.DocumentChunk.id,
         )
-    ).all()
+    )
+    if corpusStorage.usesAdditivePublication():
+        statement = statement.where(DocumentChunk.enrichment_attempt_id.is_(None))
+    rows = db.execute(statement).all()
     owner_by_page: dict[int, str] = {}
     start_owner_pages: set[int] = set()
     for chunk_id, metadata in rows:

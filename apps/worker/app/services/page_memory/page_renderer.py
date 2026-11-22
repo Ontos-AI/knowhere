@@ -13,6 +13,7 @@ from loguru import logger
 
 from app.services.document_agent.manifest import PageFeature, ToolContext
 from app.services.document_agent.visual import render_pages
+from shared.core.constants.processing import ProcessingConstants
 
 
 @dataclass(frozen=True)
@@ -48,7 +49,7 @@ def render_document_pages(
     page_features: list[PageFeature] | None = None,
     page_texts: dict[int, str] | None = None,
     ctx: ToolContext | None = None,
-    dpi: int = 144,
+    dpi: int = ProcessingConstants.PAGE_RENDER_DPI,
     timeout: int = 300,
 ) -> list[PageRenderResult]:
     """Render every page in *pdf_path* as PNG + raw text.

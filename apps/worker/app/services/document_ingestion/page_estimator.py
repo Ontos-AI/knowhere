@@ -72,9 +72,12 @@ class PageEstimator:
             return cls._estimate_with_fallback("docx_words", cls._count_docx, file_path)
         if suffix in TABLE_SOURCE_EXTENSIONS:
             method = "xls_conversion" if suffix == ".xls" else "xlsx_cells"
-            estimator = (
-                cls._count_xlsx if suffix == ".xlsx" else cls._count_spreadsheet
-            )
+            estimator = {
+                ".xlsx": cls._count_xlsx,
+                ".xls": cls._count_xls,
+                ".csv": cls._count_delimited,
+                ".tsv": cls._count_delimited,
+            }[suffix]
             return cls._estimate_with_fallback(method, estimator, file_path)
         if suffix in [".txt", ".md"]:
             return cls._estimate_with_fallback("text_words", cls._count_text, file_path)
@@ -235,8 +238,8 @@ class PageEstimator:
             workbook.close()
 
     @classmethod
-    def _count_spreadsheet(cls, file_path: str) -> int:
-        """Normalize csv/tsv/xls to xlsx, then count visible non-empty cells."""
+    def _count_xls(cls, file_path: str) -> int:
+        """Convert xls to xlsx, then count visible non-empty cells."""
         from app.services.document_parser.formats.excel.normalize import (
             normalize_table_source,
         )
@@ -249,6 +252,18 @@ class PageEstimator:
                 temp_dir,
             )
             return cls._count_xlsx(work_xlsx)
+
+    @classmethod
+    def _count_delimited(cls, file_path: str) -> int:
+        """Count non-empty csv/tsv fields: parse writes each one as a cell."""
+        from app.services.document_parser.formats.excel.normalize import (
+            read_delimited_rows,
+        )
+
+        non_empty_cells = sum(
+            1 for row in read_delimited_rows(file_path) for field in row if field != ""
+        )
+        return math.ceil(non_empty_cells / CELLS_PER_PAGE)
 
     @classmethod
     def _count_text(cls, file_path: str) -> int:

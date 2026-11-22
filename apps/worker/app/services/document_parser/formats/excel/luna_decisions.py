@@ -25,7 +25,7 @@ from app.services.document_parser.formats.excel.workbook_grid import (
     DefinedNameDef,
     Region,
     SheetGrid,
-    display_value,
+    cell_text,
     merge_at,
 )
 
@@ -439,8 +439,7 @@ def _cell_preview(sheet: SheetGrid, row: int, col: int) -> str:
     merge = merge_at(sheet, row, col)
     origin_row, origin_col = (row, col) if merge is None else (merge[0], merge[1])
     cell = sheet.cells.get((origin_row, origin_col))
-    text = display_value(cell)
-    shown = "" if text is None else str(text).strip()
+    shown = cell_text(cell).strip()
     formula = "" if cell is None or not cell.formula else cell.formula
     span = ""
     if merge is not None:

@@ -269,7 +269,9 @@ def extract_table_html(
                 lattice=False,
                 stream=True,
                 multiple_tables=True,
-                pandas_options={"header": None},
+                # With a dtype tabula skips its numeric conversion, so each cell
+                # keeps its written text (001 stays 001, 1 does not become 1.0).
+                pandas_options={"header": None, "dtype": str},
             ),
         )
     except Exception as exc:

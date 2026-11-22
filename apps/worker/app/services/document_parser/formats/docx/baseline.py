@@ -6,6 +6,7 @@ import gc
 import json
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -14,6 +15,9 @@ from pandas import Index
 from app.services.document_agent.pdf_text import coerce_page_text_cache
 from app.services.document_parser.conversion.legacy_converter import (
     _convert_with_libreoffice,
+)
+from app.services.document_parser.formats.docx.tracked_changes import (
+    accept_tracked_changes,
 )
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
@@ -53,15 +57,24 @@ def parse_docx_baseline(
     *,
     filename: str,
 ) -> pd.DataFrame:
-    """Render DOCX to PDF once, emit one type=page row per physical page."""
+    """Render DOCX to PDF once, emit one type=page row per physical page.
+
+    The pages render with every tracked change accepted, as parsing reads them.
+    """
     os.makedirs(output_dir, exist_ok=True)
-    rendered_pdf_path, _rendered_name = _convert_with_libreoffice(
-        source_path=docx_path,
-        outdir=output_dir,
-        convert_to_arg="pdf:writer_pdf_Export",
-        expected_output_ext="pdf",
-        operation="convert_docx_to_pdf",
-    )
+    with open(docx_path, "rb") as handle:
+        package_bytes = accept_tracked_changes(handle.read())
+    with tempfile.TemporaryDirectory(prefix="docx-baseline-") as source_dir:
+        source_path = os.path.join(source_dir, os.path.basename(docx_path))
+        with open(source_path, "wb") as handle:
+            handle.write(package_bytes)
+        rendered_pdf_path, _rendered_name = _convert_with_libreoffice(
+            source_path=source_path,
+            outdir=output_dir,
+            convert_to_arg="pdf:writer_pdf_Export",
+            expected_output_ext="pdf",
+            operation="convert_docx_to_pdf",
+        )
     persisted_pdf_path = os.path.join(output_dir, RENDERED_PDF_REL)
     if Path(rendered_pdf_path).resolve() != Path(persisted_pdf_path).resolve():
         shutil.copyfile(rendered_pdf_path, persisted_pdf_path)

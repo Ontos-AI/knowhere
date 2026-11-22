@@ -41,6 +41,7 @@ from shared.models.schemas.progressive_ingestion import (
     StoredSnapshot,
 )
 from shared.services.ai.token_tracking import get_current_token_tracker
+from shared.services.jobs.lifecycle.directory_ready import refresh_published_directory
 from shared.services.jobs.lifecycle.scope_enrichments import claim_scope_enrichment
 from shared.services.jobs.progressive_ingestion import (
     read_progressive_state,
@@ -51,7 +52,10 @@ from shared.services.jobs.progressive_stages import (
     finish_progressive_stage,
     required_stages_before_finalization,
 )
+from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.lexical.additivepublication import AdditivePublication
 from shared.services.retrieval.lexical.progressivepublication import ProgressivePublication
+from shared.services.retrieval.publication_scope_content import _invalidate_namespace_after_commit
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.storage.result_storage import ResultStorage
 from shared.services.storage.zip_result_service import ZipResultService
@@ -293,8 +297,12 @@ def publish_and_mark_refined(
         target=target,
         job_result_id=job_result_id,
     )
+    additive: bool = CorpusStorage.resolve_namespace(target.namespace).usesAdditivePublication()
+    attempt_id = target.claim_generation
 
-    def publish(db: Session, scope: DocumentPublicationScope) -> bool | None:
+    def publish(
+        db: Session, scope: DocumentPublicationScope, *, store_body: bool = False,
+    ) -> bool | None:
         document = db.execute(
             select(Document)
             .where(Document.document_id == target.document_id)
@@ -305,18 +313,19 @@ def publish_and_mark_refined(
             or document.status != "active"
             or document.current_job_result_id != job_result_id
         ):
-            db.execute(
-                update(DocumentScopeEnrichment)
-                .where(DocumentScopeEnrichment.job_result_id == job_result_id)
-                .where(DocumentScopeEnrichment.scope_id == scope_id)
-                .where(
-                    DocumentScopeEnrichment.claim_generation == target.claim_generation
+            if not additive:
+                db.execute(
+                    update(DocumentScopeEnrichment)
+                    .where(DocumentScopeEnrichment.job_result_id == job_result_id)
+                    .where(DocumentScopeEnrichment.scope_id == scope_id)
+                    .where(
+                        DocumentScopeEnrichment.claim_generation == target.claim_generation
+                    )
+                    .values(state="failed", updated_at=now)
                 )
-                .values(state="failed", updated_at=now)
-            )
             return None
 
-        db.execute(
+        job_result = db.execute(
             select(JobResult)
             .where(JobResult.id == job_result_id)
             .with_for_update(of=JobResult)
@@ -334,13 +343,28 @@ def publish_and_mark_refined(
         ):
             return None
 
-        scope_publisher(
-            db,
-            scope=scope,
-            scope_id=scope_id,
-            chunks=output.chunks,
-            section_summaries=output.section_summaries,
-        )
+        if additive:
+            if attempt_id is None:
+                return None
+            if store_body:
+                AdditivePublication.storeBody(
+                    db, scope=scope, scopeId=scope_id, attemptId=attempt_id,
+                    chunks=output.chunks, sectionSummaries=output.section_summaries,
+                    rawPrefix=target.raw_prefix,
+                )
+                return False
+            if not AdditivePublication.complete(db, scope=scope, attemptId=attempt_id):
+                return None
+            refresh_published_directory(db, scope=scope, result=job_result)
+            _invalidate_namespace_after_commit(db, user_id=scope.user_id, namespace=scope.namespace)
+        else:
+            scope_publisher(
+                db,
+                scope=scope,
+                scope_id=scope_id,
+                chunks=output.chunks,
+                section_summaries=output.section_summaries,
+            )
         db.execute(
             update(DocumentScopeEnrichment)
             .where(DocumentScopeEnrichment.job_result_id == job_result_id)
@@ -351,6 +375,8 @@ def publish_and_mark_refined(
                 updated_at=now,
             )
         )
+        if additive:
+            return False
         remaining = int(
             db.execute(
                 select(func.count())
@@ -361,6 +387,19 @@ def publish_and_mark_refined(
         )
         return remaining == 0
 
+    if additive:
+        if attempt_id is None:
+            return None
+        with get_sync_db_context() as db:
+            stored = publish(db, publication_scope, store_body=True)
+        if stored is None:
+            return None
+        AdditivePublication.writeIndex(scope=publication_scope, attemptId=attempt_id)
+        with get_sync_db_context() as db:
+            published = publish(db, publication_scope)
+        if published is None:
+            raise RuntimeError("Refined scope lost its publication claim")
+        return published
     return ProgressivePublication.publishForServingBackend(
         scope=publication_scope, update=publish, openDatabase=get_sync_db_context,
     )
@@ -631,6 +670,7 @@ def freeze_scope_artifacts(
     claim_generation: str,
     raw_prefix: str | None = None,
     serving_raw_prefix: str | None = None,
+    add_dir: str | None = None,
 ) -> ScopeRefinementOutput:
     """Give one claim exclusive asset keys before any remote write.
 
@@ -645,12 +685,13 @@ def freeze_scope_artifacts(
         reference: f"{reference.split('/', 1)[0]}/{claim_generation}-{sha256(reference.encode()).hexdigest()[:12]}-{Path(reference).name}"
         for reference in output.artifact_refs
     }
-    add_dirs: list[Path] = [
-        path for path in Path(workspace_dir).iterdir() if path.is_dir()
-    ]
-    if not add_dirs:
-        raise ValueError("Scope artifact directory is missing")
-    root: Path = add_dirs[0]
+    if add_dir is None:
+        add_dirs = [path for path in Path(workspace_dir).iterdir() if path.is_dir()]
+        if not add_dirs:
+            raise ValueError("Scope artifact directory is missing")
+        root = add_dirs[0]
+    else:
+        root = Path(add_dir)
     for reference, immutable_reference in artifact_mapping.items():
         source: Path = root / reference
         target: Path = root / immutable_reference
