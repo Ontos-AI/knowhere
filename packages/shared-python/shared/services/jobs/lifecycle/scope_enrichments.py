@@ -396,6 +396,14 @@ def _get_pending_chunk_final_state(
     return state
 
 
+def mark_chunk_final_queued(state: ProgressiveIngestionState) -> None:
+    """Mark chunk-track Final as sent, so reads and the sweeper do not send it again."""
+    stages: dict[str, EnhancementStage] = dict(state.stages)
+    stage: EnhancementStage = {**stages.get("finalization", {})}
+    stages["finalization"] = {**stage, "status": "running"}
+    state.stages = stages
+
+
 async def _enqueue_chunk_final_on_returned_rows(
     db: Any,
     rows: list[dict[str, Any]],
@@ -452,10 +460,7 @@ async def _enqueue_chunk_final_on_returned_rows(
                 )
                 if state is None:
                     continue
-                stages: dict[str, EnhancementStage] = dict(state.stages)
-                stage: EnhancementStage = {**stages.get("finalization", {})}
-                stages["finalization"] = {**stage, "status": "running"}
-                state.stages = stages
+                mark_chunk_final_queued(state)
                 job_result.document_metadata = write_progressive_state(
                     job_result.document_metadata, state
                 )
@@ -494,8 +499,8 @@ async def _enqueue_chunk_final_on_returned_rows(
             state = read_progressive_state(job_result.document_metadata)
             if state is None:
                 continue
-            stages = dict(state.stages)
-            stage = {**stages.get("finalization", {})}
+            stages: dict[str, EnhancementStage] = dict(state.stages)
+            stage: EnhancementStage = {**stages.get("finalization", {})}
             if stage.get("status") != "running" or stage.get("claimed_at"):
                 continue
             stages["finalization"] = {**stage, "status": "pending"}

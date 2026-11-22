@@ -93,6 +93,11 @@ def iter_block_items(doc_data):
                                 }
                             yield ele_num, text, label, meta
                             ele_num += 1
+                        for content, image_label, image_meta in _paragraph_images(
+                            p_elem, text=text, docx=docx, rel_map=rel_map, ns=ns
+                        ):
+                            yield ele_num, content, image_label, image_meta
+                            ele_num += 1
                 continue
 
             # --- text paras ---
@@ -127,49 +132,11 @@ def iter_block_items(doc_data):
                     yield ele_num, p_obj or text, label, meta
                     ele_num += 1
 
-                # images (DrawingML: <a:blip>)
-                seen_rids = set()
-                blips = elem.xpath(".//a:blip", namespaces=ns)
-                for b in blips:
-                    rid = b.get(f"{r_ns}embed")
-                    if not rid or rid in seen_rids:
-                        continue
-                    target = rel_map.get(rid)
-                    if not target or not target.startswith("media/"):
-                        continue
-                    seen_rids.add(rid)
-                    data = docx.read("word/" + target)
-                    if is_below_img_min_size(len(data)):
-                        continue
-                    yield (
-                        ele_num,
-                        None,
-                        "IMAGE",
-                        {
-                            "image_name": target.split("/")[-1],
-                            "from": "paragraph",
-                            "size": len(data),
-                            "data": data,
-                        },
-                    )
+                for content, image_label, image_meta in _paragraph_images(
+                    elem, text=text, docx=docx, rel_map=rel_map, ns=ns
+                ):
+                    yield ele_num, content, image_label, image_meta
                     ele_num += 1
-
-                # Complex VML composite images (<v:group>) are skipped because extracting
-                # <v:imagedata> piece-by-piece loses textual overlay and positioning.
-                # VML-only paragraphs get a placeholder so the paragraph isn't silently
-                # swallowed, leaving its parent section empty.
-                if not text and not seen_rids:
-                    # No text and no DrawingML images — check for VML content
-                    vml_groups = elem.xpath(".//v:group", namespaces=ns)
-                    vml_images_check = elem.xpath(".//v:imagedata", namespaces=ns)
-                    if vml_groups or vml_images_check:
-                        vml_placeholder = "[VML graphic \u2014 extraction not yet supported]"
-                        yield ele_num, vml_placeholder, "PTXT", None
-                        ele_num += 1
-                        logger.debug(
-                            f"Injected VML placeholder for paragraph with "
-                            f"{len(vml_groups)} v:group, {len(vml_images_check)} v:imagedata"
-                        )
                 map_index += 1
 
                 if toc_info["is_field_end"]:
@@ -239,3 +206,45 @@ def iter_block_items(doc_data):
             ele_num += 1
             map_index += 1
 
+
+def _paragraph_images(paragraph, *, text, docx, rel_map, ns):
+    """Images a paragraph holds, or a placeholder for a VML-only graphic."""
+    r_ns = f"{{{ns['r']}}}"
+    seen_rids = set()
+    # images (DrawingML: <a:blip>)
+    for blip in paragraph.xpath(".//a:blip", namespaces=ns):
+        rid = blip.get(f"{r_ns}embed")
+        if not rid or rid in seen_rids:
+            continue
+        target = rel_map.get(rid)
+        if not target or not target.startswith("media/"):
+            continue
+        seen_rids.add(rid)
+        data = docx.read("word/" + target)
+        if is_below_img_min_size(len(data)):
+            continue
+        yield (
+            None,
+            "IMAGE",
+            {
+                "image_name": target.split("/")[-1],
+                "from": "paragraph",
+                "size": len(data),
+                "data": data,
+            },
+        )
+
+    # Complex VML composite images (<v:group>) are skipped because extracting
+    # <v:imagedata> piece-by-piece loses textual overlay and positioning.
+    # VML-only paragraphs get a placeholder so the paragraph isn't silently
+    # swallowed, leaving its parent section empty.
+    if not text and not seen_rids:
+        # No text and no DrawingML images — check for VML content
+        vml_groups = paragraph.xpath(".//v:group", namespaces=ns)
+        vml_images_check = paragraph.xpath(".//v:imagedata", namespaces=ns)
+        if vml_groups or vml_images_check:
+            yield "[VML graphic \u2014 extraction not yet supported]", "PTXT", None
+            logger.debug(
+                f"Injected VML placeholder for paragraph with "
+                f"{len(vml_groups)} v:group, {len(vml_images_check)} v:imagedata"
+            )
