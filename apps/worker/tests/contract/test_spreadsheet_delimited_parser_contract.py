@@ -162,3 +162,95 @@ def test_tsv_tab_parses_to_table_html(
     assert "Region" in table_html
     assert "North" in table_html
     assert "10" in table_html
+
+
+def _table_cells(table_html: str) -> list[str]:
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(table_html, "html.parser")
+    return [cell.get_text(strip=True) for cell in soup.find_all(["th", "td"])]
+
+
+def _parse_single_table(tmp_path: Path, filename: str, data: bytes, sheet_title: str) -> str:
+    source_path = tmp_path / filename
+    source_path.write_bytes(data)
+    parse_output = _parse_table_source(
+        source_path=source_path,
+        filename=filename,
+        output_root=tmp_path / "parser-output",
+    )
+    return _assert_single_table_chunk(
+        parse_output,
+        filename=filename,
+        sheet_title=sheet_title,
+    )
+
+
+def test_single_column_csv_parses_as_one_column(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    del worker_contract_environment
+    table_html = _parse_single_table(tmp_path, "names.csv", b"name\nalice\nbob\n", "names")
+    assert _table_cells(table_html) == ["name", "alice", "bob"]
+
+
+def test_semicolon_csv_detects_its_delimiter(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    del worker_contract_environment
+    table_html = _parse_single_table(
+        tmp_path, "eu.csv", b"Region;Value\nNorth;10\nSouth;20\n", "eu"
+    )
+    assert _table_cells(table_html) == ["Region", "Value", "North", "10", "South", "20"]
+
+
+def test_csv_filename_with_sheet_title_characters_parses(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    del worker_contract_environment
+    table_html = _parse_single_table(
+        tmp_path, "report[2024].csv", b"a,b\nx,y\n", "report_2024_"
+    )
+    assert _table_cells(table_html) == ["a", "b", "x", "y"]
+
+
+def test_csv_numbers_keep_their_written_form(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    del worker_contract_environment
+    table_html = _parse_single_table(
+        tmp_path,
+        "numbers.csv",
+        b"id,amt,phone,sci,padded,plain\n001,1.10,+8613800000000,1e5, 12 ,3.5\n",
+        "numbers",
+    )
+    assert _table_cells(table_html) == [
+        "id", "amt", "phone", "sci", "padded", "plain",
+        "001", "1.10", "+8613800000000", "1e5", "12", "3.5",
+    ]
+
+
+def test_short_gb18030_csv_is_not_read_as_utf16(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    del worker_contract_environment
+    data = "名名,数量\n".encode("gb18030")
+    assert data.decode("utf-16")  # these bytes are also valid UTF-16 without a BOM
+    table_html = _parse_single_table(tmp_path, "short.csv", data, "short")
+    assert _table_cells(table_html) == ["名名", "数量"]
+
+
+def test_utf16_csv_with_bom_parses(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    del worker_contract_environment
+    table_html = _parse_single_table(
+        tmp_path, "wide.csv", "产品,数量\n茶叶,2\n".encode("utf-16"), "wide"
+    )
+    assert _table_cells(table_html) == ["产品", "数量", "茶叶", "2"]

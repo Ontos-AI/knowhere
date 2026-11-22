@@ -77,7 +77,7 @@ class SourceContentAdmission:
             metadata: dict[str, object] = dict(job.job_metadata or {})
             namespace: object = metadata.get("namespace")
             original_request: object = metadata.get("original_request")
-            reparse_document_id: str | None = None
+            reparse_document_id: str | None = JobMetadataHelper.get_string_field(metadata, "replaces_document_id")
             if (
                 isinstance(original_request, dict)
                 and original_request.get("reparse") is True
@@ -154,7 +154,7 @@ class SourceContentAdmission:
             .where(Document.user_id == scope.user_id)
             .where(Document.namespace == scope.namespace)
             .where(Document.status == "active")
-            # Only an explicit same-document reparse may replace identical bytes.
+            # Explicit replacement exempts one authorized document.
             # Other documents and every active content claim remain protected.
             .where(Document.document_id != scope.reparse_document_id)
             .union_all(

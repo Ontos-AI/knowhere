@@ -16,6 +16,8 @@ from shared.services.retrieval.search.scoring import get_row_path
 
 def get_candidate_key(row: dict[str, Any]) -> tuple[str, str] | None:
     document_id = str(row.get("document_id") or "").strip()
+    if row.get("uses_additive_visibility") and row.get("source_row_id"):
+        return document_id, f"row:{row['source_row_id']}"
     path = get_row_path(row)
     if path:
         return document_id, f"path:{path}"

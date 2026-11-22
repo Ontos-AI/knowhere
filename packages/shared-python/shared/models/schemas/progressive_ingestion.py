@@ -45,11 +45,6 @@ class SnapshotObjectAccessRequest(BaseModel):
         return self
 
 
-class EnhancementRetryResponse(BaseModel):
-    job_id: str
-    enhancement: EnhancementProgress
-
-
 class PublishedSnapshot(BaseModel):
     snapshot_id: str
     stage: Literal["baseline", "final"]

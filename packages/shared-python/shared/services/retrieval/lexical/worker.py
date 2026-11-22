@@ -89,7 +89,7 @@ class _LockedClaim:
     build: LexicalBuild
     lease: LexicalLease
     now: datetime
-    generation: RetrievalNamespaceGeneration
+    generation: RetrievalNamespaceGeneration | None
 
 
 class IndexingWorker:
@@ -137,7 +137,11 @@ class IndexingWorker:
                     deadline=self._deadline,
                 )
                 self._deadline.getRemainingSeconds()
-                indexUuid, epoch = self.coordination.ensureIndex(scope=context.scope, native=native)
+                warmIndexOptions = ({"updateWarmIndexRecency": False}
+                    if CorpusStorage.resolve_namespace(context.scope.namespace).usesAdditivePublication() else {})
+                indexUuid, epoch = self.coordination.ensureIndex(
+                    scope=context.scope, native=native, **warmIndexOptions,
+                )
                 claim = self._claim(context, ownerToken=ownerToken, indexUuid=indexUuid, epoch=epoch)
                 if claim is None:
                     raise LexicalIndexError("Indexing execution lost admission authority")
@@ -203,7 +207,8 @@ class IndexingWorker:
         with self._transaction() as db:
             self._authorize(db, context)
             control = self.coordination.lockControl(db)
-            lock_namespace_generation(db, user_id=context.scope.ownerId, namespace=context.scope.namespace)
+            if not CorpusStorage.resolve_namespace(context.scope.namespace).usesAdditivePublication():
+                lock_namespace_generation(db, user_id=context.scope.ownerId, namespace=context.scope.namespace)
             storage: CorpusStorage = CorpusStorage.resolve_namespace(context.scope.namespace)
             document = db.scalars(select(storage.Document).where(
                 storage.Document.document_id == context.documentId,
@@ -262,9 +267,11 @@ class IndexingWorker:
         with self._transaction() as db:
             self._authorize(db, context)
             control = self.coordination.lockControl(db)
-            lock_namespace_generation(db, user_id=context.scope.ownerId, namespace=context.scope.namespace)
+            additive = CorpusStorage.resolve_namespace(context.scope.namespace).usesAdditivePublication()
+            if not additive:
+                lock_namespace_generation(db, user_id=context.scope.ownerId, namespace=context.scope.namespace)
             registry = db.scalars(select(LexicalNamespaceIndex).where(
-                LexicalNamespaceIndex.id == context.scope.fingerprint).with_for_update()).one()
+                LexicalNamespaceIndex.id == context.scope.fingerprint).with_for_update(read=additive)).one()
             storage: CorpusStorage = CorpusStorage.resolve_namespace(context.scope.namespace)
             document = db.scalars(select(storage.Document).where(
                 storage.Document.document_id == context.documentId,
@@ -295,7 +302,8 @@ class IndexingWorker:
             lease: LexicalLease = LexicalLease(namespaceIndexId=context.scope.fingerprint,
                 kind="index_use", ownerToken=ownerToken, backendEpoch=epoch,
                 buildId=build.id, expiresAt=now + timedelta(seconds=60))
-            registry.lastUsedAt = now
+            if not additive:
+                registry.lastUsedAt = now
             db.add(lease)
             db.flush()
             attempt.state = "running"
@@ -312,8 +320,9 @@ class IndexingWorker:
         context: _Context = claim.context
         self._authorize(db, context)
         control = self.coordination.lockControl(db)
-        generation: RetrievalNamespaceGeneration = lock_namespace_generation(db,
-            user_id=context.scope.ownerId, namespace=context.scope.namespace)
+        generation = None if CorpusStorage.resolve_namespace(context.scope.namespace).usesAdditivePublication() else lock_namespace_generation(
+            db, user_id=context.scope.ownerId, namespace=context.scope.namespace,
+        )
         registry = db.scalars(select(LexicalNamespaceIndex).where(
             LexicalNamespaceIndex.id == context.scope.fingerprint).with_for_update(read=True)).one()
         storage: CorpusStorage = CorpusStorage.resolve_namespace(context.scope.namespace)
@@ -471,6 +480,8 @@ class IndexingWorker:
             job_result_id=context.revisionId, source_file_name=str((job.job_metadata or {}).get("source_file_name") or "")))
 
     def _publishVisibleBuild(self, claim: _Claim, native: OpenSearchLexicalIndex) -> Literal["completed"]:
+        if CorpusStorage.resolve_namespace(claim.context.scope.namespace).usesAdditivePublication():
+            return self._activate(claim, None)
         publication = ManifestPublication(self.sessions)
         for _ in range(8):
             prepared = publication.prepare(scope=claim.context.scope, documentId=claim.context.documentId,
@@ -481,16 +492,19 @@ class IndexingWorker:
                 continue
         raise ManifestPublicationAdvanced("Namespace manifest kept advancing during publication", isRetryable=True)
 
-    def _activate(self, claim: _Claim, prepared: PreparedManifest) -> Literal["completed"]:
+    def _activate(self, claim: _Claim, prepared: PreparedManifest | None) -> Literal["completed"]:
         eventId: str | None = None
         deferCopy: bool = settings.KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND
         with self._transaction() as db:
             locked: _LockedClaim = self._lockClaim(db, claim)
-            generationBefore: int = locked.generation.generation
+            generation = locked.generation
+            generationBefore = generation.generation if generation is not None else None
+            if (prepared is None) != (generation is None):
+                raise LexicalIndexError("Indexing publication mode changed during execution")
             context: _Context = claim.context
             metadata: dict[str, object] = dict(locked.job.job_metadata or {})
             oldBuildId: str | None = locked.document.current_indexing_build_id
-            if oldBuildId is not None:
+            if oldBuildId is not None and generation is not None:
                 BuildSnapshot.capture(db, scope=context.scope, buildId=oldBuildId)
             locked.document.current_job_result_id = context.revisionId
             locked.document.current_indexing_build_id = claim.buildId
@@ -505,21 +519,22 @@ class IndexingWorker:
             publication: RetrievalPublicationService = RetrievalPublicationService()
             publication.publish_document_graph(db, job_id=context.jobId, job_result_id=context.revisionId,
                 top_summary=str(metadata.get("document_top_summary") or ""))
-            manifest = persist_revision_serving_state(db, scope=scope)
-            publication.update_namespace_snapshot(db, scope=scope, manifest_payload=manifest,
-                locked_generation=locked.generation)
-            generation: RetrievalNamespaceGeneration = locked.generation
+            if generation is not None:
+                manifest = persist_revision_serving_state(db, scope=scope)
+                publication.update_namespace_snapshot(db, scope=scope, manifest_payload=manifest,
+                    locked_generation=generation)
             if oldBuildId and oldBuildId != claim.buildId:
                 old: LexicalBuild | None = db.get(LexicalBuild, oldBuildId)
                 if old is not None:
                     old.state = "retired"
-                    old.retirementGeneration = generation.generation
+                    old.retirementGeneration = generation.generation if generation is not None else None
                     old.cleanupState = "pending"
-                    old.retainForManifestReads = True
+                    old.retainForManifestReads = generation is not None
             locked.build.state = "published"
-            ManifestPublication.activate(db, prepared, previousGeneration=generationBefore,
-                publishedGeneration=generation.generation)
-            locked.build.activationGeneration = generation.generation
+            if prepared is not None and generation is not None and generationBefore is not None:
+                ManifestPublication.activate(db, prepared, previousGeneration=generationBefore,
+                    publishedGeneration=generation.generation)
+                locked.build.activationGeneration = generation.generation
             locked.build.legacyCopyState = "skipped" if deferCopy else "pending"
             locked.attempt.state = "succeeded"
             locked.attempt.finishedAt = locked.now

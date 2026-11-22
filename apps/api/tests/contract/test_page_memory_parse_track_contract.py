@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -21,6 +22,40 @@ def _build_job_create(**values: object) -> JobCreate:
 
 def _build_job_create_v2(**values: object) -> JobCreateV2:
     return JobCreateV2.model_validate(values)
+
+
+@pytest.mark.asyncio
+async def test_replacement_creates_a_new_document_in_the_validated_scope(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from app.services.document_ingestion import service
+    from app.services.document_ingestion.command import build_v2_ingestion_command
+    from app.services.document_ingestion.scope_service import DocumentRepository
+    from app.services.rate_limit.data_structures import CurrentUser
+
+    from shared.core.config import settings
+
+    monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "opensearch")
+    get_document = AsyncMock(return_value=SimpleNamespace(
+        document_id="doc_current", namespace="origin-library", status="active",
+    ))
+    monkeypatch.setattr(DocumentRepository, "get_document", get_document)
+    monkeypatch.setattr(service, "find_active_job_for_document", AsyncMock(return_value=None))
+    command = build_v2_ingestion_command(
+        payload=_build_job_create_v2(
+            source_type="file", file_name="source.pdf", replaces_document_id="doc_current",
+        ),
+        file_extension=".pdf",
+    )
+
+    scope = await service.DocumentIngestionService()._resolve_scope(
+        AsyncMock(), command=command, current_user=CurrentUser(user_id="owner", user_tier="free"),
+    )
+
+    assert scope.document_id.startswith("doc_") and scope.document_id != "doc_current"
+    assert scope.namespace == "origin-library"
+    assert scope.job_metadata["replaces_document_id"] == "doc_current"
+    get_document.assert_awaited_once()
 
 
 @pytest.mark.parametrize("file_extension", [".pdf", ".pptx"])

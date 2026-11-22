@@ -127,7 +127,9 @@ def execute_structure_enrichment(
     result_storage_factory: Callable[[], ResultStorage] = get_result_storage,
     scope_publisher: ScopePublisher | None = None,
 ) -> dict[str, Any]:
-    """Resume profiling (TOC + anatomy + Phase A) and publish the coarse structure."""
+    """Resume a legacy text stage on the backend that still publishes it."""
+    if CorpusStorage("PRIVATE").usesAdditivePublication():
+        return {"status": "skipped", "job_result_id": job_result_id}
     claim_status, target = _load_and_validate_structure_target(
         job_result_id=job_result_id,
     )
@@ -1298,12 +1300,14 @@ def execute_progressive_recovery(
         job = db.get(Job, result.job_id)
         if (
             state is None
-            or state.enhancement.status in ("failed", "complete")
             or document is None
             or job is None
             or document.status != "active"
             or document.current_job_result_id != job_result_id
         ):
+            return {"status": "skipped"}
+        additive: bool = CorpusStorage.resolve_namespace(document.namespace).usesAdditivePublication()
+        if not additive and state.enhancement.status in ("failed", "complete"):
             return {"status": "skipped"}
         parse_track = str(
             JobMetadataHelper.get_parse_track(job.job_metadata or {})
@@ -1311,6 +1315,8 @@ def execute_progressive_recovery(
             or ""
         )
         stages: dict[str, EnhancementStage] = dict(state.stages)
+        if additive and parse_track != "page_memory":
+            return {"status": "skipped"}
         if parse_track in WHOLE_FILE_FINAL_PARSE_TRACKS:
             if stages.get("finalization", {}).get("status") != "complete":
                 from shared.services.jobs.lifecycle.scope_enrichments import (
@@ -1324,7 +1330,7 @@ def execute_progressive_recovery(
                 DocumentScopeEnrichment.state, DocumentScopeEnrichment.attempts
             ).where(DocumentScopeEnrichment.job_result_id == job_result_id)
         ).all()
-        if any(
+        if not additive and any(
             status == "failed" and attempts >= 3 for status, attempts in scope_states
         ):
             state.enhancement = EnhancementProgress(
@@ -1373,7 +1379,7 @@ def execute_progressive_recovery(
         finally:
             shutil.rmtree(workspace_dir, ignore_errors=True)
         return {"status": "recovered", "job_result_id": job_result_id}
-    if stages.get("structure", {}).get("status") != "complete":
+    if not additive and stages.get("structure", {}).get("status") != "complete":
         from shared.services.jobs.lifecycle.scope_enrichments import (
             enqueue_page_memory_structure_after_commit,
         )
@@ -1389,13 +1395,14 @@ def execute_progressive_recovery(
                 storage=storage,
                 workspace_dir=workspace,
             )
-        finalize_all_scopes_refined(
-            job_result_id=job_result_id,
-            target=target,
-            storage=storage,
-            workspace_dir=workspace,
-            package_refs=_page_package_refs(target),
-        )
+        if not additive:
+            finalize_all_scopes_refined(
+                job_result_id=job_result_id,
+                target=target,
+                storage=storage,
+                workspace_dir=workspace,
+                package_refs=_page_package_refs(target),
+            )
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
     return {"status": "recovered", "job_result_id": job_result_id}

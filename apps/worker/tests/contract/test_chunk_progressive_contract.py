@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import zipfile
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -147,6 +148,21 @@ def test_attribute_pages_to_leaves_leaves_unmatched_empty() -> None:
     assert attributed[0] == []
 
 
+def _write_docx_with_tracked_deletion(path: Path) -> None:
+    from docx import Document
+    from docx.oxml import parse_xml
+
+    document = Document()
+    paragraph = document.add_paragraph("kept")._p
+    paragraph.append(
+        parse_xml(
+            '<w:del xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:r><w:delText>deleted</w:delText></w:r></w:del>"
+        )
+    )
+    document.save(str(path))
+
+
 def test_parse_docx_baseline_emits_page_rows_and_writes_resume_artifacts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -155,8 +171,12 @@ def test_parse_docx_baseline_emits_page_rows_and_writes_resume_artifacts(
 
     rendered_pdf = tmp_path / "rendered.pdf"
     rendered_pdf.write_bytes(b"%PDF-1.4")
+    _write_docx_with_tracked_deletion(tmp_path / "source.docx")
+    rendered_bodies: list[str] = []
 
-    def fake_convert(**_kwargs: object) -> tuple[str, str]:
+    def fake_convert(**kwargs: object) -> tuple[str, str]:
+        with zipfile.ZipFile(str(kwargs["source_path"])) as package:
+            rendered_bodies.append(package.read("word/document.xml").decode())
         return str(rendered_pdf), rendered_pdf.name
 
     monkeypatch.setattr(docx_baseline, "_convert_with_libreoffice", fake_convert)
@@ -172,6 +192,7 @@ def test_parse_docx_baseline_emits_page_rows_and_writes_resume_artifacts(
         filename="source.docx",
     )
 
+    assert "kept" in rendered_bodies[0] and "deleted" not in rendered_bodies[0]
     assert list(parsed["type"]) == ["page"]
     assert parsed.iloc[0]["content"] == "Rendered page one body"
     assert parsed.iloc[0]["page_nums"] == "1"

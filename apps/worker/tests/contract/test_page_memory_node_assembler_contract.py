@@ -132,13 +132,19 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
     leaf_a = by_path["demo.pdf/3 基本规定/3.1 职责"]
     assert leaf_a["page_nums"] == "231"
     assert leaf_a["content"] == "text-231"
-    assert leaf_a["extra_metadata"] == {"body_text_preview": ""}
+    assert leaf_a["extra_metadata"] == {
+        "body_text_preview": "",
+        "searchable_page_nums": [231],
+    }
 
     leaf_b = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
     assert leaf_b["page_nums"] == "231,232"
     assert node_assembler.SAME_AS_PREFIX in leaf_b["content"]
     assert "text-232" in leaf_b["content"]
-    assert leaf_b["extra_metadata"] == {"body_text_preview": ""}
+    assert leaf_b["extra_metadata"] == {
+        "body_text_preview": "",
+        "searchable_page_nums": [232],
+    }
 
 
 def test_build_node_rows_preserves_order_under_summary_concurrency(

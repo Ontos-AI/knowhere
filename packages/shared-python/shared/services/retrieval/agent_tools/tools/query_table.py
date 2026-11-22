@@ -5,6 +5,7 @@ from __future__ import annotations
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
+from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
 
 import asyncio
 import sqlite3
@@ -112,6 +113,7 @@ async def query_table(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             .where(corpusStorage.DocumentChunk.job_result_id == CorpusRevisionContext.resolve_revision(doc.document_id, doc.current_job_result_id))
             .where(corpusStorage.DocumentChunk.chunk_id == chunk_id)
             .where(corpusStorage.DocumentChunk.chunk_type == "table")
+            .where(AdditiveVisibility.allowsFreshChunk(ctx.namespace))
         )
     ).first()
     if row is None:

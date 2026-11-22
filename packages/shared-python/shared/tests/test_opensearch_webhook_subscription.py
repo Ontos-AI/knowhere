@@ -22,6 +22,19 @@ def test_webhook_events_normalize_duplicates_without_adding_terminal_events() ->
     assert WebhookConfig(url="https://example.invalid/callback").events is None
 
 
+def test_hipo_can_subscribe_to_enrichment_attempt_failures() -> None:
+    from shared.models.schemas.job import WebhookConfig
+
+    config = WebhookConfig.model_validate({
+        "url": "https://example.invalid/callback",
+        "events": ["job.completed", "job.failed", "job.document.directory_ready", "job.enrichment.failed"],
+    })
+
+    assert config.events == [
+        "job.completed", "job.failed", "job.document.directory_ready", "job.enrichment.failed",
+    ]
+
+
 @pytest.mark.parametrize("events", [None, [], "job.parsed", ["job.PARSED"], ["job.parsed", "unknown"], {"job.parsed": True}])
 def test_invalid_explicit_webhook_events_are_rejected(events: object) -> None:
     from shared.models.schemas.job import WebhookConfig

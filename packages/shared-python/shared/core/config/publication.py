@@ -9,7 +9,7 @@ DEFAULT_PUBLICATION_NAMESPACE_SNAPSHOT_MAX_BYTES: int = 8 * 1024 * 1024
 
 
 class PublicationConfig(BaseSettings):
-    """Explicit backend rollout gate and publication support settings."""
+    """Lexical backend and publication support settings."""
 
     KNOWHERE_LEXICAL_BACKEND: str = Field(default="postgresql", pattern="^(postgresql|opensearch)$")
     KNOWHERE_OPENSEARCH_PG_COPY_ON_DEMAND: bool = Field(

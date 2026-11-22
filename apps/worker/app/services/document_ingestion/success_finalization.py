@@ -36,6 +36,7 @@ from app.services.document_parser.support.stage_profiler import (
 )
 from app.services.page_memory.phase_a import (
     PHASE_B_BLACKBOARD_REL,
+    PHASE_B_MANIFEST_REL,
     existing_phase_b_input_refs,
 )
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
@@ -330,19 +331,12 @@ def _upload_result_package(
     ):
         snapshot_id: str = f"snapshot_{uuid4().hex}"
         snapshot_options["snapshot_id"] = snapshot_id
-        missing_pages: list[int] = []
-        if parse_track == "page_memory":
-            missing_pages = sorted(
-                {
-                    int(page)
-                    for chunk in result_package.chunks
-                    if (chunk.get("metadata") or {}).get("embedding_status")
-                    in {"missing", "pending"}
-                    for page in (chunk.get("metadata") or {}).get("page_nums", [])
-                }
-            )
         metadata_updates["progressive_baseline_snapshot_id"] = snapshot_id
-        metadata_updates["progressive_missing_embedding_pages"] = missing_pages
+        metadata_updates["progressive_missing_embedding_pages"] = (
+            _collect_missing_page_embeddings(result_package.chunks)
+            if parse_track == "page_memory"
+            else []
+        )
     if parsing_owner_token is not None:
         metadata_updates["parsing_execution_id"] = parsing_owner_token
     # Snapshot IDs isolate immutable archives under the public job path.
@@ -399,11 +393,12 @@ def _upload_result_package(
             )
         if (
             ingestion_mode == "progressive"
-            and add_dir
-            and os.path.isfile(os.path.join(add_dir, PHASE_B_BLACKBOARD_REL))
+            and (PHASE_B_MANIFEST_REL in phase_b_refs or PHASE_B_BLACKBOARD_REL in phase_b_refs)
         ):
             metadata_updates["page_memory_phase_b"] = phase_b_refs
-            metadata_updates["enrichment_status"] = "text"
+            metadata_updates["enrichment_status"] = (
+                "coarse" if PHASE_B_MANIFEST_REL in phase_b_refs else "text"
+            )
     if (
         job_context is not None
         and parse_track in WHOLE_FILE_FINAL_PARSE_TRACKS
@@ -434,6 +429,21 @@ def _upload_result_package(
             metadata_updates=metadata_updates,
         )
     return result_bundle.zip_key
+
+
+def _collect_missing_page_embeddings(chunks: list[dict[str, Any]]) -> list[int]:
+    pending_pages: set[int] = set()
+    embedded_pages: set[int] = set()
+    for chunk in chunks:
+        metadata: dict[str, Any] = chunk.get("metadata") or {}
+        if metadata.get("embedding_status") in {"missing", "pending"}:
+            pending_pages.update(int(page) for page in metadata.get("page_nums", []))
+        grouped_embeddings: object = metadata.get("_page_embeddings")
+        if isinstance(grouped_embeddings, dict):
+            embedded_pages.update(
+                int(page) for page in grouped_embeddings if str(page).isdecimal()
+            )
+    return sorted(pending_pages - embedded_pages)
 
 
 def existing_sheet_progressive_artifact_refs(add_dir: str) -> list[str]:

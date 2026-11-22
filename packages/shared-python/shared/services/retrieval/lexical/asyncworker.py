@@ -10,6 +10,7 @@ from loguru import logger
 
 from shared.core.config import settings
 from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
+from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.lexical.asyncdatabase import AsyncLexicalDatabase
 from shared.services.retrieval.lexical.asynccoordination import AsyncLexicalCoordination
 from shared.services.retrieval.lexical.asyncnative import AsyncOpenSearchLexicalIndex
@@ -67,7 +68,11 @@ class AsyncIndexingWorker:
                     scope=context.scope, indexPrefix=settings.KNOWHERE_OPENSEARCH_INDEX_PREFIX,
                     maximumBulkBytes=settings.KNOWHERE_OPENSEARCH_BULK_MAXIMUM_BYTES, deadline=self.deadline)
                 coordination: AsyncLexicalCoordination = AsyncLexicalCoordination(self.database, executionDeadline=self.deadline)
-                indexUuid, epoch = await coordination.ensureIndex(scope=context.scope, native=native)
+                warmIndexOptions = ({"updateWarmIndexRecency": False}
+                    if CorpusStorage.resolve_namespace(context.scope.namespace).usesAdditivePublication() else {})
+                indexUuid, epoch = await coordination.ensureIndex(
+                    scope=context.scope, native=native, **warmIndexOptions,
+                )
                 claim = await self.database.run(partial(self.repository._claim, context,
                     ownerToken=ownerToken, indexUuid=indexUuid, epoch=epoch))
                 if claim is None:
@@ -110,6 +115,8 @@ class AsyncIndexingWorker:
                     logger.error("Async indexing use remains unresolved: build_id={}, error_type={}", claim.buildId, type(error).__name__)
 
     async def _publishVisibleBuild(self, claim: _Claim, native: AsyncOpenSearchLexicalIndex) -> Literal["completed"]:
+        if CorpusStorage.resolve_namespace(claim.context.scope.namespace).usesAdditivePublication():
+            return await self.database.run(partial(self.repository._activate, claim, None))
         publication = ManifestPublication(self.repository.sessions)
         for _ in range(8):
             prepared = await self.database.run(partial(publication.prepareMetadata, scope=claim.context.scope,

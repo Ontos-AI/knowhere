@@ -10,6 +10,7 @@ from shared.core.config import settings
 from shared.core.database_sync import get_sync_session_factory
 from shared.models.database.lexicalbuild import LexicalBuild
 from shared.models.database.lexicalcontrol import LexicalBackendControl
+from shared.services.retrieval.lexical.additivecleanup import AdditiveCleanup
 from shared.services.retrieval.lexical.cleanup import LexicalCleanup
 from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
 from shared.services.retrieval.lexical.input_collector import LexicalInputCollector
@@ -56,6 +57,10 @@ def maintainLexical() -> int:
             except Exception as error:
                 logger.error("Lexical build cleanup deferred: build_id={}, error_type={}", identity, type(error).__name__)
     if isNativeServing:
+        try:
+            completed += AdditiveCleanup(sessions).run()
+        except Exception as error:
+            logger.error("Additive index maintenance deferred: error_type={}", type(error).__name__)
         try:
             completed += LexicalInputCollector(sessionFactory=sessions).run()
         except Exception as error:

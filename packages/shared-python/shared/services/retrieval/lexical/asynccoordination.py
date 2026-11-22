@@ -22,13 +22,15 @@ class AsyncLexicalCoordination:
         self._executionDeadline: IndexingDeadline | None = executionDeadline
 
     async def ensureIndex(self, *, scope: LexicalScope,
-                          native: AsyncOpenSearchLexicalIndex) -> tuple[str, int]:
+                          native: AsyncOpenSearchLexicalIndex,
+                          updateWarmIndexRecency: bool = True) -> tuple[str, int]:
         deadline: float = time.monotonic() + _WAIT_SECONDS
         observation: _Observation = await self.database.run(partial(self.decisions._beginObservation, deadline))
         exact: NativeLifecycleSnapshot = await native.getLifecycleSnapshot(
             isExact=True, timeoutSeconds=self.decisions._remaining(deadline))
         observed: tuple[str, int] | None = await self.database.run(partial(self.decisions.observeIndex,
-            scope=scope, indexName=native.indexName, observation=observation, exact=exact, deadline=deadline))
+            scope=scope, indexName=native.indexName, observation=observation, exact=exact, deadline=deadline,
+            updateWarmIndexRecency=updateWarmIndexRecency))
         if observed is not None:
             return observed
         while True:
