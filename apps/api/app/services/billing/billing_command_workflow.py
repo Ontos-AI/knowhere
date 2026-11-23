@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from app.services.billing.stripe_purchase_service import StripePurchaseService
-from app.services.billing.stripe_webhook_service import StripeWebhookService
+from app.services.billing.stripe_webhook_service import (
+    StripeWebhookService,
+    StripeWebhookValidationException,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -86,18 +89,27 @@ class BillingCommandWorkflow:
         payload: bytes,
         stripe_signature: str | None,
     ) -> dict[str, object]:
-        stripe_webhook_service = StripeWebhookService()
+        if not stripe_signature:
+            raise StripeWebhookValidationException(
+                user_message="Invalid webhook signature",
+                violations=[
+                    {
+                        "field": "Stripe-Signature",
+                        "description": "Stripe-Signature header is required",
+                    }
+                ],
+            )
+
+        stripe_webhook_service: StripeWebhookService = StripeWebhookService()
         try:
-            if not stripe_signature:
-                raise StripeServiceException(
-                    internal_message="Missing stripe-signature header"
-                )
             return await stripe_webhook_service.handle_webhook(
                 db,
                 payload=payload,
                 sig_header=stripe_signature,
             )
+        except StripeWebhookValidationException:
+            raise
         except Exception as exc:
             raise StripeServiceException(
                 internal_message=f"Failed to handle webhook: {str(exc)}"
-            )
+            ) from exc
