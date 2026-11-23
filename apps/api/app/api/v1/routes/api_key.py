@@ -168,20 +168,19 @@ async def toggle_api_key(
 ):
     """Enable or disable an API key."""
     try:
-        success = await _api_key_management_service.toggle_api_key(
+        success: bool = await _api_key_management_service.toggle_api_key(
             db,
             user_id=current_user.user_id,
             api_key_id=api_key_id,
         )
-        if success:
-            return {"message": "API key status updated"}
-        else:
-            raise APIKeyOperationException(
-                internal_message="Failed to toggle API Key status"
-            )
     except APIKeyOperationException:
         raise
     except Exception as e:
         raise APIKeyOperationException(
             internal_message=f"Failed to toggle API Key: {str(e)}"
         )
+
+    if not success:
+        raise NotFoundException(resource="APIKey", resource_id=api_key_id)
+
+    return {"message": "API key status updated"}
