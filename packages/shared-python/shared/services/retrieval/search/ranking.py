@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from shared.services.retrieval.corpus_storage import CorpusStorage
 
-import math
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.stats.service import compute_importance_score
+from shared.services.retrieval.stats.service import (
+    compute_importance_multiplier,
+    compute_importance_score,
+)
 from shared.services.retrieval.search.scoring import get_row_path
 
 
@@ -25,7 +28,11 @@ def get_candidate_key(row: dict[str, Any]) -> tuple[str, str] | None:
     return (document_id, f"chunk:{chunk_id}") if chunk_id else None
 
 
-async def load_chunk_importance_scores(
+def _importance_key(document_id: str, chunk_id: str) -> str:
+    return f"{document_id}:{chunk_id}"
+
+
+async def load_importance_scores(
     db: AsyncSession,
     *,
     user_id: str,
@@ -33,21 +40,44 @@ async def load_chunk_importance_scores(
     rows: list[dict[str, Any]],
     revision_pins: Mapping[str, str] | None = None,
 ) -> dict[str, float]:
+    """Importance of each candidate, keyed by document and chunk.
+
+    Freshness comes from the document's upload; usage heat from the chunk's
+    recorded uses. A key with an empty chunk holds the document's importance
+    for candidates without a chunk, or chunks never used.
+    """
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     if corpusStorage.is_demo:
         from shared.services.retrieval.demo_authorization import authorize_demo_caller
         await db.run_sync(lambda session: authorize_demo_caller(session, user_id=user_id))
+    document_ids = sorted(
+        {str(row.get("document_id") or "").strip() for row in rows if row.get("document_id")}
+    )
+    if not document_ids:
+        return {}
+    uploads = await db.execute(
+        select(corpusStorage.Document.document_id, corpusStorage.Document.created_at)
+        .where(corpusStorage.Document.namespace == namespace)
+        .where(corpusStorage.Document.document_id.in_(document_ids))
+    )
+    uploaded_at: dict[str, datetime] = {
+        str(document_id): created_at for document_id, created_at in uploads.all()
+    }
+    importance_scores: dict[str, float] = {
+        _importance_key(document_id, ""): compute_importance_score(0, None, created_at)
+        for document_id, created_at in uploaded_at.items()
+    }
     chunk_ids = sorted(
         {str(row.get("chunk_id") or "").strip() for row in rows if row.get("chunk_id")}
     )
     if not chunk_ids:
-        return {}
+        return importance_scores
     stmt = (
         select(
+            corpusStorage.RetrievalHitStat.document_id,
             corpusStorage.RetrievalHitStat.chunk_id,
             corpusStorage.RetrievalHitStat.hit_count,
             corpusStorage.RetrievalHitStat.last_hit_at,
-            corpusStorage.RetrievalHitStat.created_at,
         )
         .where(corpusStorage.RetrievalHitStat.user_id == user_id)
         .where(corpusStorage.RetrievalHitStat.namespace == namespace)
@@ -58,62 +88,14 @@ async def load_chunk_importance_scores(
         pinned_document_ids = {str(document_id) for document_id in revision_pins}
         stmt = stmt.where(corpusStorage.RetrievalHitStat.document_id.in_(pinned_document_ids))
     result = await db.execute(stmt)
-    importance_scores: dict[str, float] = {}
-    for chunk_id, hit_count, last_hit_at, created_at in result.all():
-        if not chunk_id:
+    for document_id, chunk_id, hit_count, last_hit_at in result.all():
+        created_at = uploaded_at.get(str(document_id))
+        if not chunk_id or created_at is None:
             continue
-        score = compute_importance_score(hit_count, last_hit_at, created_at)
-        importance_scores[str(chunk_id)] = score
-        for row in rows:
-            if str(row.get("chunk_id") or "") == str(chunk_id):
-                document_id = str(row.get("document_id") or "")
-                if document_id:
-                    importance_scores[f"{document_id}:{chunk_id}"] = score
+        importance_scores[_importance_key(str(document_id), str(chunk_id))] = (
+            compute_importance_score(hit_count, last_hit_at, created_at)
+        )
     return importance_scores
-
-
-def apply_importance_multiplier(
-    rows: list[dict[str, Any]],
-    *,
-    raw_field: str = "importance_raw_score",
-    low: float = 0.1,
-    high: float = 2.0,
-) -> None:
-    if not rows:
-        return
-
-    values = sorted(float(row.get(raw_field, 0.0) or 0.0) for row in rows)
-    item_count = len(values)
-    median = (
-        values[item_count // 2]
-        if item_count % 2
-        else (values[item_count // 2 - 1] + values[item_count // 2]) / 2
-    )
-    q1 = values[item_count // 4] if item_count >= 4 else values[0]
-    q3 = values[3 * item_count // 4] if item_count >= 4 else values[-1]
-    iqr = q3 - q1
-
-    for row in rows:
-        raw_score = float(row.get(raw_field, 0.0) or 0.0)
-        if iqr <= 1e-9:
-            multiplier = 1.0
-        else:
-            z_score = (raw_score - median) / iqr
-            # Keep the exponent non-positive for new evidence far below hot hits.
-            decay: float = math.exp(-abs(z_score))
-            sigmoid_score: float = (
-                1.0 / (1.0 + decay) if z_score >= 0.0 else decay / (1.0 + decay)
-            )
-            multiplier = low + (high - low) * sigmoid_score
-        row["importance_multiplier"] = round(multiplier, 4)
-        row["agent_score"] = round(
-            float(row.get("agent_score", 0.0) or 0.0) * multiplier,
-            6,
-        )
-        row["discovery_score"] = round(
-            float(row.get("discovery_score", 0.0) or 0.0) * multiplier,
-            6,
-        )
 
 
 def rank_candidates_by_path(
@@ -161,18 +143,24 @@ def rank_candidates_by_path(
         if not candidate.get("section_path") and row.get("section_path"):
             candidate["section_path"] = row.get("section_path")
 
+    scores: dict[str, float] = importance_scores or {}
     for row in merged.values():
         document_id = str(row.get("document_id") or "")
         chunk_id = str(row.get("chunk_id") or "")
-        row["importance_raw_score"] = float(
-            (importance_scores or {}).get(
-                f"{document_id}:{chunk_id}",
-                (importance_scores or {}).get(chunk_id, 0.0),
-            )
-            or 0.0
+        importance = scores.get(
+            _importance_key(document_id, chunk_id),
+            scores.get(_importance_key(document_id, "")),
         )
-        row["importance"] = row["importance_raw_score"]
-    apply_importance_multiplier(list(merged.values()))
+        # Without a known importance (scores unavailable), ranking stays on relevance.
+        multiplier = 1.0
+        if importance is not None:
+            multiplier = compute_importance_multiplier(importance)
+            row["importance"] = importance
+        row["importance_multiplier"] = multiplier
+        row["agent_score"] = round(float(row.get("agent_score", 0.0) or 0.0) * multiplier, 6)
+        row["discovery_score"] = round(
+            float(row.get("discovery_score", 0.0) or 0.0) * multiplier, 6
+        )
 
     has_agent_results = len(routed_rows) > 0
     primary_rows: list[dict[str, Any]] = []
@@ -222,7 +210,7 @@ async def rank_retrieval_candidates(
     revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     try:
-        importance_scores = await load_chunk_importance_scores(
+        importance_scores = await load_importance_scores(
             db,
             user_id=user_id,
             namespace=namespace,
@@ -231,7 +219,7 @@ async def rank_retrieval_candidates(
         )
     except Exception as exc:
         logger.warning(
-            f"Failed to load chunk importance scores, continuing without importance: {exc}"
+            f"Failed to load importance scores, continuing without importance: {exc}"
         )
         importance_scores = {}
     return rank_candidates_by_path(

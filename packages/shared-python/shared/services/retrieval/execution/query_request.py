@@ -3,7 +3,7 @@ from __future__ import annotations
 from shared.services.retrieval.document_scope import DocumentScope
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +14,12 @@ from shared.services.retrieval.agent_explore.harness.resolve import resolve_harn
 from shared.services.retrieval.settings import (
     INTERNAL_RECALL_K_MULTIPLIER,
 )
+
+# Why the caller retrieved. "explicit" (a person or Agent asked) records
+# retrieval hits; "automatic" (context the caller fetched on its own, such as a
+# per-turn recall) does not, so unrequested retrieval cannot raise a document's
+# importance.
+RetrievalPurpose = Literal["automatic", "explicit"]
 
 
 @dataclass(frozen=True)
@@ -36,6 +42,11 @@ class RetrievalQuery:
     conversation_id: str | None = None
     llm_config: LLMConfig | None = None
     include_document_ids: list[str] | None = None
+    purpose: RetrievalPurpose = "explicit"
+
+    @property
+    def records_hits(self) -> bool:
+        return self.purpose == "explicit"
 
     @classmethod
     def from_parameters(
@@ -59,6 +70,7 @@ class RetrievalQuery:
         agent_explore_model: str | None = None,
         conversation_id: str | None = None,
         llm_config: LLMConfig | None = None,
+        purpose: RetrievalPurpose = "explicit",
     ) -> "RetrievalQuery":
         return cls(
             db=db,
@@ -79,6 +91,7 @@ class RetrievalQuery:
             agent_explore_model=agent_explore_model,
             conversation_id=conversation_id,
             llm_config=llm_config,
+            purpose=purpose,
         )
 
     def build_cache_extra(self) -> dict[str, Any]:
