@@ -255,6 +255,53 @@ async def test_invoke_read_records_the_read_document_and_chunk(
     assert counts == {("document", None): 1, ("chunk", chunk_id): 1}
 
 
+async def test_invoke_rejects_nul_in_grep_scope_section_path(
+    developer_api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+) -> None:
+    from tests.contract.test_retrieval_classic_map_unit_contract import _publish_document
+
+    namespace: str = f"grep-scope-{uuid4().hex[:8]}"
+    async with developer_api_client_factory() as api_client:
+        published: dict[str, str] = await _publish_document(
+            namespace=namespace,
+            source_file_name="contract.pdf",
+            chunks=[
+                {
+                    "chunk_id": "scope-contract-body",
+                    "type": "text",
+                    "content": "Quarterly revenue",
+                    "path": "contract.pdf/Root/Summary",
+                    "order": 1,
+                    "metadata": {},
+                }
+            ],
+        )
+        response: Response = await api_client.post(
+            "/api/v2/retrieval/tools/invoke",
+            headers={"X-Knowhere-Namespace": namespace},
+            json={
+                "tool": "corpus.grep",
+                "arguments": {
+                    "pattern": "revenue",
+                    "scope": [
+                        {
+                            "document_id": published["document_id"],
+                            "section_path": "Quarterly\x00Summary",
+                        }
+                    ],
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "text": "",
+        "payload": {},
+        "refs": [],
+        "error": "grep: scope item section_path must not contain NUL characters",
+    }
+
+
 async def test_invoke_recall_returns_table_connected_to_additive_body(
     developer_api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
     monkeypatch: pytest.MonkeyPatch,
