@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
+from importlib import import_module
+from types import ModuleType
 from typing import Any, cast
 from unittest.mock import MagicMock
+from uuid import uuid4
 
+import pytest
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 
 from tests.support.import_environment import (
     configure_import_environment,
@@ -123,3 +129,87 @@ async def test_invoke_defaults_namespace_when_header_is_omitted(
     assert response.status_code == 200
     assert captured["namespace"] == "default"
     assert cast(dict[str, object], response.json())["error"] is None
+
+
+async def test_invoke_recall_returns_table_connected_to_additive_body(
+    developer_api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy import update
+
+    from app.api.v2.routes.retrieval import RetrievalToolInvokeResponse
+
+    from shared.models.database.document import Document
+    from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
+    from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.search.map_unit_discovery import DiscoveryResult
+    from shared.testing.contract_runtime import CONTRACT_DEVELOPER_USER_ID
+    from tests.contract.test_retrieval_classic_map_unit_contract import _publish_document
+    from tests.support.retrieval_snapshot_support import contract_db_session
+
+    namespace: str = f"recall-assets-{uuid4().hex[:8]}"
+    build_id: str = "recall-baseline"
+    body_id: str = "revenue-body"
+    table_id: str = "revenue-table"
+    body_text: str = "Revenue by quarter"
+    table_html: str = "<table><tr><th>Quarter</th><th>Revenue</th></tr><tr><td>Q1</td><td>42</td></tr></table>"
+
+    async with developer_api_client_factory() as api_client:
+        published: dict[str, str] = await _publish_document(
+            namespace=namespace,
+            source_file_name="revenue.pdf",
+            chunks=[
+                {
+                    "chunk_id": body_id, "type": "text", "content": body_text,
+                    "path": "revenue.pdf/Root/Revenue/body", "order": 1,
+                    "metadata": {"connect_to": [{"target": table_id}]},
+                },
+                {
+                    "chunk_id": table_id, "type": "table", "content": table_html,
+                    "path": "revenue.pdf/Root/table", "order": 2,
+                },
+            ],
+        )
+        document_id: str = published["document_id"]
+        revision_id: str = published["job_result_id"]
+        async with contract_db_session() as db:
+            await db.execute(
+                update(Document).where(Document.document_id == document_id)
+                .values(current_indexing_build_id=build_id)
+            )
+            await db.commit()
+            hits: list[dict[str, Any]] = await AdditiveVisibility.loadRows(
+                db,
+                scope=LexicalScope(ownerId=CONTRACT_DEVELOPER_USER_ID, namespace=namespace),
+                chunkTargets=((document_id, revision_id, build_id, body_id),),
+            )
+        assert [hit["chunk_id"] for hit in hits] == [body_id]
+
+        async def find_fixture_body(*_args: object, **_kwargs: object) -> DiscoveryResult:
+            return DiscoveryResult(status="ok", payload={"fused_rows": hits})
+
+        recall_module: ModuleType = import_module(
+            "shared.services.retrieval.agent_tools.tools.recall"
+        )
+        monkeypatch.setattr(recall_module, "hybrid_discovery", find_fixture_body)
+        app: FastAPI = import_module("main").app
+        async with AsyncClient(
+            transport=ASGITransport(app=app, raise_app_exceptions=False),
+            base_url=str(api_client.base_url),
+            headers=api_client.headers,
+        ) as client:
+            response: Response = await client.post(
+                "/api/v2/retrieval/tools/invoke",
+                headers={"X-Knowhere-Namespace": namespace},
+                json={"tool": "corpus.recall", "arguments": {"query": "quarterly revenue"}},
+            )
+
+    assert response.status_code == 200
+    result: RetrievalToolInvokeResponse = RetrievalToolInvokeResponse.model_validate(
+        response.json()
+    )
+    assert result.error is None
+    assert result.refs == [{"document_id": document_id, "chunk_id": body_id}]
+    assert result.payload["rows"][0]["mounted_chunk_ids"] == [table_id]
+    assert body_text in result.text
+    assert table_html in result.text

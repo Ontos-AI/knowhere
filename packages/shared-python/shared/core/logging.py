@@ -55,6 +55,9 @@ class LogEvent(Enum):
 
     PUBLICATION_TRACE_TERMINAL = "publication.trace.terminal"
 
+    RETRIEVAL_QUERY_ROUTER_DECISION = "retrieval.query_router.decision"
+    RETRIEVAL_QUERY_ROUTER_FALLBACK = "retrieval.query_router.fallback"
+
     S3_WEBHOOK_EVENT = "s3.webhook"
 
     # iLoveAPI document conversion events

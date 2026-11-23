@@ -1,9 +1,11 @@
 import asyncio
+import hmac
 import importlib
 import json
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timedelta, timezone
+from time import time
 from typing import cast
 from uuid import uuid4
 
@@ -431,22 +433,104 @@ async def test_should_split_subscriptions_and_credit_packages_in_price_configs(
 
 
 @pytest.mark.asyncio
-async def test_should_reject_a_missing_stripe_signature_header_for_the_webhook_endpoint(
+@pytest.mark.parametrize(
+    ("signature", "description"),
+    [
+        (None, "Stripe-Signature header is required"),
+        ("invalid-signature", "Stripe-Signature could not be verified"),
+    ],
+    ids=["missing-signature", "invalid-signature"],
+)
+async def test_should_return_bad_request_for_an_invalid_stripe_webhook_signature(
     api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    signature: str | None,
+    description: str,
 ) -> None:
+    headers: dict[str, str] = (
+        {"Stripe-Signature": signature} if signature is not None else {}
+    )
     async with api_client_factory() as api_client:
-        response = await api_client.post("/api/v1/billing/webhook", content=b"{}")
+        response = await api_client.post(
+            "/api/v1/billing/webhook", content=b"{}", headers=headers
+        )
 
-    assert response.status_code == 500
+    assert response.status_code == 400
     assert response.headers["x-request-id"]
 
     response_json = cast(dict[str, object], response.json())
     error = cast(dict[str, object], response_json["error"])
 
     assert response_json["success"] is False
-    assert error["code"] == "INTERNAL_ERROR"
-    assert error["message"] == "An internal system error occurred. Please contact support."
-    assert error["details"] == {"service": "stripe"}
+    assert error["code"] == "INVALID_ARGUMENT"
+    assert error["message"] == "Invalid webhook signature"
+    assert error["details"] == {
+        "violations": [{"field": "Stripe-Signature", "description": description}],
+    }
+
+
+def _sign_stripe_webhook_payload(payload: bytes, secret: str) -> str:
+    timestamp: int = int(time())
+    message: bytes = f"{timestamp}.".encode() + payload
+    signature: str = hmac.digest(secret.encode(), message, "sha256").hex()
+    return f"t={timestamp},v1={signature}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_malformed", [False, True], ids=["valid", "malformed"])
+async def test_should_verify_stripe_webhook_before_handling_the_event(
+    api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    is_malformed: bool,
+) -> None:
+    payload: bytes = (
+        b"{"
+        if is_malformed
+        else b'{"id":"evt_contract","object":"event","type":"customer.created"}'
+    )
+    async with api_client_factory() as api_client:
+        from shared.core.config import settings
+
+        secret: str | None = settings.STRIPE_WEBHOOK_SECRET
+        assert secret
+        response = await api_client.post(
+            "/api/v1/billing/webhook",
+            content=payload,
+            headers={"Stripe-Signature": _sign_stripe_webhook_payload(payload, secret)},
+        )
+
+    if is_malformed:
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
+        assert response.json()["error"]["message"] == "Invalid webhook payload"
+    else:
+        assert response.status_code == 200
+        assert response.json() == {"status": "ignored", "event_type": "customer.created"}
+
+
+@pytest.mark.asyncio
+async def test_should_return_server_error_when_processing_a_verified_stripe_event_fails(
+    api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    payload: bytes = b'{"id":"evt_contract","object":"event","type":"checkout.session.completed"}'
+
+    async def fail_after_verification(*_args: object) -> None:
+        raise ValueError("Simulated payment processing failure")
+
+    async with api_client_factory() as api_client:
+        from app.services.billing.stripe_webhook_service import StripeWebhookService
+        from shared.core.config import settings
+
+        secret: str | None = settings.STRIPE_WEBHOOK_SECRET
+        assert secret
+        monkeypatch.setattr(StripeWebhookService, "_dispatch_event", fail_after_verification)
+        response = await api_client.post(
+            "/api/v1/billing/webhook",
+            content=payload,
+            headers={"Stripe-Signature": _sign_stripe_webhook_payload(payload, secret)},
+        )
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "INTERNAL_ERROR"
 
 
 @pytest.mark.asyncio

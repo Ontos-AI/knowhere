@@ -222,6 +222,7 @@ def _call_gateway_embedding(
                         f"Vercel embedding HTTP {response.status_code}: {response.text}"
                     ),
                     provider=resolved_model,
+                    status_code=response.status_code,
                 )
                 logger.warning(
                     "Vercel embedding retryable HTTP {} (attempt {}/{})",
