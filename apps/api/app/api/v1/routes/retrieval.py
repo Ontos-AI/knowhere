@@ -15,6 +15,7 @@ from shared.core.database import get_db
 from shared.models.schemas.llm_config import LLMConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.app_service import run_retrieval_query
+from shared.services.retrieval.execution.query_request import RetrievalPurpose
 from shared.services.retrieval.settings import DEFAULT_TOP_K, VALID_CHUNK_TYPES, normalize_chunk_types
 
 router = APIRouter(tags=["Retrieval"])
@@ -96,6 +97,15 @@ class RetrievalQueryRequest(BaseModel):
         description=(
             "Caller-supplied conversation identifier, threaded through for "
             "retrieval tracing. Does not affect caching or result content."
+        ),
+    )
+    purpose: RetrievalPurpose = Field(
+        "explicit",
+        description=(
+            "Why the caller retrieved. explicit (default): a person or agent "
+            "asked, and the hits count toward document importance. automatic: "
+            "context the caller fetched on its own, such as per-turn recall; "
+            "hits are not recorded. Does not affect caching or result content."
         ),
     )
 
@@ -240,6 +250,7 @@ async def execute_retrieval_query(
         ),
         conversation_id=payload.conversation_id,
         llm_config=llm_config,
+        purpose=payload.purpose,
     )
 
 

@@ -41,7 +41,7 @@ from shared.services.retrieval.stats.recorder import (
 from shared.services.retrieval.execution.response_projection import (
     project_public_retrieval_response,
 )
-from shared.services.retrieval.execution.query_request import RetrievalQuery
+from shared.services.retrieval.execution.query_request import RetrievalPurpose, RetrievalQuery
 from shared.services.retrieval.execution.native_failure import NativeFailureState
 from shared.services.retrieval.execution.postgresql_snapshot import PostgreSQLServingGenerationChanged
 from shared.services.retrieval.lexical.asyncread import AsyncPublishedLexicalRead
@@ -78,6 +78,7 @@ async def run_retrieval_query(
     agent_explore_model: str | None = None,
     conversation_id: str | None = None,
     llm_config: LLMConfig | None = None,
+    purpose: RetrievalPurpose = "explicit",
 ) -> dict[str, Any]:
     """Run retrieval through the plan module."""
     return await RetrievalExecutionPlan(
@@ -100,6 +101,7 @@ async def run_retrieval_query(
             agent_explore_model=agent_explore_model,
             conversation_id=conversation_id,
             llm_config=llm_config,
+            purpose=purpose,
         )
     ).execute()
 
@@ -325,6 +327,7 @@ class RetrievalExecutionPlan:
                 exclude_document_ids=request.exclude_document_ids,
                 exclude_sections=request.exclude_sections,
                 cache_extra=cache_extra,
+                records_hits=request.records_hits,
             )
         if cached_response is not None:
             StageObserver.record("bypass", "cache")
@@ -430,11 +433,12 @@ class RetrievalExecutionPlan:
                 cache_extra=cache_extra,
             )
 
-        _schedule_hit_stats_update(
-            user_id=request.user_id,
-            namespace=request.namespace,
-            results=outcome.hit_stats_results,
-        )
+        if request.records_hits:
+            _schedule_hit_stats_update(
+                user_id=request.user_id,
+                namespace=request.namespace,
+                results=outcome.hit_stats_results,
+            )
         _log_retrieval_complete(
             outcome=outcome.response,
             label=outcome.completion_label,
@@ -454,6 +458,7 @@ async def _read_cached_response(
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
     cache_extra: dict[str, Any],
+    records_hits: bool,
 ) -> tuple[int | None, dict[str, Any] | None]:
     cache_version: int | None = None
     try:
@@ -468,11 +473,12 @@ async def _read_cached_response(
         )
         if cached:
             logger.info(f"retrieval: cache_hit=True version={cache_version}")
-            _schedule_hit_stats_update(
-                user_id=user_id,
-                namespace=namespace,
-                results=cached.get("results", []),
-            )
+            if records_hits:
+                _schedule_hit_stats_update(
+                    user_id=user_id,
+                    namespace=namespace,
+                    results=cached.get("results", []),
+                )
             return cache_version, await project_public_retrieval_response(cached)
     except Exception as exc:
         logger.warning(f"Failed to read retrieval cache (ignored): {exc}")
