@@ -53,6 +53,30 @@ A one-year standard no-upfront reservation for `r7g.large` is $0.0708/hour
 - Behaviour of the smaller node under the target 15-QPS retrieval burst or a
   large ingestion; only the idle-to-light production load above was observed.
 - Restart time of 541 open indexes on two vCPUs.
-- Heap and memory alarms are defined in `host-monitoring-stack.yaml` but not
-  deployed yet. Deploy them and collect a baseline on the current node before
-  resizing.
+- The independent full snapshot of the runbook's step 1: the shared node has no
+  full-snapshot repository or backup timer, only the remote store. EBS snapshots
+  of both volumes stood in for it.
+- A small ingestion on the new node was not run by this change.
+
+## Resize executed
+
+2026-11-24, after the user approved the switch. The heap and memory alarms were
+deployed on 2026-11-23 and had collected about one day of baseline on
+`r7g.xlarge` (heap 31.7%, old generation 3.6%, available memory 39.5%).
+
+| Step | Result |
+| --- | --- |
+| Pre-flight | Green; 552 shards; 541 open, 10 closed; 156,856 documents |
+| Safety copy | EBS snapshots `snap-0cd8b9541b2ec9867` (data) and `snap-0b7bde32f2dddcf47` (root) |
+| Heap | Drop-in `/etc/systemd/system/knowhere-opensearch.service.d/heap.conf` sets `-Xms8g -Xmx8g`; `daemon-reload` only |
+| Change set | `resize-r7g-large-20261124` on the live template, `Host.InstanceType` only; `DataAttachment` was listed as a dynamic reference and was not updated |
+| Execution | 12:24:27 to 12:25:11 UTC; same instance ID and private IP |
+| Recovery | Service active at 12:25:05; green at 12:29:03 |
+| After | 541 open, 10 closed, 552 shards, 156,856 documents; heap maximum 8 GiB, `MaxDirectMemorySize` 4 GiB; old generation 321 MB; available memory 37% of 15.3 GiB; all seven alarms OK |
+
+Retrieval was unavailable for about four and a half minutes: from the stop
+at 12:24:30 until green at 12:29:03. Watch the next 1–2 weeks of
+heap, old generation and memory before buying a one-year commitment.
+
+Rollback: create the same change set with `r7g.xlarge`, remove `heap.conf`
+and run `daemon-reload` before executing it.
