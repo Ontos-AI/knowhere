@@ -22,6 +22,10 @@ _DAY_MILLISECONDS: int = 86_400_000
 _CLUSTER_READ: tuple[str, ...] = ("cluster:monitor/main", "cluster:monitor/state", "cluster:monitor/health")
 _SEARCH: str = "indices:data/read/search*"
 _INDEX_READ: tuple[str, ...] = (_SEARCH, "indices:admin/get", "indices:monitor/settings/get", "indices:monitor/stats")
+_NodeInstanceType = Literal["r7g.large", "r7g.xlarge"]
+# Memory per AWS Price List (us-east-1, checked 2026-11-23). The heap is half of it, as
+# OpenSearch recommends, which leaves the other half to the page cache and direct memory.
+_NODE_MEMORY_GIB: dict[_NodeInstanceType, int] = {"r7g.large": 16, "r7g.xlarge": 32}
 
 
 class _Installation(BaseModel):
@@ -58,6 +62,12 @@ class _Installation(BaseModel):
     plugin_sha512: str = Field(pattern="^[a-f0-9]{128}$")
     source_revision: str = Field(pattern="^[a-f0-9]{40}$")
     existing_kms_key_arn: str | None = Field(default=None, pattern="^arn:aws:kms:us-east-1:[0-9]{12}:key/[a-f0-9-]+$")
+    # Defaults to the size first deployed so manifests written before this field stay valid.
+    instance_type: _NodeInstanceType = "r7g.xlarge"
+
+    @property
+    def heap_gib(self) -> int:
+        return _NODE_MEMORY_GIB[self.instance_type] // 2
 
     @model_validator(mode="after")
     def validateRepositoryIsolation(self) -> Self:
@@ -234,7 +244,7 @@ class OpenSearchOperations:
             "[Unit]", "Description=Knowhere private OpenSearch 3.9.0", "After=network-online.target",
             "Wants=network-online.target", "RequiresMountsFor=/var/lib/knowhere-opensearch", "",
             "[Service]", "Type=simple", "User=opensearch", "Group=opensearch",
-            'Environment="OPENSEARCH_JAVA_OPTS=-Xms16g -Xmx16g"',
+            f'Environment="OPENSEARCH_JAVA_OPTS=-Xms{installation.heap_gib}g -Xmx{installation.heap_gib}g"',
             "Environment=OPENSEARCH_PATH_CONF=/etc/knowhere-opensearch",
             "ExecStart=/opt/knowhere-opensearch/bin/opensearch", "Restart=on-failure", "RestartSec=5",
             "LimitNOFILE=65535", "LimitMEMLOCK=infinity", "TimeoutStopSec=120", "UMask=0027",
@@ -322,7 +332,8 @@ class OpenSearchOperations:
             },
             "installation-receipt.json": {
                 "schema_version": "opensearch-installation-receipt-v1", "manifest_sha256": _digest(value),
-                "candidate_version": "3.9.0", "architecture": "arm64", "heap_gib": 16,
+                "candidate_version": "3.9.0", "architecture": "arm64",
+                "instance_type": installation.instance_type, "heap_gib": installation.heap_gib,
                 "source_revision": installation.source_revision,
                 "archive_path": installation.archive_path, "archive_sha512": installation.archive_sha512,
                 "plugin_path": installation.plugin_path, "plugin_sha512": installation.plugin_sha512,
@@ -434,7 +445,7 @@ class OpenSearchOperations:
             }},
             "NativeProfile": {"Type": "AWS::IAM::InstanceProfile", "Properties": {"Roles": [{"Ref": "NativeRole"}]}},
             "NativeNode": {"Type": "AWS::EC2::Instance", "Properties": {
-                "InstanceType": "r7g.xlarge", "ImageId": installation.ami_id,
+                "InstanceType": installation.instance_type, "ImageId": installation.ami_id,
                 "AvailabilityZone": installation.availability_zone,
                 "IamInstanceProfile": {"Ref": "NativeProfile"},
                 "MetadataOptions": {"HttpTokens": "required", "HttpPutResponseHopLimit": 1},

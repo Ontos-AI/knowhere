@@ -29,5 +29,6 @@
   "archive_sha512": "",
   "plugin_path": "",
   "plugin_sha512": "",
-  "source_revision": ""
+  "source_revision": "",
+  "instance_type": "r7g.xlarge"
 }

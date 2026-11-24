@@ -1,0 +1,23 @@
+# Installed as /etc/systemd/system/knowhere-opensearch-pressure.service; see
+# deploy/opensearch/README.md. Publishes heap gauges for the monitoring stack's
+# alarms with the same low priority and caps as the metrics recorder.
+[Unit]
+Description=Publish Knowhere OpenSearch heap pressure to CloudWatch
+After=network-online.target knowhere-opensearch.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/knowhere-opensearch-metrics/environment
+ExecStart=/usr/bin/python3 -I /opt/knowhere-opensearch-metrics/metrics_recorder.py --publish-pressure
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=10%
+MemoryMax=128M
+TimeoutStartSec=50
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only

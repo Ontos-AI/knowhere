@@ -52,6 +52,7 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
+          # Used by the CloudWatch agent and by the heap pressure publisher.
           - Sid: PublishAgentMetricsOnly
             Effect: Allow
             Action: cloudwatch:PutMetricData
@@ -80,6 +81,10 @@ Resources:
                 "measurement": ["used_percent"],
                 "resources": ["/var/lib/knowhere-opensearch"],
                 "drop_device": true,
+                "metrics_collection_interval": 60
+              },
+              "mem": {
+                "measurement": ["available_percent"],
                 "metrics_collection_interval": 60
               },
               "procstat": [
@@ -175,6 +180,66 @@ Resources:
       Threshold: 85
       TreatMissingData: notBreaching
 
+  # The two heap thresholds follow the managed service's recommended alarms for
+  # JVMMemoryPressure and OldGenJVMMemoryPressure. knowhere-opensearch-pressure.timer
+  # publishes both gauges; missing data is covered by the process alarm.
+  HeapPressureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: knowhere-opensearch-heap-pressure
+      AlarmDescription: OpenSearch heap use at or above 95% for 3 consecutive minutes. Circuit breakers start rejecting requests near the heap limit.
+      Namespace: CWAgent
+      MetricName: opensearch_heap_used_percent
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref HostInstanceId
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Threshold: 95
+      TreatMissingData: notBreaching
+
+  OldGenPressureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: knowhere-opensearch-old-gen-pressure
+      AlarmDescription: OpenSearch old-generation heap use at or above 80% of the heap for 3 consecutive minutes. Live data no longer fits comfortably in the heap.
+      Namespace: CWAgent
+      MetricName: opensearch_old_gen_used_percent
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref HostInstanceId
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Threshold: 80
+      TreatMissingData: notBreaching
+
+  # The heap is locked and pre-touched, so available memory is what is left for the
+  # page cache, direct buffers and the agents. 10% is a Knowhere choice, not an AWS
+  # recommendation: about 1.6 GiB on r7g.large before the kernel would start killing.
+  MemoryLowAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: knowhere-opensearch-memory-low
+      AlarmDescription: Host available memory at or below 10% for 5 consecutive minutes on the shared OpenSearch node.
+      Namespace: CWAgent
+      MetricName: mem_available_percent
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref HostInstanceId
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 5
+      DatapointsToAlarm: 5
+      ComparisonOperator: LessThanOrEqualToThreshold
+      Threshold: 10
+      TreatMissingData: notBreaching
+
   ActionRequiredAlarm:
     Type: AWS::CloudWatch::CompositeAlarm
     Properties:
@@ -183,6 +248,8 @@ Resources:
       AlarmRule: !Sub >-
         ALARM("${StatusCheckAlarm}") OR ALARM("${ProcessDownAlarm}")
         OR ALARM("${DiskHighAlarm}") OR ALARM("${CpuHighAlarm}")
+        OR ALARM("${HeapPressureAlarm}") OR ALARM("${OldGenPressureAlarm}")
+        OR ALARM("${MemoryLowAlarm}")
       ActionsEnabled: true
       AlarmActions:
         - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${AlertTopicName}

@@ -1,0 +1,12 @@
+# Installed as /etc/systemd/system/knowhere-opensearch-pressure.timer. Runs at
+# second 30 of every minute, clear of the recorder's runs at minutes 05 and 35.
+[Unit]
+Description=Publish Knowhere OpenSearch heap pressure every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:30
+AccuracySec=5s
+Unit=knowhere-opensearch-pressure.service
+
+[Install]
+WantedBy=timers.target

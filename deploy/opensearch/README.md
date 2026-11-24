@@ -39,7 +39,10 @@ requests. The generator supplies no invented prices or request-volume estimates.
 Keep current quote sources/dates, actual account/network/bucket policies, resource
 identifiers and the campaign's maximum approved spend with the private manifest.
 
-The bundle fixes one `r7g.xlarge`, a 16-GiB heap, encrypted retained 100-GiB gp3
+The bundle renders one node of the manifest's `instance_type`: `r7g.large`
+(16 GiB, 8-GiB heap) or `r7g.xlarge` (32 GiB, 16-GiB heap, the default when the
+field is absent). The heap is always half of the node's memory. It also renders an
+encrypted retained 100-GiB gp3
 data volume (3,000 IOPS/125 MiB/s), and a 20-GiB encrypted system volume. It enables
 remote segments/translogs/state, request-durable translogs, mandatory REST/transport
 TLS and client certificate authentication. Repository S3 credentials come from
@@ -49,6 +52,29 @@ identities; they receive no snapshot/restore/node-administration role.
 CloudFormation execution is an explicit approved operator action outside this
 tool. Review a change set from `cloudformation.json` and preserve its resource
 receipts. The template's retained volume continues to exist after stack removal.
+
+### Change the node size
+
+Changing `InstanceType` on an `AWS::EC2::Instance` is an update with "some
+interruptions": CloudFormation stops and starts the instance, which keeps its
+private IPv4 address and attached volumes. Changing `ImageId` replaces the
+instance instead. A one-node cluster is unavailable to retrieval while the node
+is stopped, so resize in a maintenance window:
+
+1. Confirm a recent full snapshot completed, then `POST /_flush` and record the
+   index catalog (open/closed counts, shard count, document counts).
+2. Install a systemd drop-in that sets `OPENSEARCH_JAVA_OPTS` to half of the new
+   node's memory, then `systemctl daemon-reload` without restarting the service.
+3. Create a change set from the stack's **current** template with only
+   `InstanceType` changed, check that the instance is modified and not replaced,
+   and execute it. The shared production stack was not created from this
+   generator (its logical IDs are `Host`/`DataVolume`), so do not replace its
+   template with a rendered `cloudformation.json`.
+4. After start, compare the catalog with step 1, check the heap maximum with
+   `GET /_nodes/stats/jvm`, run one search and one small ingestion, and watch
+   the next backup.
+
+Roll back the same way with the previous `InstanceType` and the drop-in removed.
 
 ## Install and authenticate
 
@@ -110,8 +136,9 @@ authenticated clients; the local SSL-context tests are development evidence.
 `knowhere-opensearch-monitoring`, so monitoring changes never update the host
 stack. It grants the host role permission to publish only to the `CWAgent`
 namespace and stores the CloudWatch agent configuration in SSM Parameter Store.
-The agent reports the data-volume usage and the OpenSearch process count every
-minute. Four alarms feed one composite alarm,
+The agent reports the data-volume usage, available host memory and the OpenSearch
+process count every minute. The heap pressure publisher (below) adds heap and
+old-generation use. Seven alarms feed one composite alarm,
 `knowhere-opensearch-action-required`, which notifies the existing alert topic on
 both alarm and recovery:
 
@@ -121,6 +148,15 @@ both alarm and recovery:
 | `knowhere-opensearch-process-down` | No OpenSearch process for 3 consecutive minutes. Missing data counts as down. |
 | `knowhere-opensearch-data-disk-high` | Data volume at or above 75% for 15 minutes. |
 | `knowhere-opensearch-cpu-high` | Host CPU averages 85% or more for 15 minutes. |
+| `knowhere-opensearch-heap-pressure` | Heap use at or above 95% for 3 consecutive minutes. |
+| `knowhere-opensearch-old-gen-pressure` | Old-generation use at or above 80% of the heap for 3 consecutive minutes. |
+| `knowhere-opensearch-memory-low` | Available host memory at or below 10% for 5 consecutive minutes. |
+
+The two heap thresholds are the managed service's recommended
+[`JVMMemoryPressure` and `OldGenJVMMemoryPressure` alarms](https://docs.aws.amazon.com/opensearch-service/latest/developerguide/cloudwatch-alarms.html).
+The 10% memory threshold is a Knowhere choice. The heap is locked and
+pre-touched, so available memory is what is left for the page cache and direct
+buffers. Missing heap data is not an alarm; the process alarm covers a dead node.
 
 Deploy changes through a reviewed change set:
 
@@ -190,6 +226,35 @@ systemctl start knowhere-opensearch-metrics.service
 journalctl -u knowhere-opensearch-metrics.service -n 1 --no-pager
 systemctl enable --now knowhere-opensearch-metrics.timer
 ```
+
+### Heap pressure gauges
+
+`metrics_recorder.py --publish-pressure` makes one filtered `_nodes/_local/stats/jvm`
+GET and publishes `opensearch_heap_used_percent` and
+`opensearch_old_gen_used_percent` to the `CWAgent` namespace with an `InstanceId`
+dimension, through `aws cloudwatch put-metric-data`. Both are percentages of the
+maximum heap; G1 has no fixed old-generation size. It writes no record and keeps
+no state. `knowhere-opensearch-pressure.timer` runs it every minute under the
+same caps as the recorder. Each gauge is one custom metric ($0.30 a month each in
+us-east-1).
+
+Install it next to the recorder, after adding the host's instance ID to the
+recorder's environment file:
+
+```bash
+echo 'KNOWHERE_METRICS_INSTANCE_ID=<instance id>' >> /etc/knowhere-opensearch-metrics/environment
+install -m 0600 metrics_recorder.py /opt/knowhere-opensearch-metrics/
+install -m 0644 knowhere-opensearch-pressure.service knowhere-opensearch-pressure.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl start knowhere-opensearch-pressure.service
+journalctl -u knowhere-opensearch-pressure.service -n 1 --no-pager
+systemctl enable --now knowhere-opensearch-pressure.timer
+```
+
+Deploy the monitoring stack update first, then reload the agent configuration,
+and install the publisher. Confirm with `aws cloudwatch list-metrics --namespace
+CWAgent` that `mem_available_percent` and both gauges carry only the
+`InstanceId` dimension the alarms expect.
 
 ## Hourly independent full backups
 

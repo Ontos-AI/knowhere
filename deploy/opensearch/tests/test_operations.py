@@ -92,6 +92,24 @@ def test_renders_request_durability_remote_state_security_and_independent_full_b
     assert "cluster:admin/snapshot/restore" not in str(bundle["roles.yml"]["knowhere_api"])
 
 
+@pytest.mark.parametrize(("instanceType", "heapGib"), [("r7g.large", 8), ("r7g.xlarge", 16)])
+def test_sizes_node_and_heap_from_manifest_instance_type(instanceType: str, heapGib: int) -> None:
+    operations: type = loadOperations()
+    bundle: dict[str, object] = operations.renderBundle({**createManifest(), "instance_type": instanceType})
+    for templateName in ("cloudformation.json", "full-restore-cloudformation.json"):
+        template = cast(dict[str, object], bundle[templateName])
+        assert template["Resources"]["NativeNode"]["Properties"]["InstanceType"] == instanceType
+    assert f'"OPENSEARCH_JAVA_OPTS=-Xms{heapGib}g -Xmx{heapGib}g"' in bundle["knowhere-opensearch.service"]
+    receipt = bundle["installation-receipt.json"]
+    assert (receipt["instance_type"], receipt["heap_gib"]) == (instanceType, heapGib)
+
+
+def test_rejects_node_size_without_a_reviewed_heap() -> None:
+    operations: type = loadOperations()
+    with pytest.raises(ValueError, match="instance_type"):
+        operations.renderBundle({**createManifest(), "instance_type": "t4g.large"})
+
+
 @pytest.mark.parametrize(
     ("environment", "prefix", "otherPrefix"),
     [

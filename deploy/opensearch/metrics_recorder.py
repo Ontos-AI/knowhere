@@ -1,5 +1,9 @@
 """Record shared OpenSearch node metrics for later analysis; it never alerts or changes the node.
 
+With --publish-pressure it instead reads heap use once and publishes two gauges
+to CloudWatch, where the host monitoring stack alarms on them. A second timer runs
+that mode every minute; it writes no record and keeps no state.
+
 A systemd timer runs this on the host every 30 minutes with the system Python 3.9
 and only the standard library, so the node needs no extra package. Each run makes
 three filtered GET requests with short timeouts, reads only the server log lines
@@ -58,7 +62,14 @@ NODE_PATH: Final[str] = "/_nodes/_local/stats/jvm,breaker,os,fs,thread_pool,indi
     "nodes.*.indices.search.query_time_in_millis", "nodes.*.indices.indexing.index_total",
     "nodes.*.indices.indexing.index_time_in_millis",
 ))
-HEALTH_PATH: Final[str] = "/_cluster/health?filter_path=status,active_shards,number_of_pending_tasks"
+PRESSURE_PATH: Final[str] = "/_nodes/_local/stats/jvm?filter_path=" + ",".join((
+    "nodes.*.jvm.mem.heap_used_in_bytes", "nodes.*.jvm.mem.heap_max_in_bytes", "nodes.*.jvm.mem.pools.old.used_in_bytes",
+))
+# The host role may publish only to this namespace (AgentMetricsPolicy).
+PRESSURE_NAMESPACE: Final[str] = "CWAgent"
+PUBLISH_TIMEOUT_SECONDS: Final[float] = 30.0
+INSTANCE_ID: Final[re.Pattern[str]] = re.compile(r"^i-[0-9a-f]{8,17}$")
+HEALTH_PATH: Final[str] ="/_cluster/health?filter_path=status,active_shards,number_of_pending_tasks"
 INDEXES_PATH: Final[str] = "/_cat/indices?h=index,status,search.query_total&format=json&expand_wildcards=all"
 
 
@@ -71,6 +82,12 @@ class _Reader(Protocol):
 class _Destination:
     bucket: str
     keyPrefix: str
+    region: str
+
+
+@dataclass(frozen=True)
+class _PressureTarget:
+    instanceId: str
     region: str
 
 
@@ -143,6 +160,48 @@ class NodeMetricsRecorder:
         if not KEY_PREFIX.match(keyPrefix):
             raise ValueError("KNOWHERE_METRICS_PREFIX must be a key prefix without leading or trailing slashes")
         return _Destination(bucket=bucket, keyPrefix=keyPrefix, region=region)
+
+    @staticmethod
+    def readPressureTarget(environment: Mapping[str, str]) -> _PressureTarget:
+        instanceId: str = environment.get("KNOWHERE_METRICS_INSTANCE_ID", "")
+        region: str = environment.get("KNOWHERE_METRICS_REGION", "")
+        if not INSTANCE_ID.match(instanceId):
+            raise ValueError("KNOWHERE_METRICS_INSTANCE_ID must be the host's EC2 instance ID")
+        if not REGION_NAME.match(region):
+            raise ValueError("KNOWHERE_METRICS_REGION must be an AWS region name")
+        return _PressureTarget(instanceId=instanceId, region=region)
+
+    @staticmethod
+    def publishPressure(opensearch: _Reader, target: _PressureTarget,
+                        runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run) -> int:
+        """Publish heap and old-generation use as percentages of the maximum heap.
+
+        They mirror the managed service's JVMMemoryPressure and OldGenJVMMemoryPressure.
+        G1 has no fixed old-generation size, so old use is measured against the whole heap.
+        Nothing is published when the node cannot be read; the process alarm covers that.
+        """
+        try:
+            heapUsed, heapMax, oldUsed = _readHeap(opensearch.get(PRESSURE_PATH))
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            print(json.dumps({"event": "pressure-skipped", "error": type(error).__name__ + ": " + str(error)[:300]}))
+            return 1
+        dimensions: list[dict[str, str]] = [{"Name": "InstanceId", "Value": target.instanceId}]
+        metrics: list[dict[str, object]] = [
+            {"MetricName": name, "Dimensions": dimensions, "Unit": "Percent", "Value": round(100 * used / heapMax, 2)}
+            for name, used in (("opensearch_heap_used_percent", heapUsed), ("opensearch_old_gen_used_percent", oldUsed))]
+        try:
+            completed: subprocess.CompletedProcess[str] = runner(["aws", "cloudwatch", "put-metric-data",
+                "--namespace", PRESSURE_NAMESPACE, "--metric-data", json.dumps(metrics),
+                "--region", target.region, "--no-cli-pager"],
+                capture_output=True, text=True, timeout=PUBLISH_TIMEOUT_SECONDS, check=False)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            print(json.dumps({"event": "pressure-failed", "error": type(error).__name__}))
+            return 1
+        if completed.returncode != 0:
+            print(json.dumps({"event": "pressure-failed", "error": (completed.stderr or "").strip()[-300:]}))
+            return 1
+        print(json.dumps({"event": "pressure-published", **{str(metric["MetricName"]): metric["Value"] for metric in metrics}}))
+        return 0
 
     @staticmethod
     def summarizeIndexes(rows: object, previousTotals: dict[str, int] | None
@@ -376,6 +435,16 @@ def _readNode(body: object) -> tuple[str, dict[str, object], dict[str, object]]:
     return str(body["cluster_name"]), gauges, counters
 
 
+def _readHeap(body: object) -> tuple[int, int, int]:
+    if not isinstance(body, dict) or not isinstance(body.get("nodes"), dict) or len(body["nodes"]) != 1:
+        raise ValueError("Node stats must describe exactly the local node")
+    memory: dict = next(iter(body["nodes"].values()))["jvm"]["mem"]
+    heapMax: int = int(memory["heap_max_in_bytes"])
+    if heapMax <= 0:
+        raise ValueError("Node reported no maximum heap")
+    return int(memory["heap_used_in_bytes"]), heapMax, int(memory["pools"]["old"]["used_in_bytes"])
+
+
 def _readNewLines(path: Path, offset: int) -> tuple[list[_LifecycleEvent], int, bool]:
     """Read complete lines from offset; a line still being written waits for the next run."""
     events: list[_LifecycleEvent] = []
@@ -429,7 +498,12 @@ def _main(argv: list[str]) -> int:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(description="Record shared OpenSearch node metrics once.")
     parser.add_argument("--directory", type=Path, default=STATE_DIRECTORY, help="Local records and state")
     parser.add_argument("--no-upload", action="store_true", help="Keep records in the outbox, for a manual check")
+    parser.add_argument("--publish-pressure", action="store_true",
+        help="Publish heap pressure gauges to CloudWatch instead of writing a record")
     arguments: argparse.Namespace = parser.parse_args(argv)
+    if arguments.publish_pressure:
+        return NodeMetricsRecorder.publishPressure(_OpenSearch.fromEnvironment(os.environ),
+            NodeMetricsRecorder.readPressureTarget(os.environ))
     destination: _Destination | None = None if arguments.no_upload else NodeMetricsRecorder.readDestination(os.environ)
     return NodeMetricsRecorder.run(directory=arguments.directory, destination=destination,
         opensearch=_OpenSearch.fromEnvironment(os.environ), logDirectory=LOG_DIRECTORY,
