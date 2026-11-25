@@ -53,9 +53,13 @@ A one-year standard no-upfront reservation for `r7g.large` is $0.0708/hour
 - Behaviour of the smaller node under the target 15-QPS retrieval burst or a
   large ingestion; only the idle-to-light production load above was observed.
 - Restart time of 541 open indexes on two vCPUs.
-- The independent full snapshot of the runbook's step 1: the shared node has no
-  full-snapshot repository or backup timer, only the remote store. EBS snapshots
-  of both volumes stood in for it.
+- The independent full snapshot of the runbook's step 1: production indexes have
+  no snapshot repository, the last staging snapshot in `knowhere-full` is from
+  2026-11-09, and no backup timer runs on the host. EBS snapshots of both volumes
+  stood in for it.
+- `operator.py reconcile-restart` after the restart. Production lexical
+  maintenance tasks kept succeeding and logged no `LexicalIndexError`, but the
+  lexical control row's node incarnation was not read directly.
 - A small ingestion on the new node was not run by this change.
 
 ## Resize executed
