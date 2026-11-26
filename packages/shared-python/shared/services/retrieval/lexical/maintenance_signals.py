@@ -225,7 +225,8 @@ class LexicalMaintenanceSignals:
                 if not acquired:
                     return
                 from shared.core.celery_app import get_celery_app
-                get_celery_app().send_task(TURNOVER_TASK, countdown=_TURNOVER_DELAY_SECONDS, retry=False)
+                # Explicit empty args: the task router reads len(args).
+                get_celery_app().send_task(TURNOVER_TASK, args=[], countdown=_TURNOVER_DELAY_SECONDS, retry=False)
         except Exception as error:
             logger.warning("Lexical turnover request deferred to the hourly sweep: error_type={} error={}",
                 type(error).__name__, str(error)[:200])

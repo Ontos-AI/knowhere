@@ -6,14 +6,19 @@ import gevent.monkey
 
 gevent.monkey.patch_all()
 
-# Patch psycopg2 for cooperative DB access under gevent.
-from psycogreen.gevent import patch_psycopg
-
-patch_psycopg()
-
 from app.core.runtime_limits import apply_native_thread_caps
 
 apply_native_thread_caps()
+
+# Cooperative psycopg2 under gevent, with a client-side bound on each statement.
+# Must run before any database connection is opened.
+from shared.core.config import settings
+from shared.core.statement_deadline import StatementDeadline
+
+StatementDeadline.install(
+    warningSeconds=settings.DB_SYNC_STATEMENT_WARNING_SECONDS,
+    timeoutSeconds=settings.DB_SYNC_STATEMENT_TIMEOUT_SECONDS,
+)
 
 
 def main() -> None:

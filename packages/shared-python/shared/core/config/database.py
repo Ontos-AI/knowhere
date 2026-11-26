@@ -43,6 +43,16 @@ class DatabaseConfig(BaseModel):
     DB_SYNC_MAX_OVERFLOW: int = Field(
         default=5, description="Worker sync pool max overflow"
     )
+    # Worker client-side statement bound (see shared/core/statement_deadline.py).
+    # Neon ignores startup statement_timeout, and the worker's psycopg2 client has
+    # no command_timeout like the API's asyncpg. The cancel bound starts wide until
+    # the warnings show how long legitimate worker statements actually run.
+    DB_SYNC_STATEMENT_WARNING_SECONDS: float = Field(
+        default=30.0, gt=0, description="Log a warning when one worker statement runs this long"
+    )
+    DB_SYNC_STATEMENT_TIMEOUT_SECONDS: float = Field(
+        default=300.0, ge=0, description="Cancel one worker statement after this long; 0 only warns"
+    )
 
     # Worker concurrency (gevent greenlets)
     WORKER_CONCURRENCY: int = Field(

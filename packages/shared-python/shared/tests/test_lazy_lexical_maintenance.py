@@ -57,14 +57,16 @@ def test_turnover_request_dispatches_once_per_window(monkeypatch: pytest.MonkeyP
         held.add(name)
         yield acquired
 
-    sent: list[tuple[str, object]] = []
+    sent: list[tuple[str, object, object]] = []
     monkeypatch.setattr(maintenance_signals, "periodic_task_lock", windowLock)
-    monkeypatch.setattr(celery_app, "send_task", lambda name, **options: sent.append((name, options.get("countdown"))))
+    monkeypatch.setattr(celery_app, "send_task",
+        lambda name, **options: sent.append((name, options.get("countdown"), options.get("args"))))
     monkeypatch.setattr(LexicalMaintenanceSignals, "_dispatchPool", _InlinePool())
     assert LexicalMaintenanceSignals.requestTurnover()
     assert LexicalMaintenanceSignals.requestTurnover()
-    # Delayed past the indexing deadline so it cannot close an index mid-write.
-    assert sent == [(TURNOVER_TASK, 300)]
+    # Delayed past the indexing deadline so it cannot close an index mid-write;
+    # explicit empty args, because the task router reads len(args).
+    assert sent == [(TURNOVER_TASK, 300, [])]
 
 
 def test_turnover_request_never_raises_into_index_admission(monkeypatch: pytest.MonkeyPatch) -> None:
