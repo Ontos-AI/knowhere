@@ -116,3 +116,18 @@ def test_cancelled_greenlet_does_not_stall_another(greenDatabase: tuple[Connect,
         gevent.spawn(run, "fast", "select pg_sleep(0.1)")])
     assert outcomes == {"slow": "cancelled", "fast": "finished"}
     assert time.monotonic() - started < 2
+
+
+def test_uninstall_restores_blocking_mode_for_later_code(greenDatabase: tuple[Connect, str, list[str]]) -> None:
+    from psycopg2.extensions import get_wait_callback
+
+    connect, _, messages = greenDatabase
+    StatementDeadline.install(warningSeconds=0.1, timeoutSeconds=0.2)
+    StatementDeadline.uninstall()
+    assert get_wait_callback() is None
+    connection = connect()
+    cursor = connection.cursor()
+    cursor.execute("select 7 from pg_sleep(0.4)")
+    assert cursor.fetchone() == (7,)
+    connection.close()
+    assert messages == []

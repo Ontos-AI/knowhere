@@ -54,7 +54,8 @@ class StatementDeadline:
     @classmethod
     def uninstall(cls) -> None:
         """Remove the wait callback and statement listeners (blocking psycopg2 again)."""
-        if extensions.get_wait_callback() is cls.wait:
+        # Each ``cls.wait`` access is a new bound method, so compare by equality.
+        if extensions.get_wait_callback() == cls.wait:
             extensions.set_wait_callback(None)
         if event.contains(Engine, "before_cursor_execute", cls._recordStatement):
             event.remove(Engine, "before_cursor_execute", cls._recordStatement)
