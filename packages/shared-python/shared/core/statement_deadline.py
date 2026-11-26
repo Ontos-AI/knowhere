@@ -102,8 +102,8 @@ class StatementDeadline:
         backendPid: int | None = None
         try:
             backendPid = connection.info.backend_pid
-        except Exception:
-            pass
+        except Exception as error:
+            logger.debug("Unable to read PostgreSQL backend PID: {}", error)
         logger.warning(
             "Worker database statement {}: elapsed_s={:.1f} warning_s={} timeout_s={} backend_pid={} statement={}",
             "cancelled at its deadline" if isCancel else "is slow",
