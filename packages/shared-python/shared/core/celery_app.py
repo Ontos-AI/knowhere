@@ -6,9 +6,13 @@ import os
 import socket
 
 from celery import Celery
+from celery.schedules import crontab
 from kombu import Queue
 
 from shared.core.config import app_config
+
+# Minute past the hour when every periodic database task runs (see beat_schedule).
+PERIODIC_DATABASE_MINUTE: int = 7
 
 
 def get_unique_node_name() -> str:
@@ -134,31 +138,27 @@ celery_app.conf.update(
             "queue": "default"
         },
     },
-    # Periodic tasks (Celery Beat)
+    # Periodic tasks (Celery Beat). Every entry queries the database, so they all
+    # share one minute: a scale-to-zero database wakes once per slot instead of
+    # once per task. Lexical maintenance and index turnover are dispatched when
+    # their work is committed; maintain-lexical-builds is only the safety sweep.
+    # Progressive enrichment is retried when retrieval reads the scope.
     beat_schedule={
         "maintain-lexical-builds": {
             "task": "shared.services.retrieval.lexical.maintenance.maintainLexical",
-            "schedule": 30.0,
-        },
-        "turn-over-lexical-indexes": {
-            "task": "shared.services.retrieval.lexical.turnover.turnOverLexicalIndexes",
-            "schedule": 30.0,
+            "schedule": crontab(minute=PERIODIC_DATABASE_MINUTE),
         },
         "recover-orphaned-webhooks": {
             "task": "app.core.tasks.webhook_tasks.recover_orphaned_webhooks",
-            "schedule": 1800.0,  # Every 30 minutes
+            "schedule": crontab(minute=PERIODIC_DATABASE_MINUTE),
         },
         "expire-stale-jobs": {
             "task": "app.core.tasks.stale_job_sweeper.expire_stale_jobs",
-            "schedule": 1800.0,  # Every 30 minutes
+            "schedule": crontab(minute=PERIODIC_DATABASE_MINUTE),
         },
         "recover-upload-parse-dispatches": {
             "task": "app.core.tasks.upload_parse_dispatch_tasks.recover_upload_parse_dispatches",
-            "schedule": 30.0,
-        },
-        "sweep-progressive-enrichments": {
-            "task": "app.core.tasks.enrichment_tasks.sweep_progressive_enrichments",
-            "schedule": 300.0,  # Every 5 minutes
+            "schedule": crontab(minute=f"{PERIODIC_DATABASE_MINUTE},{PERIODIC_DATABASE_MINUTE + 30}"),
         },
     },
 )

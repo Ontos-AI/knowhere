@@ -24,6 +24,7 @@ from shared.models.database.lexicallease import LexicalLease
 from shared.models.database.job import Job
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.lexical.error import LexicalIndexError
+from shared.services.retrieval.lexical.maintenance_signals import LexicalMaintenanceSignals
 from shared.services.retrieval.lexical.nativestate import NativeLifecycleSnapshot
 from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
 from shared.services.retrieval.lexical.recency import LexicalRecency
@@ -34,6 +35,14 @@ from shared.services.retrieval.lexical.stage_observer import StageObserver
 _WAIT_SECONDS: float = 5.0
 _OPERATION_EXPIRY: timedelta = timedelta(seconds=15)
 _CHARGED_STATES: frozenset[str] = frozenset({"opening", "open", "closing", "uncertain"})
+# A close the node did not answer usually still finishes there. The reservation stays
+# ``closing`` while it is retried, so no open can interleave and resending is safe.
+_CLOSE_ATTEMPTS: int = 3
+_CLOSE_RETRY_PAUSE_SECONDS: float = 0.5
+# Resolution runs off the request path, so it can wait for a slow close.
+_RESOLUTION_SECONDS: float = 30.0
+
+ResolutionOutcome = Literal["closed", "pending", "settled"]
 
 
 @dataclass(frozen=True)
@@ -140,6 +149,9 @@ class LexicalCoordination:
             else:
                 identity = self._execute(native, decision, deadline=operationDeadline)
             if decision.action != "close":
+                # One more open index may cross the idle high watermark; the
+                # turnover runs off this path and checks the count itself.
+                LexicalMaintenanceSignals.requestTurnover()
                 return identity, decision.epoch
 
     def observeIndex(self, *, scope: LexicalScope, indexName: str,
@@ -222,6 +234,50 @@ class LexicalCoordination:
             operation: _Operation = self._reserve(db, control, scope, row, "close")
         self._execute(native, operation, deadline=deadline)
         return True
+
+    def resolveUnsettled(
+        self, *, scope: LexicalScope, native: OpenSearchLexicalIndex
+    ) -> ResolutionOutcome:
+        """Drive an index whose last lifecycle outcome is unknown to confirmed ``closed``.
+
+        Closed is the one state reachable from every unknown outcome: an index the
+        node already closed is recorded as closed, and an open one is closed again
+        under a fresh reservation. A later use reopens it through ordinary admission.
+        A delayed request from the lost operation can still land afterwards; reads
+        then hit the bounded closed-index recovery and the registry check marks a
+        mismatch unresolved again, so the next resolution converges.
+
+        ``pending`` means another issuer still holds a live reservation; ``settled``
+        means nothing is unresolved. Identity mismatches raise and stay unresolved.
+        """
+        deadline: float = time.monotonic() + _RESOLUTION_SECONDS
+        observation: _Observation = self._beginObservation(deadline)
+        inventory: NativeLifecycleSnapshot = native.getLifecycleSnapshot(
+            isExact=False, timeoutSeconds=self._remaining(deadline))
+        with self._transaction(deadline) as db:
+            control: LexicalBackendControl = self.lockControl(db, isExclusive=True)
+            rows: list[LexicalNamespaceIndex] = self._reconcile(db, control, observation, inventory)
+            row: LexicalNamespaceIndex | None = next((item for item in rows if item.id == scope.fingerprint), None)
+            if row is None:
+                return "settled"
+            if row.state in ("opening", "closing"):
+                return "pending"
+            if row.state != "uncertain":
+                return "settled"
+            if row.indexName != native.indexName:
+                raise LexicalIndexError("Native namespace name differs from its registry")
+            if row.indexUuid is None or inventory.getIndexUuid(row.indexName) != row.indexUuid:
+                raise LexicalIndexError("Unresolved index identity differs from its registry")
+            if inventory.isClosed(row.indexName):
+                row.state = "closed"
+                row.operationId = None
+                row.lastUsedAt = self.getDatabaseTime(db)
+                return "closed"
+            if not inventory.isOpen(row.indexName):
+                raise LexicalIndexError("Unresolved index is neither open nor closed")
+            operation: _Operation = self._reserve(db, control, scope, row, "close")
+        self._execute(native, operation, deadline=deadline)
+        return "closed"
 
     @staticmethod
     def _canCloseEmpty(db: Session, scope: LexicalScope) -> bool:
@@ -472,28 +528,29 @@ class LexicalCoordination:
             self._checkNativeIdentity(before, operation)
             if before.getIndexUuid(target.indexName) != operation.indexUuid:
                 raise LexicalIndexError("Native lifecycle target identity changed")
-            if operation.action == "create":
-                target.createIndex(
-                    operationId=operation.identity,
-                    timeoutSeconds=self._remaining(deadline),
-                )
-            else:
-                if (
-                    operation.action == "close"
-                    and not before.isOpen(target.indexName)
-                    or operation.action == "open"
-                    and not before.isClosed(target.indexName)
-                ):
+            after: NativeLifecycleSnapshot
+            if operation.action == "close":
+                if not before.isOpen(target.indexName):
                     raise LexicalIndexError("Native lifecycle target state changed")
-                target.setIndexOpen(
-                    isOpen=operation.action == "open",
-                    operationId=operation.identity,
-                    timeoutSeconds=self._remaining(deadline),
+                after = self._closeWithRetry(target, operation, deadline=deadline)
+            else:
+                if operation.action == "create":
+                    target.createIndex(
+                        operationId=operation.identity,
+                        timeoutSeconds=self._remaining(deadline),
+                    )
+                else:
+                    if not before.isClosed(target.indexName):
+                        raise LexicalIndexError("Native lifecycle target state changed")
+                    target.setIndexOpen(
+                        isOpen=True,
+                        operationId=operation.identity,
+                        timeoutSeconds=self._remaining(deadline),
+                    )
+                after = target.getLifecycleSnapshot(
+                    isExact=True, timeoutSeconds=self._remaining(deadline)
                 )
-            after: NativeLifecycleSnapshot = target.getLifecycleSnapshot(
-                isExact=True, timeoutSeconds=self._remaining(deadline)
-            )
-            self._checkNativeIdentity(after, operation)
+                self._checkNativeIdentity(after, operation)
             identity: str | None = after.getIndexUuid(target.indexName)
             if (
                 not identity
@@ -528,6 +585,47 @@ class LexicalCoordination:
             ) from error
         finally:
             target.close()
+
+    def _closeWithRetry(
+        self, target: OpenSearchLexicalIndex, operation: _Operation, *, deadline: float
+    ) -> NativeLifecycleSnapshot:
+        """Send close until the index reads closed, at most ``_CLOSE_ATTEMPTS`` times.
+
+        Each attempt reads the index first, because an unanswered close may have
+        finished on the node in the meantime. A non-retryable rejection, an elapsed
+        deadline, or a node restart ends the attempts and leaves the outcome unknown.
+        """
+        for attempt in range(1, _CLOSE_ATTEMPTS + 1):
+            if attempt > 1:
+                time.sleep(min(_CLOSE_RETRY_PAUSE_SECONDS, self._remaining(deadline)))
+            snapshot: NativeLifecycleSnapshot = target.getLifecycleSnapshot(
+                isExact=True, timeoutSeconds=self._remaining(deadline)
+            )
+            self._checkNativeIdentity(snapshot, operation)
+            if snapshot.isClosed(target.indexName):
+                return snapshot
+            if not snapshot.isOpen(target.indexName):
+                raise LexicalIndexError("Native lifecycle target state changed")
+            try:
+                # Share what is left between the remaining attempts, so one slow
+                # answer cannot spend the budget a re-read would need.
+                target.setIndexOpen(
+                    isOpen=False,
+                    operationId=operation.identity,
+                    timeoutSeconds=self._remaining(deadline) / (_CLOSE_ATTEMPTS - attempt + 1),
+                )
+            except LexicalIndexError as error:
+                if not (error.isRetryable or error.hasUnknownOutcome) or attempt == _CLOSE_ATTEMPTS:
+                    raise
+                logger.warning(
+                    "Native index close unanswered; retrying: registry_id={}, operation_id={}, attempt={}, error={}",
+                    operation.scope.fingerprint, operation.identity, attempt, error,
+                )
+        closed: NativeLifecycleSnapshot = target.getLifecycleSnapshot(
+            isExact=True, timeoutSeconds=self._remaining(deadline)
+        )
+        self._checkNativeIdentity(closed, operation)
+        return closed
 
     @staticmethod
     def _checkNativeIdentity(
@@ -580,7 +678,9 @@ class LexicalCoordination:
 
     @staticmethod
     def _markUncertain(row: LexicalNamespaceIndex) -> None:
-        logger.error(
+        # A warning, not an alert: committing this state dispatches automatic
+        # resolution, and only a resolution that keeps failing raises the alert.
+        logger.warning(
             "Native index lifecycle unresolved: registry_id={}, state={}, operation_id={}",
             row.id,
             row.state,

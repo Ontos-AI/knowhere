@@ -225,7 +225,7 @@ def test_same_cold_index_waiters_share_one_eviction(
             index.close()
 
 
-def test_lost_close_acknowledgment_cannot_release_slot_or_reopen(
+def test_lost_close_acknowledgment_is_settled_by_reading_native_state(
     turnoverRuntime: tuple[Engine, str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -266,17 +266,17 @@ def test_lost_close_acknowledgment_cannot_release_slot_or_reopen(
         _fillReservations(engine, prefix, 399)
         coordinator.ensureIndex(scope=scope, native=index)
         monkeypatch.setattr(OpenSearchLexicalIndex, "setIndexOpen", loseResponse)
-        with pytest.raises(LexicalIndexError, match="requires reconciliation"):
-            coordinator.ensureIndex(scope=coldScope, native=cold)
+        # The close took effect though its response was lost; the retry reads the
+        # index first, records the close and releases the slot without resending.
+        coordinator.ensureIndex(scope=coldScope, native=cold)
         assert index.getLifecycleSnapshot(isExact=True, timeoutSeconds=3).isClosed(
             index.indexName
         )
-        with pytest.raises(LexicalIndexError, match="requires reconciliation"):
-            coordinator.ensureIndex(scope=scope, native=index)
         with Session(engine) as database:
             row = database.get(LexicalNamespaceIndex, scope.fingerprint)
-            assert row is not None and row.state == "uncertain" and row.operationId
-            assert database.get(LexicalNamespaceIndex, coldScope.fingerprint) is None
+            assert row is not None and row.state == "closed" and row.operationId is None
+            coldRow = database.get(LexicalNamespaceIndex, coldScope.fingerprint)
+            assert coldRow is not None and coldRow.state == "open"
     finally:
         for target in (index, cold):
             httpx.delete(f"{endpoint}/{target.indexName}", timeout=5, trust_env=False)
@@ -439,6 +439,13 @@ def test_new_node_incarnation_reconciles_pending_close_before_serving(
         assert native.getLifecycleSnapshot(isExact=True, timeoutSeconds=3).isReady(
             native.indexName
         )
+        # Resolution needs no operator: it closes the still-open index under a
+        # fresh reservation, and later use reopens it through ordinary admission.
+        assert coordinator.resolveUnsettled(scope=first, native=native) == "closed"
+        assert native.getLifecycleSnapshot(isExact=True, timeoutSeconds=3).isClosed(
+            native.indexName
+        )
+        assert coordinator.ensureIndex(scope=first, native=native)[0]
     finally:
         for index in (native, healthy):
             httpx.delete(f"{endpoint}/{index.indexName}", timeout=5, trust_env=False)

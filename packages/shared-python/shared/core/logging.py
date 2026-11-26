@@ -60,6 +60,11 @@ class LogEvent(Enum):
 
     S3_WEBHOOK_EVENT = "s3.webhook"
 
+    # Lexical index lifecycle: an unknown open/close outcome resolved automatically,
+    # or still unresolved after every automatic attempt (alerting).
+    LEXICAL_INDEX_LIFECYCLE_RESOLVED = "lexical.index_lifecycle.resolved"
+    LEXICAL_INDEX_LIFECYCLE_UNRESOLVED = "lexical.index_lifecycle.unresolved"
+
     # iLoveAPI document conversion events
     ILOVEAPI_REQUEST_START = "iloveapi.request.start"
     ILOVEAPI_REQUEST_COMPLETE = "iloveapi.request.complete"
