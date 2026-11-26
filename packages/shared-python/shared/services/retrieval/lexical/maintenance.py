@@ -1,13 +1,14 @@
 """Lexical maintenance: per-item tasks dispatched on commit, plus an hourly safety sweep.
 
 Work is normally dispatched when it is committed (see ``maintenance_signals``): one
-task per retired or failed build, archived document, or failed enrichment attempt.
-Each task claims its row with the same ``FOR UPDATE SKIP LOCKED`` lease as the sweep,
-so a task and a sweep never process one row at the same time.
+task per retired or failed build, archived document, or failed enrichment attempt,
+and one per index whose open/close outcome became unknown (see ``resolution``).
+Each cleanup task claims its row with the same ``FOR UPDATE SKIP LOCKED`` lease as
+the sweep, so a task and a sweep never process one row at the same time.
 
-``maintainLexical`` runs hourly in the shared periodic database slot. It collects
-whatever a lost or failed dispatch left pending and runs index turnover as a safety
-net. Between sweeps nothing here queries the database unless work was committed.
+``maintainLexical`` runs hourly in the shared periodic database slot. It resolves
+unsettled indexes, collects whatever a lost or failed dispatch left pending, and
+runs index turnover as a safety net. Between sweeps nothing here queries the database unless work was committed.
 
 Low-priority rollback-copy and retired-build work never gates completion.
 """
@@ -36,9 +37,11 @@ from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
 from shared.services.retrieval.lexical.input_collector import MAXIMUM_SCAN, LexicalInputCollector
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
 from shared.services.retrieval.lexical.maintenance_signals import (
-    CLEAN_ARCHIVED_DOCUMENT_TASK, CLEAN_BUILD_TASK, CLEAN_FAILED_ATTEMPT_TASK, LexicalMaintenanceSignals,
+    CLEAN_ARCHIVED_DOCUMENT_TASK, CLEAN_BUILD_TASK, CLEAN_FAILED_ATTEMPT_TASK, RESOLVE_INDEX_TASK,
+    LexicalMaintenanceSignals,
 )
 from shared.services.retrieval.lexical.manifest_maintenance import collectPublishedManifests
+from shared.services.retrieval.lexical.resolution import LexicalIndexResolution
 from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.lexical.turnover import turnOverIndexes
 
@@ -80,6 +83,9 @@ def sweepLexical() -> int:
             break
         completed += _processBuilds(sessions, claimed, isNativeServing)
     if isNativeServing:
+        # First, so a resolved index frees its slot before turnover counts capacity.
+        completed += _runSafely("Index resolution",
+            lambda: LexicalIndexResolution(sessionFactory=sessions).resolveDue(deadline))
         completed += _drain("Additive index", lambda: AdditiveCleanup(sessions).runBatch(), deadline)
         completed += _drain("Indexing input", lambda: LexicalInputCollector(sessionFactory=sessions).runBatch(), deadline)
         completed += _runSafely("Empty namespace", lambda: LexicalCleanup(sessionFactory=sessions).closeEmptyNamespaces())
@@ -151,6 +157,14 @@ def cleanFailedAttempt(attemptId: str, hop: int = 0) -> _Outcome:
     if not AdditiveCleanup(sessions).collectAttempt(attemptId):
         return _reschedule(CLEAN_FAILED_ATTEMPT_TASK, attemptId, _CLAIM_LEASE, hop)
     return "completed"
+
+
+@celery_app.task(name=RESOLVE_INDEX_TASK)
+def resolveIndex(registryId: str, hop: int = 0) -> _Outcome:
+    """Resolve one index whose last open/close outcome is unknown; alerts after the last attempt."""
+    if settings.KNOWHERE_LEXICAL_BACKEND != "opensearch":
+        return "skipped"
+    return LexicalIndexResolution().resolveDispatched(registryId, hop)
 
 
 @celery_app.task(name=COLLECT_ORPHAN_INPUTS_TASK)
