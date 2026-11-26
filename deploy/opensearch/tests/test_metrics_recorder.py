@@ -275,3 +275,71 @@ def test_unreadable_node_is_recorded_and_keeps_the_last_good_state(tmp_path: Pat
     assert str(record["error"]).startswith("ConnectionRefusedError")
     assert (state / "state.json").read_bytes() == saved
     assert not [path for path in os.listdir(state) if path.endswith(".tmp")]
+
+
+class HeapOnlyOpenSearch:
+    def __init__(self, body: object) -> None:
+        self.body: object = body
+        self.paths: list[str] = []
+
+    def get(self, path: str) -> object:
+        self.paths.append(path)
+        return self.body
+
+
+PRESSURE_TARGET_ENVIRONMENT: dict[str, str] = {"KNOWHERE_METRICS_INSTANCE_ID": "i-0c9b210679cc0cbf5",
+    "KNOWHERE_METRICS_REGION": "us-east-1"}
+
+
+def heapBody(used: int, maximum: int, old: int) -> dict[str, object]:
+    return {"nodes": {"node-id": {"jvm": {"mem": {"heap_used_in_bytes": used, "heap_max_in_bytes": maximum,
+        "pools": {"old": {"used_in_bytes": old}}}}}}}
+
+
+def test_pressure_publishes_heap_and_old_generation_as_percent_of_the_heap() -> None:
+    opensearch = HeapOnlyOpenSearch(heapBody(used=4 * 1024, maximum=8 * 1024, old=1024))
+    calls: list[list[str]] = []
+
+    def succeed(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    target = Recorder.readPressureTarget(PRESSURE_TARGET_ENVIRONMENT)
+    assert Recorder.publishPressure(opensearch, target, runner=succeed) == 0
+    assert opensearch.paths == [recorder.PRESSURE_PATH] and "filter_path=" in recorder.PRESSURE_PATH
+    command: list[str] = calls[0]
+    assert command[:3] == ["aws", "cloudwatch", "put-metric-data"]
+    assert command[command.index("--namespace") + 1] == "CWAgent"
+    assert command[command.index("--region") + 1] == "us-east-1"
+    metrics = json.loads(command[command.index("--metric-data") + 1])
+    assert {metric["MetricName"]: metric["Value"] for metric in metrics} == {
+        "opensearch_heap_used_percent": 50.0, "opensearch_old_gen_used_percent": 12.5}
+    assert all(metric["Dimensions"] == [{"Name": "InstanceId", "Value": "i-0c9b210679cc0cbf5"}]
+        and metric["Unit"] == "Percent" for metric in metrics)
+
+
+@pytest.mark.parametrize("body", [{"nodes": {}}, heapBody(used=1, maximum=0, old=1), {"nodes": {"a": {"jvm": {}}}}])
+def test_pressure_publishes_nothing_when_the_node_cannot_be_read(body: object) -> None:
+    def failIfCalled(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        raise AssertionError("published without a reading")
+
+    target = Recorder.readPressureTarget(PRESSURE_TARGET_ENVIRONMENT)
+    assert Recorder.publishPressure(HeapOnlyOpenSearch(body), target, runner=failIfCalled) == 1
+
+
+def test_pressure_reports_a_failed_publish() -> None:
+    def deny(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 255, "", "AccessDenied")
+
+    target = Recorder.readPressureTarget(PRESSURE_TARGET_ENVIRONMENT)
+    assert Recorder.publishPressure(HeapOnlyOpenSearch(heapBody(1, 2, 1)), target, runner=deny) == 1
+
+
+@pytest.mark.parametrize("environment", [
+    {"KNOWHERE_METRICS_REGION": "us-east-1"},
+    {"KNOWHERE_METRICS_INSTANCE_ID": "i-0c9b210679cc0cbf5"},
+    {"KNOWHERE_METRICS_INSTANCE_ID": "host-1", "KNOWHERE_METRICS_REGION": "us-east-1"},
+])
+def test_pressure_target_requires_an_instance_id_and_region(environment: dict[str, str]) -> None:
+    with pytest.raises(ValueError):
+        Recorder.readPressureTarget(environment)
