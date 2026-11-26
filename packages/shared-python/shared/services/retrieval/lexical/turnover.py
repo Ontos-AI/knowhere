@@ -1,4 +1,9 @@
-"""Schedule bounded idle index turnover on the lexical maintenance queue."""
+"""Close least-recently-used indexes when too many are open.
+
+Opening an index requests one turnover (``LexicalMaintenanceSignals.requestTurnover``),
+and the hourly ``maintainLexical`` sweep runs it as a safety net. At the hard
+open-index limit, index admission still evicts inline.
+"""
 
 from loguru import logger
 
@@ -6,14 +11,13 @@ from shared.core.celery_app import celery_app
 from shared.core.config import settings
 from shared.core.database_sync import get_sync_session_factory
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
+from shared.services.retrieval.lexical.maintenance_signals import TURNOVER_TASK
 from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
 from shared.services.retrieval.lexical.scope import LexicalScope
 
 
-@celery_app.task(
-    name="shared.services.retrieval.lexical.turnover.turnOverLexicalIndexes"
-)
-def turnOverLexicalIndexes() -> int:
+def turnOverIndexes() -> int:
+    """Run one bounded high-to-low turnover; returns the number of closed indexes."""
     if settings.KNOWHERE_LEXICAL_BACKEND != "opensearch":
         return 0
     native: OpenSearchLexicalIndex = OpenSearchLexicalIndex(
@@ -31,3 +35,8 @@ def turnOverLexicalIndexes() -> int:
         return 0
     finally:
         native.close()
+
+
+@celery_app.task(name=TURNOVER_TASK)
+def turnOverLexicalIndexes() -> int:
+    return turnOverIndexes()

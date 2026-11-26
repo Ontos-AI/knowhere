@@ -24,6 +24,7 @@ from shared.models.database.lexicallease import LexicalLease
 from shared.models.database.job import Job
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.lexical.error import LexicalIndexError
+from shared.services.retrieval.lexical.maintenance_signals import LexicalMaintenanceSignals
 from shared.services.retrieval.lexical.nativestate import NativeLifecycleSnapshot
 from shared.services.retrieval.lexical.opensearch import OpenSearchLexicalIndex
 from shared.services.retrieval.lexical.recency import LexicalRecency
@@ -140,6 +141,9 @@ class LexicalCoordination:
             else:
                 identity = self._execute(native, decision, deadline=operationDeadline)
             if decision.action != "close":
+                # One more open index may cross the idle high watermark; the
+                # turnover runs off this path and checks the count itself.
+                LexicalMaintenanceSignals.requestTurnover()
                 return identity, decision.epoch
 
     def observeIndex(self, *, scope: LexicalScope, indexName: str,

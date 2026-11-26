@@ -32,7 +32,10 @@ async def lifespan(app: FastAPI):
 
 
     from shared.core.database import prewarm_connection_pool
+    from shared.services.retrieval.lexical.maintenance_signals import LexicalMaintenanceSignals
 
+    # Archival and indexing commits here dispatch their lexical cleanup.
+    LexicalMaintenanceSignals.install()
     await prewarm_connection_pool()
     logger.info("database connection pool warmed up.")
 
@@ -146,6 +149,7 @@ async def lifespan(app: FastAPI):
         from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
         LegacyCopyDispatch.close()
         SyncJobWebhookOutbox.close()
+        LexicalMaintenanceSignals.uninstall()
         from shared.services.storage.async_presigner import AsyncStoragePresigner
         AsyncStoragePresigner.closeCurrent()
 
