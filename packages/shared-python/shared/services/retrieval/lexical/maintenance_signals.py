@@ -24,6 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
 
+from gevent.monkey import is_module_patched
 from loguru import logger
 from sqlalchemy import event
 from sqlalchemy.orm import Session, attributes
@@ -45,6 +46,10 @@ TURNOVER_TASK: Final[str] = "shared.services.retrieval.lexical.turnover.turnOver
 _FIRST_ATTEMPT_DELAY_SECONDS: Final[float] = 5
 # Index opens can be frequent; one turnover check per window is enough below the hard limit.
 _TURNOVER_REQUEST_WINDOW_SECONDS: Final[int] = 300
+# Turnover may close the least-recently-used index. Running it right after an open can
+# close the index that is still receiving its first bulk write, so it waits past the
+# indexing deadline instead.
+_TURNOVER_DELAY_SECONDS: Final[float] = 300
 _PENDING_WORK_KEY: Final[str] = "lexical_maintenance_pending_work"
 # Sends are short; a full pool drops work to the sweep instead of queueing in memory.
 _DISPATCH_WORKERS: Final[int] = 4
@@ -137,8 +142,8 @@ class LexicalMaintenanceSignals:
                  hop: int = 0) -> bool:
         """Queue one maintenance task send; ``hop`` counts reschedules so a task cannot loop forever.
 
-        The send runs on a background thread, because publishing to an unreachable
-        broker blocks for many seconds. False means the work waits for the sweep.
+        Outside gevent the send runs on a background thread, because publishing to an
+        unreachable broker blocks for many seconds. False means the work waits for the sweep.
         """
         arguments: list[object] = [identity] if hop == 0 else [identity, hop]
 
@@ -147,18 +152,25 @@ class LexicalMaintenanceSignals:
                 from shared.core.celery_app import get_celery_app
                 get_celery_app().send_task(taskName, args=arguments, countdown=countdown, retry=False)
             except Exception as error:
-                logger.warning("Lexical maintenance dispatch deferred to the hourly sweep: task={} identity={} error_type={}",
-                    taskName, identity, type(error).__name__)
+                logger.warning("Lexical maintenance dispatch deferred to the hourly sweep: task={} identity={} error_type={} error={}",
+                    taskName, identity, type(error).__name__, str(error)[:200])
 
         return cls._submit(send, description=taskName)
 
     @classmethod
     def requestTurnover(cls) -> bool:
-        """Ask for one idle-index turnover after an index opens, without blocking admission."""
+        """Ask for one delayed idle-index turnover after an index opens, without blocking admission."""
         return cls._submit(cls._sendTurnoverRequest, description=TURNOVER_TASK)
 
     @classmethod
     def _submit(cls, operation: Callable[[], None], *, description: str) -> bool:
+        if is_module_patched("threading"):
+            # Under gevent, Celery's producer pool and the shared Redis client belong to
+            # the hub that created them; a native background thread cannot use them
+            # ("Cannot switch to a different thread"). Sending inline only blocks the
+            # current greenlet.
+            operation()
+            return True
         try:
             if cls._dispatchPool is None:
                 cls._dispatchPool = BackgroundWorkPool(name="lexical-maintenance-dispatch",
@@ -167,8 +179,8 @@ class LexicalMaintenanceSignals:
                 return True
             logger.warning("Lexical maintenance dispatch pool is saturated; the hourly sweep owns it: task={}", description)
         except Exception as error:
-            logger.warning("Lexical maintenance dispatch deferred to the hourly sweep: task={} error_type={}",
-                description, type(error).__name__)
+            logger.warning("Lexical maintenance dispatch deferred to the hourly sweep: task={} error_type={} error={}",
+                description, type(error).__name__, str(error)[:200])
         return False
 
     @staticmethod
@@ -179,6 +191,7 @@ class LexicalMaintenanceSignals:
                 if not acquired:
                     return
                 from shared.core.celery_app import get_celery_app
-                get_celery_app().send_task(TURNOVER_TASK, retry=False)
+                get_celery_app().send_task(TURNOVER_TASK, countdown=_TURNOVER_DELAY_SECONDS, retry=False)
         except Exception as error:
-            logger.warning("Lexical turnover request deferred to the hourly sweep: error_type={}", type(error).__name__)
+            logger.warning("Lexical turnover request deferred to the hourly sweep: error_type={} error={}",
+                type(error).__name__, str(error)[:200])

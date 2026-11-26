@@ -57,13 +57,14 @@ def test_turnover_request_dispatches_once_per_window(monkeypatch: pytest.MonkeyP
         held.add(name)
         yield acquired
 
-    sent: list[str] = []
+    sent: list[tuple[str, object]] = []
     monkeypatch.setattr(maintenance_signals, "periodic_task_lock", windowLock)
-    monkeypatch.setattr(celery_app, "send_task", lambda name, **options: sent.append(name))
+    monkeypatch.setattr(celery_app, "send_task", lambda name, **options: sent.append((name, options.get("countdown"))))
     monkeypatch.setattr(LexicalMaintenanceSignals, "_dispatchPool", _InlinePool())
     assert LexicalMaintenanceSignals.requestTurnover()
     assert LexicalMaintenanceSignals.requestTurnover()
-    assert sent == [TURNOVER_TASK]
+    # Delayed past the indexing deadline so it cannot close an index mid-write.
+    assert sent == [(TURNOVER_TASK, 300)]
 
 
 def test_turnover_request_never_raises_into_index_admission(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -85,3 +86,20 @@ def test_saturated_dispatch_leaves_work_for_the_sweep(monkeypatch: pytest.Monkey
     monkeypatch.setattr(LexicalMaintenanceSignals, "_dispatchPool",
         SimpleNamespace(trySubmit=lambda operation: False, close=lambda: None))
     assert not LexicalMaintenanceSignals.dispatch("task", "identity")
+
+
+def test_gevent_dispatch_sends_inline_without_a_native_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    from shared.core.celery_app import celery_app
+    from shared.services.retrieval.lexical import maintenance_signals
+    from shared.services.retrieval.lexical.maintenance_signals import LexicalMaintenanceSignals
+
+    def refuseNativeThread(operation: object) -> bool:
+        raise AssertionError("gevent workers must not send from a native thread")
+
+    sent: list[tuple[str, object]] = []
+    monkeypatch.setattr(maintenance_signals, "is_module_patched", lambda name: True)
+    monkeypatch.setattr(LexicalMaintenanceSignals, "_dispatchPool",
+        SimpleNamespace(trySubmit=refuseNativeThread, close=lambda: None))
+    monkeypatch.setattr(celery_app, "send_task", lambda name, **options: sent.append((name, options.get("args"))))
+    assert LexicalMaintenanceSignals.dispatch("task", "identity", hop=1)
+    assert sent == [("task", ["identity", 1])]
