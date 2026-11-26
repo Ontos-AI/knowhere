@@ -311,6 +311,12 @@ caller-provided digest cannot satisfy the restored payload proof or retention fl
 
 ## Manual native recovery
 
+An `uncertain` registry row on its own does not need this section. Resolution
+closes it automatically (see `shared/services/retrieval/lexical/resolution.py`).
+Start here only after the `lexical.index_lifecycle.unresolved` alert, which
+means resolution kept failing: usually an index UUID or name mismatch, or a
+node that is down.
+
 Use the source-owned transition CLI with an explicitly authorized maintenance DB
 role and exact epoch to gate/settle application publication. Fence the old native
 issuer and preserve unresolved operations. Check actual AWS/process state before
