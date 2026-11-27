@@ -604,6 +604,12 @@ after successful retrieval.
 Tracks per-chunk and per-document retrieval usage. `hit_count` and `last_hit_at`
 feed into `compute_importance_score()` for ranking boost.
 
+#### `retrieval_active_days`
+
+The UTC days each caller searched each namespace (explicit or automatic
+retrieval, or a corpus tool call). Importance ages by these days, so documents
+in a namespace nobody searches do not grow older.
+
 #### `retrieval_runs` / `retrieval_steps`
 
 Append-only agentic retrieval analytics. One `retrieval_runs` row per query,

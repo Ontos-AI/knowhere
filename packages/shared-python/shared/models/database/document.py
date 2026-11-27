@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -14,6 +14,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     BigInteger,
+    Date,
     Index,
     Integer,
     LargeBinary,
@@ -764,6 +765,20 @@ class RetrievalHitStat(Base):
         Index("idx_retrieval_hit_stats_document", "document_id"),
         Index("idx_retrieval_hit_stats_chunk", "chunk_id"),
     )
+
+
+class RetrievalActiveDay(Base):
+    """A UTC day on which a caller searched a namespace.
+
+    Documents in the namespace age only by these days, so a namespace nobody
+    uses does not grow older. The scope matches RetrievalHitStat.
+    """
+
+    __tablename__ = "retrieval_active_days"
+
+    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    namespace: Mapped[str] = mapped_column(String(255), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
 
 
 class RetrievalRun(Base):

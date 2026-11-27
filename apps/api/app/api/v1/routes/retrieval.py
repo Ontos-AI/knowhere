@@ -105,7 +105,10 @@ class RetrievalQueryRequest(BaseModel):
             "Why the caller retrieved. explicit (default): a person or agent "
             "asked, and the hits count toward document importance. automatic: "
             "context the caller fetched on its own, such as per-turn recall; "
-            "hits are not recorded. Does not affect caching or result content."
+            "hits are not recorded. Both make today an active day, by which "
+            "the namespace's documents age. background: work the caller runs "
+            "without a person or agent turn; neither is recorded. Does not "
+            "affect caching or result content."
         ),
     )
 

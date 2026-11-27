@@ -1,4 +1,7 @@
-"""Only explicit retrieval records hits, on a fresh run and on a cache hit."""
+"""Only explicit retrieval records hits, on a fresh run and on a cache hit.
+
+Explicit and automatic retrieval make the day active; background makes neither.
+"""
 
 from __future__ import annotations
 
@@ -39,21 +42,39 @@ def recordScheduledHits(monkeypatch: pytest.MonkeyPatch) -> list[list[dict[str, 
     return scheduled
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(("purpose", "isRecorded"), [("explicit", True), ("automatic", False)])
-async def test_fresh_retrieval_records_hits_only_when_explicit(
-    monkeypatch: pytest.MonkeyPatch, purpose: str, isRecorded: bool
-) -> None:
-    scheduled = recordScheduledHits(monkeypatch)
+def recordScheduledActiveDays(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    scheduled: list[tuple[str, str]] = []
 
+    def schedule(*, user_id: str, namespace: str) -> None:
+        scheduled.append((user_id, namespace))
+
+    monkeypatch.setattr(plan, "schedule_active_day_update", schedule)
+    return scheduled
+
+
+def buildRequest(purpose: str) -> RetrievalQuery:
+    return RetrievalQuery.from_parameters(
+        db=SimpleNamespace(in_transaction=lambda: True),
+        user_id="user",
+        namespace="ns",
+        query="query",
+        top_k=1,
+        exclude_document_ids=[],
+        exclude_sections=[],
+        use_agentic=False,
+        purpose=purpose,
+    )
+
+
+def stubRetrieval(monkeypatch: pytest.MonkeyPatch, *, cached: dict[str, Any] | None) -> None:
     async def epoch(request: RetrievalQuery) -> int:
         return 1
 
     async def pins(*arguments: object, **keywords: object) -> RetrievalRevisionPins:
         return RetrievalRevisionPins({"doc": "rev"})
 
-    async def missCache(**arguments: object) -> tuple[None, None]:
-        return None, None
+    async def readCache(**arguments: object) -> tuple[int | None, dict[str, Any] | None]:
+        return (3, cached) if cached is not None else (None, None)
 
     async def route(context: object) -> RetrievalRouteOutcome:
         return RetrievalRouteOutcome(
@@ -67,24 +88,45 @@ async def test_fresh_retrieval_records_hits_only_when_explicit(
     monkeypatch.setattr(settings, "KNOWHERE_LEXICAL_BACKEND", "postgresql")
     monkeypatch.setattr(plan.RetrievalExecutionPlan, "_capture_postgresql_epoch", staticmethod(epoch))
     monkeypatch.setattr(plan, "capture_revision_pins", pins)
-    monkeypatch.setattr(plan, "_read_cached_response", missCache)
+    monkeypatch.setattr(plan, "_read_cached_response", readCache)
     monkeypatch.setattr(plan, "run_retrieval_route", route)
-    request: RetrievalQuery = RetrievalQuery.from_parameters(
-        db=SimpleNamespace(in_transaction=lambda: True),
-        user_id="user",
-        namespace="ns",
-        query="query",
-        top_k=1,
-        exclude_document_ids=[],
-        exclude_sections=[],
-        use_agentic=False,
-        purpose=purpose,
-    )
 
-    response = await plan.RetrievalExecutionPlan(request).execute()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("purpose", "isRecorded"), [("explicit", True), ("automatic", False), ("background", False)]
+)
+async def test_fresh_retrieval_records_hits_only_when_explicit(
+    monkeypatch: pytest.MonkeyPatch, purpose: str, isRecorded: bool
+) -> None:
+    scheduled = recordScheduledHits(monkeypatch)
+    recordScheduledActiveDays(monkeypatch)
+    stubRetrieval(monkeypatch, cached=None)
+
+    response = await plan.RetrievalExecutionPlan(buildRequest(purpose)).execute()
 
     assert response["results"] == [HIT]
     assert scheduled == ([[HIT]] if isRecorded else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cached", [None, {"router_used": "classic_topk", "results": [HIT]}])
+@pytest.mark.parametrize(
+    ("purpose", "isActive"), [("explicit", True), ("automatic", True), ("background", False)]
+)
+async def test_retrieval_makes_the_day_active_unless_background(
+    monkeypatch: pytest.MonkeyPatch,
+    purpose: str,
+    isActive: bool,
+    cached: dict[str, Any] | None,
+) -> None:
+    recordScheduledHits(monkeypatch)
+    activeDays = recordScheduledActiveDays(monkeypatch)
+    stubRetrieval(monkeypatch, cached=cached)
+
+    await plan.RetrievalExecutionPlan(buildRequest(purpose)).execute()
+
+    assert activeDays == ([("user", "ns")] if isActive else [])
 
 
 @pytest.mark.asyncio
@@ -130,4 +172,8 @@ def test_purpose_defaults_to_explicit_and_stays_out_of_the_cache_key() -> None:
 
     assert build().records_hits
     assert not build(purpose="automatic").records_hits
+    assert not build(purpose="background").records_hits
+    assert build().records_activity and build(purpose="automatic").records_activity
+    assert not build(purpose="background").records_activity
     assert build().build_cache_extra() == build(purpose="automatic").build_cache_extra()
+    assert build().build_cache_extra() == build(purpose="background").build_cache_extra()

@@ -18,8 +18,9 @@ from shared.services.retrieval.settings import (
 # Why the caller retrieved. "explicit" (a person or Agent asked) records
 # retrieval hits; "automatic" (context the caller fetched on its own, such as a
 # per-turn recall) does not, so unrequested retrieval cannot raise a document's
-# importance.
-RetrievalPurpose = Literal["automatic", "explicit"]
+# importance. Both make the day an active day for the namespace. "background"
+# (work the caller runs without a person or Agent turn) records neither.
+RetrievalPurpose = Literal["automatic", "explicit", "background"]
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,10 @@ class RetrievalQuery:
     @property
     def records_hits(self) -> bool:
         return self.purpose == "explicit"
+
+    @property
+    def records_activity(self) -> bool:
+        return self.purpose != "background"
 
     @classmethod
     def from_parameters(

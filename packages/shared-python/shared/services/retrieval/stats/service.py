@@ -11,8 +11,10 @@ from shared.services.retrieval.demo_authorization import authorize_demo_caller
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # A document's importance for ranking: usage heat from its recorded uses plus
-# freshness from its upload, both halving every 30 days. A use counts at most once per UTC day, and n / (n + 2) caps the count
-# so a document returned often cannot outweigh relevance.
+# freshness from its upload, both halving every 30 active days of its namespace
+# (days a caller searched it), so documents nobody searches do not age. A use
+# counts at most once per UTC day, and n / (n + 2) caps the count so a document
+# returned often cannot outweigh relevance.
 _HALF_LIFE_DAYS = 30.0
 _USAGE_WEIGHT = 0.7
 _FRESHNESS_WEIGHT = 0.3
@@ -22,26 +24,21 @@ _MULTIPLIER_LOW = 0.7
 _MULTIPLIER_HIGH = 1.5
 
 
-def _as_utc_naive(moment: datetime) -> datetime:
-    if moment.tzinfo is None:
-        return moment
-    return moment.astimezone(timezone.utc).replace(tzinfo=None)
-
-
-def _half_life_decay(moment: datetime, now: datetime) -> float:
-    days = max(0.0, (now - _as_utc_naive(moment)).total_seconds() / 86400)
-    return math.exp(-math.log(2) * days / _HALF_LIFE_DAYS)
+def _half_life_decay(age_days: int) -> float:
+    return math.exp(-math.log(2) * age_days / _HALF_LIFE_DAYS)
 
 
 def compute_importance_score(
-    hit_count: int, last_hit_at: datetime | None, uploaded_at: datetime
+    hit_count: int, usage_age_days: int | None, upload_age_days: int
 ) -> float:
-    """Importance in [0, 1]: 0.7 x capped usage heat + 0.3 x upload freshness."""
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    """Importance in [0, 1]: 0.7 x capped usage heat + 0.3 x upload freshness.
+
+    Ages are the namespace's active days since the last use and since upload.
+    """
     usage_heat = 0.0
-    if hit_count > 0 and last_hit_at is not None:
-        usage_heat = hit_count / (hit_count + 2) * _half_life_decay(last_hit_at, now)
-    freshness = _half_life_decay(uploaded_at, now)
+    if hit_count > 0 and usage_age_days is not None:
+        usage_heat = hit_count / (hit_count + 2) * _half_life_decay(usage_age_days)
+    freshness = _half_life_decay(upload_age_days)
     return round(_USAGE_WEIGHT * usage_heat + _FRESHNESS_WEIGHT * freshness, 4)
 
 
