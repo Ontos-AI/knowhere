@@ -75,6 +75,13 @@ additional GitHub Actions secrets:
 - `AWS_ECS_PROD_SECRETS_ARN`
 - `PRODUCTION_MIGRATION_DATABASE_URL` (direct migration-only database URL)
 
+The repository variable `PROD_DB_SSL_MODE` controls the production migration,
+the lexical backend database check, and both ECS task definitions. The default
+is `disable` for the current Aurora configuration. Set it to `require` when
+switching production to Neon. At that point, use Neon pooler URLs for the API
+and worker runtime secret and a direct Neon URL for
+`PRODUCTION_MIGRATION_DATABASE_URL`.
+
 Before publishing the production release, an operator must create and verify
 the production runtime secret, IAM roles, API and worker ECS services, API
 target group/listener rule, production ACM certificate attachment, and

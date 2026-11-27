@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Awaitable, Callable, TypeVar
 
 from sqlalchemy import event, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -24,6 +25,7 @@ ssl_connect_args = settings.get_async_ssl_connect_args()
 is_async_database_pool_disabled: bool = (
     os.getenv("DB_USE_NULL_POOL", "false").lower() == "true"
 )
+IDLE_TRANSACTION_TIMEOUT_MS: int = 60_000
 
 
 def _async_engine_options(
@@ -40,7 +42,7 @@ def _async_engine_options(
                 "application_name": "knowhere_api",
                 "timezone": "UTC",
                 "statement_timeout": str(statement_timeout_ms),
-                "idle_in_transaction_session_timeout": "60000",
+                "idle_in_transaction_session_timeout": str(IDLE_TRANSACTION_TIMEOUT_MS),
             },
             "command_timeout": command_timeout_seconds,
             **ssl_connect_args,
@@ -60,15 +62,30 @@ def _async_engine_options(
     return options
 
 
-engine_options: dict[str, Any] = _async_engine_options(
-    statement_timeout_ms=30000,
-    command_timeout_seconds=30,
-)
+def _createApiEngine(
+    *, statementTimeoutMs: int, commandTimeoutSeconds: int
+) -> AsyncEngine:
+    apiEngine: AsyncEngine = create_async_engine(
+        settings.DATABASE_URL,
+        **_async_engine_options(
+            statement_timeout_ms=statementTimeoutMs,
+            command_timeout_seconds=commandTimeoutSeconds,
+        ),
+    )
 
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    **engine_options,
-)
+    @event.listens_for(apiEngine.sync_engine, "begin")
+    def applyTransactionTimeouts(connection: Connection) -> None:
+        # Pooled PostgreSQL connections can ignore the driver's startup settings.
+        # SET also leaves callers free to issue SET TRANSACTION before their first query.
+        connection.exec_driver_sql(f"SET LOCAL statement_timeout = {statementTimeoutMs:d}")
+        connection.exec_driver_sql(
+            f"SET LOCAL idle_in_transaction_session_timeout = {IDLE_TRANSACTION_TIMEOUT_MS:d}"
+        )
+
+    return apiEngine
+
+
+engine: AsyncEngine = _createApiEngine(statementTimeoutMs=30_000, commandTimeoutSeconds=30)
 # Create the async session factory.
 AsyncSessionFactory = async_sessionmaker(
     bind=engine,
@@ -89,12 +106,9 @@ def _session_factory_for_timeouts(
     factory = _timeout_session_factories.get(key)
     if factory is not None:
         return factory
-    extra_engine = create_async_engine(
-        settings.DATABASE_URL,
-        **_async_engine_options(
-            statement_timeout_ms=statement_timeout_ms,
-            command_timeout_seconds=command_timeout_seconds,
-        ),
+    extra_engine: AsyncEngine = _createApiEngine(
+        statementTimeoutMs=statement_timeout_ms,
+        commandTimeoutSeconds=command_timeout_seconds,
     )
     factory = async_sessionmaker(bind=extra_engine, expire_on_commit=False)
     _timeout_session_factories[key] = factory
