@@ -1,6 +1,6 @@
 """Sweep exact retired builds without waiting for readers; track late writes."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 from loguru import logger
@@ -28,6 +28,7 @@ class LexicalCleanup:
         self.sessions: sessionmaker[Session] = sessionFactory or get_sync_session_factory()
 
     def closeEmptyNamespaces(self) -> int:
+        """Check one batch of due open namespaces and close those that are empty."""
         with self.sessions.begin() as db:
             now = LexicalCoordination.getDatabaseTime(db)
             rows: list[LexicalNamespaceIndex] = list(db.scalars(select(LexicalNamespaceIndex).where(
@@ -35,10 +36,29 @@ class LexicalCleanup:
                 or_(LexicalNamespaceIndex.nextMaintenanceAt.is_(None), LexicalNamespaceIndex.nextMaintenanceAt <= now),
             ).order_by(LexicalNamespaceIndex.nextMaintenanceAt.asc().nullsfirst(), LexicalNamespaceIndex.id)
                 .limit(20).with_for_update(skip_locked=True)))
-            identities: tuple[tuple[str, str, str, str], ...] = tuple((row.id, row.ownerId, row.namespace, row.corpusKind) for row in rows)
-            for row in rows:
-                row.nextMaintenanceAt = now + timedelta(minutes=5)
+            identities: tuple[tuple[str, str, str, str], ...] = self._claimNamespaces(rows, now)
             retained: int = int(db.scalar(select(func.count()).select_from(LexicalNamespaceIndex)) or 0)
+        completed: int = self._closeClaimedNamespaces(identities)
+        logger.info("Lexical retained catalog: indexes={} close_scan_limit=20 closed_empty={}", retained, completed)
+        return completed
+
+    def closeEmptyNamespace(self, namespaceIndexId: str) -> bool:
+        """Close one open namespace if its last document or build is gone; False keeps it open."""
+        with self.sessions.begin() as db:
+            now = LexicalCoordination.getDatabaseTime(db)
+            rows: list[LexicalNamespaceIndex] = list(db.scalars(select(LexicalNamespaceIndex).where(
+                LexicalNamespaceIndex.id == namespaceIndexId, LexicalNamespaceIndex.state == "open",
+            ).with_for_update(skip_locked=True)))
+            identities: tuple[tuple[str, str, str, str], ...] = self._claimNamespaces(rows, now)
+        return self._closeClaimedNamespaces(identities) == 1
+
+    @staticmethod
+    def _claimNamespaces(rows: list[LexicalNamespaceIndex], now: datetime) -> tuple[tuple[str, str, str, str], ...]:
+        for row in rows:
+            row.nextMaintenanceAt = now + timedelta(minutes=5)
+        return tuple((row.id, row.ownerId, row.namespace, row.corpusKind) for row in rows)
+
+    def _closeClaimedNamespaces(self, identities: tuple[tuple[str, str, str, str], ...]) -> int:
         completed: int = 0
         for identity, ownerId, namespace, corpusKind in identities:
             native: OpenSearchLexicalIndex | None = None
@@ -63,7 +83,6 @@ class LexicalCleanup:
                     row = db.get(LexicalNamespaceIndex, identity, with_for_update=True)
                     if row is not None:
                         row.maintenanceError = errorType
-        logger.info("Lexical retained catalog: indexes={} close_scan_limit=20 closed_empty={}", retained, completed)
         return completed
 
     def collect(self, buildId: str) -> bool:

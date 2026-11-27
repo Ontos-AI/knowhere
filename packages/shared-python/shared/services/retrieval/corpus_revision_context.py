@@ -6,7 +6,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from sqlalchemy import case
+from sqlalchemy import case, cast, null
 from sqlalchemy.sql.elements import ColumnElement
 
 from shared.models.database.document import Document
@@ -43,4 +43,7 @@ class CorpusRevisionContext:
         revisions: Mapping[str, str] | None = _CAPTURED_REVISIONS.get()
         if revisions is None:
             return model.current_job_result_id.__clause_element__()
+        if not revisions:
+            # Keep SQL equality semantics when a captured scope has no revision.
+            return cast(null(), model.current_job_result_id.type)
         return case(dict(revisions), value=model.document_id, else_=None)

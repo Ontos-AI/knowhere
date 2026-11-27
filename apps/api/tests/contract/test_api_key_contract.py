@@ -4,7 +4,10 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
+
+from shared.utils.api_keys import generate_api_key
+from tests.support.contract_database import ContractDatabase
 
 
 @pytest.mark.asyncio
@@ -141,6 +144,57 @@ async def test_should_return_not_found_for_a_missing_api_key_metadata_request(
     assert error["details"] == {
         "resource": "APIKey",
         "id": missing_api_key_id,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "belongs_to_another_user", [False, True], ids=["missing", "another-user"]
+)
+async def test_should_return_not_found_when_toggling_an_unowned_api_key(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    belongs_to_another_user: bool,
+) -> None:
+    api_key_id: str = str(uuid4())
+    owner_headers: dict[str, str] = {}
+
+    async with developer_api_client_factory() as api_client:
+        if belongs_to_another_user:
+            owner_key: str = generate_api_key()
+            owner_headers = {"Authorization": f"Bearer {owner_key}"}
+            await ContractDatabase.insert_authenticated_user(
+                user_id=f"contract-toggle-owner-{uuid4().hex[:12]}",
+                api_key=owner_key,
+            )
+            list_response: Response = await api_client.get(
+                "/api/v1/auth/list", headers=owner_headers
+            )
+            assert list_response.status_code == 200
+            api_keys: list[dict[str, object]] = list_response.json()["api_keys"]
+            assert len(api_keys) == 1
+            api_key_id = cast(str, api_keys[0]["id"])
+
+        response: Response = await api_client.put(f"/api/v1/auth/{api_key_id}/toggle")
+
+        if belongs_to_another_user:
+            owner_response: Response = await api_client.get(
+                f"/api/v1/auth/{api_key_id}", headers=owner_headers
+            )
+            assert owner_response.status_code == 200
+            assert owner_response.json()["is_active"] is True
+
+    assert response.status_code == 404
+    assert response.headers["x-request-id"]
+    assert response.json() == {
+        "success": False,
+        "error": {
+            "code": "NOT_FOUND",
+            "message": "APIKey not found",
+            "request_id": response.headers["x-request-id"],
+            "details": {"resource": "APIKey", "id": api_key_id},
+        },
     }
 
 

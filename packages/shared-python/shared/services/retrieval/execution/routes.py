@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncIterator, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -10,6 +11,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.config import settings
+from shared.core.logging import LogEvent
 from shared.services.retrieval.execution.postgresql_snapshot import (
     open_postgresql_snapshot,
     validate_postgresql_snapshot,
@@ -126,6 +128,8 @@ async def run_retrieval_route(
             if native_read is not None:
                 native_read.isClassic = True
             outcome = await _run_classic_topk_route(context)
+        elif decision is not None and decision.source == "fallback":
+            outcome = await _run_agent_fallback(context)
         else:
             outcome = await _run_agent_explore_route(context)
 
@@ -149,11 +153,43 @@ async def _resolve_auto_route(
         )
     else:
         decision = await classify_query_mode(context.query)
-    logger.info(
-        f"retrieval query router mode={decision.mode.value} "
-        f"source={decision.source} reason={decision.reason}"
-    )
+    logger.bind(
+        event=LogEvent.RETRIEVAL_QUERY_ROUTER_DECISION.value,
+        routing_trigger="use_agentic_unset",
+        selected_mode=decision.mode.value,
+        decision_source=decision.source,
+        model_config_source=decision.model_config_source,
+        model_name=decision.attempted_model_name or decision.model_name or None,
+        failure_stage=decision.failure_stage,
+        failure_error_type=decision.failure_error_type,
+        failure_errno=decision.failure_errno,
+    ).info("Retrieval query router decision")
     return decision.mode == QueryMode.AGENT, decision
+
+
+async def _run_agent_fallback(context: RetrievalRouteContext) -> RetrievalRouteOutcome:
+    fallback_log = logger.bind(
+        event=LogEvent.RETRIEVAL_QUERY_ROUTER_FALLBACK.value,
+        fallback_route="agent_explore",
+    )
+    try:
+        outcome: RetrievalRouteOutcome = await _run_agent_explore_route(context)
+    except asyncio.CancelledError:
+        fallback_log.bind(fallback_outcome="cancelled").info(
+            "Retrieval query fallback cancelled"
+        )
+        raise
+    except Exception as error:
+        fallback_log.bind(
+            fallback_outcome="failed", fallback_error_type=type(error).__name__
+        ).warning("Retrieval query fallback failed")
+        raise
+    fallback_log.bind(
+        fallback_outcome="succeeded",
+        agent_stop_reason=outcome.response.get("stop_reason"),
+        result_count=outcome.completion_count,
+    ).info("Retrieval query fallback completed")
+    return outcome
 
 
 async def _try_run_small_corpus_route(

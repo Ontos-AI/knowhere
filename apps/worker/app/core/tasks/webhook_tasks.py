@@ -18,7 +18,7 @@ from shared.core.logging import (
 from shared.services.redis.periodic_task_lock import periodic_task_lock
 
 # Matches the beat_schedule period in celery_app.py
-_WEBHOOK_RECOVERY_PERIOD_SECONDS = 1800
+_WEBHOOK_RECOVERY_PERIOD_SECONDS = 3600
 _WEBHOOK_CALLBACK_TEXT_LIMIT = 4096
 
 celery_app = get_celery_app()

@@ -7,7 +7,7 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, Client, MockTransport, Request, Response
 from sqlalchemy import Engine, event, select
 from sqlalchemy.engine import Result
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -140,6 +140,88 @@ async def test_postgresql_discovery_keeps_selected_content_during_refinement(
         (row["chunk_id"], row["content"], row["chunk_metadata"]["page_nums"])
         for row in next_read.payload["fused_rows"]
     ] == [(new_chunk["chunk_id"], new_chunk["content"], [7])]
+
+
+@pytest.mark.parametrize(
+    ("upstream_status", "expected_status", "expected_code", "retry_after"),
+    [
+        (503, 503, "UNAVAILABLE", "1"),
+        (500, 500, "INTERNAL_ERROR", None),
+    ],
+)
+async def test_required_visual_embedding_error_response_after_gateway_retries(
+    developer_api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    monkeypatch: pytest.MonkeyPatch,
+    upstream_status: int,
+    expected_status: int,
+    expected_code: str,
+    retry_after: str | None,
+) -> None:
+    namespace: str = f"embedding-retry-{uuid4().hex[:8]}"
+    requests: list[Request] = []
+
+    def respond_to_embedding(request: Request) -> Response:
+        requests.append(request)
+        return Response(upstream_status, json={"error": {"message": "private gateway detail"}})
+
+    with Client(transport=MockTransport(respond_to_embedding)) as gateway_client:
+        async with developer_api_client_factory() as api_client:
+            from shared.core.config import settings
+            from shared.models.database.document import DocumentPageEmbedding
+            from shared.services.ai.embedding import multimodal_client
+
+            published: dict[str, str] = await _publish_document(
+                namespace=namespace,
+                source_file_name="report.pdf",
+                chunks=[
+                    {
+                        "chunk_id": f"report-page-{page_number}",
+                        "type": "page",
+                        "content": f"Revenue statistics for quarter {page_number}",
+                        "path": f"report.pdf/Root/Quarter {page_number}/body",
+                        "order": page_number,
+                        "metadata": {"page_nums": [page_number]},
+                    }
+                    for page_number in (1, 2)
+                ],
+            )
+            async with contract_db_session() as db:
+                db.add(
+                    DocumentPageEmbedding(
+                        user_id=_USER_ID,
+                        namespace=namespace,
+                        document_id=published["document_id"],
+                        job_result_id=published["job_result_id"],
+                        chunk_id="report-page-1",
+                        page_num=1,
+                        embedding=[0.1] * multimodal_client.DEFAULT_EMBEDDING_DIM,
+                    )
+                )
+                await db.commit()
+
+            monkeypatch.setattr(settings, "VISUAL_RETRIEVAL_ENABLED", True)
+            monkeypatch.setattr(multimodal_client, "_should_mock_embeddings", lambda: False)
+            monkeypatch.setattr(multimodal_client, "_resolve_vercel_api_key", lambda: "test-key")
+            monkeypatch.setattr(multimodal_client, "get_sync_client", lambda: gateway_client)
+            monkeypatch.setattr(multimodal_client, "_sleep_before_retry", lambda _attempt: None)
+
+            response: Response = await api_client.post(
+                "/api/v2/retrieval/query",
+                json={
+                    "namespace": namespace,
+                    "query": "revenue statistics",
+                    "top_k": 1,
+                    "use_agentic": False,
+                },
+            )
+
+    assert [request.url.path for request in requests] == ["/v1/embeddings"] * 3
+    assert response.status_code == expected_status
+    assert response.headers.get("retry-after") == retry_after
+    result: dict[str, object] = response.json()
+    assert result["success"] is False
+    assert cast(dict[str, object], result["error"])["code"] == expected_code
+    assert "private gateway detail" not in response.text
 
 
 async def test_classic_route_maps_winning_unit_to_one_chunk(

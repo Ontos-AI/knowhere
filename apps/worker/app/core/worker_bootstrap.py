@@ -49,6 +49,8 @@ def init_worker(**kwargs: object) -> None:
     setup_logging(service_name="knowhere-worker")
     from shared.services.retrieval.lexical.stage_observer import StageObserver
     StageObserver.install()
+    from shared.services.retrieval.lexical.maintenance_signals import LexicalMaintenanceSignals
+    LexicalMaintenanceSignals.install()
     from shared.core.database_sync import get_sync_db_context
     from shared.services.retrieval.demo_authorization import verify_runtime_database_role
     with get_sync_db_context() as database:

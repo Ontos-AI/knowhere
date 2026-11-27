@@ -62,9 +62,15 @@ from shared.core.exceptions import (
     UnknownException,
     ValidationException,
 )
-from shared.core.exceptions.domain_exceptions import RateLimitException, Violation
+from shared.core.exceptions.domain_exceptions import (
+    LLMServiceException,
+    RateLimitException,
+    UnavailableException,
+    Violation,
+)
 from shared.core.logging import LogEvent
 from shared.core.response import ErrorCodeMapper
+from shared.services.retrieval.required_query_embedding import RequiredQueryEmbeddingException
 
 
 def _get_request_id(request: Request) -> str:
@@ -280,7 +286,20 @@ async def _knowhere_exception_handler_adapter(
     request: Request, exc: Exception
 ) -> JSONResponse:
     """Adapt the typed Knowhere handler to FastAPI's generic signature."""
-    return await knowhere_exception_handler(request, cast(KnowhereException, exc))
+    error: KnowhereException = cast(KnowhereException, exc)
+    cause: Exception | None = error.original_exception
+    if (
+        isinstance(error, RequiredQueryEmbeddingException)
+        and isinstance(cause, LLMServiceException)
+        and cause.details.get("status_code") == 503
+    ):
+        error = UnavailableException(
+            internal_message=error.internal_message,
+            retry_after=1,
+            user_message="Search is temporarily unavailable. Please retry.",
+            original_exception=error,
+        )
+    return await knowhere_exception_handler(request, error)
 
 
 async def _http_exception_handler_adapter(

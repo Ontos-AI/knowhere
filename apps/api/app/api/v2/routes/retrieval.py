@@ -20,6 +20,11 @@ from shared.core.database import get_db, get_db_context
 from shared.models.schemas.llm_config import LLMConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.agent_tools import REGISTRY, ToolContext
+from shared.services.retrieval.stats.recorder import (
+    schedule_active_day_update,
+    schedule_document_usage_update,
+)
+from shared.services.retrieval.stats.service import record_document_usage
 
 router = APIRouter(tags=["Retrieval"])
 
@@ -88,6 +93,13 @@ async def query_retrieval(
 class RetrievalToolInvokeRequest(BaseModel):
     tool: str
     arguments: dict[str, Any] = Field(default_factory=dict)
+    records_usage: bool = Field(
+        False,
+        description=(
+            "The caller's Agent named the documents in arguments, so they count "
+            "as used. Leave false when the caller filled the document list itself."
+        ),
+    )
 
 
 class RetrievalToolInvokeResponse(BaseModel):
@@ -109,6 +121,8 @@ async def invoke_retrieval_tool(
     namespace = normalize_retrieval_namespace(
         request.headers.get(KNOWHERE_NAMESPACE_HEADER)
     )
+    # A corpus tool call is an Agent working in the namespace, so the day is active.
+    schedule_active_day_update(user_id=current_user.user_id, namespace=namespace)
     result = await REGISTRY.dispatch(
         payload.tool,
         ToolContext(
@@ -119,9 +133,71 @@ async def invoke_retrieval_tool(
         ),
         payload.arguments,
     )
+    if payload.records_usage and result.error is None:
+        named = documents_named_by_tool_arguments(payload.arguments)
+        if named:
+            schedule_document_usage_update(
+                user_id=current_user.user_id, namespace=namespace, items=named
+            )
     return RetrievalToolInvokeResponse(
         text=result.text,
         payload=result.payload,
         refs=result.refs,
         error=result.error,
     )
+
+
+def documents_named_by_tool_arguments(arguments: dict[str, Any]) -> list[dict[str, Any]]:
+    """The documents, and chunks where given, a corpus tool call was pointed at.
+
+    A call that names a document (read refs, a search scope, a table's
+    document_id) is the Agent looking into that file, so it counts as a use.
+    """
+    named: list[dict[str, Any]] = []
+    for key in ("refs", "scope"):
+        items = arguments.get(key)
+        if isinstance(items, list):
+            named.extend(
+                {"document_id": item.get("document_id"), "chunk_id": item.get("chunk_id")}
+                for item in items
+                if isinstance(item, dict) and item.get("document_id")
+            )
+    if arguments.get("document_id"):
+        named.append(
+            {"document_id": arguments.get("document_id"), "chunk_id": arguments.get("chunk_id")}
+        )
+    return named
+
+
+class RetrievalUsageItem(BaseModel):
+    document_id: str = Field(..., min_length=1)
+    chunk_id: str | None = None
+
+
+class RetrievalUsageRequest(BaseModel):
+    namespace: str | None = None
+    items: list[RetrievalUsageItem] = Field(..., min_length=1)
+
+
+class RetrievalUsageResponse(BaseModel):
+    recorded: int
+
+
+@router.post("/usage", response_model=RetrievalUsageResponse)
+async def record_retrieval_usage(
+    payload: RetrievalUsageRequest,
+    current_user: CurrentUser = Depends(with_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record documents the caller's Agent actually used.
+
+    Items outside the caller's documents in this namespace are ignored.
+    """
+    recorded = await record_document_usage(
+        db,
+        user_id=current_user.user_id,
+        namespace=normalize_retrieval_namespace(payload.namespace),
+        items=[item.model_dump() for item in payload.items],
+    )
+    await db.commit()
+    return RetrievalUsageResponse(recorded=recorded)

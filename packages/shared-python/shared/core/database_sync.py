@@ -1,6 +1,7 @@
 """
 Sync database engine for Celery worker (gevent pool).
-Uses psycopg2 + psycogreen for cooperative DB access under gevent.
+Uses psycopg2 in gevent green mode; the worker installs the wait callback,
+with a per-statement deadline, in shared.core.statement_deadline.
 API service continues using the async engine in database.py.
 """
 

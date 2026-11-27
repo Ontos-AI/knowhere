@@ -13,6 +13,7 @@ os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 import pytest
+from httpx import ConnectTimeout, UnsupportedProtocol
 
 from shared.core.config import settings
 from shared.services.retrieval.execution.response_projection import (
@@ -33,10 +34,13 @@ class _FakeClient:
         return self.content, self.usage
 
 
-def _patch_client(monkeypatch: pytest.MonkeyPatch, client: _FakeClient) -> None:
+def _patch_client(monkeypatch: pytest.MonkeyPatch, client: object) -> None:
     monkeypatch.setattr(
-        "shared.services.retrieval.routing.classifier._resolve_client_and_model",
-        lambda: (client, "test-router-model"),
+        "shared.services.retrieval.routing.config.QUERY_ROUTER_MODEL", "test-router-model"
+    )
+    monkeypatch.setattr(
+        "shared.services.ai.openai_compatible_client_sync.get_openai_client",
+        lambda **_kwargs: client,
     )
 
 
@@ -51,6 +55,8 @@ async def test_classifier_parses_classic_json(monkeypatch: pytest.MonkeyPatch) -
     assert decision.source == "llm"
     assert decision.reason == "single fact"
     assert decision.model_name == "test-router-model"
+    assert decision.model_config_source == "default"
+    assert decision.failure_stage is None
     assert decision.tokens_used == 4
     assert client.calls[0]["temperature"] == 0.0
     assert client.calls[0]["response_format"] == {"type": "json_object"}
@@ -88,6 +94,7 @@ async def test_classifier_invalid_mode_falls_back_to_agent(
     assert decision.source == "fallback"
     assert decision.reason == ""
     assert decision.tokens_used == 4
+    assert decision.failure_stage == "model_response"
 
 
 @pytest.mark.asyncio
@@ -102,20 +109,26 @@ async def test_classifier_invalid_json_falls_back_to_agent(
     assert decision.mode is QueryMode.AGENT
     assert decision.source == "fallback"
     assert decision.tokens_used == 4
+    assert decision.failure_stage == "model_response"
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "failure_stage"),
+    [
+        (TimeoutError("router timed out"), "model_request"),
+        (ConnectTimeout("router connection timed out"), "model_connect"),
+        (UnsupportedProtocol("unsupported scheme"), "model_protocol"),
+    ],
+)
 async def test_classifier_exception_falls_back_to_agent(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, error: Exception, failure_stage: str
 ) -> None:
     class _BoomClient:
         def chat_completion_with_usage(self, *_args: object, **_kwargs: object) -> tuple[str, dict[str, int]]:
-            raise TimeoutError("router timed out")
+            raise error
 
-    monkeypatch.setattr(
-        "shared.services.retrieval.routing.classifier._resolve_client_and_model",
-        lambda: (_BoomClient(), "test-router-model"),
-    )
+    _patch_client(monkeypatch, _BoomClient())
 
     decision = await classify_query_mode("anything")
 
@@ -123,6 +136,8 @@ async def test_classifier_exception_falls_back_to_agent(
     assert decision.source == "fallback"
     assert decision.model_name == "test-router-model"
     assert decision.tokens_used == 0
+    assert decision.failure_stage == failure_stage
+    assert decision.failure_error_type == type(error).__name__
 
 
 @pytest.mark.asyncio

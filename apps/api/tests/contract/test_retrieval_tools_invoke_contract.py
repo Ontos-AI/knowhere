@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
+from importlib import import_module
+from types import ModuleType
 from typing import Any, cast
 from unittest.mock import MagicMock
+from uuid import uuid4
 
+import pytest
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 
 from tests.support.import_environment import (
     configure_import_environment,
@@ -36,7 +42,20 @@ def _create_invoke_app() -> FastAPI:
     return app
 
 
-async def test_invoke_rejects_tools_outside_the_hipo_whitelist() -> None:
+@pytest.fixture(autouse=True)
+def active_days(monkeypatch: Any) -> list[dict[str, str]]:
+    from app.api.v2.routes import retrieval as retrieval_routes
+
+    scheduled: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        retrieval_routes, "schedule_active_day_update", lambda **day: scheduled.append(day)
+    )
+    return scheduled
+
+
+async def test_invoke_rejects_tools_outside_the_hipo_whitelist(
+    active_days: list[dict[str, str]],
+) -> None:
     transport = ASGITransport(app=_create_invoke_app())
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
@@ -46,10 +65,11 @@ async def test_invoke_rejects_tools_outside_the_hipo_whitelist() -> None:
 
     assert response.status_code == 400
     assert response.json() == {"detail": "tool is not supported"}
+    assert active_days == []
 
 
 async def test_invoke_dispatches_whitelisted_tool_with_namespace_header(
-    monkeypatch: Any,
+    monkeypatch: Any, active_days: list[dict[str, str]]
 ) -> None:
     from app.api.v2.routes import retrieval as retrieval_routes
 
@@ -70,6 +90,11 @@ async def test_invoke_dispatches_whitelisted_tool_with_namespace_header(
         )
 
     monkeypatch.setattr(retrieval_routes.REGISTRY, "dispatch", fake_dispatch)
+    monkeypatch.setattr(
+        retrieval_routes,
+        "schedule_document_usage_update",
+        lambda **usage: captured.setdefault("usage", usage),
+    )
 
     transport = ASGITransport(app=_create_invoke_app())
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -79,6 +104,7 @@ async def test_invoke_dispatches_whitelisted_tool_with_namespace_header(
             json={
                 "tool": "corpus.recall",
                 "arguments": {"query": "revenue", "scope": [{"document_id": "doc-1"}]},
+                "records_usage": True,
             },
         )
 
@@ -94,7 +120,13 @@ async def test_invoke_dispatches_whitelisted_tool_with_namespace_header(
         "namespace": "brain-ns",
         "user_id": "user_invoke",
         "arguments": {"query": "revenue", "scope": [{"document_id": "doc-1"}]},
+        "usage": {
+            "user_id": "user_invoke",
+            "namespace": "brain-ns",
+            "items": [{"document_id": "doc-1", "chunk_id": None}],
+        },
     }
+    assert active_days == [{"user_id": "user_invoke", "namespace": "brain-ns"}]
 
 
 async def test_invoke_defaults_namespace_when_header_is_omitted(
@@ -123,3 +155,247 @@ async def test_invoke_defaults_namespace_when_header_is_omitted(
     assert response.status_code == 200
     assert captured["namespace"] == "default"
     assert cast(dict[str, object], response.json())["error"] is None
+
+
+@pytest.mark.parametrize(
+    ("arguments", "named"),
+    [
+        (
+            {"refs": [{"document_id": "doc-1", "chunk_id": "c-1"}, {"document_id": "doc-2", "section_path": "Root"}]},
+            [{"document_id": "doc-1", "chunk_id": "c-1"}, {"document_id": "doc-2", "chunk_id": None}],
+        ),
+        ({"scope": [{"document_id": "doc-1", "section_path": "Root"}]}, [{"document_id": "doc-1", "chunk_id": None}]),
+        ({"document_id": "doc-1", "chunk_id": "table-1", "sql": "SELECT 1"}, [{"document_id": "doc-1", "chunk_id": "table-1"}]),
+        ({"query": "revenue"}, []),
+        ({"scope": "not-a-list", "refs": [{"chunk_id": "c-1"}, "doc-1"]}, []),
+    ],
+)
+def test_invoke_counts_documents_the_call_names(
+    arguments: dict[str, Any], named: list[dict[str, Any]]
+) -> None:
+    from app.api.v2.routes.retrieval import documents_named_by_tool_arguments
+
+    assert documents_named_by_tool_arguments(arguments) == named
+
+
+@pytest.mark.parametrize(
+    ("records_usage", "error"),
+    [(True, "document not found"), (False, None), (None, None)],
+    ids=["failed-call", "caller-filled-scope", "flag-omitted"],
+)
+async def test_invoke_counts_only_documents_the_agent_named_in_a_successful_call(
+    monkeypatch: Any, records_usage: bool | None, error: str | None
+) -> None:
+    from app.api.v2.routes import retrieval as retrieval_routes
+
+    from shared.services.retrieval.agent_tools.registry import ToolResult
+
+    async def fake_dispatch(name: str, ctx: object, args: dict[str, Any]) -> ToolResult:
+        del name, ctx, args
+        return ToolResult(text="", payload={}, refs=[], error=error)
+
+    scheduled: list[object] = []
+    monkeypatch.setattr(retrieval_routes.REGISTRY, "dispatch", fake_dispatch)
+    monkeypatch.setattr(
+        retrieval_routes, "schedule_document_usage_update", lambda **usage: scheduled.append(usage)
+    )
+
+    transport = ASGITransport(app=_create_invoke_app())
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/v2/retrieval/tools/invoke",
+            json={
+                "tool": "corpus.read",
+                "arguments": {"refs": [{"document_id": "doc-1"}]},
+                **({} if records_usage is None else {"records_usage": records_usage}),
+            },
+        )
+
+    assert response.status_code == 200
+    assert scheduled == []
+
+
+async def test_invoke_read_records_the_read_document_and_chunk(
+    developer_api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+) -> None:
+    from sqlalchemy import text
+
+    from shared.services.retrieval.stats.recorder import drain_retrieval_hit_stats_updates
+    from tests.contract.test_retrieval_classic_map_unit_contract import _publish_document
+    from tests.support.retrieval_snapshot_support import contract_db_session
+
+    namespace: str = f"invoke-usage-{uuid4().hex[:8]}"
+    chunk_id: str = f"{namespace}-body"
+    async with developer_api_client_factory() as api_client:
+        published: dict[str, str] = await _publish_document(
+            namespace=namespace,
+            source_file_name="usage.pdf",
+            chunks=[
+                {
+                    "chunk_id": chunk_id, "type": "text", "content": "usage evidence",
+                    "path": "usage.pdf/Root/body", "order": 1,
+                },
+            ],
+        )
+        app: FastAPI = import_module("main").app
+        async with AsyncClient(
+            transport=ASGITransport(app=app, raise_app_exceptions=False),
+            base_url=str(api_client.base_url),
+            headers=api_client.headers,
+        ) as client:
+            response: Response = await client.post(
+                "/api/v2/retrieval/tools/invoke",
+                headers={"X-Knowhere-Namespace": namespace},
+                json={
+                    "tool": "corpus.read",
+                    "arguments": {
+                        "refs": [{"document_id": published["document_id"], "chunk_id": chunk_id}]
+                    },
+                    "records_usage": True,
+                },
+            )
+        # The use is recorded off the request path; a cold database can be slow.
+        await drain_retrieval_hit_stats_updates(timeout_seconds=30)
+        async with contract_db_session() as db:
+            rows = await db.execute(
+                text(
+                    "SELECT hit_kind, chunk_id, hit_count FROM retrieval_hit_stats "
+                    "WHERE namespace = :namespace"
+                ),
+                {"namespace": namespace},
+            )
+            counts = {(kind, chunk): count for kind, chunk, count in rows.all()}
+
+    assert response.status_code == 200 and response.json()["error"] is None
+    assert counts == {("document", None): 1, ("chunk", chunk_id): 1}
+
+
+async def test_invoke_rejects_nul_in_grep_scope_section_path(
+    developer_api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+) -> None:
+    from tests.contract.test_retrieval_classic_map_unit_contract import _publish_document
+
+    namespace: str = f"grep-scope-{uuid4().hex[:8]}"
+    async with developer_api_client_factory() as api_client:
+        published: dict[str, str] = await _publish_document(
+            namespace=namespace,
+            source_file_name="contract.pdf",
+            chunks=[
+                {
+                    "chunk_id": "scope-contract-body",
+                    "type": "text",
+                    "content": "Quarterly revenue",
+                    "path": "contract.pdf/Root/Summary",
+                    "order": 1,
+                    "metadata": {},
+                }
+            ],
+        )
+        response: Response = await api_client.post(
+            "/api/v2/retrieval/tools/invoke",
+            headers={"X-Knowhere-Namespace": namespace},
+            json={
+                "tool": "corpus.grep",
+                "arguments": {
+                    "pattern": "revenue",
+                    "scope": [
+                        {
+                            "document_id": published["document_id"],
+                            "section_path": "Quarterly\x00Summary",
+                        }
+                    ],
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "text": "",
+        "payload": {},
+        "refs": [],
+        "error": "grep: scope item section_path must not contain NUL characters",
+    }
+
+
+async def test_invoke_recall_returns_table_connected_to_additive_body(
+    developer_api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy import update
+
+    from app.api.v2.routes.retrieval import RetrievalToolInvokeResponse
+
+    from shared.models.database.document import Document
+    from shared.services.retrieval.lexical.additivevisibility import AdditiveVisibility
+    from shared.services.retrieval.lexical.scope import LexicalScope
+    from shared.services.retrieval.search.map_unit_discovery import DiscoveryResult
+    from shared.testing.contract_runtime import CONTRACT_DEVELOPER_USER_ID
+    from tests.contract.test_retrieval_classic_map_unit_contract import _publish_document
+    from tests.support.retrieval_snapshot_support import contract_db_session
+
+    namespace: str = f"recall-assets-{uuid4().hex[:8]}"
+    build_id: str = "recall-baseline"
+    body_id: str = "revenue-body"
+    table_id: str = "revenue-table"
+    body_text: str = "Revenue by quarter"
+    table_html: str = "<table><tr><th>Quarter</th><th>Revenue</th></tr><tr><td>Q1</td><td>42</td></tr></table>"
+
+    async with developer_api_client_factory() as api_client:
+        published: dict[str, str] = await _publish_document(
+            namespace=namespace,
+            source_file_name="revenue.pdf",
+            chunks=[
+                {
+                    "chunk_id": body_id, "type": "text", "content": body_text,
+                    "path": "revenue.pdf/Root/Revenue/body", "order": 1,
+                    "metadata": {"connect_to": [{"target": table_id}]},
+                },
+                {
+                    "chunk_id": table_id, "type": "table", "content": table_html,
+                    "path": "revenue.pdf/Root/table", "order": 2,
+                },
+            ],
+        )
+        document_id: str = published["document_id"]
+        revision_id: str = published["job_result_id"]
+        async with contract_db_session() as db:
+            await db.execute(
+                update(Document).where(Document.document_id == document_id)
+                .values(current_indexing_build_id=build_id)
+            )
+            await db.commit()
+            hits: list[dict[str, Any]] = await AdditiveVisibility.loadRows(
+                db,
+                scope=LexicalScope(ownerId=CONTRACT_DEVELOPER_USER_ID, namespace=namespace),
+                chunkTargets=((document_id, revision_id, build_id, body_id),),
+            )
+        assert [hit["chunk_id"] for hit in hits] == [body_id]
+
+        async def find_fixture_body(*_args: object, **_kwargs: object) -> DiscoveryResult:
+            return DiscoveryResult(status="ok", payload={"fused_rows": hits})
+
+        recall_module: ModuleType = import_module(
+            "shared.services.retrieval.agent_tools.tools.recall"
+        )
+        monkeypatch.setattr(recall_module, "hybrid_discovery", find_fixture_body)
+        app: FastAPI = import_module("main").app
+        async with AsyncClient(
+            transport=ASGITransport(app=app, raise_app_exceptions=False),
+            base_url=str(api_client.base_url),
+            headers=api_client.headers,
+        ) as client:
+            response: Response = await client.post(
+                "/api/v2/retrieval/tools/invoke",
+                headers={"X-Knowhere-Namespace": namespace},
+                json={"tool": "corpus.recall", "arguments": {"query": "quarterly revenue"}},
+            )
+
+    assert response.status_code == 200
+    result: RetrievalToolInvokeResponse = RetrievalToolInvokeResponse.model_validate(
+        response.json()
+    )
+    assert result.error is None
+    assert result.refs == [{"document_id": document_id, "chunk_id": body_id}]
+    assert result.payload["rows"][0]["mounted_chunk_ids"] == [table_id]
+    assert body_text in result.text
+    assert table_html in result.text
