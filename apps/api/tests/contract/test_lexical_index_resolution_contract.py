@@ -117,8 +117,7 @@ def resolutionRuntime(monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreS
     clear_application_modules()
     asyncio.run(prepare_contract_storage())
     from shared.core.celery_app import celery_app
-    for taskName in ("maintainLexical", "cleanBuild", "cleanArchivedDocument", "cleanFailedAttempt",
-            "collectOrphanInputs", "resolveIndex"):
+    for taskName in ("maintainLexical", "cleanBuild", "cleanArchivedDocument", "cleanFailedAttempt", "resolveIndex"):
         celery_app.tasks.pop(f"shared.services.retrieval.lexical.maintenance.{taskName}", None)
     from shared.services.retrieval.lexical import resolution
     from shared.services.retrieval.lexical.maintenance_signals import LexicalMaintenanceSignals

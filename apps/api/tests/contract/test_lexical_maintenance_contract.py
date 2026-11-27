@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator
+import json
+from pathlib import Path
+import runpy
+import sys
 from uuid import uuid4
 from typing import TypeVar
 from types import SimpleNamespace
@@ -35,7 +39,7 @@ def publishedInput(monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLP
     clear_application_modules()
     asyncio.run(prepare_contract_storage())
     from shared.core.celery_app import celery_app
-    for taskName in ("maintainLexical", "cleanBuild", "cleanArchivedDocument", "cleanFailedAttempt", "collectOrphanInputs"):
+    for taskName in ("maintainLexical", "cleanBuild", "cleanArchivedDocument", "cleanFailedAttempt"):
         celery_app.tasks.pop(f"shared.services.retrieval.lexical.maintenance.{taskName}", None)
     from shared.models.database.user import User
     from shared.models.database.job import Job
@@ -297,16 +301,29 @@ def test_orphan_inventory_keeps_winner_and_live_preparation_then_reclaims(monkey
     bucket: str = LexicalInputStorage().bucket
     adapter.upload_fileobj(BytesIO(b"orphan"), orphan, bucket=bucket)
     collector = LexicalInputCollector(sessionFactory=sessionmaker(engine, expire_on_commit=False))
-    assert collector.discover() == 2
+    page = collector.discover()
+    assert page is not None and len(page.objects) == 2
     assert not collector.collectOrphan(winner)
     assert not collector.collectOrphan(orphan)
+    assert collector.findCandidates() == ((), ())
     identity: str = LexicalInputRetention.getIdentity(bucket=bucket, key=orphan)
     with Session(engine) as db:
         requireRow(db, LexicalInputInventory, identity).firstSeenAt -= timedelta(days=1)
+        requireRow(db, LexicalInputInventory, identity).nextScanAt -= timedelta(days=1)
         db.commit()
     assert not collector.collectOrphan(orphan)  # Even expired but unsettled work retains it.
+    assert collector.findCandidates() == ((), ())
     with Session(engine) as db:
         requireRow(db, IndexingAttempt, attemptId).state = "succeeded"
+        db.commit()
+    assert collector.findCandidates() == ((), (orphan,))
+    with Session(engine) as db:
+        requireRow(db, JobResult, revisionId).indexing_input_key = orphan
+        db.commit()
+    assert not collector.collectOrphan(orphan)
+    assert adapter.exists(orphan, bucket=bucket)
+    with Session(engine) as db:
+        requireRow(db, JobResult, revisionId).indexing_input_key = winner
         db.commit()
     assert collector.collectOrphan(orphan)
     assert not adapter.exists(orphan, bucket=bucket)
@@ -314,9 +331,9 @@ def test_orphan_inventory_keeps_winner_and_live_preparation_then_reclaims(monkey
 
 
 @pytest.mark.parametrize("controlState", [
-    None, ("postgresql", "serving"), ("postgresql", "gated"), ("opensearch", "gated"),
+    None, ("postgresql", "serving"), ("postgresql", "gated"), ("opensearch", "gated"), ("opensearch", "serving"),
 ])
-def test_worker_maintenance_waits_for_persisted_opensearch_serving(
+def test_worker_maintenance_does_not_collect_indexing_inputs(
     monkeypatch: pytest.MonkeyPatch,
     publishedInput: tuple[Engine, str, str, str],
     controlState: tuple[str, str] | None,
@@ -345,6 +362,7 @@ def test_worker_maintenance_waits_for_persisted_opensearch_serving(
         maintenance, "get_sync_session_factory", lambda: sessionmaker(engine, expire_on_commit=False),
     )
     monkeypatch.setattr(LexicalCleanup, "closeEmptyNamespaces", lambda self: 0)
+    monkeypatch.setattr(maintenance, "turnOverIndexes", lambda: 0)
 
     assert maintenance.sweepLexical() == 0
     with Session(engine) as db:
@@ -355,6 +373,83 @@ def test_worker_maintenance_waits_for_persisted_opensearch_serving(
         assert get_cached_storage_adapter().exists(result.indexing_input_key, bucket=LexicalInputStorage().bucket)
         if controlState is None:
             assert db.get(LexicalBackendControl, 1) is None
+
+
+def test_indexing_input_script_dry_run_and_apply_recheck_current_revision(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    publishedInput: tuple[Engine, str, str, str],
+) -> None:
+    from shared.core.config.storage import get_cached_storage_adapter
+    from shared.models.database.document import Document
+    from shared.models.database.job_result import JobResult
+    from shared.models.database.lexicalbuild import LexicalBuild
+    from shared.services.retrieval.lexical import input_collector, maintenance
+    from shared.services.retrieval.lexical.additivecleanup import AdditiveCleanup
+    from shared.services.retrieval.lexical.cleanup import LexicalCleanup
+    from shared.services.retrieval.lexical.coordination import LexicalCoordination
+
+    engine, buildId, _, revisionId = publishedInput
+    sessions: sessionmaker[Session] = sessionmaker(engine, expire_on_commit=False)
+    with sessions.begin() as db:
+        build: LexicalBuild = requireRow(db, LexicalBuild, buildId)
+        build.legacyCopyState = "completed"
+        documentId: str = build.documentId
+        document: Document = requireRow(db, Document, documentId)
+        document.status = "archived"
+        document.index_cleanup_after = LexicalCoordination.getDatabaseTime(db)
+        key: str | None = requireRow(db, JobResult, revisionId).indexing_input_key
+        assert key is not None
+
+    monkeypatch.setattr(maintenance, "get_sync_session_factory", lambda: sessions)
+    monkeypatch.setattr(AdditiveCleanup, "collectDocument", lambda self, identity: True)
+    monkeypatch.setattr(LexicalCleanup, "closeEmptyNamespace", lambda self, identity: False)
+    assert maintenance.cleanArchivedDocument.run(documentId) == "completed"
+
+    script: Path = Path(__file__).resolve().parents[4] / "scripts" / "collect-indexing-inputs.py"
+    collector = input_collector.LexicalInputCollector(sessionFactory=sessions)
+    monkeypatch.setattr(input_collector, "get_sync_session_factory", lambda: sessions)
+    monkeypatch.setattr(sys, "argv", [str(script)])
+    with pytest.raises(SystemExit) as dryRun:
+        runpy.run_path(str(script), run_name="__main__")
+    assert dryRun.value.code == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "mode": "dry-run", "candidates": 1, "assigned_candidates": 1, "orphan_candidates": 0,
+    }
+    with sessions() as db:
+        result: JobResult = requireRow(db, JobResult, revisionId)
+        assert result.indexing_input_next_scan_at is None
+        assert result.indexing_input_gc_attempts == 0
+    adapter = get_cached_storage_adapter()
+    assert adapter.exists(key, bucket=collector.bucket)
+
+    findCandidates = input_collector.LexicalInputCollector.findCandidates
+
+    def restoreReferenceDuringApply(
+        service: input_collector.LexicalInputCollector,
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        candidates: tuple[tuple[str, ...], tuple[str, ...]] = findCandidates(service)
+        with sessions.begin() as db:
+            requireRow(db, Document, documentId).status = "active"
+        return candidates
+
+    monkeypatch.setattr(sys, "argv", [str(script), "--apply"])
+    with monkeypatch.context() as duringApply:
+        duringApply.setattr(input_collector.LexicalInputCollector, "findCandidates", restoreReferenceDuringApply)
+        with pytest.raises(SystemExit) as skipped:
+            runpy.run_path(str(script), run_name="__main__")
+    assert skipped.value.code == 1
+    assert json.loads(capsys.readouterr().out)["not_collected"] == 1
+    assert adapter.exists(key, bucket=collector.bucket)
+
+    with sessions.begin() as db:
+        requireRow(db, Document, documentId).status = "archived"
+        requireRow(db, JobResult, revisionId).indexing_input_next_scan_at = None
+    with pytest.raises(SystemExit) as applied:
+        runpy.run_path(str(script), run_name="__main__")
+    assert applied.value.code == 0
+    assert json.loads(capsys.readouterr().out)["collected"] == 1
+    assert not adapter.exists(key, bucket=collector.bucket)
 
 
 def test_maintenance_visits_later_pending_builds_when_old_work_stays_blocked(monkeypatch: pytest.MonkeyPatch, publishedInput: tuple[Engine, str, str, str]) -> None:
@@ -572,7 +667,8 @@ def test_orphan_survives_inventory_failure_and_canonical_result_removal(monkeypa
         cursor.nextScanAt -= timedelta(days=1)
         db.commit()
     monkeypatch.setattr(adapter, "list_object_page", listPage)
-    assert collector.discover() == 1
+    page = collector.discover()
+    assert page is not None and len(page.objects) == 1
     with Session(engine) as db:
         identity: str = LexicalInputRetention.getIdentity(bucket=bucket, key=key)
         requireRow(db, LexicalInputInventory, identity).firstSeenAt -= timedelta(days=1)

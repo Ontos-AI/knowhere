@@ -309,6 +309,33 @@ rechecks their actual UUIDs before each native snapshot delete, and uses no
 object TTL. File-only `manage.py snapshot-verify` is catalog review; a
 caller-provided digest cannot satisfy the restored payload proof or retention floor.
 
+## On-demand S3 indexing input cleanup
+
+Run the operator script from the repository root on a DevOps host or one-off job
+with access to the target environment's PostgreSQL database. Use the target
+environment's database and object storage settings. Discovery and apply also
+need access to the results bucket configured for indexing inputs.
+
+```bash
+uv run --package knowhere-shared python scripts/collect-indexing-inputs.py --dry-run
+uv run --package knowhere-shared python scripts/collect-indexing-inputs.py --apply
+```
+
+Dry-run is the default. It counts eligible assigned inputs and inventoried
+orphans in a read-only database transaction. Apply inspects fresh candidates
+and rechecks references and active consumers under locks before deleting each
+object. The JSON report includes the number collected and the number left
+untouched. Apply exits with status 1 when any candidate was left untouched,
+including when a new reference or consumer appeared after inspection.
+
+To inventory objects that have yet to be registered, run the discovery mode.
+It lists the indexing input prefix in S3 and updates the database inventory.
+Newly observed orphans become eligible after the existing two-hour grace period.
+
+```bash
+uv run --package knowhere-shared python scripts/collect-indexing-inputs.py --discover
+```
+
 ## Manual native recovery
 
 An `uncertain` registry row on its own does not need this section. Resolution
