@@ -13,7 +13,12 @@ from app.api.v2.routes.retrieval import RetrievalQueryRequestV2
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("body", "expected"),
-    [({}, "explicit"), ({"purpose": "explicit"}, "explicit"), ({"purpose": "automatic"}, "automatic")],
+    [
+        ({}, "explicit"),
+        ({"purpose": "explicit"}, "explicit"),
+        ({"purpose": "automatic"}, "automatic"),
+        ({"purpose": "background"}, "background"),
+    ],
 )
 async def test_purpose_reaches_retrieval(
     monkeypatch: pytest.MonkeyPatch, body: dict[str, str], expected: str
@@ -37,4 +42,4 @@ async def test_purpose_reaches_retrieval(
 
 def test_unknown_purpose_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        retrieval.RetrievalQueryRequest(query="topic", purpose="background")
+        retrieval.RetrievalQueryRequest(query="topic", purpose="scheduled")

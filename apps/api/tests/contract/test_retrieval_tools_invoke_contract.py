@@ -42,7 +42,20 @@ def _create_invoke_app() -> FastAPI:
     return app
 
 
-async def test_invoke_rejects_tools_outside_the_hipo_whitelist() -> None:
+@pytest.fixture(autouse=True)
+def active_days(monkeypatch: Any) -> list[dict[str, str]]:
+    from app.api.v2.routes import retrieval as retrieval_routes
+
+    scheduled: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        retrieval_routes, "schedule_active_day_update", lambda **day: scheduled.append(day)
+    )
+    return scheduled
+
+
+async def test_invoke_rejects_tools_outside_the_hipo_whitelist(
+    active_days: list[dict[str, str]],
+) -> None:
     transport = ASGITransport(app=_create_invoke_app())
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
@@ -52,10 +65,11 @@ async def test_invoke_rejects_tools_outside_the_hipo_whitelist() -> None:
 
     assert response.status_code == 400
     assert response.json() == {"detail": "tool is not supported"}
+    assert active_days == []
 
 
 async def test_invoke_dispatches_whitelisted_tool_with_namespace_header(
-    monkeypatch: Any,
+    monkeypatch: Any, active_days: list[dict[str, str]]
 ) -> None:
     from app.api.v2.routes import retrieval as retrieval_routes
 
@@ -112,6 +126,7 @@ async def test_invoke_dispatches_whitelisted_tool_with_namespace_header(
             "items": [{"document_id": "doc-1", "chunk_id": None}],
         },
     }
+    assert active_days == [{"user_id": "user_invoke", "namespace": "brain-ns"}]
 
 
 async def test_invoke_defaults_namespace_when_header_is_omitted(

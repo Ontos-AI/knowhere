@@ -20,7 +20,10 @@ from shared.core.database import get_db, get_db_context
 from shared.models.schemas.llm_config import LLMConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.agent_tools import REGISTRY, ToolContext
-from shared.services.retrieval.stats.recorder import schedule_document_usage_update
+from shared.services.retrieval.stats.recorder import (
+    schedule_active_day_update,
+    schedule_document_usage_update,
+)
 from shared.services.retrieval.stats.service import record_document_usage
 
 router = APIRouter(tags=["Retrieval"])
@@ -118,6 +121,8 @@ async def invoke_retrieval_tool(
     namespace = normalize_retrieval_namespace(
         request.headers.get(KNOWHERE_NAMESPACE_HEADER)
     )
+    # A corpus tool call is an Agent working in the namespace, so the day is active.
+    schedule_active_day_update(user_id=current_user.user_id, namespace=namespace)
     result = await REGISTRY.dispatch(
         payload.tool,
         ToolContext(

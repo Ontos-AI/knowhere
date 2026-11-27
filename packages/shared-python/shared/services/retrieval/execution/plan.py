@@ -36,6 +36,7 @@ from shared.services.retrieval.execution.revision_pins import (
     is_revision_generation_stable,
 )
 from shared.services.retrieval.stats.recorder import (
+    schedule_active_day_update,
     schedule_retrieval_hit_stats_update,
 )
 from shared.services.retrieval.execution.response_projection import (
@@ -113,6 +114,9 @@ class RetrievalExecutionPlan:
 
     async def execute(self) -> dict[str, Any]:
         request = self.request
+        # Before the cache, so a search answered from the cache still counts.
+        if request.records_activity and request.query:
+            schedule_active_day_update(user_id=request.user_id, namespace=request.namespace)
         override_token = set_llm_overrides_async(request.llm_config)
 
         try:

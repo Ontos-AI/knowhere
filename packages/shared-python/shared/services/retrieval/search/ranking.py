@@ -10,6 +10,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.retrieval.stats.active_days import ActiveDays, load_active_days
 from shared.services.retrieval.stats.service import (
     compute_importance_multiplier,
     compute_importance_score,
@@ -43,8 +44,9 @@ async def load_importance_scores(
     """Importance of each candidate, keyed by document and chunk.
 
     Freshness comes from the document's upload; usage heat from the chunk's
-    recorded uses. A key with an empty chunk holds the document's importance
-    for candidates without a chunk, or chunks never used.
+    recorded uses; both age by the namespace's active days. A key with an
+    empty chunk holds the document's importance for candidates without a
+    chunk, or chunks never used.
     """
     corpusStorage: CorpusStorage = CorpusStorage.resolve_namespace(namespace)
     if corpusStorage.is_demo:
@@ -63,8 +65,11 @@ async def load_importance_scores(
     uploaded_at: dict[str, datetime] = {
         str(document_id): created_at for document_id, created_at in uploads.all()
     }
+    active_days: ActiveDays = await load_active_days(db, user_id=user_id, namespace=namespace)
     importance_scores: dict[str, float] = {
-        _importance_key(document_id, ""): compute_importance_score(0, None, created_at)
+        _importance_key(document_id, ""): compute_importance_score(
+            0, None, active_days.age_after(created_at)
+        )
         for document_id, created_at in uploaded_at.items()
     }
     chunk_ids = sorted(
@@ -93,7 +98,9 @@ async def load_importance_scores(
         if not chunk_id or created_at is None:
             continue
         importance_scores[_importance_key(str(document_id), str(chunk_id))] = (
-            compute_importance_score(hit_count, last_hit_at, created_at)
+            compute_importance_score(
+                hit_count, active_days.age_after(last_hit_at), active_days.age_after(created_at)
+            )
         )
     return importance_scores
 
