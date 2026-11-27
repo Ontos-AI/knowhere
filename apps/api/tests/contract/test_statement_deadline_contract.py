@@ -1,8 +1,9 @@
-"""Owned PostgreSQL checks for the worker's client-side statement deadline (green mode)."""
+"""Owned PostgreSQL checks for API and worker database deadlines."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from importlib import import_module
 import time
 from typing import Any
 
@@ -12,11 +13,55 @@ import pytest
 from loguru import logger
 from psycopg2 import errors
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import DBAPIError
 
 from shared.core.statement_deadline import StatementDeadline
-from shared.testing.contract_runtime import PostgreSQLProcess
+from shared.testing.contract_runtime import (
+    PostgreSQLProcess,
+    clear_application_modules,
+    configure_contract_environment,
+    get_contract_database_url,
+)
 
 Connect = Callable[[], Any]
+
+
+@pytest.mark.asyncio
+async def testApiTransactionTimeouts(
+    monkeypatch: pytest.MonkeyPatch,
+    postgresql_proc: PostgreSQLProcess,
+) -> None:
+    configure_contract_environment(monkeypatch, postgresql_proc)
+    url: URL = make_url(get_contract_database_url()).set(database="postgres")
+    monkeypatch.setenv("DATABASE_URL", url.render_as_string(hide_password=False))
+    clear_application_modules()
+    database = import_module("shared.core.database")
+    try:
+        async with database.engine.connect() as connection:
+            async with connection.begin():
+                await connection.exec_driver_sql("SET statement_timeout = 0")
+                await connection.exec_driver_sql("SET idle_in_transaction_session_timeout = 0")
+
+            async with connection.begin():
+                await connection.exec_driver_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+                assert await connection.scalar(text("SHOW transaction_isolation")) == "repeatable read"
+                assert await connection.scalar(text("SHOW transaction_read_only")) == "on"
+                assert await connection.scalar(text("SHOW statement_timeout")) == "30s"
+                assert await connection.scalar(text("SHOW idle_in_transaction_session_timeout")) == "1min"
+
+        async with database.get_db_context_with_timeouts(120, 6) as session:
+            await session.execute(text("SET statement_timeout = 0"))
+            await session.commit()
+            assert await session.scalar(text("SHOW statement_timeout")) == "120ms"
+            with pytest.raises(DBAPIError) as error:
+                await session.execute(text("SELECT pg_sleep(2)"))
+            assert getattr(error.value.orig, "sqlstate", None) == "57014"
+            await session.rollback()
+            assert await session.scalar(text("SHOW statement_timeout")) == "120ms"
+            assert await session.scalar(text("SELECT 1")) == 1
+    finally:
+        await database.dispose_all_engines()
 
 
 @pytest.fixture

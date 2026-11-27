@@ -37,6 +37,7 @@ env:
   AWS_ECS_PROD_SECRETS_ARN: ${{ secrets.AWS_ECS_PROD_SECRETS_ARN }}
   AWS_ECS_PROD_API_SERVICE_NAME: knowhere-api-prod
   AWS_ECS_PROD_WORKER_SERVICE_NAME: knowhere-worker-prod
+  PROD_DB_SSL_MODE: ${{ vars.PROD_DB_SSL_MODE || 'disable' }}
 
 jobs:
   build-and-publish:
@@ -292,7 +293,7 @@ jobs:
             -m alembic upgrade heads
 
   migrate-ecs-production:
-    name: Run production Aurora database migration
+    name: Run production database migration
     runs-on: ubuntu-latest
     needs: build-and-publish
     if: ${{ github.event_name == 'release' && github.event.action == 'published' }}
@@ -327,7 +328,7 @@ jobs:
           aws ecr get-login-password --region "${AWS_ECS_PROD_REGION}" \
             | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
-      - name: Run migration against production Aurora
+      - name: Run migration against the production database
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_MIGRATION_DATABASE_URL }}
           # The image build metadata uses the short release label `prod`, but
@@ -345,7 +346,7 @@ jobs:
             --env S3_BUCKET_NAME \
             --env TMP_PATH \
             --env S3_TEMP_PATH \
-            --env DB_SSL_MODE=disable \
+            --env "DB_SSL_MODE=${PROD_DB_SSL_MODE}" \
             --env ENVIRONMENT \
             --entrypoint python \
             "${image_uri}" \
@@ -843,7 +844,7 @@ jobs:
             --env S3_BUCKET_NAME \
             --env S3_TEMP_PATH \
             --env TMP_PATH \
-            --env DB_SSL_MODE=disable \
+            --env "DB_SSL_MODE=${PROD_DB_SSL_MODE}" \
             --env ENVIRONMENT \
             --entrypoint python \
             "${API_IMAGE}" \
@@ -871,7 +872,7 @@ jobs:
           DEPLOYMENT_ENVIRONMENT: prod
           RUNTIME_ENVIRONMENT: production
           APP_ENV: production
-          DB_SSL_MODE: disable
+          DB_SSL_MODE: ${{ env.PROD_DB_SSL_MODE }}
           API_DB_POOL_SIZE: "50"
           API_DB_MAX_OVERFLOW: "50"
           WORKER_DB_SYNC_POOL_SIZE: "5"
