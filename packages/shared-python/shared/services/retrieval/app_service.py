@@ -9,6 +9,7 @@ from shared.models.schemas.retrieval_namespace import normalize_retrieval_namesp
 from shared.services.retrieval.execution.plan import (
     run_retrieval_query as execute_retrieval_query,
 )
+from shared.services.retrieval.execution.query_request import RetrievalPurpose
 
 __all__ = ["run_retrieval_query"]
 
@@ -33,6 +34,7 @@ async def run_retrieval_query(
     agent_explore_model: str | None = None,
     conversation_id: str | None = None,
     llm_config: LLMConfig | None = None,
+    purpose: RetrievalPurpose = "explicit",
 ) -> dict[str, Any]:
     return await execute_retrieval_query(
         db=db,
@@ -53,4 +55,5 @@ async def run_retrieval_query(
         agent_explore_model=agent_explore_model,
         conversation_id=conversation_id,
         llm_config=llm_config,
+        purpose=purpose,
     )

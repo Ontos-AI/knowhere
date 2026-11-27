@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import (
-    AuthException,
     KnowhereException,
     StripeServiceException,
     SystemSettingMissingException,
@@ -29,6 +28,10 @@ StripeEvent: TypeAlias = dict[str, Any]
 StripeWebhookHandler: TypeAlias = Callable[
     [AsyncSession, StripeEvent], Awaitable[dict[str, object]]
 ]
+
+
+class StripeWebhookValidationException(ValidationException):
+    """Stripe rejected the webhook request before dispatch."""
 
 
 class StripeWebhookService:
@@ -71,27 +74,37 @@ class StripeWebhookService:
         payload: bytes,
         sig_header: str,
     ) -> dict[str, object]:
+        webhook_secret: str | None = settings.STRIPE_WEBHOOK_SECRET
+        if not webhook_secret:
+            raise SystemSettingMissingException(
+                internal_message="Stripe webhook secret not configured (STRIPE_WEBHOOK_SECRET)"
+            )
+
         try:
             event = stripe.Webhook.construct_event(
                 payload,
                 sig_header,
-                settings.STRIPE_WEBHOOK_SECRET,
+                webhook_secret,
             )
-            return await self._dispatch_event(db, event)
         except ValueError as exc:
-            logger.error(f"Invalid payload: {exc}")
-            raise ValidationException(
+            raise StripeWebhookValidationException(
                 user_message="Invalid webhook payload",
                 violations=[
                     {"field": "payload", "description": "Webhook payload is malformed"}
                 ],
-            )
+            ) from exc
         except stripe.SignatureVerificationError as exc:
-            logger.error(f"Invalid signature: {exc}")
-            raise AuthException(
+            raise StripeWebhookValidationException(
                 user_message="Invalid webhook signature",
-                internal_message=f"Webhook signature verification failed: {exc}",
-            )
+                violations=[
+                    {
+                        "field": "Stripe-Signature",
+                        "description": "Stripe-Signature could not be verified",
+                    }
+                ],
+            ) from exc
+
+        return await self._dispatch_event(db, event)
 
     async def _dispatch_event(
         self,

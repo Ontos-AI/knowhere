@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 
 class QueryMode(str, Enum):
@@ -17,6 +17,11 @@ class RouterDecision:
     source: str
     model_name: str
     tokens_used: int
+    model_config_source: Literal["default", "request"] | None = None
+    attempted_model_name: str | None = None
+    failure_stage: str | None = None
+    failure_error_type: str | None = None
+    failure_errno: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {

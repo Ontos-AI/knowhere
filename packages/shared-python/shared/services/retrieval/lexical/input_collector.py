@@ -20,6 +20,7 @@ from shared.models.database.lexicalinputinventory import LexicalInputInventory
 from shared.models.database.lexicallease import LexicalLease
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.demo_authorization import authorize_demo_transaction
+from shared.services.retrieval.lexical.cleanupbatch import CleanupBatch
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
 from shared.services.retrieval.lexical.error import LexicalIndexError
 from shared.services.retrieval.lexical.input_retention import LexicalInputRetention
@@ -28,8 +29,11 @@ from shared.services.storage.object_inventory_page import ObjectInventoryPage
 
 _INPUT_PATTERN: re.Pattern[str] = re.compile(r"indexing-input/v1/([^/]{1,36})/([^/]{1,36})/[a-f0-9]{64}(?:-[a-f0-9]{32})?\.json\.zlib")
 _SCAN_INTERVAL: timedelta = timedelta(minutes=5)
+# A current published input stays needed until its document is archived, and
+# archival dispatches its own collection. The safety sweep only rechecks it daily.
+_CURRENT_INPUT_RECHECK_INTERVAL: timedelta = timedelta(days=1)
 _ORPHAN_GRACE: timedelta = timedelta(seconds=7200)
-_MAXIMUM_SCAN: int = 100
+MAXIMUM_SCAN: int = 100
 _MAXIMUM_BATCH: int = 20
 _MAXIMUM_BYTES: int = 64 * 1024 * 1024
 _CURSOR_KEY: str = "__indexing_input_cursor__"
@@ -41,11 +45,17 @@ class LexicalInputCollector:
         self.bucket: str = LexicalInputStorage().bucket
 
     def run(self) -> int:
-        """Process one fair batch from each queue; no age cutoff on eligibility."""
+        """List new bucket objects, then process one fair batch from each queue."""
         try:
             self.discover()
         except Exception as error:
             logger.warning("Indexing input inventory deferred: error_type={}", type(error).__name__)
+        completed: int = self.runBatch().succeeded
+        self._logBacklog()
+        return completed
+
+    def runBatch(self) -> CleanupBatch:
+        """Process one fair batch from each queue without listing the bucket; no age cutoff on eligibility."""
         with self.sessions.begin() as db:
             now: datetime = LexicalCoordination.getDatabaseTime(db)
             results: list[JobResult] = list(db.scalars(select(JobResult).options(noload("*")).where(
@@ -90,11 +100,14 @@ class LexicalInputCollector:
             if self.collectOrphan(key):
                 completed += 1
                 reclaimedBytes += size
-        self._logBacklog()
-        return completed
+        return CleanupBatch(claimed=len(revisions) + len(keys), succeeded=completed)
 
-    def discover(self) -> int:
-        """One persisted key cursor and at most one remote listing request."""
+    def discover(self, *, isImmediate: bool = False) -> int:
+        """One persisted key cursor and at most one remote listing request.
+
+        ``isImmediate`` lets an operator page through the bucket without waiting
+        for the cursor's next scan time.
+        """
         identity: str = LexicalInputRetention.getIdentity(bucket=self.bucket, key=_CURSOR_KEY)
         with self.sessions.begin() as db:
             now: datetime = LexicalCoordination.getDatabaseTime(db)
@@ -103,13 +116,13 @@ class LexicalInputCollector:
                 .on_conflict_do_nothing(index_elements=["id"]))
             cursor: LexicalInputInventory | None = db.scalar(select(LexicalInputInventory).where(
                 LexicalInputInventory.id == identity).with_for_update(skip_locked=True))
-            if cursor is None or cursor.nextScanAt > now:
+            if cursor is None or (not isImmediate and cursor.nextScanAt > now):
                 return 0
             after: str | None = cursor.scanAfter
             cursor.nextScanAt = now + _SCAN_INTERVAL
         try:
             page: ObjectInventoryPage = get_cached_storage_adapter().list_object_page(
-                prefix="indexing-input/v1/", after=after, limit=_MAXIMUM_SCAN, bucket=self.bucket)
+                prefix="indexing-input/v1/", after=after, limit=MAXIMUM_SCAN, bucket=self.bucket)
         except Exception as error:
             self._recordFailure(_CURSOR_KEY, None, error)
             raise
@@ -158,6 +171,7 @@ class LexicalInputCollector:
                     result.indexing_input_bytes = knownSize
                 # Backend verification and rollback both read the current published input.
                 if document is not None and document.status == "active" and document.current_job_result_id == result.id:
+                    result.indexing_input_next_scan_at = now + _CURRENT_INPUT_RECHECK_INTERVAL
                     return False
                 if self._hasConsumer(db, result, job, document, includeRetry=True):
                     return False
@@ -314,4 +328,4 @@ class LexicalInputCollector:
                 JobResult.indexing_input_key.is_not(None), JobResult.indexing_input_gc_state != "deleted")) or 0)
         oldestSeconds: float = max(0, (now - firstSeen).total_seconds()) if firstSeen is not None else 0
         logger.info("Indexing input backlog: pending_objects={} bytes={} oldest_seen={} oldest_seconds={} assigned_retained={} scan_limit={} queue_batch_limit={} byte_limit={} orphan_grace_seconds={}",
-            count, size, firstSeen, oldestSeconds, retained, _MAXIMUM_SCAN, _MAXIMUM_BATCH, _MAXIMUM_BYTES, int(_ORPHAN_GRACE.total_seconds()))
+            count, size, firstSeen, oldestSeconds, retained, MAXIMUM_SCAN, _MAXIMUM_BATCH, _MAXIMUM_BYTES, int(_ORPHAN_GRACE.total_seconds()))

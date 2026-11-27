@@ -2,12 +2,14 @@
 
 import asyncio
 import json
-from contextlib import asynccontextmanager
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy import select
 
 from shared.models.database.document import DocumentChunk, GraphEdge, GraphNode
@@ -15,6 +17,7 @@ from shared.services.retrieval.agent_explore.dispatch import dispatch_tool_call
 from shared.services.retrieval.agent_explore.budget import EpisodeBudget
 from shared.services.retrieval.agent_explore.evidence_pool import Candidate
 from shared.services.retrieval.agent_explore.types import EpisodeResult
+from shared.services.retrieval.agent_tools import ToolResult
 from shared.services.retrieval.cache_service import _cache_shape_digest
 from shared.services.retrieval.document_scope import DocumentScope
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
@@ -106,6 +109,34 @@ def _matrix(ids):
         (["missing"], [], set()),
         ([a, a, b], [c], {a, b}),
     ]
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "result_key"),
+    [
+        ("corpus.list_documents", {}, "documents"),
+        ("corpus.grep", {"pattern": "scopeprobe"}, "rows"),
+    ],
+)
+async def test_corpus_tools_return_empty_results_for_empty_namespace(
+    developer_api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    tool_name: str,
+    arguments: dict[str, str],
+    result_key: str,
+) -> None:
+    namespace: str = f"empty-corpus-{uuid4().hex[:8]}"
+    async with developer_api_client_factory():
+        result: ToolResult = await dispatch_tool_call(
+            tool_name,
+            arguments,
+            db_factory=contract_db_session,
+            user_id="local-dev-user",
+            namespace=namespace,
+        )
+
+    assert result.error is None
+    assert result.payload[result_key] == []
+    assert result.refs == []
 
 
 async def test_scope_matrix_all_corpus_tools_and_refs(developer_api_client_factory):

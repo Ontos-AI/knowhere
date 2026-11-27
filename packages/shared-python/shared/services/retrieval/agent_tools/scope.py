@@ -97,15 +97,19 @@ async def resolve_scope(
     if not items:
         return [], "scope requires at least one {document_id, section_path?} item"
 
-    document_ids: list[str] = []
+    scope_items: list[tuple[str, str]] = []
     for item in items:
         if not isinstance(item, dict):
             return [], f"scope item must be an object with document_id, got {item!r}"
-        document_id = str(item.get("document_id") or "").strip()
+        document_id: str = str(item.get("document_id") or "").strip()
         if not document_id:
             return [], "scope item requires document_id"
-        document_ids.append(document_id)
+        raw_path: str = str(item.get("section_path") or "").strip()
+        if "\x00" in raw_path:
+            return [], "scope item section_path must not contain NUL characters"
+        scope_items.append((document_id, raw_path))
 
+    document_ids: list[str] = [document_id for document_id, _ in scope_items]
     documents = (
         (
             await db.execute(
@@ -125,12 +129,10 @@ async def resolve_scope(
     }
 
     targets: list[ScopeTarget] = []
-    for item in items:
-        document_id = str(item.get("document_id") or "").strip()
+    for document_id, raw_path in scope_items:
         job_result_id = revision_by_doc.get(document_id)
         if not job_result_id:
             return [], f"unknown document_id: {document_id}"
-        raw_path = str(item.get("section_path") or "").strip()
         if not raw_path:
             targets.append(ScopeTarget(document_id, job_result_id, None))
             continue

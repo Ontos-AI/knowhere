@@ -16,6 +16,7 @@ from typing import Any
 from shared.services.chunks.asset_descriptor import PAGE_MEDIA_KINDS
 from shared.services.retrieval.agent_tools.registry import ToolContext
 from shared.services.retrieval.corpus_revision_context import CorpusRevisionContext
+from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.hydration.assets import (
     enrich_rows_with_retrieval_asset_url,
 )
@@ -28,6 +29,7 @@ from shared.services.retrieval.hydration.row_utils import (
     with_lit_pages,
 )
 from shared.services.retrieval.hydration.table_grid import render_explore_table
+from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.settings import ASSET_CHUNK_TYPES
 
 _BODY_CHUNK_TYPES = ("text", "page")
@@ -78,6 +80,12 @@ async def mount_explore_hits(
     ]
     connected_rows: list[dict[str, Any]] = []
     if body_hits:
+        lexical_scope: LexicalScope | None = None
+        if any(hit.get("uses_additive_visibility") for hit in body_hits):
+            storage: CorpusStorage = CorpusStorage.resolve_namespace(ctx.namespace)
+            lexical_scope = LexicalScope(
+                ownerId=storage.resolve_owner(ctx.user_id), namespace=ctx.namespace
+            )
         connected_rows = await hydrate_connected_target_rows(
             db=ctx.db,
             rows=body_hits,
@@ -85,6 +93,7 @@ async def mount_explore_hits(
             document_scope=ctx.document_scope,
             exclude_sections=[],
             revision_pins=CorpusRevisionContext.get_pins(),
+            lexicalScope=lexical_scope,
         )
 
     render_rows = [

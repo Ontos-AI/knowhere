@@ -36,14 +36,14 @@ JOB_EXPIRED_ERROR_MESSAGE = (
 JOB_EXPIRED_ERROR_CODE = "JOB_EXPIRED"
 
 # Matches the beat_schedule period in celery_app.py
-_TASK_PERIOD_SECONDS = 1800
+_TASK_PERIOD_SECONDS = 3600
 
 
 @celery_app.task(name="app.core.tasks.stale_job_sweeper.expire_stale_jobs")
 def expire_stale_jobs() -> dict:
     """Settle overdue uploads and expire stale parser Jobs.
 
-    Runs every 30 minutes via Celery Beat. Uses ``SyncStateMachineService``
+    Runs hourly via Celery Beat. Uses ``SyncStateMachineService``
     for CAS-protected state transitions and proper audit logging.
 
     A ``periodic_task_lock`` guards against duplicate execution when multiple

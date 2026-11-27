@@ -35,7 +35,8 @@ def publishedInput(monkeypatch: pytest.MonkeyPatch, postgresql_proc: PostgreSQLP
     clear_application_modules()
     asyncio.run(prepare_contract_storage())
     from shared.core.celery_app import celery_app
-    celery_app.tasks.pop("shared.services.retrieval.lexical.maintenance.maintainLexical", None)
+    for taskName in ("maintainLexical", "cleanBuild", "cleanArchivedDocument", "cleanFailedAttempt", "collectOrphanInputs"):
+        celery_app.tasks.pop(f"shared.services.retrieval.lexical.maintenance.{taskName}", None)
     from shared.models.database.user import User
     from shared.models.database.job import Job
     from shared.models.database.job_result import JobResult
@@ -345,7 +346,7 @@ def test_worker_maintenance_waits_for_persisted_opensearch_serving(
     )
     monkeypatch.setattr(LexicalCleanup, "closeEmptyNamespaces", lambda self: 0)
 
-    assert maintenance.maintainLexical() == 0
+    assert maintenance.sweepLexical() == 0
     with Session(engine) as db:
         result: JobResult = requireRow(db, JobResult, revisionId)
         assert result.indexing_input_gc_state == "retained"
@@ -378,9 +379,9 @@ def test_maintenance_visits_later_pending_builds_when_old_work_stays_blocked(mon
     monkeypatch.setattr(maintenance, "get_sync_session_factory", lambda: sessionmaker(engine, expire_on_commit=False))
     monkeypatch.setattr(LegacyLexicalCopy, "run", lambda self, identity: visited.append(identity) or False)
     monkeypatch.setattr(copy_dispatch, "_COPY_POOL", SimpleNamespace(trySubmit=lambda operation: operation() or True))
-    maintenance.maintainLexical()
+    maintenance.sweepLexical()
     monkeypatch.setattr(LexicalCoordination, "getDatabaseTime", lambda db: now + timedelta(minutes=10))
-    maintenance.maintainLexical()
+    maintenance.sweepLexical()
     assert "fair-20" in visited
 
 
@@ -401,7 +402,7 @@ def test_copy_failure_does_not_skip_same_build_cleanup(monkeypatch: pytest.Monke
     monkeypatch.setattr(LegacyLexicalCopy, "run", failCopy)
     monkeypatch.setattr(copy_dispatch, "_COPY_POOL", SimpleNamespace(trySubmit=lambda operation: operation() or True))
     monkeypatch.setattr(LexicalCleanup, "collect", lambda self, identity: cleaned.append(identity) or True)
-    maintenance.maintainLexical()
+    maintenance.sweepLexical()
     assert cleaned == [buildId]
 
 
@@ -579,3 +580,174 @@ def test_orphan_survives_inventory_failure_and_canonical_result_removal(monkeypa
         db.commit()
     assert collector.collectOrphan(key)
     assert not adapter.exists(key, bucket=bucket)
+
+
+@pytest.fixture
+def dispatchedMaintenance(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[tuple[str, tuple[object, ...], float]]]:
+    """Capture maintenance tasks sent after commit; the sweep owns anything not captured."""
+    from shared.core.celery_app import celery_app
+    from shared.services.retrieval.lexical.maintenance_signals import LexicalMaintenanceSignals
+
+    sent: list[tuple[str, tuple[object, ...], float]] = []
+
+    def captureTask(name: str, args: tuple[object, ...] = (), countdown: float = 0, **options: object) -> None:
+        sent.append((name, tuple(args), countdown))
+
+    monkeypatch.setattr(celery_app, "send_task", captureTask)
+    monkeypatch.setattr(LexicalMaintenanceSignals, "_dispatchPool",
+        SimpleNamespace(trySubmit=lambda operation: operation() or True, close=lambda: None))
+    LexicalMaintenanceSignals.install()
+    try:
+        yield sent
+    finally:
+        LexicalMaintenanceSignals.uninstall()
+
+
+def test_committed_pending_cleanup_dispatches_once_and_rollback_dispatches_nothing(
+    publishedInput: tuple[Engine, str, str, str],
+    dispatchedMaintenance: list[tuple[str, tuple[object, ...], float]],
+) -> None:
+    from shared.models.database.lexicalbuild import LexicalBuild
+    from shared.services.retrieval.lexical.maintenance_signals import CLEAN_BUILD_TASK
+
+    engine, buildId, _, _ = publishedInput
+    with Session(engine) as db:
+        requireRow(db, LexicalBuild, buildId).cleanupState = "pending"
+        db.flush()
+        assert dispatchedMaintenance == []
+        db.rollback()
+    assert dispatchedMaintenance == []
+    with Session(engine) as db:
+        requireRow(db, LexicalBuild, buildId).cleanupState = "pending"
+        db.commit()
+    assert [(name, args) for name, args, _ in dispatchedMaintenance] == [(CLEAN_BUILD_TASK, (buildId,))]
+    with Session(engine) as db:
+        build: LexicalBuild = requireRow(db, LexicalBuild, buildId)
+        build.cleanupState = "pending"
+        build.nextMaintenanceAt = None
+        db.commit()
+    assert len(dispatchedMaintenance) == 1
+
+
+def test_new_candidate_build_with_pending_cleanup_is_dispatched(
+    publishedInput: tuple[Engine, str, str, str],
+    dispatchedMaintenance: list[tuple[str, tuple[object, ...], float]],
+) -> None:
+    from shared.models.database.lexicalbuild import LexicalBuild
+    from shared.services.retrieval.lexical.maintenance_signals import CLEAN_BUILD_TASK
+
+    engine, buildId, _, _ = publishedInput
+    with Session(engine) as db:
+        original: LexicalBuild = requireRow(db, LexicalBuild, buildId)
+        candidate: LexicalBuild = LexicalBuild(attemptId=original.attemptId,
+            namespaceIndexId=original.namespaceIndexId, documentId=original.documentId,
+            revisionId=original.revisionId, ownerToken=str(uuid4()), cleanupState="pending")
+        db.add(candidate)
+        db.commit()
+        candidateId: str = candidate.id
+    assert [(name, args) for name, args, _ in dispatchedMaintenance] == [(CLEAN_BUILD_TASK, (candidateId,))]
+
+
+def test_archived_document_and_failed_attempt_cleanup_are_dispatched(
+    publishedInput: tuple[Engine, str, str, str],
+    dispatchedMaintenance: list[tuple[str, tuple[object, ...], float]],
+) -> None:
+    from shared.models.database.document import Document
+    from shared.models.database.lexicalbuild import LexicalBuild
+    from shared.services.retrieval.lexical.coordination import LexicalCoordination
+    from shared.services.retrieval.lexical.maintenance_signals import CLEAN_ARCHIVED_DOCUMENT_TASK
+
+    engine, buildId, _, _ = publishedInput
+    with Session(engine) as db:
+        documentId: str = requireRow(db, LexicalBuild, buildId).documentId
+        document: Document = requireRow(db, Document, documentId)
+        document.status = "archived"
+        document.index_cleanup_after = LexicalCoordination.getDatabaseTime(db)
+        db.commit()
+    assert [(name, args) for name, args, _ in dispatchedMaintenance] == [(CLEAN_ARCHIVED_DOCUMENT_TASK, (documentId,))]
+
+
+def test_clean_build_defers_until_due_then_collects(
+    monkeypatch: pytest.MonkeyPatch,
+    publishedInput: tuple[Engine, str, str, str],
+    dispatchedMaintenance: list[tuple[str, tuple[object, ...], float]],
+) -> None:
+    from datetime import timedelta
+    from shared.models.database.lexicalbuild import LexicalBuild
+    from shared.services.retrieval.lexical import maintenance
+    from shared.services.retrieval.lexical.cleanup import LexicalCleanup
+    from shared.services.retrieval.lexical.coordination import LexicalCoordination
+    from shared.services.retrieval.lexical.maintenance_signals import CLEAN_BUILD_TASK
+
+    engine, buildId, _, _ = publishedInput
+    with Session(engine) as db:
+        build: LexicalBuild = requireRow(db, LexicalBuild, buildId)
+        build.state = "retired"
+        build.cleanupState = "pending"
+        build.nextMaintenanceAt = LexicalCoordination.getDatabaseTime(db) + timedelta(minutes=10)
+        db.commit()
+    dispatchedMaintenance.clear()
+    collected: list[str] = []
+
+    def completeCollection(self: LexicalCleanup, identity: str) -> bool:
+        collected.append(identity)
+        with Session(engine) as db:
+            requireRow(db, LexicalBuild, identity).cleanupState = "completed"
+            db.commit()
+        return True
+
+    monkeypatch.setattr(maintenance, "get_sync_session_factory", lambda: sessionmaker(engine, expire_on_commit=False))
+    monkeypatch.setattr(LexicalCleanup, "collect", completeCollection)
+    monkeypatch.setattr(LexicalCleanup, "closeEmptyNamespace", lambda self, identity: False)
+
+    assert maintenance.cleanBuild.run(buildId) == "deferred"
+    assert collected == []
+    assert [(name, args[0]) for name, args, _ in dispatchedMaintenance] == [(CLEAN_BUILD_TASK, buildId)]
+    assert 590 <= dispatchedMaintenance[0][2] <= 610
+
+    with Session(engine) as db:
+        requireRow(db, LexicalBuild, buildId).nextMaintenanceAt = None
+        db.commit()
+    assert maintenance.cleanBuild.run(buildId) == "completed"
+    assert collected == [buildId]
+    assert maintenance.cleanBuild.run(buildId) == "skipped"
+
+
+def test_sweep_drains_every_due_build_in_one_run(monkeypatch: pytest.MonkeyPatch, publishedInput: tuple[Engine, str, str, str]) -> None:
+    from shared.models.database.lexicalbuild import LexicalBuild
+    from shared.services.retrieval.lexical import maintenance
+    from shared.services.retrieval.lexical.cleanup import LexicalCleanup
+
+    engine, buildId, _, _ = publishedInput
+    with Session(engine) as db:
+        original: LexicalBuild = requireRow(db, LexicalBuild, buildId)
+        original.legacyCopyState = "completed"
+        for _ in range(45):
+            db.add(LexicalBuild(attemptId=original.attemptId, namespaceIndexId=original.namespaceIndexId,
+                documentId=original.documentId, revisionId=original.revisionId, ownerToken=str(uuid4()),
+                state="failed", legacyCopyState="skipped", cleanupState="pending"))
+        db.commit()
+    collected: list[str] = []
+    monkeypatch.setattr(maintenance, "get_sync_session_factory", lambda: sessionmaker(engine, expire_on_commit=False))
+    monkeypatch.setattr(LexicalCleanup, "collect", lambda self, identity: collected.append(identity) or False)
+    monkeypatch.setattr(LexicalCleanup, "closeEmptyNamespaces", lambda self: 0)
+    monkeypatch.setattr(maintenance, "turnOverIndexes", lambda: 0)
+    maintenance.sweepLexical()
+    assert len(collected) == 45
+
+
+def test_current_revision_input_is_rechecked_daily(publishedInput: tuple[Engine, str, str, str]) -> None:
+    from datetime import timedelta
+    from shared.models.database.job_result import JobResult
+    from shared.services.retrieval.lexical.coordination import LexicalCoordination
+    from shared.services.retrieval.lexical.input_collector import LexicalInputCollector
+
+    engine, _, _, revisionId = publishedInput
+    collector = LexicalInputCollector(sessionFactory=sessionmaker(engine, expire_on_commit=False))
+    assert not collector.collectAssigned(revisionId)
+    with Session(engine) as db:
+        result: JobResult = requireRow(db, JobResult, revisionId)
+        now = LexicalCoordination.getDatabaseTime(db)
+        assert result.indexing_input_gc_state == "retained"
+        assert result.indexing_input_next_scan_at is not None
+        assert result.indexing_input_next_scan_at >= now + timedelta(hours=23)

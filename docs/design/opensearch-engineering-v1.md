@@ -640,14 +640,48 @@ caller-epoch fencing. An open response with `shards_acknowledged=false` does
 not prove closed state; a close response may report per-index failures.
 Inspect the complete response and actual index/primary/block state.
 
-If the issuer dies, the response is lost, or completion cannot be established,
-mark that index `uncertain`. Keep its slot charged. Do not send an opposite
-operation, admit a new writer through the lifecycle/claim path, or clear
-uncertainty merely because a SQL lease expired or a state read currently looks
-correct. Reconcile the unresolved issuer before new/conflicting lifecycle
-operations or new writer admission. Existing writer claims still require all
+A close that the node does not answer is retried, at most three attempts, under
+the same `closing` reservation. Each attempt first reads the index, because an
+unanswered close usually still finishes on the node. The reservation keeps any
+open from interleaving, so resending the same close is safe. A retryable or
+unknown-outcome response is retried. A non-retryable rejection, an elapsed
+deadline, or a node restart ends the attempts.
+
+If the issuer dies, the response is lost, or completion still cannot be
+established, mark that index `uncertain`. Keep its slot charged. Do not admit a
+new writer through the lifecycle/claim path, and do not clear uncertainty merely
+because a SQL lease expired. Existing writer claims still require all
 ownership/expiry/epoch/index checks; this paragraph grants no mutation bypass
 and cannot cancel an already dispatched native request.
+
+Amended 2026-11-26: uncertainty is resolved automatically, not by an operator.
+At capacity, an unresolved slot blocks its namespace and every new one, so
+leaving it for a person costs more than the bounded race below. Committing
+`uncertain` dispatches resolution about 30 seconds later. Resolution retries
+itself up to three times, and the hourly maintenance sweep repeats it for every
+unsettled row. Resolution drives the index to confirmed `closed`, the one state
+reachable from every unknown outcome:
+
+- If the node reports the registered UUID closed, record `closed`.
+- If it reports the registered UUID open, close it again under a fresh
+  reservation, with the retry above.
+- If the UUID or name differs, or the index is neither open nor closed, change
+  nothing and leave it `uncertain`.
+- An index with a live reservation (`opening`/`closing` within the operation
+  expiry) is left to its issuer.
+
+A later use reopens the index through ordinary admission. The accepted residual
+risk is a delayed request from the lost operation landing after a reopen. A
+late close fails reads into the bounded closed-index recovery, then
+unavailable. It fails a write execution without replay. A late open leaves a
+registry/native mismatch that the next reconcile marks `uncertain` again, so
+resolution converges. Neither loses or corrupts records.
+
+Only resolution that keeps failing alerts. A dispatched chain logs one
+`lexical.index_lifecycle.unresolved` error after its last attempt. Each sweep
+logs one error listing its still-failing rows. Both reach the existing Logfire
+error-log alert. Marking `uncertain` itself is a warning. Identity mismatches
+still need the operator route below.
 
 Ordinary hot readers do not consult registry lifecycle state, register an
 operation lease or wait for lifecycle transitions. An otherwise valid captured
