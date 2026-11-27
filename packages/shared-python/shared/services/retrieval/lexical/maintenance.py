@@ -34,7 +34,6 @@ from shared.services.retrieval.lexical.additivecleanup import AdditiveCleanup
 from shared.services.retrieval.lexical.cleanup import LexicalCleanup
 from shared.services.retrieval.lexical.cleanupbatch import CleanupBatch
 from shared.services.retrieval.lexical.copy_dispatch import LegacyCopyDispatch
-from shared.services.retrieval.lexical.input_collector import MAXIMUM_SCAN, LexicalInputCollector
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
 from shared.services.retrieval.lexical.maintenance_signals import (
     CLEAN_ARCHIVED_DOCUMENT_TASK, CLEAN_BUILD_TASK, CLEAN_FAILED_ATTEMPT_TASK, RESOLVE_INDEX_TASK,
@@ -46,7 +45,6 @@ from shared.services.retrieval.lexical.scope import LexicalScope
 from shared.services.retrieval.lexical.turnover import turnOverIndexes
 
 MAINTAIN_TASK: Final[str] = "shared.services.retrieval.lexical.maintenance.maintainLexical"
-COLLECT_ORPHAN_INPUTS_TASK: Final[str] = "shared.services.retrieval.lexical.maintenance.collectOrphanInputs"
 # Matches the hourly beat_schedule slot in celery_app.py.
 _SWEEP_PERIOD_SECONDS: Final[int] = 3600
 # The sweep drains due work in bounded passes and stops well before the next slot.
@@ -87,7 +85,6 @@ def sweepLexical() -> int:
         completed += _runSafely("Index resolution",
             lambda: LexicalIndexResolution(sessionFactory=sessions).resolveDue(deadline))
         completed += _drain("Additive index", lambda: AdditiveCleanup(sessions).runBatch(), deadline)
-        completed += _drain("Indexing input", lambda: LexicalInputCollector(sessionFactory=sessions).runBatch(), deadline)
         completed += _runSafely("Empty namespace", lambda: LexicalCleanup(sessionFactory=sessions).closeEmptyNamespaces())
         completed += _runSafely("Index turnover", turnOverIndexes)
     completed += _runSafely("Manifest", lambda: collectPublishedManifests(sessions))
@@ -122,7 +119,7 @@ def cleanBuild(buildId: str, hop: int = 0) -> _Outcome:
 
 @celery_app.task(name=CLEAN_ARCHIVED_DOCUMENT_TASK)
 def cleanArchivedDocument(documentId: str, hop: int = 0) -> _Outcome:
-    """Remove one archived document from its index, then release its input and empty namespace."""
+    """Remove one archived document from its index and close an empty namespace."""
     sessions: sessionmaker[Session] = get_sync_session_factory()
     with sessions.begin() as db:
         document: Document | None = db.get(Document, documentId)
@@ -132,12 +129,8 @@ def cleanArchivedDocument(documentId: str, hop: int = 0) -> _Outcome:
         if document.index_cleanup_after > now:
             return _reschedule(CLEAN_ARCHIVED_DOCUMENT_TASK, documentId, document.index_cleanup_after - now, hop)
         namespaceIndexId: str = LexicalScope(ownerId=document.user_id, namespace=document.namespace).fingerprint
-        revisionId: str | None = document.current_job_result_id
     if not AdditiveCleanup(sessions).collectDocument(documentId):
         return _reschedule(CLEAN_ARCHIVED_DOCUMENT_TASK, documentId, _CLAIM_LEASE, hop)
-    if revisionId is not None:
-        _runSafely("Indexing input", lambda: int(
-            LexicalInputCollector(sessionFactory=sessions).collectAssigned(revisionId)))
     _runSafely("Empty namespace", lambda: int(
         LexicalCleanup(sessionFactory=sessions).closeEmptyNamespace(namespaceIndexId)))
     return "completed"
@@ -165,21 +158,6 @@ def resolveIndex(registryId: str, hop: int = 0) -> _Outcome:
     if settings.KNOWHERE_LEXICAL_BACKEND != "opensearch":
         return "skipped"
     return LexicalIndexResolution().resolveDispatched(registryId, hop)
-
-
-@celery_app.task(name=COLLECT_ORPHAN_INPUTS_TASK)
-def collectOrphanInputs() -> int:
-    """Operator-run only: list the input bucket and delete unreferenced objects.
-
-    Not scheduled, because listing S3 is the one maintenance step with no committed
-    row to trigger it. Run it by hand when orphan inputs need reclaiming.
-    """
-    deadline: float = time.monotonic() + _SWEEP_BUDGET_SECONDS
-    collector: LexicalInputCollector = LexicalInputCollector()
-    # A short page is the end of the bucket; the cursor then restarts from the beginning.
-    while time.monotonic() < deadline and collector.discover(isImmediate=True) >= MAXIMUM_SCAN:
-        pass
-    return _drain("Indexing input", collector.runBatch, deadline)
 
 
 def _claimPendingBuilds(sessions: sessionmaker[Session],

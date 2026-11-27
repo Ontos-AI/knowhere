@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import re
 
 from loguru import logger
-from sqlalchemy import func, or_, select
+from sqlalchemy import Select, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, noload, sessionmaker
 
@@ -20,7 +20,6 @@ from shared.models.database.lexicalinputinventory import LexicalInputInventory
 from shared.models.database.lexicallease import LexicalLease
 from shared.services.retrieval.corpus_storage import CorpusStorage
 from shared.services.retrieval.demo_authorization import authorize_demo_transaction
-from shared.services.retrieval.lexical.cleanupbatch import CleanupBatch
 from shared.services.retrieval.lexical.coordination import LexicalCoordination
 from shared.services.retrieval.lexical.error import LexicalIndexError
 from shared.services.retrieval.lexical.input_retention import LexicalInputRetention
@@ -29,14 +28,12 @@ from shared.services.storage.object_inventory_page import ObjectInventoryPage
 
 _INPUT_PATTERN: re.Pattern[str] = re.compile(r"indexing-input/v1/([^/]{1,36})/([^/]{1,36})/[a-f0-9]{64}(?:-[a-f0-9]{32})?\.json\.zlib")
 _SCAN_INTERVAL: timedelta = timedelta(minutes=5)
-# A current published input stays needed until its document is archived, and
-# archival dispatches its own collection. The safety sweep only rechecks it daily.
+# An input can become current between the operator's inspection and collection.
 _CURRENT_INPUT_RECHECK_INTERVAL: timedelta = timedelta(days=1)
 _ORPHAN_GRACE: timedelta = timedelta(seconds=7200)
-MAXIMUM_SCAN: int = 100
-_MAXIMUM_BATCH: int = 20
-_MAXIMUM_BYTES: int = 64 * 1024 * 1024
+_MAXIMUM_SCAN: int = 100
 _CURSOR_KEY: str = "__indexing_input_cursor__"
+_Revision = tuple[JobResult, Job, Document | DemoDocument | None]
 
 
 class LexicalInputCollector:
@@ -44,65 +41,60 @@ class LexicalInputCollector:
         self.sessions: sessionmaker[Session] = sessionFactory or get_sync_session_factory()
         self.bucket: str = LexicalInputStorage().bucket
 
-    def run(self) -> int:
-        """List new bucket objects, then process one fair batch from each queue."""
-        try:
-            self.discover()
-        except Exception as error:
-            logger.warning("Indexing input inventory deferred: error_type={}", type(error).__name__)
-        completed: int = self.runBatch().succeeded
-        self._logBacklog()
-        return completed
-
-    def runBatch(self) -> CleanupBatch:
-        """Process one fair batch from each queue without listing the bucket; no age cutoff on eligibility."""
+    def findCandidates(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Inspect due revisions and inventoried orphans in one read-only snapshot."""
+        assigned: list[str] = []
+        orphans: list[str] = []
         with self.sessions.begin() as db:
+            db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
             now: datetime = LexicalCoordination.getDatabaseTime(db)
-            results: list[JobResult] = list(db.scalars(select(JobResult).options(noload("*")).where(
-                JobResult.indexing_input_key.is_not(None), JobResult.indexing_input_gc_state != "deleted",
-                or_(JobResult.indexing_input_next_scan_at.is_(None), JobResult.indexing_input_next_scan_at <= now),
-            ).order_by(JobResult.indexing_input_next_scan_at.asc().nullsfirst(), JobResult.id)
-                .limit(_MAXIMUM_BATCH).with_for_update(of=JobResult, skip_locked=True)))
-            revisions: tuple[str, ...] = tuple(result.id for result in results)
-            for result in results:
-                result.indexing_input_next_scan_at = now + _SCAN_INTERVAL
-            objects: list[LexicalInputInventory] = list(db.scalars(select(LexicalInputInventory).where(
-                LexicalInputInventory.bucket == self.bucket,
-                LexicalInputInventory.state.in_(("observed", "deleting")),
-                LexicalInputInventory.nextScanAt <= now,
-            ).order_by(LexicalInputInventory.nextScanAt, LexicalInputInventory.id)
-                .limit(_MAXIMUM_BATCH).with_for_update(skip_locked=True)))
-            keys: tuple[tuple[str, int], ...] = tuple((item.objectKey, item.sizeBytes or 0) for item in objects)
-            for item in objects:
-                item.nextScanAt = now + _SCAN_INTERVAL
-        completed: int = 0
-        reclaimedBytes: int = 0
-        for revision in revisions:
-            with self.sessions.begin() as db:
-                source = db.execute(select(JobResult.indexing_input_key, JobResult.indexing_input_bytes)
-                    .where(JobResult.id == revision)).one_or_none()
-            if source is None or source[0] is None:
-                continue
-            try:
-                size: int = source[1] if source[1] is not None else (
-                    get_cached_storage_adapter().get_object_size(source[0], bucket=self.bucket) or 0)
-            except Exception as error:
-                self._recordFailure(source[0], revision, error)
-                continue
-            if reclaimedBytes and reclaimedBytes + size > _MAXIMUM_BYTES:
-                break
-            if self.collectAssigned(revision, knownSize=size):
-                completed += 1
-                reclaimedBytes += size
-        for key, size in keys:
-            if reclaimedBytes and reclaimedBytes + size > _MAXIMUM_BYTES:
-                break
-            if self.collectOrphan(key):
-                completed += 1
-                reclaimedBytes += size
-        return CleanupBatch(claimed=len(revisions) + len(keys), succeeded=completed)
+            assignedQuery: Select[tuple[str]] = (
+                select(JobResult.id)
+                .where(
+                    JobResult.indexing_input_key.is_not(None),
+                    JobResult.indexing_input_gc_state != "deleted",
+                    or_(JobResult.indexing_input_next_scan_at.is_(None), JobResult.indexing_input_next_scan_at <= now),
+                    ~select(Document.document_id).where(
+                        Document.current_job_result_id == JobResult.id, Document.status == "active",
+                    ).exists(),
+                    ~select(DemoDocument.document_id).where(
+                        DemoDocument.current_job_result_id == JobResult.id, DemoDocument.status == "active",
+                    ).exists(),
+                )
+                .order_by(JobResult.indexing_input_next_scan_at.asc().nullsfirst(), JobResult.id)
+            )
+            for revisionId in db.scalars(assignedQuery).all():
+                revision: _Revision | None = self._loadRevision(db, revisionId, lock=False)
+                if revision is None:
+                    continue
+                result, job, document = revision
+                key: str | None = result.indexing_input_key
+                if (key is not None and not self._isCurrentRevision(result, document)
+                    and not self._hasConsumer(db, result, job, document, includeRetry=True)
+                    and not self._hasReference(db, key, excludingRevision=revisionId)):
+                    assigned.append(revisionId)
 
-    def discover(self, *, isImmediate: bool = False) -> int:
+            orphanQuery: Select[tuple[str]] = (
+                select(LexicalInputInventory.objectKey)
+                .where(
+                    LexicalInputInventory.bucket == self.bucket,
+                    LexicalInputInventory.state.in_(("observed", "deleting")),
+                    LexicalInputInventory.nextScanAt <= now,
+                    or_(LexicalInputInventory.state == "deleting", LexicalInputInventory.firstSeenAt <= now - _ORPHAN_GRACE),
+                    ~select(JobResult.id).where(
+                        JobResult.indexing_input_key == LexicalInputInventory.objectKey,
+                        JobResult.indexing_input_gc_state != "deleted",
+                    ).exists(),
+                )
+                .order_by(LexicalInputInventory.nextScanAt, LexicalInputInventory.id)
+            )
+            for key in db.scalars(orphanQuery).all():
+                match: re.Match[str] | None = _INPUT_PATTERN.fullmatch(key)
+                if match is not None and self._isOrphanUnused(db, key, match[2], lock=False):
+                    orphans.append(key)
+        return tuple(assigned), tuple(orphans)
+
+    def discover(self, *, isImmediate: bool = False) -> ObjectInventoryPage | None:
         """One persisted key cursor and at most one remote listing request.
 
         ``isImmediate`` lets an operator page through the bucket without waiting
@@ -117,12 +109,12 @@ class LexicalInputCollector:
             cursor: LexicalInputInventory | None = db.scalar(select(LexicalInputInventory).where(
                 LexicalInputInventory.id == identity).with_for_update(skip_locked=True))
             if cursor is None or (not isImmediate and cursor.nextScanAt > now):
-                return 0
+                return None
             after: str | None = cursor.scanAfter
             cursor.nextScanAt = now + _SCAN_INTERVAL
         try:
             page: ObjectInventoryPage = get_cached_storage_adapter().list_object_page(
-                prefix="indexing-input/v1/", after=after, limit=MAXIMUM_SCAN, bucket=self.bucket)
+                prefix="indexing-input/v1/", after=after, limit=_MAXIMUM_SCAN, bucket=self.bucket)
         except Exception as error:
             self._recordFailure(_CURSOR_KEY, None, error)
             raise
@@ -130,7 +122,7 @@ class LexicalInputCollector:
             now = LexicalCoordination.getDatabaseTime(db)
             cursor = db.get(LexicalInputInventory, identity, with_for_update=True)
             if cursor is None or cursor.scanAfter != after:
-                return 0
+                return None
             for key, size in page.objects:
                 match: re.Match[str] | None = _INPUT_PATTERN.fullmatch(key)
                 if match is None:
@@ -152,13 +144,13 @@ class LexicalInputCollector:
             cursor.scanAfter = page.nextCursor
             cursor.nextScanAt = now + _SCAN_INTERVAL
             cursor.lastError = None
-        return len(page.objects)
+        return page
 
-    def collectAssigned(self, revisionId: str, *, knownSize: int | None = None) -> bool:
+    def collectAssigned(self, revisionId: str) -> bool:
         key: str | None = None
         try:
             with self.sessions.begin() as db:
-                locked = self._lockRevision(db, revisionId)
+                locked: _Revision | None = self._loadRevision(db, revisionId, lock=True)
                 if locked is None:
                     return False
                 result, job, document = locked
@@ -167,24 +159,23 @@ class LexicalInputCollector:
                     return False
                 now: datetime = LexicalCoordination.getDatabaseTime(db)
                 result.indexing_input_next_scan_at = now + _SCAN_INTERVAL
-                if knownSize is not None:
-                    result.indexing_input_bytes = knownSize
                 # Backend verification and rollback both read the current published input.
-                if document is not None and document.status == "active" and document.current_job_result_id == result.id:
+                if self._isCurrentRevision(result, document):
                     result.indexing_input_next_scan_at = now + _CURRENT_INPUT_RECHECK_INTERVAL
                     return False
                 if self._hasConsumer(db, result, job, document, includeRetry=True):
                     return False
-                if db.scalar(select(JobResult.id).where(JobResult.indexing_input_key == key,
-                    JobResult.id != revisionId, JobResult.indexing_input_gc_state != "deleted").limit(1)) is not None:
+                if self._hasReference(db, key, excludingRevision=revisionId):
                     raise LexicalIndexError("Indexing input has another unresolved reference")
+                size: int | None = result.indexing_input_bytes
                 item: LexicalInputInventory = self._lockObject(db, key, now)
                 result.indexing_input_gc_state = "deleting"
                 result.indexing_input_gc_attempts += 1
                 item.state = "deleting"
                 item.attempts += 1
                 item.nextScanAt = now + _SCAN_INTERVAL
-            size: int | None = knownSize if knownSize is not None else get_cached_storage_adapter().get_object_size(key, bucket=self.bucket)
+            if size is None:
+                size = get_cached_storage_adapter().get_object_size(key, bucket=self.bucket)
             self._deleteObject(key)
             with self.sessions.begin() as db:
                 result = db.scalar(select(JobResult).options(noload("*")).where(JobResult.id == revisionId).with_for_update(of=JobResult))
@@ -208,21 +199,12 @@ class LexicalInputCollector:
         revisionId: str = match[2]
         try:
             with self.sessions.begin() as db:
-                locked = self._lockRevision(db, revisionId)
-                # An existing result with a locked document/job is uncertain;
-                # skip rather than treating it as an absent canonical result.
-                if locked is None and db.scalar(select(JobResult.id).where(JobResult.id == revisionId)) is not None:
-                    return False
-                references: list[str] = list(db.scalars(select(JobResult.id).where(
-                    JobResult.indexing_input_key == key, JobResult.indexing_input_gc_state != "deleted")))
-                if references:
+                if not self._isOrphanUnused(db, key, revisionId, lock=True):
                     return False
                 now: datetime = LexicalCoordination.getDatabaseTime(db)
                 item: LexicalInputInventory = self._lockObject(db, key, now)
                 item.nextScanAt = now + _SCAN_INTERVAL
                 if item.state == "deleted":
-                    return False
-                if locked is not None and self._hasConsumer(db, *locked, includeRetry=False):
                     return False
                 if item.state != "deleting" and now - item.firstSeenAt < _ORPHAN_GRACE:
                     return False
@@ -238,7 +220,28 @@ class LexicalInputCollector:
             self._recordFailure(key, None, error)
             return False
 
-    def _lockRevision(self, db: Session, revisionId: str) -> tuple[JobResult, Job, Document | DemoDocument | None] | None:
+    def _isOrphanUnused(self, db: Session, key: str, revisionId: str, *, lock: bool) -> bool:
+        revision: _Revision | None = self._loadRevision(db, revisionId, lock=lock)
+        # A busy document or job can prevent a revision from being locked.
+        if revision is None and db.scalar(select(JobResult.id).where(JobResult.id == revisionId)) is not None:
+            return False
+        if self._hasReference(db, key):
+            return False
+        return revision is None or not self._hasConsumer(db, *revision, includeRetry=False)
+
+    @staticmethod
+    def _hasReference(db: Session, key: str, *, excludingRevision: str | None = None) -> bool:
+        query: Select[tuple[str]] = select(JobResult.id).where(
+            JobResult.indexing_input_key == key, JobResult.indexing_input_gc_state != "deleted")
+        if excludingRevision is not None:
+            query = query.where(JobResult.id != excludingRevision)
+        return db.scalar(query.limit(1)) is not None
+
+    @staticmethod
+    def _isCurrentRevision(result: JobResult, document: Document | DemoDocument | None) -> bool:
+        return document is not None and document.status == "active" and document.current_job_result_id == result.id
+
+    def _loadRevision(self, db: Session, revisionId: str, *, lock: bool) -> _Revision | None:
         result: JobResult | None = db.scalar(select(JobResult).options(noload("*")).where(JobResult.id == revisionId))
         if result is None:
             return None
@@ -259,10 +262,14 @@ class LexicalInputCollector:
             documentId = str(metadata.get("document_id") or "")
         if storage.is_demo:
             authorize_demo_transaction(db, user_id=source.user_id)
+        documentQuery: Select[tuple[Document | DemoDocument]] = select(storage.Document).where(
+            storage.Document.document_id == documentId, storage.Document.user_id == storage.resolve_owner(source.user_id))
+        if not lock:
+            return result, source, db.scalar(documentQuery)
         exists: str | None = db.scalar(select(storage.Document.document_id).where(
             storage.Document.document_id == documentId, storage.Document.user_id == storage.resolve_owner(source.user_id)))
-        document: Document | DemoDocument | None = db.scalar(select(storage.Document).where(storage.Document.document_id == documentId,
-            storage.Document.user_id == storage.resolve_owner(source.user_id)).with_for_update(skip_locked=True)) if exists is not None else None
+        document: Document | DemoDocument | None = db.scalar(
+            documentQuery.with_for_update(skip_locked=True)) if exists is not None else None
         if exists is not None and document is None:
             return None
         job: Job | None = db.scalar(select(Job).options(noload("*")).where(Job.job_id == source.job_id)
@@ -317,15 +324,3 @@ class LexicalInputCollector:
                     item.nextScanAt = now + _SCAN_INTERVAL
         except Exception as persistenceError:
             logger.error("Indexing input cleanup warning could not persist: error_type={}", type(persistenceError).__name__)
-
-    def _logBacklog(self) -> None:
-        with self.sessions.begin() as db:
-            now: datetime = LexicalCoordination.getDatabaseTime(db)
-            count, size, firstSeen = db.execute(select(func.count(), func.coalesce(func.sum(LexicalInputInventory.sizeBytes), 0),
-                func.min(LexicalInputInventory.firstSeenAt)).where(LexicalInputInventory.bucket == self.bucket,
-                LexicalInputInventory.state.in_(("observed", "deleting")))).one()
-            retained: int = int(db.scalar(select(func.count()).select_from(JobResult).where(
-                JobResult.indexing_input_key.is_not(None), JobResult.indexing_input_gc_state != "deleted")) or 0)
-        oldestSeconds: float = max(0, (now - firstSeen).total_seconds()) if firstSeen is not None else 0
-        logger.info("Indexing input backlog: pending_objects={} bytes={} oldest_seen={} oldest_seconds={} assigned_retained={} scan_limit={} queue_batch_limit={} byte_limit={} orphan_grace_seconds={}",
-            count, size, firstSeen, oldestSeconds, retained, MAXIMUM_SCAN, _MAXIMUM_BATCH, _MAXIMUM_BYTES, int(_ORPHAN_GRACE.total_seconds()))
