@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from typing import Any
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.retrieval.stats.active_days import record_active_day, utc_day
 from shared.services.retrieval.stats.service import record_document_usage, record_retrieval_hits
 
 
@@ -36,6 +38,15 @@ def schedule_document_usage_update(*, user_id: str, namespace: str, items: list[
     _schedule_best_effort(
         lambda db: record_document_usage(db, user_id=user_id, namespace=namespace, items=items),
         name=f'retrieval_document_usage:{user_id}:{namespace}',
+    )
+
+
+def schedule_active_day_update(*, user_id: str, namespace: str) -> None:
+    """Record today as an active day off the request path; a failure only loses this record."""
+    day = utc_day(datetime.now(timezone.utc))
+    _schedule_best_effort(
+        lambda db: record_active_day(db, user_id=user_id, namespace=namespace, day=day),
+        name=f'retrieval_active_day:{user_id}:{namespace}',
     )
 
 
