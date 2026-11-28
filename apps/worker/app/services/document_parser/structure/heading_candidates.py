@@ -252,6 +252,12 @@ def postprocess_headings(df: pd.DataFrame, task: str, max_depth: int = -1) -> pd
     return df
 
 
+def estimate_heading_rule_levels(predictions: pd.DataFrame) -> pd.DataFrame:
+    predictions = _judge_negative_headings(predictions)
+    predictions["level"] = predictions["level"].replace(-2, 1)
+    return predictions
+
+
 def _is_non_heading_markdown_line(line: str) -> bool:
     return (
         ("<!--" in line and "-->" in line)
@@ -330,19 +336,27 @@ def _is_bold_docx_paragraph(paragraph: Any):
 
 
 def _judge_negative_headings(df: pd.DataFrame) -> pd.DataFrame:
-    for index, row in df.iterrows():
-        neg_code = remove_by_conditions(row["heading"], include_punc=True)
-        if any(value > 0 for value in neg_code):
-            current_code = str(df.loc[index, "reason"])
+    demote: list[bool] = []
+    reasons: list[str] = []
+    for heading, reason in df[["heading", "reason"]].itertuples(index=False, name=None):
+        neg_code: list[int] = remove_by_conditions(heading, include_punc=True)
+        should_demote: bool = any(neg_code)
+        demote.append(should_demote)
+        if not should_demote:
+            continue
 
-            neg_match = re.search(r"(.*NEG\s*)\[[^\]]*\](.*)", current_code)
-            if neg_match:
-                updated_code = f"{neg_match.group(1)}{neg_code}{neg_match.group(2)}"
-            else:
-                updated_code = f"{current_code} NEG {neg_code}"
+        current_code: str = str(reason)
+        neg_match: re.Match[str] | None = re.search(r"(.*NEG\s*)\[[^\]]*\](.*)", current_code)
+        updated_code: str = (
+            f"{neg_match.group(1)}{neg_code}{neg_match.group(2)}"
+            if neg_match
+            else f"{current_code} NEG {neg_code}"
+        )
+        reasons.append(updated_code)
 
-            df.loc[index, "level"] = -1
-            df.loc[index, "reason"] = updated_code
+    if reasons:
+        df.loc[demote, "level"] = -1
+        df.loc[demote, "reason"] = reasons
     return df
 
 

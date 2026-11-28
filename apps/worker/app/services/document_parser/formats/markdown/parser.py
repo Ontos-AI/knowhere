@@ -4,6 +4,8 @@ import os
 import re
 import shutil
 
+import pandas as pd
+
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.formats.markdown.deferred_summary import (
     MarkdownDeferredSummaryInput,
@@ -78,7 +80,9 @@ def find_surround_context(md_lines, lid):
     return f"{prev_text} {next_text}".strip()
 
 
-def heading_md_relocate(md_lines, heading_preds):
+def heading_md_relocate(
+    md_lines: list[str], heading_preds: pd.DataFrame
+) -> list[str]:
     """Relocate markdown headings based on predicted levels (sxjg simplified logic)
 
     When ``_apply_merge_signals`` has merged continuation rows (level='<')
@@ -87,26 +91,20 @@ def heading_md_relocate(md_lines, heading_preds):
     For positive-level headings, we use the DataFrame's ``heading`` to ensure the merged text is emitted.
     """
 
-    def remove_hash(txt):
-        return re.sub(r"^\s*(#+)\s*", "", txt)
+    predictions_by_line: dict[int, tuple[int, object]] = {}
+    for line_id, level, heading in heading_preds[["id", "level", "heading"]].itertuples(
+        index=False, name=None
+    ):
+        predictions_by_line.setdefault(line_id, (level, heading))
 
     for lid, line_txt in enumerate(md_lines):
-        pred_level_df = heading_preds[heading_preds["id"] == lid]
-
-        if pred_level_df.empty:  # if the line does not enter predicting
-            line_txt = remove_hash(line_txt)
+        prediction: tuple[int, object] | None = predictions_by_line.get(lid)
+        if prediction is None or prediction[0] < 0:
+            line_txt = re.sub(r"^\s*(#+)\s*", "", line_txt)
         else:
-            pred_level = pred_level_df["level"].iloc[0]
-            if pred_level < 0:
-                line_txt = remove_hash(line_txt)
-            else:
-                # Use the DataFrame heading text which may have been updated
-                # by _apply_merge_signals (continuation rows appended).
-                heading_text = str(pred_level_df["heading"].iloc[0]).strip()
-                if not heading_text:
-                    # Fallback: strip original line's '#' prefix
-                    heading_text = line_txt.lstrip("#").lstrip()
-                line_txt = f"{'#' * int(pred_level)} {heading_text}"
+            level, heading = prediction
+            heading_text: str = str(heading).strip() or line_txt.lstrip("#").lstrip()
+            line_txt = f"{'#' * int(level)} {heading_text}"
         # update lines
         md_lines[lid] = line_txt.strip()
 

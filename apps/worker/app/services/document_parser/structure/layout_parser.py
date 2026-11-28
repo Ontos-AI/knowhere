@@ -4,8 +4,8 @@ import os
 import gevent
 import pandas as pd
 from app.services.document_parser.structure.heading_candidates import (
+    estimate_heading_rule_levels,
     filter_document_headings,
-    filter_markdown_headings,
     postprocess_headings,
 )
 from app.services.document_parser.structure.heading_llm_executor import (
@@ -19,6 +19,9 @@ from app.services.document_parser.structure.heading_tree import (
 )
 from app.services.document_parser.structure.heading_tree import (
     tree_to_dataframe as heading_tree_to_dataframe,
+)
+from app.services.document_parser.structure.markdown_heading_preparation import (
+    prepare_markdown_headings,
 )
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.document_parser.tables.table_text_parser import df2md
@@ -341,6 +344,9 @@ def _apply_merge_signals(df: pd.DataFrame) -> pd.DataFrame:
     Rows that carry ``"<"`` but have no preceding valid heading (e.g. the very
     first row) are simply demoted to -1 without merging.
     """
+    if not df["level"].eq("<").any():
+        return df
+
     merge_count = 0
     last_valid_idx: int | None = None  # positional index of last positive-level row
 
@@ -447,44 +453,44 @@ def pred_titles(
         f"Start to predict title hierarchy: doc_type={doc_type}, smart_parse={smart_parse}, candidate titles={len(infos)}"
     )
 
-    if doc_type == "md":
-        raw_preds = filter_markdown_headings(infos)
-    elif doc_type == "docx":
-        raw_preds = filter_document_headings(infos, enable_regex=enable_regx)
-    else:
-        raw_preds = pd.DataFrame(columns=["id", "heading", "level", "reason"])
-
     # ── Exclude pre-TOC lines from heading prediction ──
     # When TOC is detected, lines/blocks before the first TOC area are typically
     # cover/metadata (company name, version, classification marks), not real
     # headings.  Remove them before LLM judging to avoid misjudgment, then
     # splice back with level=-1 after all processing is done.
-    pre_toc_rows = None
-    first_toc_start = None
+    pre_toc_rows: pd.DataFrame | None = None
     if doc_type == "md":
         first_toc_start = _resolve_first_toc_boundary(toc_hierarchies=toc_hierarchies)
+        with stage_timer("heading.prepare_markdown_candidates", line_count=len(infos)):
+            raw_preds, pre_toc_rows = prepare_markdown_headings(infos, first_toc_start)
+        if pre_toc_rows is not None:
+            logger.info(
+                f"📌 Excluded {len(pre_toc_rows)} pre-TOC lines "
+                f"(id < {first_toc_start}) from heading prediction"
+            )
     elif doc_type == "docx":
+        raw_preds = filter_document_headings(infos, enable_regex=enable_regx)
         first_toc_start = _resolve_first_toc_boundary(
             toc_hierarchies=toc_hierarchies,
             first_toc_ele_num=first_toc_ele_num,
         )
-
-    if first_toc_start is not None and first_toc_start > 0:
-        pre_toc_mask = raw_preds["id"] < first_toc_start
-        if pre_toc_mask.any():
-            pre_toc_rows = raw_preds[pre_toc_mask].copy()
-            pre_toc_rows["level"] = -1
-            raw_preds = raw_preds[~pre_toc_mask].reset_index(drop=True)
-            if doc_type == "docx":
+        if first_toc_start is not None and first_toc_start > 0:
+            pre_toc_mask: pd.Series = raw_preds["id"] < first_toc_start
+            if pre_toc_mask.any():
+                pre_toc_rows = raw_preds[pre_toc_mask].copy()
+                pre_toc_rows["level"] = -1
+                raw_preds = raw_preds[~pre_toc_mask].reset_index(drop=True)
                 logger.info(
                     f"📌 Excluded {len(pre_toc_rows)} pre-TOC blocks "
                     f"(id < {first_toc_start}) from heading prediction"
                 )
-            else:
-                logger.info(
-                    f"📌 Excluded {len(pre_toc_rows)} pre-TOC lines "
-                    f"(id < {first_toc_start}) from heading prediction"
-                )
+    else:
+        raw_preds = pd.DataFrame(columns=["id", "heading", "level", "reason"])
+
+    def apply_heading_rules(predictions: pd.DataFrame) -> pd.DataFrame:
+        if doc_type == "md":
+            return predictions
+        return est_hierarchies_naive(predictions)
 
     # 2. Zone-based prediction for native Markdown/DOCX coordinates only.
     if _supports_multi_toc_zones(
@@ -523,16 +529,14 @@ def pred_titles(
             )
 
             # Independent naive + LLM prediction for this zone
-            zone_heading = est_hierarchies_naive(
-                zone_preds, smart_parse, output_dir=output_dir
-            )
             zone_heading = est_hierarchies_llm(
-                zone_heading,
+                apply_heading_rules(zone_preds),
                 prompt_limt,
                 toc_hierarchies=[zone_toc],  # Single TOC for this zone
                 model_name=model_name,
                 output_dir=output_dir,
                 csv_suffix=f"_zone_{zone_idx}",
+                reuse_rule_levels_on_fallback=doc_type == "md",
             )
             valid_count = (
                 len(zone_heading[zone_heading["level"] > 0])
@@ -580,9 +584,7 @@ def pred_titles(
         logger.info("✅ Zone-based LLM hierarchy parsing completed")
     else:
         # Single-zone: current behavior
-        heading_preds = est_hierarchies_naive(
-            raw_preds, smart_parse, output_dir=output_dir
-        )
+        heading_preds = apply_heading_rules(raw_preds)
         if smart_parse:
             heading_preds = est_hierarchies_llm(
                 heading_preds,
@@ -590,6 +592,7 @@ def pred_titles(
                 toc_hierarchies,
                 model_name=model_name,
                 output_dir=output_dir,
+                reuse_rule_levels_on_fallback=doc_type == "md",
             )
             logger.info("✅ LLM hierarchy parsing completed")
 
@@ -660,13 +663,7 @@ def est_hierarchies_naive(raw_preds, proceed_smart=True, output_dir=None):
     compatibility but have no effect.
     """
     logger.debug("🚀 non-llm parsing => judge_negs filtering")
-    heading_preds = postprocess_headings(raw_preds, task="judge_negs")
-
-    # legitimate heading candidates; default them to top-level.
-    heading_preds["level"] = heading_preds["level"].map(
-        lambda x: 1 if x == -2 else x
-    )
-    return heading_preds
+    return estimate_heading_rule_levels(raw_preds)
 
 
 def est_hierarchies_llm(
@@ -678,6 +675,7 @@ def est_hierarchies_llm(
     model_name=None,
     output_dir=None,
     csv_suffix="",
+    reuse_rule_levels_on_fallback: bool = False,
 ):
     """LLM-based hierarchy detection — all chunks evaluated independently.
 
@@ -704,11 +702,16 @@ def est_hierarchies_llm(
         csv_suffix: suffix for intermediate CSV filenames
     """
     model_name = _resolve_hierarchy_model_name(model_name)
+    fallback_hierarchy = (
+        (lambda predictions: predictions)
+        if reuse_rule_levels_on_fallback
+        else est_hierarchies_naive
+    )
     return execute_llm_heading_hierarchy(
         raw_preds=raw_preds,
         prompt_limt=prompt_limt,
         hierarchy_judge=hiearchy_llm,
-        fallback_hierarchy=est_hierarchies_naive,
+        fallback_hierarchy=fallback_hierarchy,
         save_intermediate_csv=save_intermediate_csv,
         toc_hierarchies=toc_hierarchies,
         max_len=max_len,
