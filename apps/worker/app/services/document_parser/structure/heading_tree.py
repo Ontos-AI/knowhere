@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pandas as pd
 from loguru import logger
 
@@ -46,39 +48,28 @@ def tree_to_dataframe(
     node_to_id: dict[tuple[str, str], int],
     original_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    preserved_headings = _extract_headings_from_tree(tree, node_to_id)
-    preserved_ids = {heading["id"] for heading in preserved_headings}
+    levels_by_id: dict[int, int] = {}
+    _collect_levels_by_id(tree, node_to_id, levels_by_id)
 
-    updated_df = original_df.copy()
-    removed_count = 0
-    level_changed_count = 0
+    original_levels: pd.Series = cast(pd.Series, original_df["level"])
+    numeric_levels: pd.Series = original_levels.map(
+        lambda level: -1 if level == "nan" else int(level)
+    )
+    heading_rows: pd.Series = numeric_levels.ge(0)
+    heading_ids: pd.Series = cast(pd.Series, original_df.loc[heading_rows, "id"]).map(int)
+    preserved_levels: pd.Series = heading_ids.map(levels_by_id)
+    projected_levels: pd.Series = preserved_levels.fillna(-1).astype(int)
 
-    for index, row in original_df.iterrows():
-        row_id = int(row["id"])
-        old_level = int(row["level"]) if row["level"] not in [-2, "nan", -1] else -1
+    updated_df: pd.DataFrame = original_df.copy()
+    updated_df.loc[heading_rows, "level"] = projected_levels
 
-        if old_level <= -1:
-            continue
-
-        if row_id in preserved_ids:
-            new_level = next(
-                (
-                    heading["level"]
-                    for heading in preserved_headings
-                    if heading["id"] == row_id
-                ),
-                old_level,
-            )
-            updated_df.at[index, "level"] = new_level
-            if new_level != old_level:
-                level_changed_count += 1
-        else:
-            updated_df.at[index, "level"] = -1
-            removed_count += 1
+    removed_count: int = int(preserved_levels.isna().sum())
+    changed_levels: pd.Series = projected_levels.ne(numeric_levels.loc[heading_rows])
+    level_changed_count: int = int((preserved_levels.notna() & changed_levels).sum())
 
     logger.debug(
         f"Tree changed: removed headings={removed_count}, "
-        f"level changed={level_changed_count}, preserved headings={len(preserved_ids)}"
+        f"level changed={level_changed_count}, preserved headings={len(levels_by_id)}"
     )
     return updated_df
 
@@ -87,43 +78,29 @@ def remove_isolated_nodes(tree: dict[str, dict]) -> dict[str, dict]:
     return _remove_isolated_nodes_recursive(tree)
 
 
-def _extract_headings_from_tree(
+def _collect_levels_by_id(
     node_dict: dict[str, dict],
     node_to_id: dict[tuple[str, str], int],
+    levels_by_id: dict[int, int],
     *,
     current_level: int = 1,
     parent_path: str = "",
-) -> list[dict[str, object]]:
-    results: list[dict[str, object]] = []
+) -> None:
     for tree_node_key, children in node_dict.items():
-        node_key = (tree_node_key, parent_path)
-        row_id = node_to_id.get(node_key, -1)
+        row_id: int = node_to_id.get((tree_node_key, parent_path), -1)
+        if row_id < 0:
+            continue
 
-        if row_id >= 0:
-            original_heading = (
-                tree_node_key.split("#")[0] if "#" in tree_node_key else tree_node_key
+        # Preserve the first depth-first match when a row appears in multiple nodes.
+        levels_by_id.setdefault(row_id, current_level)
+        if isinstance(children, dict) and children:
+            _collect_levels_by_id(
+                children,
+                node_to_id,
+                levels_by_id,
+                current_level=current_level + 1,
+                parent_path=append_document_path(parent_path, tree_node_key),
             )
-            results.append(
-                {
-                    "id": row_id,
-                    "heading": original_heading,
-                    "level": current_level,
-                    "tree_key": tree_node_key,
-                    "parent_path": parent_path,
-                }
-            )
-
-            if isinstance(children, dict) and children:
-                current_path = append_document_path(parent_path, tree_node_key)
-                results.extend(
-                    _extract_headings_from_tree(
-                        children,
-                        node_to_id,
-                        current_level=current_level + 1,
-                        parent_path=current_path,
-                    )
-                )
-    return results
 
 
 def _remove_isolated_nodes_recursive(
