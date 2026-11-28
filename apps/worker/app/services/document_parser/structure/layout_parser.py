@@ -536,6 +536,7 @@ def pred_titles(
                 model_name=model_name,
                 output_dir=output_dir,
                 csv_suffix=f"_zone_{zone_idx}",
+                reuse_rule_levels_on_fallback=doc_type == "md",
             )
             valid_count = (
                 len(zone_heading[zone_heading["level"] > 0])
@@ -591,6 +592,7 @@ def pred_titles(
                 toc_hierarchies,
                 model_name=model_name,
                 output_dir=output_dir,
+                reuse_rule_levels_on_fallback=doc_type == "md",
             )
             logger.info("✅ LLM hierarchy parsing completed")
 
@@ -673,6 +675,7 @@ def est_hierarchies_llm(
     model_name=None,
     output_dir=None,
     csv_suffix="",
+    reuse_rule_levels_on_fallback: bool = False,
 ):
     """LLM-based hierarchy detection — all chunks evaluated independently.
 
@@ -699,11 +702,16 @@ def est_hierarchies_llm(
         csv_suffix: suffix for intermediate CSV filenames
     """
     model_name = _resolve_hierarchy_model_name(model_name)
+    fallback_hierarchy = (
+        (lambda predictions: predictions)
+        if reuse_rule_levels_on_fallback
+        else est_hierarchies_naive
+    )
     return execute_llm_heading_hierarchy(
         raw_preds=raw_preds,
         prompt_limt=prompt_limt,
         hierarchy_judge=hiearchy_llm,
-        fallback_hierarchy=est_hierarchies_naive,
+        fallback_hierarchy=fallback_hierarchy,
         save_intermediate_csv=save_intermediate_csv,
         toc_hierarchies=toc_hierarchies,
         max_len=max_len,

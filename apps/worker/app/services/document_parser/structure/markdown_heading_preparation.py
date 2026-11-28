@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import pickle
 import sys
 from contextlib import suppress
@@ -28,6 +29,9 @@ def prepare_markdown_headings(
 ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Return rule-filtered candidates and the original rows before the TOC."""
     timeout_seconds: int = settings.TASK_TIME_LIMIT_SECONDS
+    environment: dict[str, str] = os.environ.copy()
+    # Local callers can register the Worker package through sys.path.
+    environment["PYTHONPATH"] = os.pathsep.join(sys.path)
     with _HEADING_PROCESS_SLOT:
         payload: bytes = pickle.dumps(
             (lines, first_toc_start), protocol=pickle.HIGHEST_PROTOCOL
@@ -36,6 +40,7 @@ def prepare_markdown_headings(
             [sys.executable, "-m", __name__],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
+            env=environment,
         ) as process:
             try:
                 output, _ = process.communicate(payload, timeout=timeout_seconds)

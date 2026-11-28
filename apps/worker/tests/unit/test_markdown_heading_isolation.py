@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import gevent
 import pandas as pd
 import pytest
 
-from app.services.document_parser.structure import markdown_heading_preparation
+from app.services.document_parser.structure import layout_parser, markdown_heading_preparation
 from app.services.document_parser.structure.heading_candidates import filter_markdown_headings
 from app.services.document_parser.structure.heading_hierarchy import (
     HeadingHierarchyInput,
@@ -16,7 +17,11 @@ from app.services.document_parser.structure.heading_hierarchy import (
 from shared.core.exceptions.domain_exceptions import TimeoutException
 
 
-def test_markdown_heading_prediction_yields_to_the_worker_loop() -> None:
+def test_markdown_heading_prediction_yields_to_the_worker_loop(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
     heartbeat: gevent.Greenlet = gevent.spawn(lambda: None)
     try:
         predictions: pd.DataFrame = predict_heading_hierarchy(
@@ -48,6 +53,27 @@ def test_markdown_heading_prediction_keeps_pre_toc_reasons() -> None:
         == initial_predictions["reason"].iloc[:2].tolist()
     )
     assert predictions["reason"].iloc[3] != initial_predictions["reason"].iloc[3]
+
+
+def test_markdown_heading_model_error_reuses_prepared_rules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_model(*args: object, **kwargs: object) -> list[dict[str, int]]:
+        raise RuntimeError("Model unavailable")
+
+    def reject_repeated_rules(*args: object, **kwargs: object) -> pd.DataFrame:
+        pytest.fail("Markdown heading rules already ran in the subprocess")
+
+    monkeypatch.setattr(layout_parser, "hiearchy_llm", fail_model)
+    monkeypatch.setattr(layout_parser, "est_hierarchies_naive", reject_repeated_rules)
+
+    predictions: pd.DataFrame = predict_heading_hierarchy(
+        HeadingHierarchyInput(
+            infos=["# Heading", "# A sentence."], doc_type="md", smart_parse=True
+        )
+    )
+
+    assert predictions["level"].tolist() == [1, -1]
 
 
 def test_markdown_heading_relocation_uses_first_prediction_for_each_line() -> None:
