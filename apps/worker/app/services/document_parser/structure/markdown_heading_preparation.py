@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pickle
 import sys
-from typing import TYPE_CHECKING
+from contextlib import suppress
+from typing import TYPE_CHECKING, cast
 
 from gevent import subprocess
 from gevent.lock import BoundedSemaphore
@@ -40,10 +41,9 @@ def prepare_markdown_headings(
                 output, _ = process.communicate(payload, timeout=timeout_seconds)
             except BaseException as error:
                 if process.poll() is None:
-                    try:
+                    # The child can exit between poll() and kill().
+                    with suppress(ProcessLookupError):
                         process.kill()
-                    except ProcessLookupError:
-                        pass
                 # Let gevent's pipe readers finish before Popen closes the streams.
                 process.communicate()
                 if isinstance(error, subprocess.TimeoutExpired):
@@ -76,9 +76,11 @@ def _run_child() -> None:
     if first_toc_start is not None and first_toc_start > 0:
         pre_toc_mask: pd.Series = predictions["id"] < first_toc_start
         if pre_toc_mask.any():
-            pre_toc_rows = predictions[pre_toc_mask].copy()
+            pre_toc_rows = cast("pd.DataFrame", predictions[pre_toc_mask].copy())
             pre_toc_rows["level"] = -1
-            predictions = predictions[~pre_toc_mask].reset_index(drop=True)
+            predictions = cast(
+                "pd.DataFrame", predictions[~pre_toc_mask].reset_index(drop=True)
+            )
 
     result: tuple[pd.DataFrame, pd.DataFrame | None] = (
         estimate_heading_rule_levels(predictions),
